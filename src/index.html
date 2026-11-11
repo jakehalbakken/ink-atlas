@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Ink Atlas Studio</title>
+<meta name="description" content="iPad-first 3D tattoo placement studio.">
+<meta name="theme-color" content="#17181d">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ink Atlas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* one visual world: a dim studio with stencil-violet as the working colour. Canvas fills the screen; chrome floats. */
+  --bg:#17181d; --panel:rgba(27,29,36,.86); --panel-solid:#1f2129; --line:rgba(255,255,255,.11);
+  --text:#f0f1f5; --muted:#a3a8b6; --stencil:#8474ff; --stencil-soft:rgba(132,116,255,.18); --danger:#ff8f86;
+  --display:"Bricolage Grotesque",system-ui,sans-serif; --body:"Figtree",system-ui,-apple-system,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block;outline:none}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outline-offset:2px}
+[hidden]{display:none!important}
+.glass{background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.28)}
+.btn{min-height:44px;min-width:44px;padding:0 16px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.06);display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600;white-space:nowrap}
+.btn:active{background:rgba(255,255,255,.14)}
+.btn:disabled{opacity:.35}
+.btn.primary{background:var(--stencil);border-color:transparent;color:#fff}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--muted)}
+.btn[aria-pressed="true"]{background:var(--stencil-soft);border-color:var(--stencil)}
+.btn.danger{color:var(--danger)}
+#top{position:fixed;top:0;left:0;right:0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px;pointer-events:none}
+#top>*{pointer-events:auto}
+.brand{display:flex;flex-direction:column;gap:2px;padding:4px 2px}
+.brand b{font:700 22px/1 var(--display);letter-spacing:-.01em}
+.brand small{color:var(--muted);font-size:12.5px}
+.cluster{display:flex;gap:8px;align-items:center;padding:6px}
+#views{position:fixed;top:14px;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:5px}
+#views .btn{min-width:62px;padding:0 10px;border-color:transparent;background:transparent;color:var(--muted)}
+#views .btn:active{color:var(--text);background:rgba(255,255,255,.1)}
+#dock{position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
+#dock>*{pointer-events:auto}
+#full{align-self:flex-end}
+#hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
+#hint{background:rgba(0,0,0,.28);padding:6px 12px;border-radius:999px;pointer-events:none}
+#sheet{width:min(760px,100%);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#name{flex:1 1 160px;min-height:44px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
+#size{font-variant-numeric:tabular-nums;color:var(--text);font-size:14px;white-space:pre}
+.sliders{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.sliders label{display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:var(--muted)}
+input[type=range]{width:100%;height:32px;accent-color:var(--stencil)}
+#tray{width:min(760px,100%);display:flex;gap:10px;align-items:center;padding:10px}
+#add{flex:none}
+#trayItems{display:flex;gap:8px;overflow-x:auto;flex:1;scrollbar-width:none;padding:2px}
+#trayItems::-webkit-scrollbar{display:none}
+.chip{flex:none;display:flex;align-items:center;gap:9px;min-height:52px;padding:5px 12px 5px 5px;border-radius:14px;border:1.5px solid transparent;background:rgba(255,255,255,.06);max-width:210px;position:relative}
+.chip img{width:42px;height:42px;border-radius:10px;object-fit:contain;background:#f4f1ec}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.chip.on{border-color:var(--stencil);background:var(--stencil-soft)}
+.chip.off{opacity:.45}
+.chip .lock{font-style:normal;font-size:11px;color:var(--muted)}
+#count{flex:none;color:var(--muted);font-size:12.5px;padding-right:6px}
+#empty{padding:10px 14px;display:flex;gap:12px;align-items:center}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.seg .btn{padding:0 8px}.lbl{color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
+.pop{position:fixed;top:74px;right:16px;width:320px;max-height:calc(100% - 90px);overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.pop h3,.modal h2{margin:0;font:700 17px/1.2 var(--display)}
+#skins{display:flex;gap:10px}
+.sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent}
+.sw.on{border-color:#fff;box-shadow:0 0 0 3px var(--stencil)}
+.scrim{position:fixed;inset:0;background:rgba(8,9,12,.62);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
+.modal{width:min(720px,100%);max-height:100%;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:16px;background:var(--panel-solid)}
+.modal header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.modal h2{font-size:24px}
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.card{min-height:112px;text-align:left;padding:16px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.05);display:flex;flex-direction:column;gap:6px}
+.card:active{background:var(--stencil-soft);border-color:var(--stencil)}
+.card b{font:700 18px/1.2 var(--display)}
+.card span{color:var(--muted);font-size:14px}
+#pvImg{max-width:100%;max-height:56vh;border-radius:12px;align-self:center;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;background:#fff}
+#pvNote{color:var(--muted);font-size:14px;margin:0}
+#coach{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(430px,calc(100% - 32px));padding:20px;display:flex;flex-direction:column;gap:14px;background:var(--panel-solid);z-index:4}
+#coach h2{margin:0;font:700 22px/1.15 var(--display)}
+#coach ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+#coach li{display:flex;gap:12px;align-items:baseline}
+#coach li b{flex:none;width:118px;color:var(--stencil);font-weight:600}
+#toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);padding:10px 14px;display:flex;gap:12px;align-items:center;z-index:6;border-radius:999px}
+#toast button{background:none;border:0;color:var(--stencil);font-weight:600;min-height:32px}
+@media (max-width:720px){
+  #views{top:auto;bottom:auto;position:fixed;top:70px}
+  .brand small{display:none}
+  .sliders{grid-template-columns:1fr 1fr}
+  .cards{grid-template-columns:1fr}
+  #count{display:none}
+  .pop{top:126px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="stage" aria-label="3D body. Drag to look around, pinch to zoom, tap a tattoo to select it."></div>
+
+<div id="top">
+  <div class="brand"><b>Ink Atlas</b><small id="saved">Loading</small></div>
+  <div class="cluster glass">
+    <button class="btn quiet" id="undo" type="button" disabled>Undo</button>
+    <button class="btn quiet" id="redo" type="button" disabled>Redo</button>
+    <button class="btn" id="bodyBtn" type="button">Body</button>
+    <button class="btn primary" id="shareBtn" type="button">Share</button>
+  </div>
+</div>
+
+<div id="views" class="glass" role="group" aria-label="Turn the body">
+  <button class="btn" type="button" data-view="0">Front</button>
+  <button class="btn" type="button" data-view="1">Left</button>
+  <button class="btn" type="button" data-view="2">Back</button>
+  <button class="btn" type="button" data-view="3">Right</button>
+</div>
+
+<div id="bodyPop" class="pop glass" hidden>
+  <h3>Body</h3>
+  <div class="seg" role="group" aria-label="Body type">
+    <button class="btn" type="button" data-fig="male">Male</button>
+    <button class="btn" type="button" data-fig="neutral">Neutral</button>
+    <button class="btn" type="button" data-fig="female">Female</button>
+  </div>
+  <label for="rMuscle" class="lbl">Muscle<input id="rMuscle" type="range" min="0" max="100"></label>
+  <label for="rWeight" class="lbl">Weight: lighter to heavier<input id="rWeight" type="range" min="-100" max="100"></label>
+  <span class="lbl">Skin tone</span>
+  <div id="skins"></div>
+  <label for="rHeight" class="lbl">Height, used for real-world sizes</label>
+  <input id="rHeight" type="range" min="150" max="205" step="1">
+  <div id="hText" style="font-variant-numeric:tabular-nums"></div>
+  <button class="btn" type="button" data-close="bodyPop">Done</button>
+</div>
+
+<div id="dock">
+  <button class="btn glass" id="full" type="button">Full body</button>
+  <p id="hint">Tap a tattoo to work on it. Double-tap empty space for the full body.</p>
+  <div id="sheet" class="glass" hidden>
+    <div class="row">
+      <label for="name" hidden>Name</label>
+      <input id="name" type="text" maxlength="40" autocomplete="off" aria-label="Tattoo name">
+      <span id="size"></span>
+      <button class="btn primary" id="bDone" type="button">Done</button>
+    </div>
+    <div class="sliders">
+      <label for="rSize">Size<input id="rSize" type="range" min="0" max="1000"></label>
+      <label for="rTurn">Turn<input id="rTurn" type="range" min="-180" max="180"></label>
+      <label for="rFade">Ink strength<input id="rFade" type="range" min="15" max="100"></label>
+    </div>
+    <div class="row">
+      <button class="btn" id="bFlip" type="button">Mirror</button>
+      <button class="btn" id="bDup" type="button">Duplicate</button>
+      <button class="btn" id="bLock" type="button">Lock in place</button>
+      <button class="btn" id="bStatus" type="button">Planned</button>
+      <button class="btn" id="bHide" type="button">Hide</button>
+      <button class="btn danger" id="bDel" type="button">Remove</button>
+    </div>
+    <p id="moveTip"></p>
+  </div>
+  <div id="empty" class="glass" hidden>
+    <span>Start by adding a photo or drawing of a tattoo.</span>
+    <button class="btn primary" id="emptyAdd" type="button">Add ink</button>
+  </div>
+  <div id="tray" class="glass">
+    <button class="btn primary" id="add" type="button">+ Add ink</button>
+    <div id="trayItems"></div>
+    <span id="count"></span>
+  </div>
+</div>
+<input id="file" type="file" accept="image/*,.json,application/json" multiple hidden>
+
+<div id="share" class="scrim" hidden>
+  <div class="modal glass" role="dialog" aria-labelledby="shTitle">
+    <header><h2 id="shTitle">Share</h2><button class="btn" type="button" data-close="share">Close</button></header>
+    <div class="cards">
+      <button class="card" id="cView" type="button"><b>Picture of this view</b><span>Exactly what is on screen now, tattoos included.</span></button>
+      <button class="card" id="cSheet" type="button"><b>Artist sheet</b><span>This view plus every tattoo with its approximate size.</span></button>
+      <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>
+      <button class="card" id="cBackup" type="button"><b>Back up project</b><span>One file with all artwork and placements.</span></button>
+    </div>
+    <button class="btn quiet" id="cRestore" type="button">Open a backup file, including older Ink Atlas .ink.json</button>
+  </div>
+</div>
+
+<div id="preview" class="scrim" hidden>
+  <div class="modal glass" role="dialog" aria-labelledby="pvTitle">
+    <header><h2 id="pvTitle">Picture</h2><button class="btn" type="button" data-close="preview">Close</button></header>
+    <img id="pvImg" alt="Export preview">
+    <p id="pvNote"></p>
+    <button class="btn primary" id="pvSave" type="button">Save or share</button>
+  </div>
+</div>
+
+<div id="coach" class="glass" hidden>
+  <h2>Three moves run everything</h2>
+  <ol>
+    <li><b>Look around</b><span>Drag with one finger. Pinch with two to zoom.</span></li>
+    <li><b>Pick a tattoo</b><span>Tap it. The camera comes to it.</span></li>
+    <li><b>Place it</b><span>Drag the selected tattoo. Two fingers on it resize and turn.</span></li>
+  </ol>
+  <button class="btn primary" id="coachOk" type="button">Got it</button>
+</div>
+<div id="toast" class="glass" role="status" hidden></div>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

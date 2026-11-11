@@ -1,0 +1,21 @@
+{
+  "name": "ink-atlas",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Ink Atlas: iPad-first 3D tattoo placement studio",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "mesh": "python3 tools/mesh.py data-src src/body.js",
+    "icons": "node tools/icons.mjs",
+    "shot": "node tools/shot.mjs"
+  },
+  "dependencies": { "three": "^0.187.0" },
+  "devDependencies": {
+    "puppeteer-core": "^25.17.0",
+    "vite": "^5.4.0",
+    "vite-plugin-pwa": "^0.20.5"
+  }
+}
