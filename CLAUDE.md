@@ -17,20 +17,25 @@ iPad-first 3D tattoo placement studio. The owner is Jake. He plans tattoos on a 
 
 ## What exists today
 
-One bundle: `src/app.js` + `src/index.html`, built by esbuild into `dist/index.html` (three.js inlined, body data embedded).
+A Vite app. `src/index.html` is the entry, `src/app.js` the main module (scene, gestures, UI, persistence), with `mesh.js` (shape math), `fit.js` (the list of body sliders), `skin.js` (skin material and anatomy detail), `slider.js` (the touch slider), `share.js` and `sample-art.js` beside it. `src/body.js` is generated. Builds to `dist/` with three.js and the body data as separate cached chunks, plus a PWA manifest and service worker. Live at https://jakehalbakken.github.io/ink-atlas/ (GitHub Pages, repo `jakehalbakken/ink-atlas`, deploys on push to `main`; Vite `base` is `/ink-atlas/`).
 
 - Canvas-first layout: full-screen body, floating top bar, bottom tray of tattoo thumbnails, editing sheet that appears only when a tattoo is selected.
 - Gesture grammar that never changes by mode: a touch that starts on the selected tattoo moves it; two fingers on it scale and rotate; a touch anywhere else orbits; two fingers elsewhere pinch-zoom and pan. Pencil hover does nothing. Keep this rule. It is the main reason Jake prefers this version.
 - Tap a tattoo or its tray chip: select and glide the camera to it. Double-tap empty space or Full body: back to overview.
 - Ink rendering: decals with multiply blending over a white-backed texture, so ink darkens the lit skin and white paper drops out for free.
-- Body: MakeHuman CC0 base mesh (13,524 verts including eyes) with male / neutral / female and muscle / weight morphs. Height is normalised to 1.75 units; a height setting drives real-world size readouts.
+- Body: MakeHuman CC0 base mesh. Vertex order is body (13,380), eyes (144), then the genital geometry (MakeHuman's helper, subdivided at bake time); body and eye indices must never change because saved anchors use them. Male / neutral / female, MakeHuman's muscle x weight grid (0..1, 0.5 = average), and about 30 fine-tune sliders in `state.fit` (-1..1, 0 = standard) driven by real MakeHuman targets: torso, chest and breasts, arms, legs, neck, genitals. Height is normalised to 1.75 units; a height setting drives real-world size readouts.
+- Anatomy detail is painted in the skin shader from landmark vertices, so it follows every shape: eyes, lips, areolae and nipples, navel, crease shading. Genital geometry shows for the male body and has a show/hide toggle.
+- Sliders are the custom `<ink-slider>` element, not `<input type=range>`: it takes horizontal drags and leaves vertical ones to the panel, and the page itself is locked (fixed body plus a touchmove guard). This is the fix for "sliders shift the whole screen".
 - Tattoos stay attached through shape changes by anchoring to triangle + barycentric coordinates (`anchorsNow` / `applyAnchors`).
 - Edit controls: name, size, turn, ink strength, mirror, duplicate, lock, planned vs already-on-me, hide, remove, undo/redo.
 - Share: picture of this view, artist sheet (PNG), blank body to sketch on, project backup (JSON).
 - Opens v47 `.ink.json` backups with exact placements (`importInkJson`). v47 anchors are in its "Original" mesh space, which is this repo's `legacy` shape scaled to 1.8 tall, so the mapping is exact.
-- Saves to IndexedDB (`ink-atlas-proto` / `kv` / `project`).
+- Saves to IndexedDB (`ink-atlas-proto` / `kv`) through `store.js`: `project` holds the state and a list of artwork keys, each artwork is its own `img:<key>` record, `recovery` plus `rec:<id>` hold up to 8 earlier saves, and an unreadable save is moved to `quarantine:<time>` instead of being overwritten. Every load, backup and recovery copy goes through `cleanState` in `project.js` and `openProject` in `app.js` before it may replace the project. Saves report failure honestly and flush when the app leaves the screen. State is `v: 2`. Older saves are upgraded on open by `adoptState`: it rebuilds the exact shape the save was made on, pins each tattoo to its triangle, then switches to the current shape, so no ink moves. Any future shape or storage change must do the same.
+- Share uses `navigator.share({files})` when the device accepts the file and a plain download otherwise (`share.js`).
 
 ## First tasks, in order
+
+Status: all four done and confirmed by Jake on the iPad (2026-11-10). Kept here for the record.
 
 1. `npm install`, `npm run build`, open `dist/index.html`, confirm it runs.
 2. Remove the artifact-only pieces: the `window.claude.use('downloads')` path in `src/app.js`. Replace with `navigator.share({files})` when `navigator.canShare` accepts the file, falling back to a download link. This is the single biggest win of leaving the sandbox.
@@ -38,6 +43,8 @@ One bundle: `src/app.js` + `src/index.html`, built by esbuild into `dist/index.h
 4. Deploy to a static host and give Jake the URL. He should confirm on the iPad that nothing regressed before the big pass starts. Ask him which host he wants; do not create accounts for him.
 
 ## The pass Jake asked for
+
+Status (2026-11-11): both fixes below are built and pass the headless checks, including Jake's answer on scope: he wants everything, every part of the body, and every part adjustable. They still need his check on the real iPad before the parity items start. Known rough edges to raise with him: the genital geometry is MakeHuman's helper mesh smoothed once (no finer detail), very large breast sizes show polygon edges underneath, there is no hair or eyebrows, and female anatomy is only what the MakeHuman base mesh models.
 
 Two fixes he reported from the iPad:
 
@@ -62,6 +69,9 @@ Advice from the v47 thread worth taking: one surface adapter for hit testing, de
 
 ## Things that are easy to get wrong
 
+- Deploying, pushing, or publishing anything needs Jake's explicit OK each time. The repo and site are public. Private strategy and business notes go in `docs/private/`, which is git-ignored. Never touch the original app at the chatgpt.site address.
+- `docs/parity-audit-and-plan.md` is the honest status of every feature (built, tested, missing, checked on iPad) and the staged checklist. Update it when a stage lands. The v47 spec is intent, not proof.
+
 - Every UI addition must keep the canvas dominant. v47 failed on clutter, not on missing features. New features go into sheets and panels that appear when needed.
 - Plain words on the surface. Jake could not find "Focus ink" or work out "Current View" in v47.
 - 44pt minimum touch targets. Test portrait and landscape.
@@ -70,9 +80,10 @@ Advice from the v47 thread worth taking: one surface adapter for hit testing, de
 
 ## Commands
 
-- `npm run build`: bundle to `dist/index.html`.
-- `npm run mesh`: regenerate `src/body.js` from `data-src/` (base mesh plus shape targets).
-- `npm run shot`: headless screenshot. `tools/tests/*.mjs` are small scripted checks; run as `node tools/shot.mjs <url> <out.png> <test.mjs>`. Set `CHROME` if Chrome is not in the default macOS location. Headless WebGL needs the swiftshader flags already in `tools/shot.mjs`.
+- `npm run dev`: dev server. `npm run build`: production site to `dist/`. `npm run preview`: serve the build. The app is ES modules now, so `dist/index.html` cannot be opened straight from disk.
+- `npm run mesh`: regenerate `src/body.js` from `data-src/` (base mesh, rig weights, and the shape targets in `data-src/` and `data-src/mh-targets/`).
+- `npm run shot`: headless screenshot of the build. `tools/tests/*.mjs` are scripted checks; run as `node tools/shot.mjs <out.png> <test.mjs>` after a build (it serves `dist/` itself). t1 gestures and export, t2 shape change with ink, t3 v47 import, t4 body visuals (`shots/b_*.png`), t5 old-save upgrade plus slider touch, t6 durable projects (reopen, old storage format, damaged files, earlier saves, failing disk, touch target sizes). Run all six before deploying. Set `CHROME` if Chrome is not in the default macOS location. Headless WebGL needs the swiftshader flags already in `tools/shot.mjs`.
+- Deploy: push to `main`. Jake's own GitHub account is `jakehalbakken`; `gh` on this machine usually has a different account active, so switch for the push and switch back.
 
 ## Licences
 

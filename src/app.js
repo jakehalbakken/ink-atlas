@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
-import { INDEX, shapePositions } from './mesh.js';
+import { INDEX, INDEX_ALL, COUNTS, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
+import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
+import { createSkin, updateSkin } from './skin.js';
+import './slider.js';
+import { cleanState } from './project.js';
+import { openStore } from './store.js';
 import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
 
@@ -11,7 +16,9 @@ const FOV = 30;
 const STENCIL = '#8474ff';
 
 /* ---------- state ---------- */
-let state = { app: 'ink-atlas-proto', v: 1, tattoos: [], skin: 1, heightCm: 175, figure: 'male', muscle: 0.2, weight: 0 };
+// v2: muscle and weight run 0..1 with 0.5 = average; `fit` holds the fine-tune sliders (-1..1, see fit.js).
+const freshState = () => ({ app: 'ink-atlas-proto', v: 2, tattoos: [], skin: 1, heightCm: 175, figure: 'male', muscle: 0.6, weight: 0.5, fit: {}, genitals: true });
+let state = freshState();
 let images = {}; // key -> dataURL
 const imgEls = {}; // key -> HTMLImageElement
 let selectedId = null;
@@ -47,17 +54,26 @@ const rim = new THREE.DirectionalLight(0xb9c4ff, 1.0); rim.position.set(2, 2.5, 
 const rim2 = new THREE.DirectionalLight(0xffd9c4, 0.5); rim2.position.set(-2.5, 1, -2); scene.add(rim2);
 
 const bodyGeo = new THREE.BufferGeometry();
-bodyGeo.setAttribute('position', new THREE.BufferAttribute(shapePositions('legacy', 0, 0), 3));
-bodyGeo.setIndex(new THREE.BufferAttribute(INDEX, 1));
+bodyGeo.setAttribute('position', new THREE.BufferAttribute(legacyPositions(), 3));
+const idxBody = new THREE.BufferAttribute(INDEX, 1), idxAll = new THREE.BufferAttribute(INDEX_ALL, 1); // without / with the genital geometry
+bodyGeo.setIndex(idxBody);
 bodyGeo.computeVertexNormals();
 bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
-let shapeKey = 'legacy';
-function applyShape() {
-  bodyGeo.attributes.position.array.set(shapePositions(state.figure, state.muscle, state.weight)); bodyGeo.attributes.position.needsUpdate = true;
+const { mat: skinMat, uniforms: skinU } = createSkin(bodyGeo, SKINS[1]);
+let shapeKey = 0;
+const genitalsShown = () => state.figure === 'male' && state.genitals !== false;
+// Vertices past this are the genital geometry, which is only on the body when shown.
+const vertEnd = () => (genitalsShown() ? COUNTS.body + COUNTS.eyes + COUNTS.genital : COUNTS.body + COUNTS.eyes) * 3;
+// Put raw positions on the body and refresh everything derived from them.
+function setBodyPositions(pos, withGenitals) {
+  bodyGeo.attributes.position.array.set(pos); bodyGeo.attributes.position.needsUpdate = true;
+  bodyGeo.setIndex(withGenitals ? idxAll : idxBody);
   bodyGeo.computeVertexNormals(); bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
-  shapeKey = [state.figure, state.muscle, state.weight].join(','); needsRender = true;
+  const fem = state.figure === 'female' ? 1 : state.figure === 'male' ? 0 : 0.5;
+  updateSkin(bodyGeo, skinU, (0.0155 + 0.006 * fem) * (1 + 0.35 * ((state.fit && state.fit.nippleSize) || 0)));
+  shapeKey++; needsRender = true;
 }
-const skinMat = new THREE.MeshStandardMaterial({ color: SKINS[1], roughness: 0.6, metalness: 0 });
+function applyShape() { setBodyPositions(shapePositions(state), genitalsShown()); }
 const body = new THREE.Mesh(bodyGeo, skinMat);
 scene.add(body); body.updateMatrixWorld(true);
 
@@ -111,11 +127,15 @@ function stepCam(dt) {
   if (d < 2e-4) { glide = false; return false; }
   return true;
 }
+// While the Body panel is open the picture slides over, so the body stays centred in the free space.
+let curInset = 0, goalInset = 0;
+function applyInset() { const w = stage.clientWidth || 800, h = stage.clientHeight || 600; if (curInset > 0.5) camera.setViewOffset(w, h, curInset / 2, 0, w, h); else camera.clearViewOffset(); }
+function updateInset() { const p = $('#bodyPop'), w = stage.clientWidth || 800; document.body.classList.toggle('panel-open', !p.hidden); goalInset = !p.hidden && w - p.offsetWidth > 300 ? p.offsetWidth + 16 : 0; needsRender = true; }
 function resize() {
   const w = stage.clientWidth || 800, h = stage.clientHeight || 600;
   renderer.setSize(w, h, false);
   canvas.style.width = '100%'; canvas.style.height = '100%';
-  camera.aspect = w / h; camera.updateProjectionMatrix(); needsRender = true;
+  camera.aspect = w / h; camera.updateProjectionMatrix(); updateInset(); applyInset(); needsRender = true;
 }
 new ResizeObserver(resize).observe(stage); resize();
 cur.r = fullBodyR() * 1.25; fullBody(0);
@@ -148,7 +168,7 @@ function tattooAt(point, normal) {
   return null;
 }
 
-function nearestIndex(p) { const P = bodyGeo.attributes.position.array; let best = 0, bd = Infinity; for (let i = 0; i < P.length; i += 3) { const d = (P[i] - p[0]) ** 2 + (P[i + 1] - p[1]) ** 2 + (P[i + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = i / 3; } } return best; }
+function nearestIndex(p) { const P = bodyGeo.attributes.position.array, end = vertEnd(); let best = 0, bd = Infinity; for (let i = 0; i < end; i += 3) { const d = (P[i] - p[0]) ** 2 + (P[i + 1] - p[1]) ** 2 + (P[i + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = i / 3; } } return best; }
 function anchorsNow() {
   return state.tattoos.map((t) => {
     const n = new V3(...t.normal).normalize(); ray.set(new V3(...t.pos).addScaledVector(n, 0.06), n.clone().negate()); ray.far = 0.25;
@@ -227,15 +247,58 @@ function syncDecals() {
 let exporting = false;
 
 /* ---------- persistence ---------- */
-let db = null;
-function openDb() { return new Promise((res) => { try { const r = indexedDB.open('ink-atlas-proto', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => res(null); } catch (e) { res(null); } }); }
-function dbGet(k) { return new Promise((res) => { if (!db) return res(null); try { const r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); } catch (e) { res(null); } }); }
-function dbPut(k, v) { if (!db) return; try { db.transaction('kv', 'readwrite').objectStore('kv').put(v, k); } catch (e) { /* storage unavailable */ } }
-let saveTimer = 0;
+// store.js does the writing. Here: when to save, telling the truth about whether it
+// worked, and keeping copies to go back to.
+let store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
 function usedImages() { const o = {}; for (const t of state.tattoos) o[t.img] = images[t.img]; return o; }
+function setSaved(text, bad) { const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad); }
 function save() {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => { dbPut('project', { state, images: usedImages() }); $('#saved').textContent = db ? 'Saved on this device' : 'Not saved: storage is off in this view'; }, 350);
+  dirty = true; clearTimeout(saveTimer);
+  if (!store || !store.ok) { setSaved('Not saved: storage is off in this view', true); return; }
+  setSaved('Saving'); saveTimer = setTimeout(flushSave, 350);
+}
+async function flushSave() {
+  clearTimeout(saveTimer); saveTimer = 0;
+  if (!store || !store.ok || !dirty) return;
+  if (saving) { saveAgain = true; return; }
+  saving = true; dirty = false;
+  try {
+    await store.save(state, usedImages());
+    if (!dirty) setSaved('Saved on this device');
+    warnedSave = false;
+    if (!askedPersist) { askedPersist = true; store.persist(); }
+    if (Date.now() - lastAuto > 5 * 60000) { lastAuto = Date.now(); keepRecovery('While you were working'); }
+  } catch (err) {
+    dirty = true;
+    setSaved(err && err.name === 'QuotaExceededError' ? 'Not saved: this device is out of space' : 'Not saved: storage problem', true);
+    if (!warnedSave) { warnedSave = true; toast('Your changes are not being saved on this device.', 'Back up now', backupNow); }
+  } finally { saving = false; if (saveAgain) { saveAgain = false; flushSave(); } }
+}
+// iPadOS can drop a web page the moment it leaves the screen, so write straight away when that happens.
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
+window.addEventListener('pagehide', () => { flushSave(); });
+function keepRecovery(reason) { return store && store.ok ? store.addRecovery(state, usedImages(), reason).catch(() => false) : Promise.resolve(false); }
+// Replace the working project with a stored one: this device's save, a backup file or a
+// recovery copy. Everything is checked first; if it is not usable this throws and the
+// project on screen is left exactly as it was.
+async function openProject(rawState, imgs) {
+  imgs = imgs && typeof imgs === 'object' ? imgs : {};
+  const c = cleanState(rawState, (k) => typeof imgs[k] === 'string' && imgs[k].startsWith('data:image'));
+  for (const t of c.state.tattoos) if (!images[t.img]) images[t.img] = imgs[t.img];
+  await Promise.all(c.state.tattoos.map((t) => loadImg(t.img)));
+  const usable = c.state.tattoos.filter((t) => imgEls[t.img]);
+  const dropped = c.dropped + c.state.tattoos.length - usable.length;
+  if (!usable.length && rawState.tattoos.length) throw new Error('No usable artwork'); // never swap a real project for an empty one
+  c.state.tattoos = usable;
+  for (const t of usable) if (!t.aspect) t.aspect = imgEls[t.img].naturalWidth / imgEls[t.img].naturalHeight || 1;
+  state = c.state; selectedId = null; skinMat.color.set(skinColor()); adoptState();
+  for (const id of c.replace) { const t = state.tattoos.find((x) => x.id === id); if (t) { const h = nextSlot(); t.pos = h.pos; t.normal = h.normal; } }
+  return { dropped, replaced: c.replace.length };
+}
+function whenText(at) {
+  const d = new Date(at), now = new Date(), time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const day = d.toDateString() === now.toDateString() ? 'Today' : d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  return `${day}, ${time}`;
 }
 
 /* ---------- history ---------- */
@@ -388,7 +451,8 @@ function renderBody() {
   const sw = $('#skins'); sw.replaceChildren();
   SKINS.forEach((c, i) => sw.append(el('button', { class: 'sw' + (i === state.skin && !state.skinHex ? ' on' : ''), type: 'button', style: `background:${c}`, 'aria-label': 'Skin tone ' + (i + 1), onclick: () => { snapshot(); state.skin = i; state.skinHex = null; skinMat.color.set(c); needsRender = true; renderBody(); save(); } })));
   document.querySelectorAll('[data-fig]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.fig === state.figure ? 'true' : 'false'));
-  $('#rMuscle').value = Math.round((state.muscle || 0) * 100); $('#rWeight').value = Math.round((state.weight || 0) * 100);
+  $('#rMuscle').value = Math.round((state.muscle ?? 0.5) * 100); $('#rWeight').value = Math.round((state.weight ?? 0.5) * 100);
+  syncFitUI();
   $('#rHeight').value = state.heightCm; const inch = state.heightCm / 2.54; $('#hText').textContent = `${Math.floor(inch / 12)} ft ${Math.round(inch % 12)} in  ·  ${state.heightCm} cm`;
 }
 function renderUI() { renderTray(); renderSheet(); renderBody(); refreshUndo(); }
@@ -418,31 +482,83 @@ $('#file').addEventListener('change', async (e) => {
   const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
   snapshot(); let last = null; let first = true;
   for (const f of files) {
-    if (/json$/i.test(f.name) || f.type === 'application/json') { await importBackup(await f.text()); continue; }
+    if (/json$/i.test(f.name) || f.type === 'application/json') { if (f.size > 300e6) { toast('That file is too large to open here.'); continue; } await importBackup(await f.text()); continue; }
     if (!f.type.startsWith('image/')) continue;
-    const url = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
+    if (f.size > 40e6) { toast('That picture is too large to add.'); continue; }
+    const url = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(f); });
+    if (typeof url !== 'string') continue;
     const t = await addImage(url, f.name.replace(/\.[^.]+$/, '').slice(0, 40), first ? viewCenterSpot() : null); first = false; if (t) last = t;
   }
   if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
 });
-function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; }
+function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#bodyPop') updateInset(); }
 $('#bodyBtn').addEventListener('click', () => { toggle('#bodyPop'); });
 $('#rHeight').addEventListener('input', () => { state.heightCm = +$('#rHeight').value; renderBody(); renderSheet(); save(); });
 document.querySelectorAll('[data-fig]').forEach((b) => b.addEventListener('click', () => { if (state.figure === b.dataset.fig) return; snapshot(); reshape(() => { state.figure = b.dataset.fig; }); commit(); }));
+/* ---------- body shape sliders ---------- */
+// Every shape slider works the same way: pin the ink to its triangles when the drag
+// starts, reshape live, and record one undo step when the finger lifts.
 let shapeSlide = null;
-for (const [id, key] of [['#rMuscle', 'muscle'], ['#rWeight', 'weight']]) {
-  $(id).addEventListener('input', () => { if (!shapeSlide) { snapshot(); shapeSlide = anchorsNow(); } state[key] = +$(id).value / 100; applyShape(); applyAnchors(shapeSlide); syncDecals(); });
-  $(id).addEventListener('change', () => { shapeSlide = null; commit(); });
+function bindShape(r, set) {
+  r.addEventListener('input', () => { if (!shapeSlide) { snapshot(); shapeSlide = anchorsNow(); } set(+r.value / 100); applyShape(); applyAnchors(shapeSlide); syncDecals(); });
+  r.addEventListener('change', () => { shapeSlide = null; commit(); });
 }
+bindShape($('#rMuscle'), (v) => { state.muscle = v; });
+bindShape($('#rWeight'), (v) => { state.weight = v; });
+const fitEls = {}; const fitGroupEls = [];
+(function buildFitUI() {
+  const host = $('#fitGroups');
+  for (const g of FIT_GROUPS) {
+    const grp = el('div', { class: 'grp' }), mark = el('i'); let tog = null;
+    if (g.toggle) { tog = el('button', { class: 'btn', type: 'button', text: 'Show on the body', onclick: () => { snapshot(); reshape(() => { state[g.toggle] = state[g.toggle] === false; }); commit(); } }); grp.append(tog); }
+    for (const it of g.items) {
+      const s = el('ink-slider', { min: -100, max: 100, 'aria-label': it.label });
+      const row = el('div', { class: 'lbl' }, it.label, s);
+      bindShape(s, (v) => { state.fit = state.fit || {}; if (v) state.fit[it.key] = v; else delete state.fit[it.key]; });
+      grp.append(row); fitEls[it.key] = { s, row, when: it.when };
+    }
+    const d = el('details', {}, el('summary', {}, el('span', { text: g.title }), mark), grp);
+    fitGroupEls.push({ g, d, mark, tog }); host.append(d);
+  }
+})();
+function syncFitUI() {
+  const fit = state.fit || {};
+  for (const G of fitGroupEls) {
+    let changed = 0, shown = 0;
+    for (const it of G.g.items) {
+      const e = fitEls[it.key], vis = fitVisible(it.when, state.figure);
+      e.row.hidden = !vis; e.s.value = Math.round((fit[it.key] || 0) * 100);
+      if (vis) { shown++; if (fit[it.key]) changed++; }
+    }
+    G.d.hidden = !shown || !fitVisible(G.g.when, state.figure);
+    G.mark.textContent = changed ? `${changed} changed` : '';
+    if (G.tog) G.tog.setAttribute('aria-pressed', state[G.g.toggle] !== false ? 'true' : 'false');
+  }
+}
+$('#fitReset').addEventListener('click', () => { snapshot(); reshape(() => { state.fit = {}; state.muscle = 0.5; state.weight = 0.5; }); commit(); toast('Body shape back to standard', 'Undo', undo); });
+// Nothing outside the panels may scroll or zoom the page (belt and braces for iOS Safari).
+document.addEventListener('touchmove', (e) => { if (!(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems')) e.preventDefault(); }, { passive: false });
+document.addEventListener('gesturestart', (e) => e.preventDefault());
+// The page is locked, so when the on-screen keyboard opens lift the bottom sheet above it
+// ourselves, and undo any shove Safari gives the page once the keyboard goes away.
+if (window.visualViewport) {
+  const vv = window.visualViewport;
+  const onVV = () => { const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); document.documentElement.style.setProperty('--kb', kb > 80 ? kb + 'px' : '0px'); if (kb <= 80 && (window.scrollX || window.scrollY)) window.scrollTo(0, 0); };
+  vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV);
+}
+document.addEventListener('focusout', () => setTimeout(() => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, 80));
+// An installed copy picks up a new build as soon as its service worker takes over.
+if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) location.reload(); }); }
 $('#shareBtn').addEventListener('click', () => toggle('#share', true));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { toggle('#share', false); toggle('#preview', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
+  const inset = curInset; curInset = 0; applyInset(); // exports are always centred, panel open or not
   exporting = true; decalGroup.visible = !hideInk; syncDecals(); renderer.render(scene, camera);
   const url = canvas.toDataURL('image/png');
-  exporting = false; decalGroup.visible = true; syncDecals(); return url;
+  exporting = false; decalGroup.visible = true; syncDecals(); curInset = inset; applyInset(); needsRender = true; return url;
 }
 async function artistSheet() {
   const view = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = shot(false); });
@@ -484,20 +600,43 @@ $('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(preview
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
 $('#cBlank').addEventListener('click', () => showPreview(shot(true), 'ink-atlas-blank-body.png', 'Blank body to sketch on'));
-$('#cBackup').addEventListener('click', () => { toggle('#share', false); saveFile('ink-atlas-project.json', JSON.stringify({ app: 'ink-atlas-proto', v: 1, state, images: usedImages() })); });
+function backupNow() { const d = new Date(), p2 = (n) => String(n).padStart(2, '0'); saveFile(`ink-atlas-backup-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.json`, JSON.stringify({ app: 'ink-atlas-proto', v: 2, savedAt: d.toISOString(), state, images: usedImages() })); }
+$('#cBackup').addEventListener('click', () => { toggle('#share', false); backupNow(); });
+/* ---------- earlier saves ---------- */
+function renderRecovery() {
+  const host = $('#rcList'), list = store && store.ok ? store.listRecovery() : []; host.replaceChildren();
+  if (!list.length) { host.append(el('p', { class: 'tip', text: store && store.ok ? 'No earlier saves yet. Copies are kept as you work.' : 'Storage is off in this view, so no copies are kept.' })); return; }
+  for (const r of list) host.append(el('button', { class: 'card slim', type: 'button', onclick: () => restoreRecovery(r.id) }, el('b', { text: whenText(r.at) }), el('span', { text: `${r.tattoos} tattoo${r.tattoos === 1 ? '' : 's'} · ${r.reason}` })));
+}
+async function restoreRecovery(id) {
+  toggle('#recover', false);
+  let rec = null; try { rec = await store.loadRecovery(id); } catch (e) { rec = null; }
+  if (!rec) { toast('That copy is no longer available.'); return; }
+  snapshot(); const before = JSON.stringify(state);
+  await keepRecovery('Before going back');
+  try { await openProject(rec.state, rec.images); commit(); fullBody(); toast('Went back to the earlier save', 'Undo', undo); }
+  catch (e) { undoStack.pop(); refreshUndo(); state = JSON.parse(before); skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); toast('That copy could not be opened, so nothing was changed.'); }
+}
+$('#cRecover').addEventListener('click', () => { toggle('#share', false); renderRecovery(); toggle('#recover', true); });
 $('#cRestore').addEventListener('click', () => { toggle('#share', false); $('#file').click(); });
 
 /* ---------- backup import (this app's files and older Ink Atlas .ink.json) ---------- */
 function nearestSurface(p) {
-  const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array; let best = -1, bd = Infinity;
-  for (let i = 0; i < P.length; i += 3) { const d = (P[i] - p[0]) ** 2 + (P[i + 1] - p[1]) ** 2 + (P[i + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = i; } }
+  const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array, end = vertEnd(); let best = -1, bd = Infinity;
+  for (let i = 0; i < end; i += 3) { const d = (P[i] - p[0]) ** 2 + (P[i + 1] - p[1]) ** 2 + (P[i + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = i; } }
   return { pos: [P[best], P[best + 1], P[best + 2]], normal: [N[best], N[best + 1], N[best + 2]], dist: Math.sqrt(bd) };
 }
 async function importBackup(text) {
   let data; try { data = JSON.parse(text); } catch (e) { toast('That file is not a project backup.'); return; }
   if (data && data.app === 'ink-atlas-proto' && data.state) {
-    state = data.state; images = { ...images, ...data.images }; await Promise.all(Object.keys(data.images || {}).map(loadImg));
-    selectedId = null; skinMat.color.set(skinColor()); adoptShape(); commit(); fullBody(); toast('Project restored'); return;
+    const before = JSON.stringify(state);
+    await keepRecovery('Before opening a backup');
+    try {
+      const r = await openProject(data.state, data.images);
+      commit(); fullBody();
+      toast(r.dropped ? `Project opened. ${r.dropped} piece${r.dropped === 1 ? ' had no usable artwork and was' : 's had no usable artwork and were'} left out.` : 'Project opened', 'Undo', undo);
+    } catch (e) { state = JSON.parse(before); skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); toast('That backup is damaged, so nothing was changed.'); }
+    return;
   }
   const proj = data && data.format === 'ink-atlas-portable' ? data.project : (data && data.version === 1 && Array.isArray(data.tattoos) ? data : null);
   if (proj && Array.isArray(proj.tattoos)) { await importInkJson(proj, Array.isArray(data.assets) ? data.assets : []); return; }
@@ -519,23 +658,35 @@ async function importBackup(text) {
   commit(); fullBody(); toast(`Imported ${n} piece${n === 1 ? '' : 's'}${placed < n ? '. Some need placing by hand.' : '. Check the placements.'}`);
 }
 
+const fin = (x) => typeof x === 'number' && Number.isFinite(x);
+const ok3 = (v) => Array.isArray(v) && v.length === 3 && v.every((x) => fin(x) && Math.abs(x) < 10);
+// Opening an older Ink Atlas backup replaces the project, so keep a copy first and put
+// everything back if the file turns out to be unusable part way through.
 async function importInkJson(proj, assets) {
+  const before = JSON.stringify(state);
+  await keepRecovery('Before opening a backup');
+  try { await readInkJson(proj, assets); }
+  catch (e) { state = JSON.parse(before); selectedId = null; skinMat.color.set(skinColor()); applyShape(); commit(); toast('That backup is damaged, so nothing was changed.'); }
+}
+async function readInkJson(proj, assets) {
   const resolve = (v) => (typeof v === 'string' && v.startsWith('ink-atlas-image:') ? assets[+v.split(':')[1]] : v);
   const K = 1.75 / 1.8; // older Ink Atlas stores anchors on its original mesh at 1.8 units tall
-  const lg = new THREE.BufferGeometry(); const LP = shapePositions('legacy', 0, 0);
-  lg.setAttribute('position', new THREE.BufferAttribute(LP, 3)); lg.setIndex(bodyGeo.index); lg.computeVertexNormals(); lg.computeBoundingBox(); lg.computeBoundingSphere();
+  const lg = new THREE.BufferGeometry(); const LP = legacyPositions();
+  lg.setAttribute('position', new THREE.BufferAttribute(LP, 3)); lg.setIndex(idxBody); lg.computeVertexNormals(); lg.computeBoundingBox(); lg.computeBoundingSphere();
   const lm = new THREE.Mesh(lg, skinMat); lm.updateMatrixWorld(true);
   state.tattoos = []; selectedId = null;
-  state.figure = proj.figure === 'male' ? 'male' : 'neutral'; state.muscle = 0; state.weight = 0;
+  state.figure = proj.figure === 'male' ? 'male' : 'neutral'; state.muscle = 0.5; state.weight = 0.5; state.v = 2;
+  state.fit = fitFromV47(proj.studio && proj.studio.bodyFit); if (state.genitals == null) state.genitals = true;
   if (typeof proj.skin === 'string' && /^#[0-9a-f]{6}$/i.test(proj.skin)) state.skinHex = proj.skin;
   const hi = proj.measurements && proj.measurements.heightInches; if (typeof hi === 'number' && hi > 36 && hi < 96) state.heightCm = Math.round(THREE.MathUtils.clamp(hi * 2.54, 150, 205));
   skinMat.color.set(skinColor()); applyShape();
   const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array;
   let n = 0, unplaced = 0;
   for (const t of proj.tattoos.slice(0, 40)) {
+    if (!t || typeof t !== 'object') continue;
     const src = resolve(t.image); if (typeof src !== 'string' || !src.startsWith('data:image')) continue;
     let place = null;
-    if (Array.isArray(t.position) && Array.isArray(t.normal) && t.position.length === 3) {
+    if (ok3(t.position) && ok3(t.normal) && Math.hypot(t.normal[0], t.normal[1], t.normal[2]) > 0.5) {
       const p = new V3(...t.position).multiplyScalar(K), nn = new V3(...t.normal).normalize();
       ray.set(p.clone().addScaledVector(nn, 0.05), nn.clone().negate()); ray.far = 0.2; const h = ray.intersectObject(lm, false)[0]; ray.far = Infinity;
       let v, w;
@@ -544,24 +695,35 @@ async function importInkJson(proj, assets) {
       const pp = [0, 0, 0], pn = [0, 0, 0];
       for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) { pp[j] += P[v[k] * 3 + j] * w[k]; pn[j] += N[v[k] * 3 + j] * w[k]; }
       const l = Math.hypot(pn[0], pn[1], pn[2]) || 1;
-      place = { pos: pp, normal: [pn[0] / l, pn[1] / l, pn[2] / l], width: THREE.MathUtils.clamp((t.width || 0.14) * K, 0.012, 0.9), rot: (t.rotation || 0) * Math.PI / 180, opacity: typeof t.opacity === 'number' ? t.opacity : 0.92 };
+      place = { pos: pp, normal: [pn[0] / l, pn[1] / l, pn[2] / l], width: THREE.MathUtils.clamp((fin(t.width) && t.width > 0 ? t.width : 0.14) * K, 0.012, 0.9), rot: (fin(t.rotation) ? t.rotation : 0) * Math.PI / 180, opacity: fin(t.opacity) ? THREE.MathUtils.clamp(t.opacity, 0.1, 1) : 0.92 };
     } else unplaced++;
     const nt = await addImage(src, typeof t.name === 'string' ? t.name.slice(0, 40) : 'Tattoo', place);
     if (nt) { n++; nt.flip = !!t.flipX; nt.hidden = !!t.hidden; nt.status = t.status === 'existing' ? 'existing' : 'planned'; nt.locked = typeof t.placementLocked === 'boolean' ? t.placementLocked : t.status === 'existing'; }
   }
   lg.dispose();
+  if (!n && proj.tattoos.length) throw new Error('No usable artwork in that backup');
   commit(); fullBody();
   toast(`Opened ${(proj.studio && proj.studio.name) || 'project'}: ${n} tattoo${n === 1 ? '' : 's'}${unplaced ? `, ${unplaced} not yet placed` : ''}`, 'Undo', undo);
 }
-function adoptShape() {
-  if (!state.figure) { state.figure = 'legacy'; applyShape(); reshape(() => { state.figure = 'male'; state.muscle = 0.2; state.weight = 0; }); }
-  else applyShape();
+// Bring a loaded project up to the current body model without moving any ink:
+// rebuild the exact shape it was saved on, pin every tattoo to its triangle, then
+// switch to today's shape. Saves from before body types sit on the base mesh; v1
+// saves sit on the first prototype's muscle / weight blend.
+function adoptState() {
+  const old = !state.figure ? legacyPositions() : (state.v || 1) < 2 ? shapePositionsV1(state.figure, state.muscle, state.weight) : null;
+  if (!old) { state.fit = state.fit || {}; applyShape(); return; }
+  setBodyPositions(old, false); const an = anchorsNow();
+  if (!state.figure) { state.figure = 'male'; state.muscle = 0.6; state.weight = 0.5; }
+  else { state.muscle = 0.5 + 0.5 * THREE.MathUtils.clamp(state.muscle || 0, 0, 1); state.weight = 0.5 + 0.5 * THREE.MathUtils.clamp(state.weight || 0, -1, 1); }
+  state.fit = {}; state.genitals = true; state.v = 2;
+  applyShape(); applyAnchors(an);
 }
 /* ---------- loop ---------- */
 let last = performance.now();
 function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) $('#size').textContent = sizeText(t); }
+  if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt);
   if (moving || needsRender) { needsRender = false; renderer.render(scene, camera); }
   requestAnimationFrame(tick);
@@ -569,16 +731,41 @@ function tick(now) {
 
 /* ---------- boot ---------- */
 (async function boot() {
-  db = await openDb();
-  const saved = await dbGet('project');
-  if (saved && saved.state && Array.isArray(saved.state.tattoos)) { state = saved.state; images = saved.images || {}; await Promise.all(Object.keys(images).map(loadImg)); state.tattoos = state.tattoos.filter((t) => imgEls[t.img]); adoptShape(); }
-  else { applyShape(); await seedSamples(); }
+  store = await openStore();
+  let opened = false, note = '';
+  if (store.ok) {
+    let loaded = null;
+    try { loaded = await store.load(); } catch (e) { note = 'The save on this device could not be read, so a fresh project was started.'; }
+    if (loaded) {
+      try {
+        const r = await openProject(loaded.state, loaded.images); opened = true;
+        // The copy is of the save exactly as it was stored, before any upgrade or repair.
+        await store.addRecovery(loaded.state, loaded.images, 'When you opened the app').catch(() => false);
+        if (r.dropped || r.replaced) { await store.quarantine(loaded.raw, loaded.images); note = r.dropped ? `${r.dropped} piece${r.dropped === 1 ? '' : 's'} in your save had no usable artwork. The original save was kept on this device.` : 'Some ink had lost its place and was put back on the body. Check the placements.'; }
+      } catch (e) {
+        await store.quarantine(loaded.raw, loaded.images);
+        for (const r of store.listRecovery()) {
+          try { const rec = await store.loadRecovery(r.id); if (!rec) continue; await openProject(rec.state, rec.images); opened = true; note = `Your last save could not be opened, so this is the copy from ${whenText(r.at)}.`; break; } catch (_) { /* try the next copy */ }
+        }
+        if (!opened) note = 'Your last save could not be opened. It was kept on this device and a fresh project was started.';
+      }
+    }
+  }
+  if (!opened) { state = freshState(); selectedId = null; applyShape(); await seedSamples(); }
   skinMat.color.set(skinColor());
   syncDecals(); renderUI();
-  $('#saved').textContent = db ? 'Saved on this device' : 'Not saved: storage is off in this view';
+  if (store.ok) { save(); store.gc(Object.keys(usedImages())).catch(() => 0); } else setSaved('Not saved: storage is off in this view', true);
+  if (note) toast(note);
   let seen = false; try { seen = localStorage.getItem('ia-coach') === '1'; } catch (e) { /* no storage */ }
   $('#coach').hidden = seen;
   $('#coachOk').addEventListener('click', () => { $('#coach').hidden = true; try { localStorage.setItem('ia-coach', '1'); } catch (e) { /* no storage */ } });
   requestAnimationFrame(tick);
 })();
-window.__ink = { state: () => state, cur, goal, importBackup };
+// Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
+window.__ink = {
+  state: () => state, cur, goal, importBackup,
+  setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
+  loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
+  positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
+  store: () => store, flush: flushSave, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
+};

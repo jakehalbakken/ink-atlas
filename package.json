@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --host",
-    "mesh": "python3 tools/mesh.py data-src src/body.js",
+    "mesh": "python3 -I tools/mesh.py data-src src/body.js",
     "icons": "node tools/icons.mjs",
     "shot": "node tools/shot.mjs"
   },

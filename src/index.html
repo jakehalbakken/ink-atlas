@@ -23,8 +23,9 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
-html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;overscroll-behavior:none}
+/* The page itself can never pan, bounce or zoom: only the canvas and the panels below take gestures. */
+html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
+body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #stage{position:fixed;inset:0}
 #stage canvas{display:block;outline:none}
 button,input{font:inherit;color:inherit}
@@ -44,11 +45,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 .brand{display:flex;flex-direction:column;gap:2px;padding:4px 2px}
 .brand b{font:700 22px/1 var(--display);letter-spacing:-.01em}
 .brand small{color:var(--muted);font-size:12.5px}
+.brand small.bad{color:var(--danger);font-weight:600}
 .cluster{display:flex;gap:8px;align-items:center;padding:6px}
 #views{position:fixed;top:14px;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:5px}
 #views .btn{min-width:62px;padding:0 10px;border-color:transparent;background:transparent;color:var(--muted)}
 #views .btn:active{color:var(--text);background:rgba(255,255,255,.1)}
-#dock{position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
+#dock{position:fixed;left:0;right:0;bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
 #dock>*{pointer-events:auto}
 #full{align-self:flex-end}
 #hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
@@ -58,11 +60,26 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #name{flex:1 1 160px;min-height:44px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
 #size{font-variant-numeric:tabular-nums;color:var(--text);font-size:14px;white-space:pre}
 .sliders{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.sliders label{display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:var(--muted)}
-input[type=range]{width:100%;height:32px;accent-color:var(--stencil)}
+.sliders .lbl{font-size:12.5px}
+ink-slider{display:block;position:relative;height:44px;touch-action:pan-y;cursor:pointer;outline:none;-webkit-tap-highlight-color:transparent}
+ink-slider .sl-track{position:absolute;left:0;right:0;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:rgba(255,255,255,.16);pointer-events:none}
+ink-slider .sl-fill{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--stencil)}
+ink-slider .sl-thumb{position:absolute;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.45);pointer-events:none}
+ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offset:2px}
+#fitGroups{display:flex;flex-direction:column;gap:6px}
+#fitGroups details{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.04)}
+#fitGroups summary{min-height:44px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;font-weight:600;cursor:pointer;list-style:none;-webkit-tap-highlight-color:transparent}
+#fitGroups summary::-webkit-details-marker{display:none}
+#fitGroups summary::after{content:"+";color:var(--muted);font-size:20px;font-weight:400}
+#fitGroups details[open] summary::after{content:"\2212"}
+#fitGroups summary i{font-style:normal;font-size:12px;color:var(--stencil);margin:0 8px 0 auto}
+#fitGroups .grp{padding:0 14px 10px;display:flex;flex-direction:column;gap:4px}
+#fitGroups .grp .btn{align-self:flex-start;margin-bottom:4px}
+.tip{color:var(--muted);font-size:13px;margin:0}
+.pophead{display:flex;align-items:center;justify-content:space-between;position:sticky;top:-16px;margin:-16px -16px 0;padding:12px 16px;background:var(--panel-solid);border-radius:18px 18px 0 0;z-index:1}
 #tray{width:min(760px,100%);display:flex;gap:10px;align-items:center;padding:10px}
 #add{flex:none}
-#trayItems{display:flex;gap:8px;overflow-x:auto;flex:1;scrollbar-width:none;padding:2px}
+#trayItems{display:flex;gap:8px;overflow-x:auto;flex:1;scrollbar-width:none;padding:2px;touch-action:pan-x;overscroll-behavior:contain}
 #trayItems::-webkit-scrollbar{display:none}
 .chip{flex:none;display:flex;align-items:center;gap:9px;min-height:52px;padding:5px 12px 5px 5px;border-radius:14px;border:1.5px solid transparent;background:rgba(255,255,255,.06);max-width:210px;position:relative}
 .chip img{width:42px;height:42px;border-radius:10px;object-fit:contain;background:#f4f1ec}
@@ -73,13 +90,15 @@ input[type=range]{width:100%;height:32px;accent-color:var(--stencil)}
 #count{flex:none;color:var(--muted);font-size:12.5px;padding-right:6px}
 #empty{padding:10px 14px;display:flex;gap:12px;align-items:center}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.seg .btn{padding:0 8px}.lbl{color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
-.pop{position:fixed;top:74px;right:16px;width:320px;max-height:calc(100% - 90px);overflow:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+body.panel-open #full{visibility:hidden}
+.pop{position:fixed;z-index:3;top:74px;right:16px;width:320px;max-width:calc(100% - 32px);max-height:calc(100% - 184px);overflow-x:hidden;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.pop>*{flex:none}
 .pop h3,.modal h2{margin:0;font:700 17px/1.2 var(--display)}
 #skins{display:flex;gap:10px}
 .sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent}
 .sw.on{border-color:#fff;box-shadow:0 0 0 3px var(--stencil)}
 .scrim{position:fixed;inset:0;background:rgba(8,9,12,.62);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
-.modal{width:min(720px,100%);max-height:100%;overflow:auto;padding:20px;display:flex;flex-direction:column;gap:16px;background:var(--panel-solid)}
+.modal{width:min(720px,100%);max-height:100%;overflow-x:hidden;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;background:var(--panel-solid);touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .modal header{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .modal h2{font-size:24px}
 .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
@@ -87,6 +106,9 @@ input[type=range]{width:100%;height:32px;accent-color:var(--stencil)}
 .card:active{background:var(--stencil-soft);border-color:var(--stencil)}
 .card b{font:700 18px/1.2 var(--display)}
 .card span{color:var(--muted);font-size:14px}
+.card.slim{min-height:64px;padding:12px 16px;gap:2px;width:100%}
+.card.slim b{font-size:16px}
+#rcList{display:flex;flex-direction:column;gap:8px}
 #pvImg{max-width:100%;max-height:56vh;border-radius:12px;align-self:center;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;background:#fff}
 #pvNote{color:var(--muted);font-size:14px;margin:0}
 #coach{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(430px,calc(100% - 32px));padding:20px;display:flex;flex-direction:column;gap:14px;background:var(--panel-solid);z-index:4}
@@ -95,7 +117,7 @@ input[type=range]{width:100%;height:32px;accent-color:var(--stencil)}
 #coach li{display:flex;gap:12px;align-items:baseline}
 #coach li b{flex:none;width:118px;color:var(--stencil);font-weight:600}
 #toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);padding:10px 14px;display:flex;gap:12px;align-items:center;z-index:6;border-radius:999px}
-#toast button{background:none;border:0;color:var(--stencil);font-weight:600;min-height:32px}
+#toast button{background:none;border:0;color:var(--stencil);font-weight:600;min-height:44px;min-width:44px;padding:0 6px}
 @media (max-width:720px){
   #views{top:auto;bottom:auto;position:fixed;top:70px}
   .brand small{display:none}
@@ -128,20 +150,22 @@ input[type=range]{width:100%;height:32px;accent-color:var(--stencil)}
 </div>
 
 <div id="bodyPop" class="pop glass" hidden>
-  <h3>Body</h3>
+  <div class="pophead"><h3>Body</h3><button class="btn" type="button" data-close="bodyPop">Done</button></div>
   <div class="seg" role="group" aria-label="Body type">
     <button class="btn" type="button" data-fig="male">Male</button>
     <button class="btn" type="button" data-fig="neutral">Neutral</button>
     <button class="btn" type="button" data-fig="female">Female</button>
   </div>
-  <label for="rMuscle" class="lbl">Muscle<input id="rMuscle" type="range" min="0" max="100"></label>
-  <label for="rWeight" class="lbl">Weight: lighter to heavier<input id="rWeight" type="range" min="-100" max="100"></label>
+  <div class="lbl">Muscle: less to more<ink-slider id="rMuscle" min="0" max="100" default="50" origin="50" aria-label="Muscle"></ink-slider></div>
+  <div class="lbl">Weight: lighter to heavier<ink-slider id="rWeight" min="0" max="100" default="50" origin="50" aria-label="Weight"></ink-slider></div>
+  <div class="lbl">Height, used for real-world sizes<ink-slider id="rHeight" min="150" max="205" step="1" aria-label="Height"></ink-slider></div>
+  <div id="hText" style="font-variant-numeric:tabular-nums"></div>
   <span class="lbl">Skin tone</span>
   <div id="skins"></div>
-  <label for="rHeight" class="lbl">Height, used for real-world sizes</label>
-  <input id="rHeight" type="range" min="150" max="205" step="1">
-  <div id="hText" style="font-variant-numeric:tabular-nums"></div>
-  <button class="btn" type="button" data-close="bodyPop">Done</button>
+  <span class="lbl">Fine-tune each part</span>
+  <div id="fitGroups"></div>
+  <p class="tip">Double-tap a slider to put it back to standard.</p>
+  <button class="btn quiet" id="fitReset" type="button">Reset body shape</button>
 </div>
 
 <div id="dock">
@@ -155,9 +179,9 @@ input[type=range]{width:100%;height:32px;accent-color:var(--stencil)}
       <button class="btn primary" id="bDone" type="button">Done</button>
     </div>
     <div class="sliders">
-      <label for="rSize">Size<input id="rSize" type="range" min="0" max="1000"></label>
-      <label for="rTurn">Turn<input id="rTurn" type="range" min="-180" max="180"></label>
-      <label for="rFade">Ink strength<input id="rFade" type="range" min="15" max="100"></label>
+      <div class="lbl">Size<ink-slider id="rSize" min="0" max="1000" aria-label="Size"></ink-slider></div>
+      <div class="lbl">Turn<ink-slider id="rTurn" min="-180" max="180" aria-label="Turn"></ink-slider></div>
+      <div class="lbl">Ink strength<ink-slider id="rFade" min="15" max="100" default="92" aria-label="Ink strength"></ink-slider></div>
     </div>
     <div class="row">
       <button class="btn" id="bFlip" type="button">Mirror</button>
@@ -191,6 +215,15 @@ input[type=range]{width:100%;height:32px;accent-color:var(--stencil)}
       <button class="card" id="cBackup" type="button"><b>Back up project</b><span>One file with all artwork and placements.</span></button>
     </div>
     <button class="btn quiet" id="cRestore" type="button">Open a backup file, including older Ink Atlas .ink.json</button>
+    <button class="btn quiet" id="cRecover" type="button">Go back to an earlier save</button>
+  </div>
+</div>
+
+<div id="recover" class="scrim" hidden>
+  <div class="modal glass" role="dialog" aria-labelledby="rcTitle">
+    <header><h2 id="rcTitle">Earlier saves</h2><button class="btn" type="button" data-close="recover">Close</button></header>
+    <p class="tip">Copies kept on this device as you work, and before any backup is opened. Opening one replaces what is on screen. Undo brings it back.</p>
+    <div id="rcList"></div>
   </div>
 </div>
 
