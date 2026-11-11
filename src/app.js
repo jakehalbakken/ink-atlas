@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { DecalGeometry } from 'three/examples/jsm/geometries/DecalGeometry.js';
 import { INDEX, INDEX_ALL, COUNTS, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
 import { createSkin, updateSkin } from './skin.js';
+import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
 import './slider.js';
 import { cleanState } from './project.js';
 import { openStore } from './store.js';
@@ -193,34 +193,34 @@ function inkTexture(t) {
   const im = imgEls[t.img]; const c = document.createElement('canvas');
   const W = Math.min(1024, Math.max(64, im ? im.naturalWidth : 256)); c.width = W; c.height = Math.max(8, Math.round(W / t.aspect));
   const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-  if (im) { g.save(); g.globalAlpha = t.opacity ?? 0.92; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } g.drawImage(im, 0, 0, c.width, c.height); g.restore(); }
+  if (im) { g.save(); g.globalAlpha = t.opacity ?? 0.92; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } const mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height; g.drawImage(im, mx, my, c.width - 2 * mx, c.height - 2 * my); g.restore(); }
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; return tex;
 }
 function outlineTexture(aspect) {
   const c = document.createElement('canvas'); c.width = 384; c.height = Math.max(24, Math.round(384 / aspect));
   const g = c.getContext('2d'); g.strokeStyle = STENCIL; g.lineWidth = 5; g.setLineDash([14, 10]);
-  g.strokeRect(5, 5, c.width - 10, c.height - 10);
+  const mx = UV_MARGIN * c.width + 3, my = UV_MARGIN * c.height + 3;
+  g.strokeRect(mx, my, c.width - 2 * mx, c.height - 2 * my);
   g.setLineDash([]); g.fillStyle = STENCIL;
-  for (const [x, y] of [[5, 5], [c.width - 5, 5], [5, c.height - 5], [c.width - 5, c.height - 5]]) { g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); }
+  for (const [x, y] of [[mx, my], [c.width - mx, my], [mx, c.height - my], [c.width - mx, c.height - my]]) { g.beginPath(); g.arc(x, y, 5, 0, 7); g.fill(); }
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; return tex;
 }
+// Adjacency is rebuilt only when the index buffer changes (genitals shown/hidden).
+let adjCache = { key: '', adj: null };
+function bodyAdjacency() { const key = bodyGeo.index === idxAll ? 'all' : 'body'; if (adjCache.key !== key) adjCache = { key, adj: buildAdjacency(bodyGeo.index.array) }; return adjCache.adj; }
+function startTriangle(t) {
+  const n = new V3(...t.normal).normalize(); ray.set(new V3(...t.pos).addScaledVector(n, 0.06), n.clone().negate()); ray.far = 0.3;
+  const h = ray.intersectObject(body, false)[0]; ray.far = Infinity;
+  if (h && h.faceIndex != null) return h.faceIndex;
+  const I = bodyGeo.index.array, P = bodyGeo.attributes.position.array; let best = 0, bd = Infinity;
+  for (let tri = 0; tri < I.length / 3; tri++) { const a = I[tri * 3] * 3, b = I[tri * 3 + 1] * 3, c = I[tri * 3 + 2] * 3; const cx = (P[a] + P[b] + P[c]) / 3 - t.pos[0], cy = (P[a + 1] + P[b + 1] + P[c + 1]) / 3 - t.pos[1], cz = (P[a + 2] + P[b + 2] + P[c + 2]) / 3 - t.pos[2]; const d = cx * cx + cy * cy + cz * cz; if (d < bd) { bd = d; best = tri; } }
+  return best;
+}
 function decalGeometry(t) {
-  const f = frameOf(t); const w = t.width, h = t.width / t.aspect;
-  const size = new V3(w, h, Math.max(0.07, Math.max(w, h) * 0.5));
-  const g = new DecalGeometry(body, new V3(...t.pos), new THREE.Euler().setFromQuaternion(f.q), size);
-  const P = g.attributes.position.array, N = g.attributes.normal.array, U = g.attributes.uv.array;
-  const p = [], u = [];
-  for (let i = 0; i < P.length / 9; i++) {
-    const a = i * 9;
-    const nx = N[a] + N[a + 3] + N[a + 6], ny = N[a + 1] + N[a + 4] + N[a + 7], nz = N[a + 2] + N[a + 5] + N[a + 8];
-    if ((nx * f.n.x + ny * f.n.y + nz * f.n.z) / 3 < 0.12) continue;
-    for (let j = 0; j < 9; j++) p.push(P[a + j]);
-    for (let j = 0; j < 6; j++) u.push(U[i * 6 + j]);
-  }
-  g.dispose();
+  const { positions, uvs } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), startTriangle(t));
   const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
-  out.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
+  out.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  out.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   return out;
 }
 function texKeyOf(t) { return [t.img, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3)].join('|'); }
@@ -237,7 +237,7 @@ function syncDecals() {
     }
     const tk = texKeyOf(t);
     if (d.texKey !== tk && imgEls[t.img]) { if (d.tex) d.tex.dispose(); d.tex = inkTexture(t); d.mesh.material.map = d.tex; d.mesh.material.needsUpdate = true; d.texKey = tk; }
-    const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, shapeKey].join('|');
+    const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, shapeKey].join('|');
     if (d.geoKey !== gk) { d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
     d.mesh.visible = !t.hidden && !!d.tex; d.outline.visible = t.id === selectedId && !t.hidden && !exporting;
@@ -336,6 +336,7 @@ async function addImage(dataUrl, name, place) {
   const k = uid(); images[k] = src; await loadImg(k);
   const p = place || nextSlot();
   const t = { id: uid(), name: name || 'Tattoo', img: k, aspect: im.naturalWidth / im.naturalHeight, pos: p.pos, normal: p.normal, width: p.width || 0.11, rot: p.rot || 0, opacity: p.opacity ?? 0.92, flip: false, locked: false, hidden: false };
+  for (const k of ['wrap', 'bend', 'taper']) if (p[k]) t[k] = p[k];
   state.tattoos.push(t); return t;
 }
 function viewCenterSpot() { const r = canvas.getBoundingClientRect(); const h = hitBody(r.left + r.width / 2, r.top + r.height * 0.42); return h ? { pos: h.point.toArray(), normal: h.normal.clone().normalize().toArray() } : null; }
@@ -441,6 +442,8 @@ function renderSheet() {
   $('#rSize').value = Math.round(Math.log(t.width / 0.012) / Math.log(0.9 / 0.012) * 1000);
   $('#rTurn').value = Math.round(((((t.rot * 180 / Math.PI) + 180) % 360 + 360) % 360) - 180);
   $('#rFade').value = Math.round((t.opacity ?? 0.92) * 100);
+  $('#rWrap').value = Math.round((t.wrap || 0) * 100); $('#rBend').value = Math.round((t.bend || 0) * 100); $('#rTaper').value = Math.round((t.taper || 0) * 100);
+  const shaped = (t.wrap || 0) || (t.bend || 0) || (t.taper || 0); $('#wrapMark').textContent = shaped ? 'on' : ''; if (!shaped && !$('#wrapBox').open) { /* leave closed */ }
   $('#bLock').textContent = t.locked ? 'Unlock' : 'Lock in place'; $('#bLock').setAttribute('aria-pressed', t.locked ? 'true' : 'false');
   $('#bHide').textContent = t.hidden ? 'Show' : 'Hide';
   $('#bStatus').textContent = t.status === 'existing' ? 'Already on me' : 'Planned'; $('#bStatus').setAttribute('aria-pressed', t.status === 'existing' ? 'true' : 'false');
@@ -465,6 +468,9 @@ function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { c
 slider('#rSize', (t, v) => { t.width = 0.012 * Math.pow(0.9 / 0.012, v / 1000); });
 slider('#rTurn', (t, v) => { t.rot = v * Math.PI / 180; });
 slider('#rFade', (t, v) => { t.opacity = v / 100; });
+slider('#rWrap', (t, v) => { t.wrap = v / 100; });
+slider('#rBend', (t, v) => { t.bend = v / 100; });
+slider('#rTaper', (t, v) => { t.taper = v / 100; });
 $('#name').addEventListener('change', () => { const t = sel(); if (!t) return; snapshot(); t.name = $('#name').value.trim() || 'Tattoo'; commit(); });
 $('#bFlip').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.flip = !t.flip; commit(); });
 $('#bLock').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.locked = !t.locked; commit(); });
@@ -698,7 +704,8 @@ async function readInkJson(proj, assets) {
       place = { pos: pp, normal: [pn[0] / l, pn[1] / l, pn[2] / l], width: THREE.MathUtils.clamp((fin(t.width) && t.width > 0 ? t.width : 0.14) * K, 0.012, 0.9), rot: (fin(t.rotation) ? t.rotation : 0) * Math.PI / 180, opacity: fin(t.opacity) ? THREE.MathUtils.clamp(t.opacity, 0.1, 1) : 0.92 };
     } else unplaced++;
     const nt = await addImage(src, typeof t.name === 'string' ? t.name.slice(0, 40) : 'Tattoo', place);
-    if (nt) { n++; nt.flip = !!t.flipX; nt.hidden = !!t.hidden; nt.status = t.status === 'existing' ? 'existing' : 'planned'; nt.locked = typeof t.placementLocked === 'boolean' ? t.placementLocked : t.status === 'existing'; }
+    if (nt) { n++; nt.flip = !!t.flipX; nt.hidden = !!t.hidden; nt.status = t.status === 'existing' ? 'existing' : 'planned'; nt.locked = typeof t.placementLocked === 'boolean' ? t.placementLocked : t.status === 'existing';
+      if (fin(t.wrap) && t.wrap) nt.wrap = Math.max(0, Math.min(1, t.wrap)); if (fin(t.bend) && t.bend) nt.bend = Math.max(-1, Math.min(1, t.bend)); if (fin(t.taper) && t.taper) nt.taper = Math.max(-0.75, Math.min(0.75, t.taper)); }
   }
   lg.dispose();
   if (!n && proj.tattoos.length) throw new Error('No usable artwork in that backup');
@@ -768,4 +775,6 @@ window.__ink = {
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit,
+  decalReach: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry, P = g && g.attributes.position ? g.attributes.position.array : []; let max = 0; for (let i = 0; i < P.length; i += 3) { const dist = Math.hypot(P[i] - t.pos[0], P[i + 1] - t.pos[1], P[i + 2] - t.pos[2]); if (dist > max) max = dist; } return { name: t.name, tris: P.length / 9, max, w: t.width, h: t.width / t.aspect }; }),
 };

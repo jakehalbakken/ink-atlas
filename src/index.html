@@ -73,6 +73,13 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #fitGroups summary::after{content:"+";color:var(--muted);font-size:20px;font-weight:400}
 #fitGroups details[open] summary::after{content:"\2212"}
 #fitGroups summary i{font-style:normal;font-size:12px;color:var(--stencil);margin:0 8px 0 auto}
+#wrapBox{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.04)}
+#wrapBox summary{min-height:44px;padding:0 14px;display:flex;align-items:center;font-weight:600;cursor:pointer;list-style:none;-webkit-tap-highlight-color:transparent}
+#wrapBox summary::-webkit-details-marker{display:none}
+#wrapBox summary::after{content:"+";margin-left:auto;color:var(--muted);font-size:20px}
+#wrapBox[open] summary::after{content:"\2212"}
+#wrapBox i{font-style:normal;font-size:12px;color:var(--stencil);margin-left:8px}
+#wrapBox .grp{padding:2px 14px 10px;display:flex;flex-direction:column;gap:4px}
 #fitGroups .grp{padding:0 14px 10px;display:flex;flex-direction:column;gap:4px}
 #fitGroups .grp .btn{align-self:flex-start;margin-bottom:4px}
 .tip{color:var(--muted);font-size:13px;margin:0}
@@ -183,6 +190,14 @@ body.panel-open #full{visibility:hidden}
       <div class="lbl">Turn<ink-slider id="rTurn" min="-180" max="180" aria-label="Turn"></ink-slider></div>
       <div class="lbl">Ink strength<ink-slider id="rFade" min="15" max="100" default="92" aria-label="Ink strength"></ink-slider></div>
     </div>
+    <details id="wrapBox">
+      <summary>Wrap around the body<i id="wrapMark"></i></summary>
+      <div class="grp">
+        <div class="lbl">Wrap around a limb<ink-slider id="rWrap" min="0" max="100" default="0" origin="0" aria-label="Wrap"></ink-slider></div>
+        <div class="lbl">Bend<ink-slider id="rBend" min="-100" max="100" default="0" aria-label="Bend"></ink-slider></div>
+        <div class="lbl">Taper<ink-slider id="rTaper" min="-75" max="75" default="0" aria-label="Taper"></ink-slider></div>
+      </div>
+    </details>
     <div class="row">
       <button class="btn" id="bFlip" type="button">Mirror</button>
       <button class="btn" id="bDup" type="button">Duplicate</button>

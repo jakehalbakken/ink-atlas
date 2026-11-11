@@ -42,6 +42,7 @@ export function cleanState(raw, hasImage) {
     t.rot = num(t.rot) ? t.rot : 0;
     t.opacity = num(t.opacity) ? clamp(t.opacity, 0.1, 1) : 0.92;
     t.flip = !!t.flip; t.locked = !!t.locked; t.hidden = !!t.hidden;
+    for (const [k, lo, hi] of [['wrap', 0, 1], ['bend', -1, 1], ['taper', -0.75, 0.75]]) { if (num(t[k]) && t[k]) t[k] = clamp(t[k], lo, hi); else delete t[k]; }
     if (t.status !== 'existing' && t.status !== 'planned') delete t.status;
     const len = vec3(t.normal, 2) ? Math.hypot(t.normal[0], t.normal[1], t.normal[2]) : 0;
     if (vec3(t.pos, 10) && len > 0.5) t.normal = t.normal.map((c) => c / len);
