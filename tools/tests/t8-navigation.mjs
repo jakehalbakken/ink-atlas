@@ -30,7 +30,7 @@ export default async function (p) {
   await p.setViewport({width:1180,height:820,deviceScaleFactor:1,isMobile:true,hasTouch:true}); await wait();
   await visible('landscape');
   await p.evaluate(() => { Object.assign(window.__ink.goal,{r:0.22,tx:.7,ty:1.9,tz:.5}); });
-  await p.click('#full'); await wait(1500);
+  await p.click('#full'); await wait(300); await p.waitForFunction(() => window.__ink.settled(), { timeout: 10000 });
   assert(await p.evaluate(() => window.__ink.cur.r > 3 && Math.abs(window.__ink.cur.tx)<.01), 'Full body resets camera');
   // Cancel a two-pointer gesture, then confirm fresh one-finger orbit is accepted.
   const recovered = await p.evaluate(() => {
