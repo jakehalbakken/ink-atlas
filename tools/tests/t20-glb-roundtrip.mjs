@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+export default async function(p){
+ const wait=(n=600)=>new Promise(r=>setTimeout(r,n));const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name?.endsWith('.glb'))window.exportedGlb=blob.arrayBuffer();return old.call(this,blob);};});
+ await p.click('#shareBtn');await p.click('#cGlb');await p.waitForFunction(()=>!!window.exportedGlb,{timeout:30000});
+ const size=await p.evaluate(async()=>(await window.exportedGlb).byteLength);assert(size>1000);
+ await p.evaluate(async()=>{const b=await window.exportedGlb,dt=new DataTransfer();dt.items.add(new File([b],'roundtrip.glb',{type:'model/gltf-binary'}));const input=document.querySelector('#modelFile');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));});await p.waitForSelector('.model-preview');await wait();
+ const model=await p.evaluate(()=>document.querySelector('.model-preview').__modelTest());assert(model.vertices>10000);assert(model.bounds[1]>1.5&&model.bounds[1]<2.1);await p.screenshot({path:'shots/model-roundtrip.png'});await p.click('.model-preview [data-close]');assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before);
+ let external=false;p.on('request',r=>{if(r.url().includes('forbidden.example'))external=true;});
+ await p.evaluate(()=>{const obj={asset:{version:'2.0'},images:[{uri:'https://forbidden.example/texture.png'}],meshes:[{primitives:[{attributes:{POSITION:0}}]}],accessors:[{count:3}]};let txt=JSON.stringify(obj);while(txt.length%4)txt+=' ';const raw=new TextEncoder().encode(txt),b=new ArrayBuffer(20+raw.length),v=new DataView(b);v.setUint32(0,0x46546c67,true);v.setUint32(4,2,true);v.setUint32(8,b.byteLength,true);v.setUint32(12,raw.length,true);v.setUint32(16,0x4e4f534a,true);new Uint8Array(b,20).set(raw);const dt=new DataTransfer();dt.items.add(new File([b],'unsafe.glb',{type:'model/gltf-binary'}));const i=document.querySelector('#modelFile');i.files=dt.files;i.dispatchEvent(new Event('change',{bubbles:true}));});await wait();assert(!external);assert(!(await p.$('.model-preview')));assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before);
+ console.log('PASS t20 GLB export/read-only reimport, meter bounds, state safety, external texture rejection');
+}

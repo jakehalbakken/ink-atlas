@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {planGroupTransform} from '../../src/group-transform.js';
+const make=(id,x,extra={})=>({id,pos:[x,1,0],normal:[0,0,1],width:.1,aspect:2,rot:0,status:'planned',...extra});
+const original=[make('a',-.1),make('b',.1),make('locked',0,{locked:true}),make('existing',0,{status:'existing'})];
+const before=structuredClone(original),plane=(p)=>({pos:p,normal:[0,0,1]});
+const scaled=planGroupTransform(original,['a','b','locked','existing','missing'],{scale:2},plane);
+assert.deepEqual(scaled.updates.map(t=>t.pos[0]),[-.2,.2]);assert.deepEqual(scaled.updates.map(t=>t.width),[.2,.2]);assert.ok(scaled.updates.every(t=>t.aspect===2));assert.deepEqual(scaled.skippedIds,['locked','existing','missing']);
+const turned=planGroupTransform(original,['a','b'],{rotation:Math.PI/2,dx:.03,dy:.02},plane).updates;
+assert.ok(Math.abs(turned[0].pos[0]-.03)<1e-12);assert.ok(Math.abs(turned[0].pos[1]-.92)<1e-12);assert.ok(Math.abs(turned[1].pos[1]-1.12)<1e-12);assert.equal(turned[0].rot,Math.PI/2);
+let count=0;assert.throws(()=>planGroupTransform(original,['a','b'],{scale:1.5},p=>++count===2?null:plane(p)));assert.equal(count,2);
+assert.throws(()=>planGroupTransform(original,['a'],{},p=>({pos:[p[0],p[1],.061],normal:[0,0,1]})));
+assert.throws(()=>planGroupTransform([make('a',-.1),make('b',.1,{normal:[1,0,0]})],['a','b'],{},plane));
+assert.throws(()=>planGroupTransform(original,['a'],{dx:.4},plane));
+assert.equal(planGroupTransform(original,['a'],{scale:100},plane).updates[0].width,.9);assert.equal(planGroupTransform(original,['a'],{scale:.001},plane).updates[0].width,.012);
+planGroupTransform(original,['a'],{},(p,n,t)=>{t.pos[0]=999;n[0]=999;return plane(p);});
+assert.deepEqual(original,before);assert.deepEqual(planGroupTransform(original,['locked'],{},plane),{updates:[],skippedIds:['locked']});
+console.log('PASS group spacing+size, rotation+nudge, locks/existing, atomic failure, curvature/jump guards, clamps and immutability');

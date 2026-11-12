@@ -79,6 +79,8 @@ export default async function (p) {
 
   // 6. a failing disk is reported, not hidden
   await p.click('#trayItems .chip'); await wait(900);
+  // Imported existing ink is locked. Unlock explicitly before testing edits.
+  if (await p.$eval('#bFlip', b => b.disabled)) { await p.click('#bLock'); await wait(500); }
   await p.evaluate(() => { window.__put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function () { throw new DOMException('full', 'QuotaExceededError'); }; });
   await p.click('#bFlip'); await wait(900);
   const failText = await savedText(), failToast = await toastText();

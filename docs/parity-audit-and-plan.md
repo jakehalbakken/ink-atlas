@@ -141,3 +141,83 @@ Still open:
 ## Tests
 
 `tools/tests/` t1 gestures and exports, t2 shape change with ink, t3 v47 import, t4 body visuals, t5 old-save body upgrade and slider touch, t6 durable projects. Run each as `node tools/shot.mjs shots/out.png tools/tests/tN.mjs` after `npm run build`. All six passed on 2026-11-11 against the working tree. None of this replaces the iPad check.
+
+## Local implementation checkpoint — 2026-11-12 (not published)
+
+The working tree now includes the following staged parity improvements. This is not a declaration of full v47 parity, and it has not been pushed or deployed.
+
+- iPad navigation recovery: controls follow the visual viewport; interrupted gestures clear; Full body is always available. Synthetic portrait/landscape zoom tests pass; a real iPad check remains necessary.
+- Upload and local artwork cleanup: preserve transparency and immutable original image; light-paper removal, crop, contrast, erase/restore, compare, reset and local undo. Apply creates a separate artwork revision. This is not AI subject removal, and mask/crop parameters are not yet a persistent editable recipe.
+- Precise placement: approximate inch width, 1/2/3/4-inch presets, small surface nudges and transform reset. Locked ink blocks editing.
+- Plan menu: named project copies, recoverable archive, layouts, checkpoints, saved views and size studies. Restoring a layout preserves current existing ink. Comparisons currently summarize counts, not visual side-by-side canvases.
+- Layers: order, selection, named groups, visibility, opacity, locks and view-only solo. Spatial group transforms remain unimplemented.
+- Artist export: full self-contained printable HTML with four body views, all artwork, available untouched sources, sizes and notes. The older quick PNG is explicitly limited to seven visible tattoos. Detail-angle selection and note authoring remain future work.
+- Asset retention: central image-reference traversal covers originals, outputs, layouts and checkpoints for backup/recovery/GC; original data is never overwritten.
+
+Integration gates: build passed; t6 durability/touch-target suite, t8 navigation, t9 cleanup/shelf, t10 planning/layers, t11 full packet passed. Earlier t1/t2/t3/t5/t7/t7b passed during this pass. Tests do not replace real-iPad verification. No live original project was opened or modified.
+
+Still required: real pose skinning/ink deformation, linked artwork edits, spatial group transforms, visual comparisons, pinned body notes/drawing and two-point measurement, full editable cleanup recipes, Procreate patch round trips, UV/3D export/import, clothing/hair, v47-compatible backup export verification, and backend/provider selection before accounts or AI uploads. A rig investigation found the current body bake excludes most joint-source vertices; safe skinning needs a separate shape-aware rig bake with unchanged body topology and all normalized weight influences, not a cosmetic pose shortcut.
+
+Pose foundation added after the checkpoint: `tools/rig.py`, `src/rig.js`, `src/pose.js` bake 163 bones/326 shape-aware joints and retain all normalized influences in the exact 14,287-vertex order. Agent tests passed shape identity across 27 macro combinations and six slider extremes, neutral identity, repeated-pose rest immutability and root rotation. This foundation is deliberately NOT imported into the app yet: decal attachment, native bone-roll fidelity, restrained visual previews, joint-crossing artwork QA and iPad performance must pass before runtime integration.
+
+## Next local pass — pose previews, notes and linked artwork
+
+- Plan → Pose preview now opens an isolated cloned scene with neutral, elbow bend, raised arm and gentle torso twist. Body and ink deform using the rig; decal UVs remain fixed and each vertex follows its exact body support plus normal offset. Preview closes back to unchanged canonical editing state. It is not full posed editing, IK or an anatomical simulation.
+- `t12-pose-notes.mjs` verifies all four presets, exact support mapping, unchanged UVs/input buffers/state, neutral identity, and artist-note reload persistence. Raised-arm screenshot visually inspected. `pose-unit.mjs` repeats neutral/body identity and rest immutability over 27 macro shapes. Real iPad performance remains unverified.
+- Plan → Artist notes supports whole-plan and piece-linked text, edit and two-step deletion; notes feed the printable artist packet. These are not 3D body pins.
+- Cleanup now offers an explicit linked-copy action when pieces share an artwork identity, alongside independent cleanup. Locked copies and historical layout snapshots are preserved. New revisions retain original sources and metadata.
+- All changes remain local and unpublished; original embedded project untouched. Full posed editing, motion loops, body pins/measurement, spatial group transforms and the other uncompleted roadmap items still remain.
+
+## Local visual comparison and spatial groups pass
+
+- Saved layouts/checkpoints now carry a compact actual camera snapshot and support side-by-side visual comparison. These are saved pictures, not synchronized live 3D. Older entries explicitly say no preview is available; size-study generation never mislabels an unchanged picture as a resized preview.
+- Layers → Move / resize selection adds group scale, rotation and small tangent-plane nudges. Scale changes spacing and artwork sizes together. Locked/existing ink is excluded. All projections must pass a short connected-triangle skin path plus distance/normal guards; ambiguous or excessive-curvature moves reject atomically. One undo restores the whole operation.
+- `group-transform-unit.mjs` covers spatial transforms, protection and atomic failure. `t14-compare-groups.mjs` passed actual saved-preview comparison and adjacent chest-group scaling/undo. A cross-surface selection was correctly rejected. Visual inspection found and fixed dark input contrast and added overflow scrolling to the planning panel.
+- These improvements remain local only. 3D pinned notes/measurement, posed editing/motion loops, Procreate/3D interoperability and optional clothing/hair are still unimplemented; account/AI provider decisions remain outstanding.
+
+## Local body tools and coverage pass
+
+- Plan → Body pins & ruler: neutral 3D notes use triangle/barycentric anchors; edits save only on explicit Save notes and preserve general/piece notes. Cancellation leaves stored notes unchanged. New notes capped at 240 characters / 180 pins; older longer text is retained. Two-point ruler reports approximate 3D straight-line distance scaled to body height, explicitly NOT a surface/tape measurement.
+- Plan → Clothing coverage: optional short/long sleeves, high collar, shorts and hair silhouette, all off by default. These are approximate painted-on coverage masks, not fitted garments or realistic hair. Covered decal triangles are hidden using the same region tests; everything stays in an isolated cloned scene and disappears on close without changing the project.
+- Artwork import now enforces documented PNG/JPEG/WebP, 10 MiB, 24-megapixel and 1:20–20:1 aspect limits before adding a piece; accepted originals remain retained.
+- t15 integration validates pin save/reload, body picking and ruler output, temporary coverage toggles/input immutability and covered ink suppression. Visual QA caught and fixed ruler buffer growth/hidden endpoints and tattoo bleed-through on coverage overlays.
+- Still remaining: direct body drawing, sampled-surface measurement, posed editing/motion loops, Procreate patch workflow, 3D interoperability, photo-guided fit and backend/AI-dependent features. All work remains local, unpublished, original app untouched.
+
+## Local drawing and Procreate exchange pass
+
+- Body tools now support neutral direct-on-skin drawing with triangle/barycentric anchors, continuous-surface guards, per-stroke point limits, visibility and two-step drawing-only clear. Save atomically applies notes plus drawings; cancel discards both local edits.
+- Share → Sketch in Procreate creates a 768-square body patch guide from real decal UV triangles. Pending patch, guide, shape signature and anchor persist across reload; reopening resumes the pending exchange. Explicit discard is undoable. Returning a validated PNG adds a NEW planned tattoo at the saved patch; it never replaces existing ink.
+- PNG return validation rejects wrong format/dimensions, empty/opaque returns and visible pixels outside the patch. Body-shape changes block application until restored or a new guide is created. Parent converts padded shader UVs back to raw image coordinates to avoid double-padding/shrinkage.
+- `t16-drawing-patch.mjs` passed anchored drawing persistence and a simulated transparent-PNG exchange after reload, including new-planned-item/anchor verification. Clipping float roundoff at square boundaries was fixed during integration. This is not a verified native iPad/Procreate handoff yet; existing-ink reference-layer export and richer patch-area selection remain future work.
+- All work remains local/unpublished and does not touch the original embedded project.
+
+## Local reference, motion and manual photo-fit pass
+
+- Procreate guide creation now offers current view, selected tattoo area, chest, back, arm, forearm and thigh. Existing ink on the exact shared patch triangles gets a separate transparent reference layer, persisted with the pending patch and exportable separately. Reference respects legacy/current image orientation and never imports the guide as ink.
+- Pose preview adds a restrained elbow motion loop with <=20 skin updates/second, play/pause, background stop and close cleanup. Pause restores the static pose. `posed-picking.js` has tested inverse barycentric math, but direct posed editing remains disabled, consistent with v47's neutral-only manipulation rule.
+- Manual photo-reference fitting provides temporary local front/back photos, before/after and body controls. Apply saves a restorable original in Projects BEFORE opening a fitted copy. Photos are not saved or uploaded, and no automated anatomical inference is claimed.
+- Found and fixed a pre-existing vertical artwork inversion for NEW uploads and patch returns using explicit imageTopDown metadata. Untagged legacy placements keep their old appearance; an explicit Flip vertical control lets users correct them. This is intentionally not a silent visual migration.
+- t17 passes motion/support/state safety and selected-patch transparent existing-ink reference; t16 still passes chooser/roundtrip. t18 passes local-photo preview, separate-copy application and original restoration. t19 pixel-tests correct new orientation, preserved legacy appearance and explicit flip. Photo-fit and orientation screenshots visually inspected.
+- Still local/unpublished. Native iPad/Procreate handoff, complete 3D interchange, automatic/landmark-guided fitting and backend decisions remain separate verification/work.
+
+## Local 3D interchange and v47 preservation pass
+
+- Share → Export 3D model outputs a self-contained neutral GLB in meters, with body and separate tattoo meshes/embedded textures. This is static, approximate plain skin, not UV-baked or rigged; colored alpha ink can differ from the app's multiply shading. No notes/photos/arbitrary private metadata are exported. GLB is preferred to an incomplete OBJ/MTL handoff.
+- Share → Preview a GLB is read-only and never replaces the canonical body/project. It rejects external resource URLs, oversized models/textures and unsupported compression. t20 verifies export/reimport bounds and state preservation plus zero external fetch on a rejected texture URL. Roundtrip screenshot inspected.
+- Original-v47 export now exposes an explicitly limited compatibility copy alongside a full rebuild backup. Shared geometry maps through canonical triangle barycentrics. Unsupported counts, widths or uncertain anchors stop export rather than truncate/resize. Original-runtime testing remains NOT performed.
+- Replaced the old v47 importer, which retained metadata from the previous active project, with isolated new-state conversion. Shared layouts/checkpoints/groups/artwork IDs/images are converted; unsupported source metadata is retained verbatim in v47Source and can be downloaded as an untouched original backup. Unplaced art stays unplaced in a separate saved-artwork list until explicitly placed by the user. Invalid non-null anchors are rejected instead of guessed.
+- Unit export/import tests and independent t21 integration passed source archival, metadata isolation, unplaced-art reload/manual placement and failed-import safety. Full editable parity for legacy marks/boards/views/cleanup is still incomplete; the untouched source and full rebuild backup preserve those records.
+- No publication or original-app modification occurred.
+
+## Local-only motion, measurement and artist detail checkpoint
+
+- Pose preview now offers three restrained motion studies with speed and scrub controls; isolated tests verify support mapping, UV/input preservation, pause, visibility and cleanup. These are approximate rig studies, not anatomically validated motion.
+- Ruler compares chord distance with a shortest mesh-edge route. It stays on connected mesh topology, rejects disconnected routes, and scales to height. Explicitly approximate, potentially overestimating, and not a substitute for a real tape or exact geodesic.
+- Artist packet includes pinned notes and drawing marks, including mark-only axis projections with clear limitations. It does not misrepresent these as body screenshots or production stencils.
+- These additions are NOT part of the first upload/cleanup release slice.
+
+## Jake's next requested artist workflow priorities
+
+- Alignment guides like Photoshop/Slides, relative to existing tattoos: centerlines, edges and spacing, with optional snapping and no implicit movement of locked/existing ink.
+- Mirror/symmetry tools: explicit preview and chosen axis/side, preserving original artwork and requiring deliberate application. Distinguish image flip from opposite-body placement.
+- Export a chosen body section with existing ink to a flat drawing view, then map the returned transparent art onto the same wrap. Existing Procreate patch exchange is a partial foundation, not full UV-unwrapped section editing; retain shape/patch identity and prevent stale-body reimports.

@@ -4,7 +4,13 @@ import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
 import { createSkin, updateSkin } from './skin.js';
 import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
 import './slider.js';
-import { cleanState } from './project.js';
+import { editArtwork } from './cleanup.js';
+import { applyArtworkRevision } from './cleanup-links.js';
+import { openShelf, openProjectShelf } from './shelf.js';
+import { openPlanning } from './planning.js';
+import { openLayers } from './layers.js';
+import { makeArtistPacket } from './artist-packet.js';
+import { cleanState, imageKeysFor } from './project.js';
 import { openStore } from './store.js';
 import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
@@ -22,6 +28,7 @@ let state = freshState();
 let images = {}; // key -> dataURL
 const imgEls = {}; // key -> HTMLImageElement
 let selectedId = null;
+let soloIds = null;
 const undoStack = [];
 const redoStack = [];
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -186,6 +193,7 @@ function applyAnchors(an) {
 function reshape(fn) { const an = anchorsNow(); fn(); applyShape(); applyAnchors(an); }
 /* ---------- decals ---------- */
 function loadImg(keyName) {
+  if(typeof images[keyName]!=='string'||!images[keyName].startsWith('data:image/'))return Promise.resolve(null);
   if (imgEls[keyName]) return Promise.resolve(imgEls[keyName]);
   return new Promise((res) => { const im = new Image(); im.onload = () => { imgEls[keyName] = im; res(im); }; im.onerror = () => res(null); im.src = images[keyName]; });
 }
@@ -194,7 +202,7 @@ function inkTexture(t) {
   const W = Math.min(1024, Math.max(64, im ? im.naturalWidth : 256)); c.width = W; c.height = Math.max(8, Math.round(W / t.aspect));
   const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
   if (im) { g.save(); g.globalAlpha = t.opacity ?? 0.92; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } const mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height; g.drawImage(im, mx, my, c.width - 2 * mx, c.height - 2 * my); g.restore(); }
-  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; return tex;
+  const tex = new THREE.CanvasTexture(c); tex.flipY = !t.imageTopDown; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; return tex;
 }
 function outlineTexture(aspect) {
   const c = document.createElement('canvas'); c.width = 384; c.height = Math.max(24, Math.round(384 / aspect));
@@ -217,13 +225,14 @@ function startTriangle(t) {
   return best;
 }
 function decalGeometry(t) {
-  const { positions, uvs } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), startTriangle(t));
+  const { positions, uvs, supports } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), startTriangle(t));
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   out.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  out.userData.supports = supports;
   return out;
 }
-function texKeyOf(t) { return [t.img, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3)].join('|'); }
+function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3)].join('|'); }
 function syncDecals() {
   const ids = new Set(state.tattoos.map((t) => t.id));
   for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); d.tex.dispose(); d.outline.material.map.dispose(); delete decals[id]; }
@@ -240,7 +249,7 @@ function syncDecals() {
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, shapeKey].join('|');
     if (d.geoKey !== gk) { d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
-    d.mesh.visible = !t.hidden && !!d.tex; d.outline.visible = t.id === selectedId && !t.hidden && !exporting;
+    d.mesh.visible = !t.hidden && !!d.tex && (!soloIds || soloIds.has(t.id)); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting;
   });
   needsRender = true;
 }
@@ -250,7 +259,7 @@ let exporting = false;
 // store.js does the writing. Here: when to save, telling the truth about whether it
 // worked, and keeping copies to go back to.
 let store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
-function usedImages() { const o = {}; for (const t of state.tattoos) o[t.img] = images[t.img]; return o; }
+function usedImages() { const o = {}; for (const k of imageKeysFor(state)) if (images[k]) o[k] = images[k]; return o; }
 function setSaved(text, bad) { const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad); }
 function save() {
   dirty = true; clearTimeout(saveTimer);
@@ -284,7 +293,7 @@ function keepRecovery(reason) { return store && store.ok ? store.addRecovery(sta
 async function openProject(rawState, imgs) {
   imgs = imgs && typeof imgs === 'object' ? imgs : {};
   const c = cleanState(rawState, (k) => typeof imgs[k] === 'string' && imgs[k].startsWith('data:image'));
-  for (const t of c.state.tattoos) if (!images[t.img]) images[t.img] = imgs[t.img];
+  for (const k of imageKeysFor(c.state)) if (!images[k] && typeof imgs[k]==='string' && imgs[k].startsWith('data:image/')) images[k] = imgs[k];
   await Promise.all(c.state.tattoos.map((t) => loadImg(t.img)));
   const usable = c.state.tattoos.filter((t) => imgEls[t.img]);
   const dropped = c.dropped + c.state.tattoos.length - usable.length;
@@ -325,18 +334,21 @@ let slotI = 0;
 function nextSlot() { for (let i = 0; i < SLOTS.length; i++) { const s = SLOTS[(slotI++) % SLOTS.length]; const h = surfaceAt(new V3(...s[0]), new V3(...s[1])); if (h) return h; } return { pos: [0, 1.3, 0.12], normal: [0, 0, 1] }; }
 async function addImage(dataUrl, name, place) {
   const im = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = dataUrl; });
-  if (!im) return null;
+  if (!im) {toast('That picture could not be opened.');return null;}
+  const ratio=im.naturalWidth/im.naturalHeight;
+  if(im.naturalWidth*im.naturalHeight>24000000 || !Number.isFinite(ratio) || ratio<.05 || ratio>20){toast('Use artwork under 24 megapixels with an aspect ratio between 1:20 and 20:1.');return null;}
   let src = dataUrl;
-  const max = 1024;
+  const max = 1600;
   if (im.naturalWidth > max || im.naturalHeight > max || dataUrl.length > 900000) {
     const s = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight)); const c = document.createElement('canvas');
     c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-    src = c.toDataURL('image/png'); if (src.length > 1400000) { const c2 = document.createElement('canvas'); c2.width = c.width; c2.height = c.height; const g = c2.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(c, 0, 0); src = c2.toDataURL('image/jpeg', 0.88); }
+    src = c.toDataURL('image/png'); // Preserve transparency and line detail.
   }
   const k = uid(); images[k] = src; await loadImg(k);
   const p = place || nextSlot();
-  const t = { id: uid(), name: name || 'Tattoo', img: k, aspect: im.naturalWidth / im.naturalHeight, pos: p.pos, normal: p.normal, width: p.width || 0.11, rot: p.rot || 0, opacity: p.opacity ?? 0.92, flip: false, locked: false, hidden: false };
+  const t = { id: uid(), name: name || 'Tattoo', img: k, imageTopDown:true, aspect: im.naturalWidth / im.naturalHeight, pos: p.pos, normal: p.normal, width: p.width || 0.11, rot: p.rot || 0, opacity: p.opacity ?? 0.92, flip: false, locked: false, hidden: false };
   for (const k of ['wrap', 'bend', 'taper']) if (p[k]) t[k] = p[k];
+  state.artworks ||= {}; t.artworkId = uid(); const sourceKey = src === dataUrl ? k : uid(); if (sourceKey !== k) images[sourceKey] = dataUrl; state.artworks[t.artworkId] = { source: sourceKey, output: k, name: t.name };
   state.tattoos.push(t); return t;
 }
 function viewCenterSpot() { const r = canvas.getBoundingClientRect(); const h = hitBody(r.left + r.width / 2, r.top + r.height * 0.42); return h ? { pos: h.point.toArray(), normal: h.normal.clone().normalize().toArray() } : null; }
@@ -400,7 +412,14 @@ canvas.addEventListener('pointermove', (e) => {
     gest.pd = s.d; gest.pcx = s.cx; gest.pcy = s.cy;
   }
 });
+function cancelGesture() {
+  const g = gest; gest = null;
+  const ids = [...pts.keys()]; pts.clear();
+  for (const id of ids) { try { canvas.releasePointerCapture(id); } catch (_) { /* already released */ } }
+  if (g?.snap) commit();
+}
 function endPointer(e) {
+  if (e.type === 'pointercancel') { cancelGesture(); return; }
   if (!pts.has(e.pointerId)) return;
   pts.delete(e.pointerId);
   if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...t.pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; } return; }
@@ -410,6 +429,9 @@ function endPointer(e) {
   if (!g.moved && performance.now() - g.t0 < 450 && e.type === 'pointerup') tap(e.clientX, e.clientY);
 }
 canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('lostpointercapture', (e) => { if (pts.has(e.pointerId)) cancelGesture(); });
+window.addEventListener('blur', cancelGesture);
+document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
   const h = hitBody(x, y); const t = h ? tattooAt(h.point, h.normal) : null; const now = performance.now();
@@ -439,6 +461,11 @@ function renderSheet() {
   if (!t) return;
   if (document.activeElement !== $('#name')) $('#name').value = t.name;
   $('#size').textContent = sizeText(t);
+  const linkedCount=t.artworkId?state.tattoos.filter(x=>x.artworkId===t.artworkId).length:1;
+  $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=!!t.locked; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
+  $('#exactWidth').value = (t.width * state.heightCm / 175 * 100 / 2.54).toFixed(2);
+  for (const id of ['rSize','rTurn','rFade','rWrap','rBend','rTaper','bFlip','bFlipVertical','bCleanup','bDel','exactWidth','resetTransform']) $('#'+id).toggleAttribute('disabled', !!t.locked);
+  document.querySelectorAll('[data-inch],[data-nudge]').forEach(b => b.disabled = !!t.locked);
   $('#rSize').value = Math.round(Math.log(t.width / 0.012) / Math.log(0.9 / 0.012) * 1000);
   $('#rTurn').value = Math.round(((((t.rot * 180 / Math.PI) + 180) % 360 + 360) % 360) - 180);
   $('#rFade').value = Math.round((t.opacity ?? 0.92) * 100);
@@ -458,13 +485,13 @@ function renderBody() {
   syncFitUI();
   $('#rHeight').value = state.heightCm; const inch = state.heightCm / 2.54; $('#hText').textContent = `${Math.floor(inch / 12)} ft ${Math.round(inch % 12)} in  ·  ${state.heightCm} cm`;
 }
-function renderUI() { renderTray(); renderSheet(); renderBody(); refreshUndo(); }
+function renderUI() { $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); }
 function toast(msg, action, fn) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 5200);
 }
 let slideSnap = false;
-function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
+function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t || t.locked) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
 slider('#rSize', (t, v) => { t.width = 0.012 * Math.pow(0.9 / 0.012, v / 1000); });
 slider('#rTurn', (t, v) => { t.rot = v * Math.PI / 180; });
 slider('#rFade', (t, v) => { t.opacity = v / 100; });
@@ -472,15 +499,48 @@ slider('#rWrap', (t, v) => { t.wrap = v / 100; });
 slider('#rBend', (t, v) => { t.bend = v / 100; });
 slider('#rTaper', (t, v) => { t.taper = v / 100; });
 $('#name').addEventListener('change', () => { const t = sel(); if (!t) return; snapshot(); t.name = $('#name').value.trim() || 'Tattoo'; commit(); });
-$('#bFlip').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.flip = !t.flip; commit(); });
+$('#bFlip').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.locked) { toast('Unlock this tattoo first.'); return; } snapshot(); t.flip = !t.flip; commit(); });
 $('#bLock').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.locked = !t.locked; commit(); });
 $('#bStatus').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.status = t.status === 'existing' ? 'planned' : 'existing'; t.locked = t.status === 'existing'; commit(); });
 $('#bHide').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.hidden = !t.hidden; commit(); });
+$('#bFlipVertical').addEventListener('click',()=>{const t=sel();if(!t||t.locked)return;snapshot();t.imageTopDown=!t.imageTopDown;commit();});
 $('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); const f = frameOf(t); const p = new V3(...t.pos).addScaledVector(f.right, t.width * 0.6).addScaledVector(f.n, 0.2); const h = surfaceAt(p, f.n.clone().negate()); const c = { ...t, id: uid(), name: t.name + ' copy', locked: false, pos: h ? h.pos : t.pos, normal: h ? h.normal : t.normal }; state.tattoos.push(c); selectedId = c.id; commit(); });
-$('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
+$('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.locked) { toast('Unlock this tattoo first.'); return; } snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
+function setWidthInches(value) {
+ const t = sel(); if (!t || t.locked || !Number.isFinite(value) || value <= 0) return;
+ snapshot(); t.width = Math.max(.012, Math.min(.9, value * 2.54 / 100 * 175 / state.heightCm)); commit();
+}
+$('#exactWidth').addEventListener('change', () => setWidthInches(+$('#exactWidth').value));
+document.querySelectorAll('[data-inch]').forEach(b => b.addEventListener('click',()=>setWidthInches(+b.dataset.inch)));
+document.querySelectorAll('[data-nudge]').forEach(b => b.addEventListener('click',()=>{
+ const t=sel(); if(!t || t.locked) return; const [x,y]=b.dataset.nudge.split(',').map(Number), f=frameOf(t);
+ const p=new V3(...t.pos).addScaledVector(f.right,x*.002*175/state.heightCm).addScaledVector(f.up,y*.002*175/state.heightCm).addScaledVector(f.n,.03);
+ const h=surfaceAt(p,f.n.clone().negate()); if(!h) return; snapshot();t.pos=h.pos;t.normal=h.normal;commit();
+}));
+$('#resetTransform').addEventListener('click',()=>{const t=sel();if(!t || t.locked)return;snapshot();t.rot=0;t.wrap=0;t.bend=0;t.taper=0;commit();});
+async function cleanupSelected(linked=false) {
+  const t = sel(); if (!t) return;
+  if (t.locked) { toast('Unlock this tattoo before editing its artwork.'); return; }
+  const id = t.id, prior = t.img;
+  state.artworks ||= {};
+  const art = state.artworks[t.artworkId];
+  const source = art?.source || prior;
+  const result = await editArtwork(images[source] || images[prior], images[prior]);
+  if (!result) return;
+  const current = state.tattoos.find(x => x.id === id);
+  if (!current || current.img !== prior) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
+  snapshot();
+  const key = uid(); images[key] = result.dataUrl; await loadImg(key);
+  const revision=applyArtworkRevision(state,id,key,result.aspect,{linked});
+  state=revision.nextState;
+  if(revision.artworkId)state.artworks[revision.artworkId].cleanup=result.settings || {};
+  commit(); toast(`${revision.changedIds.length} artwork updated. Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
+}
+$('#bCleanup').addEventListener('click',()=>cleanupSelected(false));
+$('#bCleanupLinked').addEventListener('click',()=>cleanupSelected(true));
 $('#bDone').addEventListener('click', () => select(null));
 $('#undo').addEventListener('click', undo); $('#redo').addEventListener('click', redo);
-$('#full').addEventListener('click', () => fullBody());
+$('#full').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); select(null); fullBody(); });
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => fullBody(+b.dataset.view * Math.PI / 2)));
 $('#add').addEventListener('click', () => $('#file').click());
 $('#emptyAdd').addEventListener('click', () => $('#file').click());
@@ -489,11 +549,11 @@ $('#file').addEventListener('change', async (e) => {
   snapshot(); let last = null; let first = true;
   for (const f of files) {
     if (/json$/i.test(f.name) || f.type === 'application/json') { if (f.size > 300e6) { toast('That file is too large to open here.'); continue; } await importBackup(await f.text()); continue; }
-    if (!f.type.startsWith('image/')) continue;
-    if (f.size > 40e6) { toast('That picture is too large to add.'); continue; }
+    if (!/^image\/(png|jpeg|webp)$/.test(f.type)) {toast('Choose a PNG, JPEG or WebP picture.');continue;}
+    if (f.size > 10*1024*1024) { toast('Use a picture smaller than 10 MiB.'); continue; }
     const url = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(f); });
     if (typeof url !== 'string') continue;
-    const t = await addImage(url, f.name.replace(/\.[^.]+$/, '').slice(0, 40), first ? viewCenterSpot() : null); first = false; if (t) last = t;
+    const t = await addImage(url, f.name.replace(/\.[^.]+$/, '').slice(0, 100), first ? viewCenterSpot() : null); if (t) {first = false;last = t;}
   }
   if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
 });
@@ -542,22 +602,107 @@ function syncFitUI() {
   }
 }
 $('#fitReset').addEventListener('click', () => { snapshot(); reshape(() => { state.fit = {}; state.muscle = 0.5; state.weight = 0.5; }); commit(); toast('Body shape back to standard', 'Undo', undo); });
-// Nothing outside the panels may scroll or zoom the page (belt and braces for iOS Safari).
-document.addEventListener('touchmove', (e) => { if (!(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems')) e.preventDefault(); }, { passive: false });
-document.addEventListener('gesturestart', (e) => e.preventDefault());
-// The page is locked, so when the on-screen keyboard opens lift the bottom sheet above it
-// ourselves, and undo any shove Safari gives the page once the keyboard goes away.
+// Keep browser/page zoom separate from the 3D camera. Single-finger panel
+// scrolling is allowed; pinching panels must not zoom the entire app off-screen.
+document.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 1 || !(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems,#sheet,[aria-modal=true]')) e.preventDefault();
+}, { passive: false });
+for (const name of ['gesturestart', 'gesturechange']) document.addEventListener(name, (e) => e.preventDefault(), { passive: false });
+// iOS can still change its visual viewport (keyboard, accessibility/page zoom,
+// browser chrome). Fit the whole studio to that visible rectangle rather than
+// assuming fixed controls at layout-viewport corners are still reachable.
 if (window.visualViewport) {
-  const vv = window.visualViewport;
-  const onVV = () => { const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); document.documentElement.style.setProperty('--kb', kb > 80 ? kb + 'px' : '0px'); if (kb <= 80 && (window.scrollX || window.scrollY)) window.scrollTo(0, 0); };
-  vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV);
+  const vv = window.visualViewport, viewport = $('#viewport');
+  const onVV = () => {
+    const scale = vv.scale || 1;
+    viewport.style.width = `${vv.width * scale}px`;
+    viewport.style.height = `${vv.height * scale}px`;
+    viewport.style.transform = `translate(${vv.offsetLeft}px, ${vv.offsetTop}px) scale(${1 / scale})`;
+    document.documentElement.style.setProperty('--kb', '0px');
+  };
+  vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV); onVV();
 }
-document.addEventListener('focusout', () => setTimeout(() => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, 80));
 // An installed copy picks up a new build as soon as its service worker takes over.
 if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) location.reload(); }); }
+$('#projectsBtn').addEventListener('click', () => {cancelGesture();toggle('#planMenu',true);});
+$('#openPose').addEventListener('click',async()=>{
+  cancelGesture();toggle('#planMenu',false);
+  try { const {openPosePreview}=await import('./pose-preview.js');
+    await openPosePreview({THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden).map(t=>decals[t.id]).filter(d=>d && d.tex).map(d=>({geometry:d.mesh.geometry,material:d.mesh.material}))});
+  } catch(e) {toast('Could not open pose preview: '+e.message);}
+});
+function previewInput() {return {THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden).map(t=>decals[t.id]).filter(d=>d && d.tex).map(d=>({geometry:d.mesh.geometry,material:d.mesh.material}))};}
+$('#openBodyTools').addEventListener('click',async()=>{
+  cancelGesture();toggle('#planMenu',false);let originalNotes=JSON.stringify({notes:state.notes,drawings:state.drawings});
+  try {const {openBodyTools}=await import('./body-tools.js');await openBodyTools({...previewInput(),onSaveState:({notes,drawings})=>{
+    if(JSON.stringify({notes:state.notes,drawings:state.drawings})!==originalNotes)throw new Error('Notes changed while this window was open. Close and reopen to keep both versions safe.');
+    snapshot();state.notes=notes;state.drawings=drawings;commit();originalNotes=JSON.stringify({notes:state.notes,drawings:state.drawings});
+  }});}catch(e){toast('Could not open body tools: '+e.message);}
+});
+$('#openPhotoFit').addEventListener('click',async()=>{
+ cancelGesture();toggle('#planMenu',false);const before=JSON.stringify(state);
+ try{const {openPhotoFit}=await import('./photo-fit.js');await openPhotoFit({THREE,state:JSON.parse(before),bodyMaterial:skinMat,onApplyCopy:async params=>{
+  if(JSON.stringify(state)!==before)throw new Error('The project changed. Reopen the fitting preview.');
+  const proposed=cleanState({...state,figure:params.figure,muscle:params.muscle,weight:params.weight,heightCm:params.heightCm,fit:params.fit},k=>!!images[k]).state;
+  const shelf=await openProjectShelf();try{await shelf.create((state.projectName||'My tattoos')+' · before fitting',{state,images:usedImages()});}finally{shelf.close();}
+  if(JSON.stringify(state)!==before)throw new Error('The project changed. Its earlier copy is safely kept, but fitting was not applied.');
+  snapshot();reshape(()=>{for(const k of ['figure','muscle','weight','heightCm','fit'])state[k]=proposed[k];});state.projectName=(state.projectName||'My tattoos')+' · fitted copy';commit();fullBody();toast('Fitted copy opened. The original is kept in Projects.');
+ }});}catch(e){toast('Could not open photo fitting: '+e.message);}
+});
+$('#openClothing').addEventListener('click',async()=>{
+  cancelGesture();toggle('#planMenu',false);
+  try{const {openClothingPreview}=await import('./clothing-preview.js');await openClothingPreview(previewInput());}catch(e){toast('Could not open clothing preview: '+e.message);}
+});
+$('#openNotes').addEventListener('click',async()=>{
+  toggle('#planMenu',false);
+  try {const {openBodyNotes}=await import('./body-notes.js');await openBodyNotes({getState:()=>state,change:fn=>{snapshot();fn(state);commit();}});}
+  catch(e){toast('Could not open notes: '+e.message);}
+});
+function projectGroupSurface(position,normal,tattoo) {
+  const n=new V3(...normal).normalize();ray.set(new V3(...position).addScaledVector(n,.12),n.clone().negate());ray.far=.24;
+  const hit=ray.intersectObject(body,false)[0];ray.far=Infinity;if(!hit || hit.faceIndex==null)return null;
+  const start=startTriangle(tattoo),target=hit.faceIndex,I=bodyGeo.index.array,P=bodyGeo.attributes.position.array,A=bodyAdjacency();
+  const centre=tri=>{const p=[0,0,0];for(let k=0;k<3;k++)for(let j=0;j<3;j++)p[j]+=P[I[tri*3+k]*3+j]/3;return p;};
+  const limit=Math.min(.3,Math.hypot(...position.map((v,i)=>v-tattoo.pos[i]))*3+.045);
+  const best=new Float64Array(I.length/3);best.fill(Infinity);best[start]=0;const queue=[[start,0]];let found=false,guard=0;
+  while(queue.length && guard++<8000){queue.sort((a,b)=>b[1]-a[1]);const [tri,cost]=queue.pop();if(cost!==best[tri])continue;if(tri===target){found=true;break;}const c=centre(tri);
+    for(let k=0;k<3;k++){const next=A[tri*3+k];if(next<0)continue;const d=centre(next),value=cost+Math.hypot(...d.map((v,i)=>v-c[i]));if(value<=limit&&value<best[next]){best[next]=value;queue.push([next,value]);}}
+  }
+  return found?{pos:hit.point.toArray(),normal:hit.normal.clone().normalize().toArray()}:null;
+}
+async function transformSelection(options) {
+  const {planGroupTransform}=await import('./group-transform.js');
+  const result=planGroupTransform(state.tattoos,options.ids,options,projectGroupSurface);
+  if(!result.updates.length)return {message:'No unlocked planned pieces selected.'};
+  snapshot();for(const update of result.updates){const t=state.tattoos.find(x=>x.id===update.id);if(t)Object.assign(t,update);}
+  commit();return {message:`${result.updates.length} pieces transformed.${result.skippedIds.length?' Locked/existing pieces unchanged.':''}`};
+}
+$('#openLayers').addEventListener('click',()=>{toggle('#planMenu',false);openLayers({getState:()=>state,onTransform:transformSelection,getImages:()=>images,onSolo:ids=>{soloIds=ids?new Set(ids):null;syncDecals();},select:id=>select(id,true),change:fn=>{snapshot();fn(state);commit();}});});
+$('#openUnplaced').addEventListener('click',()=>{
+ toggle('#planMenu',false);const host=el('section',{class:'scrim',role:'dialog','aria-modal':'true','aria-label':'Saved artwork to place'});host.style.zIndex=10000;const panel=el('div',{class:'modal glass'},el('h2',{text:'Saved artwork to place'}),el('p',{text:'These pieces had no body position in the imported project. Place one deliberately, then adjust it on the body.'}));
+ for(const record of state.unplacedTattoos||[])panel.append(el('button',{class:'card',text:'Place '+record.name+' on body',onclick:async()=>{
+  const image=await loadImg(record.img);if(!image){toast('That saved image could not be opened.');return;}const spot=viewCenterSpot()||nextSlot();snapshot();state.unplacedTattoos=state.unplacedTattoos.filter(t=>t.id!==record.id);const t={...record,pos:spot.pos,normal:spot.normal,locked:false};state.tattoos.push(t);selectedId=t.id;commit();focusTattoo(t);host.remove();toast('Adjust the placement, then lock it when ready.');
+ }}));panel.append(el('button',{class:'btn',text:'Close',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape')host.remove();};
+});
+$('#openPlanning').addEventListener('click',async()=>{
+ toggle('#planMenu',false);
+ try { await openPlanning({getState:()=>state,getPreview:()=>planningPreview(),applyState:async next=>{snapshot();await openProject(next,images);commit();},getView:()=>({...goal}),setView:v=>{for(const k of Object.keys(goal))if(Number.isFinite(v[k]))goal[k]=v[k];needsRender=true;}}); }
+ catch(e){toast('Could not open planning: '+e.message);}
+});
+$('#openProjects').addEventListener('click', async () => {
+ cancelGesture();toggle('#planMenu',false);
+ try {
+  const result = await openShelf({ current: () => ({state,images:usedImages()}), currentName:state.projectName || 'My tattoos' });
+  if (!result) return;
+  snapshot();
+  if (result.action === 'new') { state = freshState(); state.projectName='New project'; selectedId=null; }
+  else { await openProject(result.project.state,result.project.images); state.projectName=result.project.name; }
+  commit();fullBody();toast('Project opened. Your previous work is saved in Projects.','Undo',undo);
+ } catch(e) { toast('Could not open Projects: '+e.message); }
+});
 $('#shareBtn').addEventListener('click', () => toggle('#share', true));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -565,6 +710,28 @@ function shot(hideInk) {
   exporting = true; decalGroup.visible = !hideInk; syncDecals(); renderer.render(scene, camera);
   const url = canvas.toDataURL('image/png');
   exporting = false; decalGroup.visible = true; syncDecals(); curInset = inset; applyInset(); needsRender = true; return url;
+}
+function artistPacket() {
+  const oldCur = {...cur}, oldGoal = {...goal}, oldGlide = glide, oldSolo = soloIds;
+  const views = [];
+  try {
+    soloIds = null;
+    for (const [label, theta] of [['Front',0],['Right',Math.PI/2],['Back',Math.PI],['Left',-Math.PI/2]]) {
+      fullBody(theta); Object.assign(cur, goal); applyCam();
+      views.push({label,dataUrl:shot(false)});
+    }
+    return makeArtistPacket({name:state.projectName || 'My tattoo plan',heightCm:state.heightCm,views,tattoos:state.tattoos,images,artworks:state.artworks || {},notes:state.notes || '',drawings:state.drawings || [],bodySurface:{positions:bodyGeo.attributes.position.array,index:bodyGeo.index.array}});
+  } finally {
+    Object.assign(cur,oldCur); Object.assign(goal,oldGoal); glide=oldGlide; soloIds=oldSolo;
+    applyCam(); syncDecals(); needsRender=true;
+  }
+}
+function planningPreview() {
+  shot(false);
+  const preview=document.createElement('canvas'); const scale=Math.min(1,640/canvas.width,640/canvas.height);
+  preview.width=Math.max(1,Math.round(canvas.width*scale));preview.height=Math.max(1,Math.round(canvas.height*scale));
+  preview.getContext('2d').drawImage(canvas,0,0,preview.width,preview.height);
+  return preview.toDataURL('image/jpeg',.8);
 }
 async function artistSheet() {
   const view = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = shot(false); });
@@ -593,7 +760,7 @@ function showPreview(url, filename, title) {
   $('#pvNote').textContent = canShareFiles()
     ? 'Save opens the share sheet to send it or keep it in Files. You can also touch and hold the picture to copy or share it.'
     : 'Save downloads the picture. You can also touch and hold it to save, copy or share it.';
-  toggle('#share', false); toggle('#preview', true);
+  toggle('#planMenu', false); toggle('#share', false); toggle('#preview', true);
 }
 async function saveFile(filename, data) {
   try {
@@ -605,7 +772,50 @@ async function saveFile(filename, data) {
 $('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(previewFile.filename, dataUrlBlob(previewFile.url)); });
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
+$('#cPacket').addEventListener('click', () => { const html=artistPacket(); toggle('#share',false); saveFile('ink-atlas-artist-packet.html',new Blob([html],{type:'text/html'})); });
+function bodySignature(){return JSON.stringify([state.figure,state.muscle,state.weight,Object.keys(state.fit||{}).sort().map(k=>[k,state.fit[k]]),state.genitals,state.heightCm]);}
+async function sketchPatch() {
+  cancelGesture();toggle('#share',false);
+  let geometry;
+  try {const {createPatchGuide,openPatchExchange}=await import('./procreate-patch.js');
+    let pending=state.sketchPatch;
+    if(!pending){const selected=sel();const choices=[{id:'view',name:'Current view',spot:viewCenterSpot(),width:.18}];
+      if(selected)choices.unshift({id:'selected',name:'Selected tattoo area',spot:selected,width:selected.width,rot:selected.rot,wrap:selected.wrap});
+      for(const [id,name,o,d,width] of [['chest','Front chest',[0,1.3,2],[0,0,-1],.22],['back','Upper back',[0,1.3,-2],[0,0,1],.22],['arm','Upper arm',[2,1.13,.04],[-1,0,0],.11],['forearm','Forearm',[2,.95,.04],[-1,0,0],.10],['thigh','Front thigh',[.1,.52,2],[0,0,-1],.16]])choices.push({id,name,spot:surfaceAt(new V3(...o),new V3(...d)),width});
+      const {choosePatchArea}=await import('./procreate-patch.js');const id=await choosePatchArea(choices.map(c=>({id:c.id,name:c.name,disabled:!c.spot})));if(!id)return;const choice=choices.find(c=>c.id===id),spot=choice.spot;
+      const patch={pos:[...spot.pos],normal:[...spot.normal],width:choice.width,aspect:1,rot:choice.rot || 0,wrap:choice.wrap || 0,bend:0,taper:0};
+      const shape=bodySignature();
+      geometry=decalGeometry(patch);
+      const guide=await createPatchGuide({positions:geometry.attributes.position.array,uvs:Float32Array.from(geometry.attributes.uv.array,v=>(v-UV_MARGIN)/(1-2*UV_MARGIN)),label:choice.name,widthCm:patch.width*100*state.heightCm/175});
+      const {makePatchReference}=await import('./patch-reference.js');const existingInk=makePatchReference(geometry,state.tattoos.filter(t=>t.status==='existing'&&!t.hidden).map(t=>decals[t.id]).filter(d=>d&&d.tex).map(d=>({geometry:d.mesh.geometry,texture:d.tex})),UV_MARGIN);
+      pending={id:uid(),patch,shape,guide:guide.dataUrl,maskTriangles:guide.maskTriangles,existingInk};snapshot();state.sketchPatch=pending;commit();await flushSave();
+    }
+    const pendingId=pending.id;
+    await openPatchExchange({guide:pending.guide,existingInk:pending.existingInk,maskTriangles:pending.maskTriangles,onDiscard:()=>{
+      if(state.sketchPatch?.id!==pendingId)throw new Error('The pending patch changed. Reopen to review it.');snapshot();delete state.sketchPatch;commit();
+    },onApply:async result=>{
+      if(state.sketchPatch?.id!==pendingId)throw new Error('The pending patch changed. Reopen to review it.');
+      if(bodySignature()!==pending.shape)throw new Error('The body changed. Restore its earlier shape, or discard this guide and create a fresh patch.');
+      snapshot();const t=await addImage(result.dataUrl,'Procreate patch',pending.patch);if(!t)throw new Error('The returned artwork could not be added.');t.status='planned';selectedId=t.id;delete state.sketchPatch;commit();focusTattoo(t);toast('Returned artwork added as a new planned tattoo.');
+    }});
+  }catch(e){toast('Could not open sketch patch: '+e.message);}finally{geometry?.dispose();}
+}
+$('#cSketch').addEventListener('click',sketchPatch);
 $('#cBlank').addEventListener('click', () => showPreview(shot(true), 'ink-atlas-blank-body.png', 'Blank body to sketch on'));
+$('#cGlb').addEventListener('click',async()=>{
+ toggle('#share',false);try{const {exportSceneGlb}=await import('./three-export.js');const result=await exportSceneGlb(previewInput());await saveFile('ink-atlas-neutral-model.glb',result.blob);}catch(e){toast('Could not export 3D model: '+e.message);}
+});
+$('#cModelOpen').addEventListener('click',()=>$('#modelFile').click());
+$('#modelFile').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;toggle('#share',false);try{if(file.size>25*1024*1024)throw new Error('Use a GLB under 25 MiB.');const {openModelPreview}=await import('./model-preview.js');await openModelPreview({THREE,buffer:await file.arrayBuffer(),name:file.name});}catch(e){toast('Could not preview model: '+e.message);}});
+$('#cV47Source').addEventListener('click',()=>{const source=state.v47Source;if(source)saveFile('ink-atlas-original-import.ink.json',JSON.stringify({format:'ink-atlas-portable',project:source.project,assets:source.assets}));});
+$('#cV47').addEventListener('click',async()=>{
+ toggle('#share',false);try{const {exportV47Project}=await import('./v47-export.js');const bundle=exportV47Project({state,images:usedImages(),savedAt:new Date().toISOString()});
+ const host=el('section',{class:'scrim',id:'v47Export',role:'dialog','aria-modal':'true','aria-label':'Original v47 compatibility export'});host.style.zIndex=10000;
+ const panel=el('div',{class:'modal glass'},el('h2',{text:'Original v47 compatibility export'}),el('p',{text:'Not a lossless or visually identical round trip. Keep the full rebuild backup. The original app has not been runtime-tested with this export.'}));
+ const details=el('details',{},el('summary',{text:'What carries across and what stays in the backup'}));const list=el('ul');for(const text of bundle.report.limitations||[])list.append(el('li',{text}));details.append(list);panel.append(details);
+ panel.append(el('button',{class:'btn',text:'Save full rebuild backup',onclick:()=>saveFile('ink-atlas-full-rebuild-backup.json',JSON.stringify(bundle.rebuildBackup))}),el('button',{class:'btn',text:'Save v47 compatibility copy',onclick:()=>saveFile('ink-atlas-v47-compatibility.ink.json',JSON.stringify(bundle.portable))}),el('button',{class:'btn',text:'Close',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape')host.remove();});
+ }catch(e){toast('v47 export stopped safely: '+e.message);}
+});
 function backupNow() { const d = new Date(), p2 = (n) => String(n).padStart(2, '0'); saveFile(`ink-atlas-backup-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.json`, JSON.stringify({ app: 'ink-atlas-proto', v: 2, savedAt: d.toISOString(), state, images: usedImages() })); }
 $('#cBackup').addEventListener('click', () => { toggle('#share', false); backupNow(); });
 /* ---------- earlier saves ---------- */
@@ -672,45 +882,12 @@ async function importInkJson(proj, assets) {
   const before = JSON.stringify(state);
   await keepRecovery('Before opening a backup');
   try { await readInkJson(proj, assets); }
-  catch (e) { state = JSON.parse(before); selectedId = null; skinMat.color.set(skinColor()); applyShape(); commit(); toast('That backup is damaged, so nothing was changed.'); }
+  catch (e) { state = JSON.parse(before); selectedId = null; skinMat.color.set(skinColor()); applyShape(); commit(); toast('Could not open v47 backup: '+e.message+'. Current project unchanged.'); }
 }
 async function readInkJson(proj, assets) {
-  const resolve = (v) => (typeof v === 'string' && v.startsWith('ink-atlas-image:') ? assets[+v.split(':')[1]] : v);
-  const K = 1.75 / 1.8; // older Ink Atlas stores anchors on its original mesh at 1.8 units tall
-  const lg = new THREE.BufferGeometry(); const LP = legacyPositions();
-  lg.setAttribute('position', new THREE.BufferAttribute(LP, 3)); lg.setIndex(idxBody); lg.computeVertexNormals(); lg.computeBoundingBox(); lg.computeBoundingSphere();
-  const lm = new THREE.Mesh(lg, skinMat); lm.updateMatrixWorld(true);
-  state.tattoos = []; selectedId = null;
-  state.figure = proj.figure === 'male' ? 'male' : 'neutral'; state.muscle = 0.5; state.weight = 0.5; state.v = 2;
-  state.fit = fitFromV47(proj.studio && proj.studio.bodyFit); if (state.genitals == null) state.genitals = true;
-  if (typeof proj.skin === 'string' && /^#[0-9a-f]{6}$/i.test(proj.skin)) state.skinHex = proj.skin;
-  const hi = proj.measurements && proj.measurements.heightInches; if (typeof hi === 'number' && hi > 36 && hi < 96) state.heightCm = Math.round(THREE.MathUtils.clamp(hi * 2.54, 150, 205));
-  skinMat.color.set(skinColor()); applyShape();
-  const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array;
-  let n = 0, unplaced = 0;
-  for (const t of proj.tattoos.slice(0, 40)) {
-    if (!t || typeof t !== 'object') continue;
-    const src = resolve(t.image); if (typeof src !== 'string' || !src.startsWith('data:image')) continue;
-    let place = null;
-    if (ok3(t.position) && ok3(t.normal) && Math.hypot(t.normal[0], t.normal[1], t.normal[2]) > 0.5) {
-      const p = new V3(...t.position).multiplyScalar(K), nn = new V3(...t.normal).normalize();
-      ray.set(p.clone().addScaledVector(nn, 0.05), nn.clone().negate()); ray.far = 0.2; const h = ray.intersectObject(lm, false)[0]; ray.far = Infinity;
-      let v, w;
-      if (h && h.face && h.barycoord) { v = [h.face.a, h.face.b, h.face.c]; w = [h.barycoord.x, h.barycoord.y, h.barycoord.z]; }
-      else { let best = 0, bd = Infinity; for (let i = 0; i < LP.length; i += 3) { const d = (LP[i] - p.x) ** 2 + (LP[i + 1] - p.y) ** 2 + (LP[i + 2] - p.z) ** 2; if (d < bd) { bd = d; best = i / 3; } } v = [best, best, best]; w = [1, 0, 0]; }
-      const pp = [0, 0, 0], pn = [0, 0, 0];
-      for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) { pp[j] += P[v[k] * 3 + j] * w[k]; pn[j] += N[v[k] * 3 + j] * w[k]; }
-      const l = Math.hypot(pn[0], pn[1], pn[2]) || 1;
-      place = { pos: pp, normal: [pn[0] / l, pn[1] / l, pn[2] / l], width: THREE.MathUtils.clamp((fin(t.width) && t.width > 0 ? t.width : 0.14) * K, 0.012, 0.9), rot: (fin(t.rotation) ? t.rotation : 0) * Math.PI / 180, opacity: fin(t.opacity) ? THREE.MathUtils.clamp(t.opacity, 0.1, 1) : 0.92 };
-    } else unplaced++;
-    const nt = await addImage(src, typeof t.name === 'string' ? t.name.slice(0, 40) : 'Tattoo', place);
-    if (nt) { n++; nt.flip = !!t.flipX; nt.hidden = !!t.hidden; nt.status = t.status === 'existing' ? 'existing' : 'planned'; nt.locked = typeof t.placementLocked === 'boolean' ? t.placementLocked : t.status === 'existing';
-      if (fin(t.wrap) && t.wrap) nt.wrap = Math.max(0, Math.min(1, t.wrap)); if (fin(t.bend) && t.bend) nt.bend = Math.max(-1, Math.min(1, t.bend)); if (fin(t.taper) && t.taper) nt.taper = Math.max(-0.75, Math.min(0.75, t.taper)); }
-  }
-  lg.dispose();
-  if (!n && proj.tattoos.length) throw new Error('No usable artwork in that backup');
-  commit(); fullBody();
-  toast(`Opened ${(proj.studio && proj.studio.name) || 'project'}: ${n} tattoo${n === 1 ? '' : 's'}${unplaced ? `, ${unplaced} not yet placed` : ''}`, 'Undo', undo);
+ const {importV47Project}=await import('./v47-import.js');const result=importV47Project({project:proj,assets});
+ await openProject(result.state,result.images);commit();fullBody();
+ toast(`Opened ${state.projectName||'v47 project'}: ${state.tattoos.length} placed, ${result.report.unplaced||0} saved to place. Original source kept; some metadata is archive-only.`, 'Undo',undo);
 }
 // Bring a loaded project up to the current body model without moving any ink:
 // rebuild the exact shape it was saved on, pin every tattoo to its triangle, then

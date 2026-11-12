@@ -24,11 +24,13 @@
 }
 *{box-sizing:border-box}
 /* The page itself can never pan, bounce or zoom: only the canvas and the panels below take gestures. */
-html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
+html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:none}
 body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
 #stage{position:fixed;inset:0}
 #stage canvas{display:block;outline:none}
 button,input{font:inherit;color:inherit}
+input,textarea,select{font-size:16px}
 button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outline-offset:2px}
 [hidden]{display:none!important}
@@ -52,10 +54,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #views .btn:active{color:var(--text);background:rgba(255,255,255,.1)}
 #dock{position:fixed;left:0;right:0;bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
 #dock>*{pointer-events:auto}
-#full{align-self:flex-end}
+#full{position:fixed;top:82px;left:16px;z-index:4}
 #hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
 #hint{background:rgba(0,0,0,.28);padding:6px 12px;border-radius:999px;pointer-events:none}
-#sheet{width:min(760px,100%);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+#sheet{max-height:65vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 #name{flex:1 1 160px;min-height:44px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
 #size{font-variant-numeric:tabular-nums;color:var(--text);font-size:14px;white-space:pre}
@@ -74,7 +76,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #fitGroups details[open] summary::after{content:"\2212"}
 #fitGroups summary i{font-style:normal;font-size:12px;color:var(--stencil);margin:0 8px 0 auto}
 #wrapBox{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.04)}
-#wrapBox summary{min-height:44px;padding:0 14px;display:flex;align-items:center;font-weight:600;cursor:pointer;list-style:none;-webkit-tap-highlight-color:transparent}
+#preciseBox summary,#wrapBox summary{min-height:44px;padding:0 14px;display:flex;align-items:center;font-weight:600;cursor:pointer;list-style:none;-webkit-tap-highlight-color:transparent}
 #wrapBox summary::-webkit-details-marker{display:none}
 #wrapBox summary::after{content:"+";margin-left:auto;color:var(--muted);font-size:20px}
 #wrapBox[open] summary::after{content:"\2212"}
@@ -97,7 +99,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #count{flex:none;color:var(--muted);font-size:12.5px;padding-right:6px}
 #empty{padding:10px 14px;display:flex;gap:12px;align-items:center}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.seg .btn{padding:0 8px}.lbl{color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
-body.panel-open #full{visibility:hidden}
+
 .pop{position:fixed;z-index:3;top:74px;right:16px;width:320px;max-width:calc(100% - 32px);max-height:calc(100% - 184px);overflow-x:hidden;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .pop>*{flex:none}
 .pop h3,.modal h2{margin:0;font:700 17px/1.2 var(--display)}
@@ -137,6 +139,7 @@ body.panel-open #full{visibility:hidden}
 </style>
 </head>
 <body>
+<div id="viewport">
 <div id="stage" aria-label="3D body. Drag to look around, pinch to zoom, tap a tattoo to select it."></div>
 
 <div id="top">
@@ -144,6 +147,7 @@ body.panel-open #full{visibility:hidden}
   <div class="cluster glass">
     <button class="btn quiet" id="undo" type="button" disabled>Undo</button>
     <button class="btn quiet" id="redo" type="button" disabled>Redo</button>
+    <button class="btn" id="projectsBtn" type="button">Plan</button>
     <button class="btn" id="bodyBtn" type="button">Body</button>
     <button class="btn primary" id="shareBtn" type="button">Share</button>
   </div>
@@ -175,8 +179,8 @@ body.panel-open #full{visibility:hidden}
   <button class="btn quiet" id="fitReset" type="button">Reset body shape</button>
 </div>
 
+<button class="btn glass" id="full" type="button">Full body</button>
 <div id="dock">
-  <button class="btn glass" id="full" type="button">Full body</button>
   <p id="hint">Tap a tattoo to work on it. Double-tap empty space for the full body.</p>
   <div id="sheet" class="glass" hidden>
     <div class="row">
@@ -190,6 +194,12 @@ body.panel-open #full{visibility:hidden}
       <div class="lbl">Turn<ink-slider id="rTurn" min="-180" max="180" aria-label="Turn"></ink-slider></div>
       <div class="lbl">Ink strength<ink-slider id="rFade" min="15" max="100" default="92" aria-label="Ink strength"></ink-slider></div>
     </div>
+    <details id="preciseBox"><summary>Precise placement</summary>
+      <div class="row"><label>Width (inches) <input id="exactWidth" type="number" min="0.1" max="36" step="0.1" style="width:90px;min-height:44px;font-size:16px"></label>
+      <button class="btn" data-inch="1">1 in</button><button class="btn" data-inch="2">2 in</button><button class="btn" data-inch="3">3 in</button><button class="btn" data-inch="4">4 in</button></div>
+      <div class="row"><span>Nudge 2 mm</span><button class="btn" data-nudge="-1,0">Left</button><button class="btn" data-nudge="1,0">Right</button><button class="btn" data-nudge="0,1">Up</button><button class="btn" data-nudge="0,-1">Down</button><button class="btn" id="resetTransform">Reset turn and wrap</button></div>
+      <p class="tip">Sizes are approximate and depend on your body height setting.</p>
+    </details>
     <details id="wrapBox">
       <summary>Wrap around the body<i id="wrapMark"></i></summary>
       <div class="grp">
@@ -199,7 +209,10 @@ body.panel-open #full{visibility:hidden}
       </div>
     </details>
     <div class="row">
+      <button class="btn" id="bCleanup" type="button">Clean up artwork</button>
+      <button class="btn" id="bCleanupLinked" type="button" hidden>Clean up linked copies</button>
       <button class="btn" id="bFlip" type="button">Mirror</button>
+      <button class="btn" id="bFlipVertical" type="button">Flip vertical</button>
       <button class="btn" id="bDup" type="button">Duplicate</button>
       <button class="btn" id="bLock" type="button">Lock in place</button>
       <button class="btn" id="bStatus" type="button">Planned</button>
@@ -210,23 +223,41 @@ body.panel-open #full{visibility:hidden}
   </div>
   <div id="empty" class="glass" hidden>
     <span>Start by adding a photo or drawing of a tattoo.</span>
-    <button class="btn primary" id="emptyAdd" type="button">Add ink</button>
+    <button class="btn primary" id="emptyAdd" type="button">Upload tattoo</button>
   </div>
   <div id="tray" class="glass">
-    <button class="btn primary" id="add" type="button">+ Add ink</button>
+    <button class="btn primary" id="add" type="button">+ Upload tattoo</button>
     <div id="trayItems"></div>
     <span id="count"></span>
   </div>
 </div>
-<input id="file" type="file" accept="image/*,.json,application/json" multiple hidden>
+<input id="modelFile" type="file" accept=".glb,model/gltf-binary" hidden>
+<input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
 
+<div id="planMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="planTitle"><header><h2 id="planTitle">Plan your tattoos</h2><button class="btn" data-close="planMenu">Close</button></header><div class="cards">
+<button class="card" id="openProjects"><b>Projects</b><span>Keep separate projects and recoverable copies on this device.</span></button>
+<button class="card" id="openUnplaced" hidden><b>Saved artwork to place</b><span>Imported artwork kept without an invented body position.</span></button>
+<button class="card" id="openPlanning"><b>Layouts, checkpoints & views</b><span>Save alternatives, named versions and camera bookmarks.</span></button>
+<button class="card" id="openPose"><b>Pose preview</b><span>See ink follow a few gentle body poses. No placement changes.</span></button>
+<button class="card" id="openBodyTools"><b>Body pins & ruler</b><span>Pin notes to the body or check an approximate straight-line distance.</span></button>
+<button class="card" id="openPhotoFit"><b>Fit with photo references</b><span>Compare local photos and manually adjust a separate project copy.</span></button>
+<button class="card" id="openClothing"><b>Clothing coverage</b><span>Approximate sleeve, shorts and hair visibility studies.</span></button>
+<button class="card" id="openNotes"><b>Artist notes</b><span>Keep instructions with the plan or individual pieces.</span></button>
+<button class="card" id="openLayers"><b>Layers & groups</b><span>Organize artwork, visibility and groups.</span></button>
+</div></div></div>
 <div id="share" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="shTitle">
     <header><h2 id="shTitle">Share</h2><button class="btn" type="button" data-close="share">Close</button></header>
     <div class="cards">
       <button class="card" id="cView" type="button"><b>Picture of this view</b><span>Exactly what is on screen now, tattoos included.</span></button>
-      <button class="card" id="cSheet" type="button"><b>Artist sheet</b><span>This view plus every tattoo with its approximate size.</span></button>
+      <button class="card" id="cSheet" type="button"><b>Artist sheet</b><span>Quick picture of this view and up to seven visible tattoos.</span></button>
+      <button class="card" id="cSketch" type="button"><b>Sketch in Procreate</b><span>Export or resume a saved body patch; return a transparent PNG as a new tattoo.</span></button>
       <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>
+      <button class="card" id="cPacket" type="button"><b>Full artist packet</b><span>Four body views, all artwork and approximate sizes. Printable HTML file.</span></button>
+      <button class="card" id="cGlb" type="button"><b>Export 3D model</b><span>Neutral body and visible ink as GLB. Separate decal meshes, not a baked skin texture.</span></button>
+      <button class="card" id="cModelOpen" type="button"><b>Preview a GLB model</b><span>Read-only import. Does not replace your body or saved project.</span></button>
+      <button class="card" id="cV47Source" type="button" hidden><b>Save untouched imported source</b><span>The original v47 project and assets, without conversion.</span></button>
+      <button class="card" id="cV47" type="button"><b>Export for original v47</b><span>Compatibility copy plus a full rebuild backup. Review the limitations first.</span></button>
       <button class="card" id="cBackup" type="button"><b>Back up project</b><span>One file with all artwork and placements.</span></button>
     </div>
     <button class="btn quiet" id="cRestore" type="button">Open a backup file, including older Ink Atlas .ink.json</button>
@@ -261,6 +292,7 @@ body.panel-open #full{visibility:hidden}
   <button class="btn primary" id="coachOk" type="button">Got it</button>
 </div>
 <div id="toast" class="glass" role="status" hidden></div>
+</div>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

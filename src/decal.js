@@ -60,7 +60,7 @@ export function buildDecal(geo, adj, t, frame, startTri) {
   const gate = wrap > 0.02 ? -0.3 : 0.12; // let it curl around when wrapping; keep it flat otherwise
   const edge = 0.05; // triangles may overhang the rectangle by this much before being dropped
 
-  const pos = [], uv = [], seen = new Uint8Array(tris), stack = [startTri | 0]; seen[startTri | 0] = 1;
+  const pos = [], uv = [], supports = [], seen = new Uint8Array(tris), stack = [startTri | 0]; seen[startTri | 0] = 1;
   let guard = 0;
   while (stack.length && guard++ < 8000) {
     const tri = stack.pop(), o = tri * 3;
@@ -70,9 +70,10 @@ export function buildDecal(geo, adj, t, frame, startTri) {
     if (maxU < -edge || minU > 1 + edge || maxV < -edge || minV > 1 + edge) continue; // outside the artwork
     for (const [vi, r] of [[a, A], [b, B], [c, C]]) {
       pos.push(P[vi * 3] + N[vi * 3] * 0.0004, P[vi * 3 + 1] + N[vi * 3 + 1] * 0.0004, P[vi * 3 + 2] + N[vi * 3 + 2] * 0.0004);
+      supports.push(vi);
       uv.push(m + r[0] * span, m + r[1] * span);
     }
     for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !seen[nb]) { seen[nb] = 1; stack.push(nb); } }
   }
-  return { positions: new Float32Array(pos), uvs: new Float32Array(uv) };
+  return { positions: new Float32Array(pos), uvs: new Float32Array(uv), supports: new Uint32Array(supports) };
 }

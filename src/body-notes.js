@@ -1,0 +1,35 @@
+// Project and piece-linked notes. This is intentionally not a 3D pinning tool.
+const noteText=n=>typeof n==='string'?n:typeof n?.text==='string'?n.text:typeof n?.note==='string'?n.note:'';
+const noteId=(n,index)=>typeof n?.id==='string'?n.id:`legacy-note-${index}`;
+const uid=()=>`note-${globalThis.crypto?.randomUUID?.()||Math.random().toString(36).slice(2)}`;
+export function saveBodyNote(state,{id,text,tattooId}) {
+  const value=String(text??'').trim().slice(0,5000);if(!value)return null;
+  const notes=Array.isArray(state.notes)?state.notes:[];
+  const index=notes.findIndex((n,i)=>noteId(n,i)===id);
+  const old=index>=0&&notes[index]&&typeof notes[index]==='object'?notes[index]:{};
+  const note={...old,id:index>=0?noteId(notes[index],index):uid(),text:value};
+  if(typeof tattooId==='string'&&state.tattoos?.some(t=>t.id===tattooId))note.tattooId=tattooId;else delete note.tattooId;
+  if(index>=0)notes[index]=note;else notes.push(note);state.notes=notes;return note.id;
+}
+export function deleteBodyNote(state,id){if(!Array.isArray(state.notes))return false;const index=state.notes.findIndex((n,i)=>noteId(n,i)===id);if(index<0)return false;state.notes.splice(index,1);return true;}
+export function openBodyNotes({getState,change}) {
+  if(document.querySelector('#ink-body-notes'))return;
+  const prior=document.activeElement;let active=null,deletePending=false,closed=false;
+  const host=document.createElement('section');host.id='ink-body-notes';host.setAttribute('role','dialog');host.setAttribute('aria-modal','true');host.setAttribute('aria-labelledby','ibn-title');
+  host.innerHTML=`<style>
+#ink-body-notes{position:fixed;inset:0;z-index:9100;display:flex;align-items:center;justify-content:center;background:#0007;padding:12px;box-sizing:border-box;color:#242725;font:16px system-ui}#ink-body-notes *{box-sizing:border-box}#ink-body-notes .ibn-panel{background:#f4f1eb;border-radius:18px;padding:16px;width:min(700px,100%);max-height:95%;overflow:auto;overscroll-behavior:contain;touch-action:pan-y}#ink-body-notes header,#ink-body-notes .ibn-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}#ink-body-notes header{justify-content:space-between}#ink-body-notes h2{font-size:20px;margin:0}#ink-body-notes button,#ink-body-notes select,#ink-body-notes textarea{font:inherit;min-height:44px;border:1px solid #aaa69e;border-radius:9px;background:white;color:inherit;padding:10px}#ink-body-notes button:disabled{opacity:.4}#ink-body-notes textarea{display:block;width:100%;min-height:140px;resize:vertical;margin:8px 0;touch-action:auto}#ink-body-notes label{display:block;margin-top:10px}#ink-body-notes select{max-width:100%}#ink-body-notes .ibn-note{display:block;width:100%;text-align:left;margin:6px 0;white-space:pre-wrap;word-break:break-word}#ink-body-notes .ibn-note[aria-pressed=true]{background:#d5e8df;border-color:#34725d}#ink-body-notes .ibn-tip{font-size:13px;color:#626964;margin:8px 0}#ink-body-notes .ibn-note small{display:block;color:#626964}#ink-body-notes .ibn-list{max-height:28vh;overflow:auto}#ink-body-notes .ibn-primary{background:#234e40;color:white}#ink-body-notes .ibn-danger{color:#933}
+</style><div class="ibn-panel"><header><h2 id="ibn-title">Artist notes</h2><button data-act="close">Done</button></header><p class="ibn-tip">Notes can belong to the whole plan or to a tattoo. They appear in the artist packet. These are not pinned to a point on the body.</p><div class="ibn-row"><button data-act="new">New note</button><span id="ibn-count"></span></div><div class="ibn-list"></div><label for="ibn-piece">Attach to</label><select id="ibn-piece"></select><label for="ibn-text">Note</label><textarea id="ibn-text" maxlength="5000" placeholder="Placement ideas, details to discuss, or questions for your artist"></textarea><div class="ibn-row"><button data-act="save" class="ibn-primary">Save note</button><button data-act="cancel">Cancel edit</button><button data-act="delete" class="ibn-danger" hidden>Delete note</button></div><p id="ibn-status" class="ibn-tip" role="status">Draft text stays here until you save.</p></div>`;
+  (document.querySelector('#viewport')||document.body).append(host);
+  const $=s=>host.querySelector(s),notify=text=>$('#ibn-status').textContent=text;
+  const reset=()=>{active=null;deletePending=false;$('#ibn-text').value='';$('#ibn-piece').value='';render();};
+  function render(){const state=getState(),notes=Array.isArray(state.notes)?state.notes:[],list=$('.ibn-list');list.replaceChildren();$('#ibn-count').textContent=`${notes.length} note${notes.length===1?'':'s'}`;const piece=$('#ibn-piece'),selected=piece.value;piece.replaceChildren(new Option('Whole plan',''));for(const t of state.tattoos||[])piece.add(new Option(t.name||'Tattoo',t.id));piece.value=selected;
+    for(const[n,index]of notes.map((n,i)=>[n,i])){const id=noteId(n,index),b=document.createElement('button');b.className='ibn-note';b.type='button';b.setAttribute('aria-pressed',String(active===id));const small=document.createElement('small');const tattoo=(state.tattoos||[]).find(t=>t.id===n?.tattooId);small.textContent=n?.tattooId?(tattoo?.name||'Previously linked tattoo'):'Whole plan';b.append(small,document.createTextNode(noteText(n)||'Empty note'));b.addEventListener('click',()=>{active=id;deletePending=false;$('#ibn-text').value=noteText(n);$('#ibn-piece').value=tattoo?.id||'';render();notify('Editing this note. Save to keep your changes.');});list.append(b);}
+    $('[data-act=delete]').hidden=!active;$('[data-act=delete]').textContent=deletePending?'Confirm delete':'Delete note';
+  }
+  const close=()=>{if(closed)return;closed=true;document.removeEventListener('keydown',key,true);host.remove();prior?.focus?.();};
+  const key=e=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();}if(e.key==='Tab'){const nodes=[...host.querySelectorAll('button:not(:disabled):not([hidden]),input,textarea,select')];if(e.shiftKey&&document.activeElement===nodes[0]){e.preventDefault();nodes.at(-1).focus();}else if(!e.shiftKey&&document.activeElement===nodes.at(-1)){e.preventDefault();nodes[0].focus();}}};document.addEventListener('keydown',key,true);
+  host.addEventListener('click',e=>{const action=e.target.closest('[data-act]')?.dataset.act;if(!action)return;if(action==='close')return close();if(action==='new'||action==='cancel'){reset();notify(action==='new'?'Write a new note below.':'Unsaved edits discarded.');return;}
+    if(action==='save'){const text=$('#ibn-text').value.trim();if(!text){notify('Write a note before saving.');$('#ibn-text').focus();return;}const tattooId=$('#ibn-piece').value;change(state=>saveBodyNote(state,{id:active,text,tattooId}));reset();notify('Note saved.');}
+    if(action==='delete'&&active){if(!deletePending){deletePending=true;render();notify('Tap Confirm delete to remove this note. You can undo it from the main app.');}else{const id=active;change(state=>deleteBodyNote(state,id));reset();notify('Note deleted. Undo is available in the main app.');}}
+  });render();$('[data-act=close]').focus();return {close};
+}
