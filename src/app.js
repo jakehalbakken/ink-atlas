@@ -521,6 +521,7 @@ $('#resetTransform').addEventListener('click',()=>{const t=sel();if(!t || t.lock
 async function cleanupSelected(linked=false) {
   const t = sel(); if (!t) return;
   if (t.locked) { toast('Unlock this tattoo before editing its artwork.'); return; }
+  cancelGesture();
   const id = t.id, prior = t.img;
   state.artworks ||= {};
   const art = state.artworks[t.artworkId];
@@ -528,16 +529,17 @@ async function cleanupSelected(linked=false) {
   const result = await editArtwork(images[source] || images[prior], images[prior]);
   if (!result) return;
   const current = state.tattoos.find(x => x.id === id);
-  if (!current || current.img !== prior) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
+  if (!current || current.img !== prior || current.locked) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
+  const key = uid(); images[key] = result.dataUrl;
+  if(!await loadImg(key)){delete images[key];toast('The cleaned image could not be opened. Nothing changed.');return;}
   snapshot();
-  const key = uid(); images[key] = result.dataUrl; await loadImg(key);
   const revision=applyArtworkRevision(state,id,key,result.aspect,{linked});
   state=revision.nextState;
   if(revision.artworkId)state.artworks[revision.artworkId].cleanup=result.settings || {};
   commit(); toast(`${revision.changedIds.length} artwork updated. Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
 }
-$('#bCleanup').addEventListener('click',()=>cleanupSelected(false));
-$('#bCleanupLinked').addEventListener('click',()=>cleanupSelected(true));
+$('#bCleanup').addEventListener('click',()=>cleanupSelected(false).catch(e=>toast('Could not clean up artwork: '+e.message)));
+$('#bCleanupLinked').addEventListener('click',()=>cleanupSelected(true).catch(e=>toast('Could not clean up artwork: '+e.message)));
 $('#bDone').addEventListener('click', () => select(null));
 $('#undo').addEventListener('click', undo); $('#redo').addEventListener('click', redo);
 $('#full').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); select(null); fullBody(); });
