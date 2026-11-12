@@ -9,9 +9,9 @@ import { extname, join, normalize, dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const [, , out = 'shots/out.png', script] = process.argv;
-const DIST = resolve(import.meta.dirname, '..', 'dist');
+const DIST = resolve(process.env.INK_DIST || resolve(import.meta.dirname, '..', 'dist'));
 const BASE = '/ink-atlas';
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.map': 'application/json' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.map': 'application/json', '.wasm': 'application/wasm', '.tflite': 'application/octet-stream' };
 
 const server = createServer(async (req, res) => {
   try {

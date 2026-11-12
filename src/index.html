@@ -55,6 +55,22 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #dock{position:fixed;left:0;right:0;bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
 #dock>*{pointer-events:auto}
 #full{position:fixed;top:82px;left:16px;z-index:4}
+#baBtn{position:fixed;top:136px;left:16px;z-index:4}
+#poseBtn{position:fixed;top:190px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#posePop{left:16px;right:auto;top:244px;width:300px;max-height:calc(100% - 340px)}
+#posePop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
+.posegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.posegrid .btn{padding:0 8px;font-size:14px;line-height:1.15}
+.posegrid .btn[aria-pressed=true],#posePop .seg .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
+#motionKind{flex:1;min-height:44px;border-radius:12px;background:rgba(255,255,255,.06);color:inherit;border:1px solid var(--line);padding:0 10px}
+#beforeAfter{position:absolute;inset:0;pointer-events:none}
+#beforeAfter .ba-line{position:absolute;top:0;bottom:0;width:44px;margin-left:-22px;pointer-events:auto;touch-action:none;cursor:ew-resize;outline:none}
+#beforeAfter .ba-line::before{content:"";position:absolute;top:0;bottom:0;left:21px;width:2px;background:#fff;box-shadow:0 0 6px rgba(0,0,0,.55)}
+#beforeAfter .ba-grip{position:absolute;top:50%;left:50%;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+#beforeAfter .ba-grip::before,#beforeAfter .ba-grip::after{content:"";position:absolute;top:50%;margin-top:-6px;border:6px solid transparent}
+#beforeAfter .ba-grip::before{left:6px;border-right-color:#333}
+#beforeAfter .ba-grip::after{right:6px;border-left-color:#333}
+#beforeAfter .ba-line:focus-visible .ba-grip{outline:2px solid var(--stencil);outline-offset:2px}
+#beforeAfter .ba-label{position:absolute;top:248px;background:rgba(0,0,0,.45);color:#fff;font-size:13px;font-weight:600;padding:5px 10px;border-radius:999px;white-space:nowrap}
 #hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
 #hint{background:rgba(0,0,0,.28);padding:6px 12px;border-radius:999px;pointer-events:none}
 body.panel-open #hint{visibility:hidden}
@@ -192,6 +208,17 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </div>
 
 <button class="btn glass" id="full" type="button">Full body</button>
+<button class="btn glass" id="baBtn" type="button" aria-pressed="false">Before / after</button>
+<button class="btn glass" id="poseBtn" type="button" aria-expanded="false">Pose</button>
+<div id="posePop" class="pop glass" hidden>
+  <div class="pophead"><h3>Pose</h3><button class="btn" type="button" data-close="posePop">Done</button></div>
+  <p class="tip">Your tattoos move with the body, and you can still move, resize and place them in any pose. Poses are only for looking. They are not saved.</p>
+  <div id="poseList"></div>
+  <h4>Moving</h4>
+  <div class="row"><select id="motionKind" aria-label="Movement"></select><button class="btn" id="motionPlay" type="button" aria-pressed="false">Play</button></div>
+  <div class="seg" role="group" aria-label="Speed"><button class="btn" type="button" data-speed="0.5">Slow</button><button class="btn" type="button" data-speed="1">Normal</button><button class="btn" type="button" data-speed="1.5">Fast</button></div>
+  <div class="lbl">Step through the movement<ink-slider id="motionScrub" min="0" max="100" default="0" origin="0" aria-label="Step through the movement"></ink-slider></div>
+</div>
 <div id="dock">
   <p id="hint">Tap a tattoo to work on it. Double-tap empty space for the full body.</p>
   <div id="sheet" class="glass" hidden>
@@ -258,7 +285,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <button class="card" id="openProjects"><b>Projects</b><span>Keep separate projects and recoverable copies on this device.</span></button>
 <button class="card" id="openUnplaced" hidden><b>Saved artwork to place</b><span>Imported artwork kept without an invented body position.</span></button>
 <button class="card" id="openPlanning"><b>Layouts, checkpoints & views</b><span>Save alternatives, named versions and camera bookmarks.</span></button>
-<button class="card" id="openPose"><b>Pose preview</b><span>See ink follow a few gentle body poses. No placement changes.</span></button>
+<button class="card" id="openPose"><b>Poses</b><span>Bend, turn and move the body. Your tattoos move with it, and you can keep placing them.</span></button>
 <button class="card" id="openBodyTools"><b>Body pins & ruler</b><span>Pin notes, draw on the body, or compare chord and approximate mesh-edge distance.</span></button>
 <button class="card" id="openPhotoFit"><b>Fit with photo references</b><span>Compare local photos and manually adjust a separate project copy.</span></button>
 <button class="card" id="openClothing"><b>Clothing coverage</b><span>Approximate sleeve, shorts and hair visibility studies.</span></button>
@@ -277,6 +304,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="card" id="cSketch" type="button"><b>Sketch in Procreate</b><span>Export or resume a saved body patch; return a transparent PNG as a new tattoo.</span></button>
       <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>
       <button class="card" id="cPacket" type="button"><b>Full artist packet</b><span>Four body views, all artwork and approximate sizes. Printable HTML file.</span></button>
+      <button class="card" id="cUsdz" type="button"><b>3D model with your tattoos</b><span>One file with the ink painted onto the skin. Opens in Procreate, Files and AR on iPad.</span></button>
+      <button class="card" id="cObjBaked" type="button"><b>3D model for other apps (OBJ)</b><span>The same painted body as OBJ, MTL and a skin picture in one ZIP. For Blender and desktop 3D apps.</span></button>
       <button class="card" id="cGlb" type="button"><b>Export 3D model</b><span>Neutral body and visible ink as GLB. Separate decal meshes, not a baked skin texture.</span></button>
       <button class="card" id="cObj" type="button"><b>Export OBJ package</b><span>Static body, separate ink meshes, MTL and PNG textures in one ZIP. Not UV-baked or rigged.</span></button>
       <button class="card" id="cModelOpen" type="button"><b>Preview a GLB model</b><span>Read-only import. Does not replace your body or saved project.</span></button>

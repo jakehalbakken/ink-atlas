@@ -17,6 +17,9 @@ import { cleanState, imageKeysFor } from './project.js';
 import { openStore } from './store.js';
 import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
+import { createBeforeAfter } from './before-after.js';
+import { createPoseView } from './pose-view.js';
+import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -72,6 +75,7 @@ bodyGeo.computeVertexNormals();
 bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
 const { mat: skinMat, uniforms: skinU } = createSkin(bodyGeo, SKINS[1]);
 let shapeKey = 0;
+let poseView = null; // set up once the body exists; poses are for looking and never saved
 const genitalsShown = () => state.figure === 'male' && state.genitals !== false;
 // Vertices past this are the genital geometry, which is only on the body when shown.
 const vertEnd = () => (genitalsShown() ? COUNTS.body + COUNTS.eyes + COUNTS.genital : COUNTS.body + COUNTS.eyes) * 3;
@@ -82,7 +86,7 @@ function setBodyPositions(pos, withGenitals) {
   bodyGeo.computeVertexNormals(); bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
   const fem = state.figure === 'female' ? 1 : state.figure === 'male' ? 0 : 0.5;
   updateSkin(bodyGeo, skinU, (0.0155 + 0.006 * fem) * (1 + 0.35 * ((state.fit && state.fit.nippleSize) || 0)));
-  shapeKey++; needsRender = true;
+  shapeKey++; needsRender = true; if (poseView) poseView.invalidate();
 }
 function applyShape() { setBodyPositions(shapePositions(state), genitalsShown()); }
 const body = new THREE.Mesh(bodyGeo, skinMat);
@@ -98,6 +102,8 @@ scene.add(body); body.updateMatrixWorld(true);
   m.rotation.x = -Math.PI / 2; m.position.y = 0.001; scene.add(m);
 }
 const decalGroup = new THREE.Group(); scene.add(decalGroup);
+const areolaSize = () => { const fem = state.figure === 'female' ? 1 : state.figure === 'male' ? 0 : 0.5; return (0.0155 + 0.006 * fem) * (1 + 0.35 * ((state.fit && state.fit.nippleSize) || 0)); };
+poseView = createPoseView({ THREE, bodyMesh: body, bodyGeo, skinMat, state: () => state, areola: areolaSize, onChange: () => { needsRender = true; if (typeof renderPose === 'function') renderPose(); } });
 const decals = {}; // id -> {mesh, outline, tex, texKey}
 
 /* ---------- camera rig ---------- */
@@ -113,10 +119,11 @@ function fullBody(theta) {
   goal.roll = 0; goal.phi = 1.5; goal.r = fullBodyR(); goal.tx = 0; goal.ty = 0.73; goal.tz = 0.02; glide = true; needsRender = true;
 }
 function focusTattoo(t) {
-  const n = new V3(...t.normal);
+  const spot = viewSpot(t);
+  const n = new V3(...spot.normal);
   goal.theta = Math.atan2(n.x, n.z);
   goal.phi = THREE.MathUtils.clamp(Math.acos(THREE.MathUtils.clamp(n.y, -1, 1)), 0.75, 2.0);
-  goal.tx = t.pos[0]; goal.ty = t.pos[1]; goal.tz = t.pos[2];
+  goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2];
   const ext = Math.max(t.width, t.width / t.aspect) * 3.0 + 0.24;
   const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
   const bounds=canvas.getBoundingClientRect(),dock=$('#dock').getBoundingClientRect();
@@ -129,7 +136,7 @@ function focusTattoo(t) {
   // artwork lands in the measured unobscured area rather than behind the dock.
   const st=Math.sin(goal.theta),ct=Math.cos(goal.theta),sp=Math.sin(goal.phi),cp=Math.cos(goal.phi),sr=Math.sin(goal.roll||0),cr=Math.cos(goal.roll||0);
   const up=new V3(-cp*st*cr-ct*sr,sp*cr,-cp*ct*cr+st*sr);
-  goal.tx=t.pos[0]-up.x*shift;goal.ty=t.pos[1]-up.y*shift;goal.tz=t.pos[2]-up.z*shift;
+  goal.tx=spot.pos[0]-up.x*shift;goal.ty=spot.pos[1]-up.y*shift;goal.tz=spot.pos[2]-up.z*shift;
   glide = true; needsRender = true;
 }
 function applyCam() {
@@ -167,7 +174,32 @@ cur.r = fullBodyR() * 1.25; fullBody(0);
 /* ---------- raycast helpers ---------- */
 const ray = new THREE.Raycaster();
 function ndc(x, y) { const r = canvas.getBoundingClientRect(); return new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1); }
-function hitBody(x, y) { ray.setFromCamera(ndc(x, y), camera); const h = ray.intersectObject(body, false)[0]; return h || null; }
+function hitBody(x, y) {
+  ray.setFromCamera(ndc(x, y), camera);
+  if (!poseView.active) { const h = ray.intersectObject(body, false)[0]; return h || null; }
+  // In a pose the finger touches the posed body; everything else works on the rest
+  // body, so report the same skin there (same triangle, same barycentric weights).
+  const h = poseView.withPosed(() => ray.intersectObject(body, false)[0]);
+  if (!h || !h.face || !h.barycoord) return null;
+  const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array, ids = [h.face.a, h.face.b, h.face.c], w = [h.barycoord.x, h.barycoord.y, h.barycoord.z];
+  const point = new V3(), normal = new V3();
+  for (let k = 0; k < 3; k++) { point.x += P[ids[k] * 3] * w[k]; point.y += P[ids[k] * 3 + 1] * w[k]; point.z += P[ids[k] * 3 + 2] * w[k]; normal.x += N[ids[k] * 3] * w[k]; normal.y += N[ids[k] * 3 + 1] * w[k]; normal.z += N[ids[k] * 3 + 2] * w[k]; }
+  return { point, normal: normal.normalize(), face: h.face, faceIndex: h.faceIndex, barycoord: h.barycoord, distance: h.distance, posedPoint: h.point };
+}
+// Where a tattoo is on screen right now: its rest spot, or the same skin in the pose.
+const spotCache = new Map();
+function viewSpot(t) {
+  if (!poseView.active) return { pos: t.pos, normal: t.normal };
+  const k = t.pos.join(',') + '|' + t.normal.join(',') + '|' + shapeKey;
+  let c = spotCache.get(t.id);
+  if (!c || c.k !== k) {
+    const tri = startTriangle(t), I = bodyGeo.index.array, P = bodyGeo.attributes.position.array;
+    const [a, b, d] = [0, 1, 2].map((j) => new V3().fromArray(P, I[tri * 3 + j] * 3));
+    const w = new V3(); THREE.Triangle.getBarycoord(new THREE.Triangle(a, b, d).closestPointToPoint(new V3(...t.pos), new V3()), a, b, d, w);
+    c = { k, tri, w: [w.x, w.y, w.z] }; spotCache.set(t.id, c);
+  }
+  return poseView.pointOn(c.tri, c.w);
+}
 function surfaceAt(origin, dir) { ray.set(origin, dir.clone().normalize()); const h = ray.intersectObject(body, false)[0]; return h ? { pos: h.point.toArray(), normal: h.normal.clone().normalize().toArray() } : null; }
 function frameOf(t) {
   const n = new V3(...t.normal).normalize();
@@ -188,7 +220,7 @@ function inkIdsAt(x,y,bodyHit=hitBody(x,y)) {
  if(!bodyHit)return [];
  ray.setFromCamera(ndc(x,y),camera);
  const entries=state.tattoos.map((t,order)=>({t,order,d:decals[t.id]})).filter(e=>!e.t.hidden&&e.d?.mesh.visible&&e.d.tex);
- const hits=[];for(const e of entries)for(const h of ray.intersectObject(e.d.mesh,false))if(h.uv)hits.push({id:e.t.id,order:e.order,distance:h.distance,uv:h.uv,tex:e.d.tex});
+ const hits=[];for(const e of entries)for(const h of poseView.withPosed(()=>ray.intersectObject(e.d.mesh,false),[e.d.mesh]))if(h.uv)hits.push({id:e.t.id,order:e.order,distance:h.distance,uv:h.uv,tex:e.d.tex});
  return rankedInkHits(hits,bodyHit.distance,h=>{try{let pixels=inkPixels.get(h.tex);if(!pixels){pixels=h.tex.image.getContext('2d',{willReadFrequently:true}).getImageData(0,0,h.tex.image.width,h.tex.image.height);inkPixels.set(h.tex,pixels);}return visibleInkAt(pixels,h.uv.x,h.uv.y,h.tex.flipY);}catch{return false;}});
 }
 let lastInkTap=null;
@@ -243,11 +275,11 @@ function startTriangle(t) {
   return best;
 }
 function decalGeometry(t) {
-  const { positions, uvs, supports } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), startTriangle(t));
+  const { positions, uvs, supports, tris } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), startTriangle(t));
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   out.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  out.userData.supports = supports;
+  out.userData.supports = supports; out.userData.tris = tris;
   return out;
 }
 function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3)].join('|'); }
@@ -385,7 +417,7 @@ function clearLiveGuides(){liveGuidePlan=null;guideSnapApplied=false;$('#alignme
 function drawLiveGuides(){const svg=$('#alignmentGuides');if(!liveGuidePlan){svg.setAttribute('hidden','');return;}svg.removeAttribute('hidden');const box=svg.getBoundingClientRect();svg.setAttribute('viewBox',`0 0 ${box.width||innerWidth} ${box.height||innerHeight}`);svg.replaceChildren();const ns='http://www.w3.org/2000/svg';
  for(const guide of liveGuidePlan.lines){const a=screenOf(new V3(...guide.from)),b=screenOf(new V3(...guide.to)),line=document.createElementNS(ns,'line');for(const [k,v]of Object.entries({x1:a.x-box.left,y1:a.y-box.top,x2:b.x-box.left,y2:b.y-box.top,stroke:guideSnapApplied?'#8ae2c0':'#f3c776','stroke-width':1.5,'stroke-dasharray':guideSnapApplied?'none':'5 4'}))line.setAttribute(k,String(v));svg.append(line);const label=document.createElementNS(ns,'text');label.setAttribute('x',String(Math.max(6,Math.min(box.width-100,b.x-box.left+6))));label.setAttribute('y',String(Math.max(18,Math.min(box.height-10,b.y-box.top-6))));label.setAttribute('fill',guideSnapApplied?'#8ae2c0':'#f3c776');label.setAttribute('font-size','12');label.setAttribute('paint-order','stroke');label.setAttribute('stroke','#20232c');label.setAttribute('stroke-width','3');label.textContent=`${guideSnapApplied?'Snap: ':''}${guide.kind} · ${liveGuidePlan.referenceName}`;svg.append(label);}
 }
-function updateLiveGuides(t){clearLiveGuides();if(!$('#liveGuides').checked)return;const refs=state.tattoos.filter(r=>!soloIds||soloIds.has(r.id)),plan=findLiveAlignment(t,refs);if(!plan)return;const ref=state.tattoos.find(r=>r.id===plan.referenceId);
+function updateLiveGuides(t){clearLiveGuides();if(!$('#liveGuides').checked||poseView.active)return;const refs=state.tattoos.filter(r=>!soloIds||soloIds.has(r.id)),plan=findLiveAlignment(t,refs);if(!plan)return;const ref=state.tattoos.find(r=>r.id===plan.referenceId);
  // A close normal match alone is not sufficient across adjacent body parts.
  const connected=projectGroupSurface(ref.pos,ref.normal,t);if(!connected||Math.hypot(...connected.pos.map((v,i)=>v-ref.pos[i]))>.012)return;
  liveGuidePlan=plan;if($('#snapGuides').checked){const hit=projectGroupSurface(plan.candidate,t.normal,t);if(hit&&Math.hypot(...hit.pos.map((v,i)=>v-plan.candidate[i]))<.012&&new V3(...hit.normal).dot(new V3(...t.normal))>.85){t.pos=hit.pos;t.normal=hit.normal;guideSnapApplied=true;}}
@@ -407,7 +439,8 @@ canvas.addEventListener('pointerdown', (e) => {
   if (pts.size === 1) {
     const t = sel();
     const onInk = onSelectedInk(e.clientX, e.clientY);
-    const sc = t ? screenOf(new V3(...t.pos)) : { x: 0, y: 0 };
+    const sc = t ? screenOf(new V3(...viewSpot(t).pos)) : { x: 0, y: 0 };
+    if (onInk && poseView.motion.playing) poseView.pause(); // hold the pose still while the ink moves
     gest = { mode: onInk ? 'ink' : 'cam', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, ox: e.clientX - sc.x, oy: e.clientY - sc.y, type: e.pointerType };
   } else if (pts.size === 2 && gest) {
     const s = two();
@@ -467,7 +500,7 @@ function endPointer(e) {
   if (e.type === 'pointercancel') { cancelGesture(); return; }
   if (!pts.has(e.pointerId)) return;
   pts.delete(e.pointerId);
-  if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...t.pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; } return; }
+  if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...viewSpot(t).pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; } return; }
   if (pts.size > 0 || !gest) return;
   const g = gest; gest = null;
   if (g.snap) { commit(); }
@@ -596,6 +629,53 @@ $('#cancelTapPlace').addEventListener('click',()=>{tapPlaceId=null;renderSheet()
 $('#bDone').addEventListener('click', () => select(null));
 $('#undo').addEventListener('click', undo); $('#redo').addEventListener('click', redo);
 $('#full').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); select(null); fullBody(); });
+// Before / after: left of the line shows only ink already on the body, right shows the plans too.
+const beforeAfter = createBeforeAfter({ after: $('#stage'), onChange: () => { needsRender = true; $('#baBtn').setAttribute('aria-pressed', String(beforeAfter.on)); } });
+function plannedShown() { return state.tattoos.filter((t) => t.status !== 'existing' && decals[t.id] && decals[t.id].mesh.visible); }
+function hidePlanned() {
+  const off = [];
+  for (const t of state.tattoos) { const d = decals[t.id]; if (!d || t.status === 'existing') continue; off.push([d.mesh, d.mesh.visible], [d.outline, d.outline.visible]); d.mesh.visible = false; d.outline.visible = false; }
+  return () => { for (const [m, v] of off) m.visible = v; };
+}
+function posedInk() { return poseView.active ? Object.values(decals).flatMap((d) => [d.mesh, d.outline]) : []; }
+function drawFrame() { poseView.withPosed(() => { if (beforeAfter.on) beforeAfter.render(renderer, scene, camera, hidePlanned); else renderer.render(scene, camera); }, posedInk()); }
+/* ---------- poses ---------- */
+// The body poses in the main view; ink follows and can still be placed. Nothing is saved.
+{
+  const list = $('#poseList');
+  for (const group of POSE_GROUPS) {
+    const keys = Object.keys(POSE_CATALOG).filter((k) => POSE_CATALOG[k].group === group); if (!keys.length) continue;
+    if (group !== 'Standing') { const h = document.createElement('h4'); h.textContent = group; list.append(h); }
+    const grid = document.createElement('div'); grid.className = 'posegrid'; list.append(grid);
+    for (const k of keys) { const b = document.createElement('button'); b.className = 'btn'; b.type = 'button'; b.dataset.pose = k; b.textContent = POSE_CATALOG[k].label; grid.append(b); }
+  }
+  for (const [k, m] of Object.entries(MOTION_CATALOG)) { const o = document.createElement('option'); o.value = k; o.textContent = m.label; $('#motionKind').append(o); }
+}
+function poseLabel() { const k = poseView.key; return k === 'motion' ? MOTION_CATALOG[poseView.motion.kind].label : k === 'custom' ? 'Custom' : POSE_CATALOG[k] ? POSE_CATALOG[k].label : 'Standing'; }
+function renderPose() {
+  const k = poseView.key, m = poseView.motion;
+  $('#poseBtn').textContent = poseView.active || m.playing ? 'Pose: ' + poseLabel() : 'Pose';
+  $('#poseBtn').setAttribute('aria-expanded', String(!$('#posePop').hidden));
+  document.querySelectorAll('#poseList [data-pose]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.pose === k)));
+  $('#motionKind').value = m.kind; $('#motionPlay').textContent = m.playing ? 'Pause' : 'Play'; $('#motionPlay').setAttribute('aria-pressed', String(m.playing));
+  document.querySelectorAll('#posePop [data-speed]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.speed === m.speed)));
+  if (!scrubbing) $('#motionScrub').value = k === 'motion' ? Math.round(m.phase * 100) : 0;
+}
+let scrubbing = false;
+function afterPoseChange() { spotCache.clear(); const t = sel(); if (t && !gest) requestAnimationFrame(() => { if (sel() === t && poseView.settled()) focusTattoo(t); }); }
+$('#poseBtn').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); toggle('#posePop'); renderPose(); });
+$('#poseList').addEventListener('click', (e) => { const b = e.target.closest('[data-pose]'); if (!b) return; cancelGesture(); poseView.choose(b.dataset.pose); renderPose(); setTimeout(afterPoseChange, 320); });
+$('#motionKind').addEventListener('change', () => { poseView.scrub(0, $('#motionKind').value); if ($('#motionPlay').getAttribute('aria-pressed') === 'true') poseView.play(); renderPose(); });
+$('#motionPlay').addEventListener('click', () => { if (poseView.motion.playing) poseView.pause(); else poseView.play($('#motionKind').value); renderPose(); });
+document.querySelectorAll('#posePop [data-speed]').forEach((b) => b.addEventListener('click', () => { poseView.speed = +b.dataset.speed; renderPose(); }));
+$('#motionScrub').addEventListener('input', () => { scrubbing = true; poseView.scrub($('#motionScrub').value / 100, $('#motionKind').value); scrubbing = false; renderPose(); });
+$('#motionScrub').addEventListener('change', afterPoseChange);
+renderPose();
+$('#baBtn').addEventListener('click', () => {
+  if (beforeAfter.on) { beforeAfter.set(false); return; }
+  if (!plannedShown().length) { toast('Nothing planned to compare yet. Mark a tattoo as Planned to see it here.'); return; }
+  beforeAfter.set(true); toast('Left: your skin now. Right: with your planned tattoos. Drag the line to compare.');
+});
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => fullBody(+b.dataset.view * Math.PI / 2)));
 $('#add').addEventListener('click', () => $('#file').click());
 $('#emptyAdd').addEventListener('click', () => $('#file').click());
@@ -612,7 +692,7 @@ $('#file').addEventListener('change', async (e) => {
   }
   if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
 });
-function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#bodyPop') updateInset(); }
+function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); }
 $('#bodyBtn').addEventListener('click', () => { toggle('#bodyPop'); });
 $('#rHeight').addEventListener('input', () => { state.heightCm = +$('#rHeight').value; renderBody(); renderSheet(); save(); });
 document.querySelectorAll('[data-fig]').forEach((b) => b.addEventListener('click', () => { if (state.figure === b.dataset.fig) return; snapshot(); reshape(() => { state.figure = b.dataset.fig; }); commit(); }));
@@ -697,12 +777,7 @@ function onUpdateReady() {
 document.addEventListener('visibilitychange', () => { if (document.hidden && updateReady) reloadForUpdate(); });
 if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) onUpdateReady(); }); }
 $('#projectsBtn').addEventListener('click', () => {cancelGesture();toggle('#planMenu',true);});
-$('#openPose').addEventListener('click',async()=>{
-  cancelGesture();toggle('#planMenu',false);
-  try { const {openPosePreview}=await import('./pose-preview.js');
-    await openPosePreview({THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden).map(t=>decals[t.id]).filter(d=>d && d.tex).map(d=>({geometry:d.mesh.geometry,material:d.mesh.material}))});
-  } catch(e) {toast('Could not open pose preview: '+e.message);}
-});
+$('#openPose').addEventListener('click',()=>{cancelGesture();toggle('#planMenu',false);toggle('#posePop',true);renderPose();});
 function previewInput() {return {THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden).map(t=>decals[t.id]).filter(d=>d && d.tex).map(d=>({geometry:d.mesh.geometry,material:d.mesh.material}))};}
 $('#openBodyTools').addEventListener('click',async()=>{
   cancelGesture();toggle('#planMenu',false);let originalNotes=JSON.stringify({notes:state.notes,drawings:state.drawings});
@@ -847,12 +922,12 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => toggle('#share', true));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); toggle('#posePop', false); renderPose(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
   const inset = curInset; curInset = 0; applyInset(); // exports are always centred, panel open or not
-  exporting = true; decalGroup.visible = !hideInk; syncDecals(); renderer.render(scene, camera);
+  exporting = true; decalGroup.visible = !hideInk; syncDecals(); poseView.withPosed(() => renderer.render(scene, camera), posedInk());
   const url = canvas.toDataURL('image/png');
   exporting = false; decalGroup.visible = true; syncDecals(); curInset = inset; applyInset(); needsRender = true; return url;
 }
@@ -951,6 +1026,22 @@ $('#cGlb').addEventListener('click',async()=>{
  toggle('#share',false);try{const {exportSceneGlb}=await import('./three-export.js');const result=await exportSceneGlb(previewInput());await saveFile('ink-atlas-neutral-model.glb',result.blob);}catch(e){toast('Could not export 3D model: '+e.message);}
 });
 $('#cObj').addEventListener('click',async()=>{toggle('#share',false);try{const {exportSceneObjPackage}=await import('./obj-export.js');const result=await exportSceneObjPackage(previewInput());await saveFile('ink-atlas-neutral-obj.zip',result.blob);}catch(e){toast('Could not export OBJ package: '+e.message);}});
+// Tattoos painted into one skin texture on the body's own UVs (src/uv-bake.js).
+async function exportPainted(kind) {
+  toggle('#share', false);
+  const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
+  toast('Painting your tattoos onto the skin. This takes a few seconds.');
+  try {
+    syncDecals();
+    const { exportPaintedModel } = await import('./uv-bake.js');
+    const result = await exportPaintedModel({ THREE, renderer, bodyGeometry: bodyGeo, skinColor: skinMat.color, decals: visible.map((t) => ({ geometry: decals[t.id].mesh.geometry, material: decals[t.id].mesh.material })), state, kind });
+    window.__lastPainted = { kind, bytes: result.blob.size, size: result.size, inked: result.inked };
+    await saveFile(result.name, result.blob);
+  } catch (e) { toast('Could not make the 3D model: ' + ((e && e.message) || 'something went wrong')); }
+  finally { needsRender = true; }
+}
+$('#cUsdz').addEventListener('click', () => exportPainted('usdz'));
+$('#cObjBaked').addEventListener('click', () => exportPainted('obj'));
 $('#cModelOpen').addEventListener('click',()=>$('#modelFile').click());
 $('#modelFile').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;toggle('#share',false);try{if(file.size>25*1024*1024)throw new Error('Use a GLB under 25 MiB.');const {openModelPreview}=await import('./model-preview.js');await openModelPreview({THREE,buffer:await file.arrayBuffer(),name:file.name});}catch(e){toast('Could not preview model: '+e.message);}});
 $('#cV47Source').addEventListener('click',()=>{const source=state.v47Source;if(source)saveFile('ink-atlas-original-import.ink.json',JSON.stringify({format:'ink-atlas-portable',project:source.project,assets:source.assets}));});
@@ -1056,7 +1147,7 @@ function tick(now) {
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) $('#size').textContent = sizeText(t); }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
-  if (moving || needsRender) { needsRender = false; renderer.render(scene, camera); if(liveGuidePlan)drawLiveGuides(); }
+  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); }
   requestAnimationFrame(tick);
 }
 
@@ -1095,7 +1186,10 @@ function tick(now) {
 })();
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
-  state: () => state, ready: () => booted, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
+  state: () => state, ready: () => booted,
+  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }),
+  pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex }; }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
+  pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,

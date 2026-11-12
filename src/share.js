@@ -7,6 +7,8 @@ function typeFor(name) {
   if (/\.jpe?g$/i.test(name)) return 'image/jpeg';
   if (/\.html?$/i.test(name)) return 'text/html';
   if (/\.json$/i.test(name)) return 'application/json';
+  if (/\.usdz$/i.test(name)) return 'model/vnd.usdz+zip';
+  if (/\.zip$/i.test(name)) return 'application/zip';
   return 'application/octet-stream';
 }
 
