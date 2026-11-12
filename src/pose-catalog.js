@@ -1,7 +1,7 @@
 // Poses and motion loops for the MakeHuman rig (pose.js), after v47's catalog.
 // Rotations are quaternions on world axes, applied in the parent's frame. Big arm
 // movements are shared along clavicle, shoulder and upper arm so the shoulder keeps
-// its volume. No contact or floor locking: a seated pose has no chair.
+// its volume. The lowest foot stays on the floor (pose-view.js); a seated pose has no chair.
 import {axisAngle} from './pose.js';
 const AX={x:[1,0,0],y:[0,1,0],z:[0,0,1]};
 const axisOf=a=>typeof a==='string'?AX[a]:a;
@@ -52,7 +52,7 @@ export const POSE_CATALOG=Object.freeze({
  twist:still('Torso','Turn left',spine({},{turn:.5})),
  turnRight:still('Torso','Turn right',spine({},{turn:-.5})),
  sideReach:still('Torso','Side reach',spine(arm('L',{lift:2.15}),{side:-.3})),
- hinge:still('Torso','Bend forward',merge(spine({},{bend:.45}),leg('L',.35),leg('R',.35))),
+ hinge:still('Torso','Bend forward',spine({},{bend:.65})),
  kneeLeft:still('Legs','Left knee up',leg('L',1.2,1.4)),
  kneeRight:still('Legs','Right knee up',leg('R',1.2,1.4)),
  squat:still('Legs','Squat',merge(leg('L',1.1,1.7),leg('R',1.1,1.7),spine({},{bend:.35}))),
@@ -84,7 +84,7 @@ export function catalogMotionRotations(kind,phase){
   case'chest':a=both({lift:.35*cycle,reach:-.55*cycle});break;
   case'punches':a=merge(arm('L',{hang:.85+.15*pos,reach:.5+.55*pos,elbow:1.9*(1-pos)}),arm('R',{hang:.85+.15*neg,reach:.5+.55*neg,elbow:1.9*(1-neg)}));break;
   case'jacks':a=both({lift:2.15*cycle});break;
-  case'hinge':a=merge(spine({},{bend:.45*cycle}),leg('L',.35*cycle),leg('R',.35*cycle));break;
+  case'hinge':a=spine({},{bend:.65*cycle});break;
   case'squat':a=merge(leg('L',1.1*cycle,1.7*cycle),leg('R',1.1*cycle,1.7*cycle),spine({},{bend:.35*cycle}));break;
   case'sitStand':a=merge(leg('L',1.5*cycle,1.5*cycle),leg('R',1.5*cycle,1.5*cycle));break;
   case'march':a=merge(leg('L',1.1*pos,1.3*pos),leg('R',1.1*neg,1.3*neg),arm('L',{hang:.7,reach:-.45*wave}),arm('R',{hang:.7,reach:.45*wave}));break;

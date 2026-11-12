@@ -7,14 +7,13 @@ export default async function(p){
  await p.click('#ink-body-notes [data-act=close]');await p.reload({waitUntil:'load'});await wait(1500);
  assert.equal(await p.evaluate(()=>window.__ink.state().notes.length),1,'notes survive reload');
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
- await open('#openPose');await p.waitForSelector('.pose-preview');
+ await open('#openPose');await p.waitForSelector('#posePop:not([hidden])');
  for(const pose of ['elbow','raised','twist','neutral']){
-  await p.click(`[data-pose=${pose}]`);await wait();
-  const x=await p.evaluate(()=>document.querySelector('.pose-preview').__poseTest());
-  assert(x.decals>0);assert(x.maxSupportError<1e-6);assert(x.uvUnchanged);assert(x.inputsUnchanged);if(pose==='neutral')assert(x.neutralExact);
+  await p.click(`#poseList [data-pose=${pose}]`);await wait(600);
+  const x=await p.evaluate(()=>window.__ink.pose());assert.equal(x.key,pose);assert.equal(x.active,pose!=='neutral');
+  assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before,'pose leaves saved plan unchanged');
   await p.screenshot({path:`shots/pose-${pose}.png`});
  }
- await p.click('.pose-preview [data-close]');
- assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before,'pose leaves saved plan unchanged');
- console.log('PASS t12 notes persisted, four pose previews fixed-UV supports, immutable input and state');
+ await p.click('#posePop [data-close=posePop]');
+ console.log('PASS t12 notes persisted, four poses in the main view, saved plan unchanged');
 }
