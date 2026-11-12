@@ -21,6 +21,16 @@ Written 2026-11-11 from the code in `src/`, the scripts in `tools/tests/`, `CLAU
 - Accounts/private cross-device collaboration and AI-provider features remain deferred pending backend/provider decisions.
 - Real iPad Chrome/Pencil/share-sheet/performance acceptance remains outstanding for the new work.
 
+### Session note, 2026-11-12 (Claude, Opus, overnight continuation)
+
+Jake authorized continuing the parity work and deploying overnight (directly, in the Claude session, after forwarded relays which on their own were not treated as authorization). Verified the inherited parity release first: build green (50 modules), all 16 node unit tests pass, and the full t1-t28 browser suite passes.
+
+Found and fixed one **severe regression** in the live release: selecting a tattoo flew the camera to frame it at screen centre, but the parity edit sheet had grown to about 420px tall and covered that spot, so pointer events hit the sheet and the core "drag the selected tattoo" gesture did nothing. The automated t1 masked it because it dragged from hardcoded coordinates rather than the tattoo's real position. Fix: `focusTattoo` now frames the selected tattoo in the canvas area above the sheet (measuring the sheet's height); t1 drags from the projected position and fails loudly otherwise. Deployed to `main` (commit 037ab8e) and verified live (`index-96K-3mCE.js`).
+
+**Flagged, not yet changed:** the edit sheet is tall (about 420px), so on a landscape iPad a selected tattoo works in only the upper part of the screen. It is functional now but presses on the "keep the canvas dominant" rule; worth tightening (collapse or shorten the sheet) in a follow-up.
+
+**Honest status of the "build everything" ask:** most of the long parity list was already implemented and tested by the prior agent and is live. What genuinely remains is advanced or reserved, not quick wins: full pose catalog and posed editing (24 poses / 12 motions exist), synchronized live wipe compare (saved-picture compare exists), UV-baked OBJ/skin export (static GLB exists), automatic subject segmentation (manual cleanup exists), and anything needing a backend or AI provider (reserved for Jake). These are not claimed complete.
+
 The original audit tables below are a **historical baseline**, not current feature status. Later checkpoints record implementation and test evidence. Do not read their old “Missing” labels as a current regression.
 
 ## Rules of evidence used here
