@@ -2,6 +2,27 @@
 
 Written 2026-11-11 from the code in `src/`, the scripts in `tools/tests/`, `CLAUDE.md`, `docs/v47-spec.md` and the competitive strategy report (kept in `docs/private/`, which is git-ignored).
 
+## Current checkpoint (November 12, local versus live)
+
+**Live:** cleanup-only release `d2cf602`: upload, light-paper/manual cleanup, retained originals and navigation recovery. All subsequent parity work below is local, not published.
+
+**Local built and automated-tested:** project shelf; layouts/checkpoints/saved-picture comparisons; layer/group transforms and linked revisions; notes/body pins/drawing; chord and mesh-edge ruler; static pose + three restrained motion previews; approximate coverage masks; manual photo-reference fitting to a copy; Procreate patch round trip; artist packet; static GLB export/read-only import; strict v47 compatibility export and source-preserving import; explicit alignment/symmetry; view-roll and tap-to-place.
+
+**Still partial or absent against the original v47 specification:**
+- Cleanup: no persistent editable crop/mask recipe, exact-edge crop, trim, editor pan/zoom/backdrops, pressure/Pencil-only setting, automatic subject segmentation or multi-photo angle combination.
+- Placement: no fully separate durable Save/Cancel placement-draft state or on-canvas transform handles. Actual-decal alpha/depth tap selection and overlap cycling now tested; drag-start ownership retains its generous rectangle. Live center/edge guides and optional snapping now tested.
+- Artwork: no full 120-board library/reference-photo manager. Historical layouts are intentionally not silently rewritten by linked cleanup.
+- Body: manual reference fitting, not eight-landmark estimation; no portrait/likeness work (explicitly shelved). Approximate clothing/hair masks are not fitted garments.
+- Pose: four static previews and three motion studies, not the full original catalog or full posed editing/IK/anatomical simulation.
+- Comparison: saved pictures rather than synchronized live 3D/wipe.
+- Drawing/export: tangent-square patch, not arbitrary UV unwrap. Direct flat-patch drawing/erase now tested. Mesh-edge ruler can overestimate and is not a tape measurement.
+- 3D: static GLB with separate decals, no UV-baked skin, editable foreign-body replacement or OBJ/MTL round trip.
+- Compatibility: unsupported old metadata retained in untouched source archive, not all runtime-editable; original runtime round trip not tested.
+- Accounts/private cross-device collaboration and AI-provider features remain deferred pending backend/provider decisions.
+- Real iPad Chrome/Pencil/share-sheet/performance acceptance remains outstanding for the new work.
+
+The original audit tables below are a **historical baseline**, not current feature status. Later checkpoints record implementation and test evidence. Do not read their old “Missing” labels as a current regression.
+
 ## Rules of evidence used here
 
 - The v47 spec describes the older ChatGPT-built app. It is a checklist of intent, never proof that this rebuild does something.
@@ -221,3 +242,37 @@ Pose foundation added after the checkpoint: `tools/rig.py`, `src/rig.js`, `src/p
 - Alignment guides like Photoshop/Slides, relative to existing tattoos: centerlines, edges and spacing, with optional snapping and no implicit movement of locked/existing ink.
 - Mirror/symmetry tools: explicit preview and chosen axis/side, preserving original artwork and requiring deliberate application. Distinguish image flip from opposite-body placement.
 - Export a chosen body section with existing ink to a flat drawing view, then map the returned transparent art onto the same wrap. Existing Procreate patch exchange is a partial foundation, not full UV-unwrapped section editing; retain shape/patch identity and prevent stale-body reimports.
+
+## Local alignment, symmetry and flat-patch refinement
+
+- Align & body symmetry provides explicit center/rectangular-edge/gap operations relative to a fixed tattoo. Preview is a rendered proposed placement without changing the project; Apply is atomic and undoable. Locked/existing pieces are not moved. Opposite-body duplication preserves the source and is distinct from image mirroring. Same-surface alignment uses connectivity checks; symmetry uses a bounded mirrored-target raycast and normal/distance checks.
+- t22 verifies real preview/apply/undo and opposite-body copy with originals preserved. Pure tests cover alignment math, protected references, unsafe projections and centerline rejection. This is deliberate alignment tooling, not live Photoshop-style snapping guides during free dragging.
+- Procreate patch UI now previews guide, existing ink and returned art as independently toggled layers, rejects exact guide/reference files, and requires explicit unchanged-canvas/new-ink-only confirmation before applying. Reimport resets that confirmation. It cannot automatically detect arbitrary rotation/translation; pending shape/identity checks remain enforced. It is a projected square patch, not arbitrary UV unwrapping.
+- t16 saved-patch roundtrip and isolated preview/import/retry tests passed. No deployment of these additions.
+- Local parity work was checkpointed before merging deployed cleanup commit d2cf602. Branch local/parity-next preserves prior work and release ancestry without reset. Future publication requires separate approval.
+
+## Local view twist and deliberate tap placement
+
+- Two fingers starting away from selected editable ink now pinch/pan/twist the whole view. Positive screen twist produces matching clockwise visual roll; world-up is reset before lookAt and roll is applied once, with shortest-angle smoothing. Full body resets roll. Old saved views lacking roll restore upright.
+- Selected unlocked planned tattoos now have explicit Tap to place / Cancel controls and a visible armed banner. One valid body tap moves the piece with one undo step. Blank taps retain the piece and armed mode; drags/pinches while armed adjust only the camera. Selection changes, locking, hiding, Existing status, Escape and pointer cancellation disarm safely. Existing on-ink two-finger resize/rotate semantics remain unchanged.
+- Pure view-gesture tests and rebuilt t23 browser tests pass: actual projected clockwise vector, no roll drift, world-up, Full reset, blank tap, armed orbit, placement/undo, lock/Escape cancellation, selected-ink resize/rotate without camera roll, and old saved-view compatibility. t5 touch-slider/panel regression also passes.
+- Local only. Real iPad Chrome/Pencil acceptance remains pending; no deployment in this pass.
+
+## Live drag alignment guides (local)
+
+- Normal one-finger tattoo dragging now shows nearby rectangular center/edge guides against visible references, including locked/existing ink. Default is view-only; an explicit Precise placement > Snap to guides checkbox enables movement adjustment. References are never edited.
+- Candidates require proximity, normal and tangent-depth agreement, then local surface connectivity through the existing projection helper. Snapping adds a bounded connected projection. Guides clear on pointer end/cancel, two-finger gestures, or disabling guides; camera roll and tap-to-place remain separate.
+- Pure math tests and rebuilt t24 browser test pass for actual SVG guide display, unchanged unsnapped drag hit, existing-reference preservation, opt-in snap/undo and clearing. Guides use image rectangle bounds, not alpha outlines; this is approximate alignment on curved skin, not an anatomical or calibrated layout guarantee.
+- Not deployed. Real iPad interaction/performance acceptance remains pending.
+
+## Local flat drawing and visible-ink selection checkpoint
+
+- The flat patch now supports local 768-square draw/erase with pressure-aware brush, transparent output, mask clipping, reference overlays, bounded undo/redo and explicit use/cancel. The result still passes the same PNG validation, alignment confirmation and parent shape/anchor guard. t26 verifies complete draw-to-new-tattoo placement at the saved anchor without replacing old ink. Saved output is raster, not a persistent editable layer stack.
+- Tapping ink raycasts actual rendered decal triangles and samples their visible multiply-texture pixels, excluding white/transparent pixels and out-of-depth surfaces. Repeated taps cycle overlapping visible pieces without camera recentering between choices. t25 tests actual UV pass-through and stack cycling. Drag-start ownership intentionally retains the generous existing hit area; it is not a new precise-selection gesture.
+- Independent t24 live guide and t16 saved Procreate roundtrip reruns passed after integration. No publication; live release remains cleanup-only d2cf602.
+
+## Local durable transform drafts, resumable cleanup and artwork library
+
+- Placement draft is an explicit, separately persisted transform editor. Size/rotation/opacity/wrap/bend/taper preview do not alter committed project/backups. Keep & close resumes after reload; Save verifies the committed baseline, writes the project, then removes the draft; Discard requires confirmation. It does not yet make every direct body drag/upload a durable draft or provide separate draft undo. t27 exercises reload, committed exclusion, save and project undo. Floating-point body normalization is rounded only in conflict fingerprints at 1e-10 precision.
+- Cleanup now retains bounded full edited/restore-baseline raster sessions with crop rectangle and source/output hashes. Reopening restores crop, outside pixels and restore-brush baseline; Remove crop is non-destructive. Crop/erase/reopen/restore/undo/uncrop/stale-session tests pass. History restarts on reopen; paper/contrast remain baked raster edits, not a full replayable layer recipe.
+- Artwork library discovers placed/unplaced/retained artwork and offers deliberate linked/independent placements. Sources and original instances retained. It is not yet a full reference-photo/artist-board manager.

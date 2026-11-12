@@ -1,3 +1,4 @@
+import {validateCleanupSession} from './cleanup.js';
 // Pure state revision for a newly cleaned artwork image. Caller owns image storage,
 // undo, validation at import boundaries and persistence. Historical snapshots stay
 // unchanged and all previous artwork records remain available for undo/restore.
@@ -7,7 +8,7 @@ function freshId(records) {
   do { id = `art-${globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`; } while(Object.prototype.hasOwnProperty.call(records,id));
   return id;
 }
-export function applyArtworkRevision(state, tattooId, newImageKey, aspect, {linked=false}={}) {
+export function applyArtworkRevision(state, tattooId, newImageKey, aspect, {linked=false,session=null,settings=null}={}) {
   if(!state || typeof state!=='object' || !Array.isArray(state.tattoos))throw new TypeError('A project with tattoos is required');
   if(typeof newImageKey!=='string'||!newImageKey.trim()||newImageKey.length>512)throw new TypeError('A nonempty image key is required');
   if(!Number.isFinite(aspect)||aspect<=0)throw new TypeError('Artwork aspect must be finite and positive');
@@ -24,6 +25,10 @@ export function applyArtworkRevision(state, tattooId, newImageKey, aspect, {link
   if(typeof source!=='string'||!source)throw new TypeError('The original artwork source is unavailable');
   const artworkId=freshId(records);
   const revision={...previous,source,output:newImageKey};
+  // A new output must not accidentally inherit a session bound to the previous output.
+  delete revision.cleanupSession;
+  if(session)revision.cleanupSession=validateCleanupSession(session);
+  if(settings&&typeof settings==='object')revision.cleanup={paperThreshold:Math.max(100,Math.min(255,Number(settings.paperThreshold)||235)),contrast:Math.max(-80,Math.min(150,Number(settings.contrast)||0))};
   // Some import formats also store the identity inside each record.
   if(Object.prototype.hasOwnProperty.call(revision,'id'))revision.id=artworkId;
   if(!revision.name)revision.name=target.name||'Tattoo';

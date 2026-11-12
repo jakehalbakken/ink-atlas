@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {wrapAngle,twoPointerMetrics,twoPointerDelta,planTapPlacement} from '../../src/view-gestures.js';
+const a=twoPointerMetrics([{x:-50,y:0},{x:50,y:0}]),b=twoPointerMetrics([{x:0,y:-50},{x:0,y:50}]);
+assert.equal(twoPointerDelta(a,b).rollDelta,Math.PI/2);assert.equal(twoPointerDelta(a,b).zoomRatio,1);
+const edge=twoPointerDelta({...a,angle:179*Math.PI/180},{...b,angle:-179*Math.PI/180});assert.ok(Math.abs(edge.rollDelta-2*Math.PI/180)<1e-12);
+const crossed=twoPointerDelta(a,{...b,distance:1});assert.equal(crossed.rollDelta,0);assert.equal(crossed.zoomRatio,1);assert.equal(crossed.stable,false);
+const doubled=twoPointerDelta(a,{...a,distance:200,cx:10,cy:20});assert.deepEqual(doubled,{zoomRatio:.5,rollDelta:0,dx:10,dy:20,stable:true});
+const tattoo={id:'a',pos:[0,0,0],normal:[0,0,1],width:.1,rot:.3,aspect:2,artworkId:'art',status:'planned'},before=structuredClone(tattoo),hit={pos:[.1,.8,.2],normal:[0,0,2]},placed=planTapPlacement(tattoo,hit);
+assert.deepEqual(placed.normal,[0,0,1]);assert.equal(placed.artworkId,'art');assert.equal(placed.rot,.3);assert.deepEqual(tattoo,before);assert.deepEqual(hit.normal,[0,0,2]);assert.throws(()=>planTapPlacement({...tattoo,locked:true},hit));assert.throws(()=>planTapPlacement({...tattoo,status:'existing'},hit));assert.throws(()=>planTapPlacement(tattoo,null));assert.ok(Math.abs(wrapAngle(2*Math.PI))<1e-12);
+console.log('PASS clockwise roll, seam wrapping, near-coincident guard, zoom/pan independence, tap placement immutability and protections');

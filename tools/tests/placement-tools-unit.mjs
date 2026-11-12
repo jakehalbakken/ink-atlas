@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {planTattooAlignment,planImageMirror,planBodySymmetry} from '../../src/placement-tools.js';
+const a={id:'a',name:'A',pos:[.2,.9,0],normal:[0,0,1],width:.1,aspect:2,rot:0,status:'planned',flip:false},b={...structuredClone(a),id:'b',name:'B',pos:[0,1,0],width:.2,locked:true,status:'existing'},ts=[a,b],original=structuredClone(ts),project=(p,n)=>({pos:p,normal:n});
+const align=mode=>planTattooAlignment(ts,'a','b',{mode,gap:.01},project).updates[0];
+assert.equal(align('centerX').pos[0],0);assert.equal(align('centerX').pos[1],.9);assert.equal(align('centerY').pos[1],1);assert.ok(Math.abs(align('spaceRight').pos[0]-.16)<1e-12);assert.ok(Math.abs(align('left').pos[0]+.05)<1e-12);assert.equal(align('left').width,.1);
+const mirror=planImageMirror(ts,'a');assert.equal(mirror.updates[0].flip,true);assert.deepEqual(mirror.updates[0].pos,a.pos);assert.equal(mirror.additions.length,0);
+const sym=planBodySymmetry(ts,'a',project,'copy');assert.equal(sym.updates.length,0);assert.equal(sym.additions[0].pos[0],-.2);assert.equal(sym.additions[0].flip,false);assert.equal(sym.additions[0].id,'copy');assert.deepEqual(ts,original);
+assert.throws(()=>planTattooAlignment(ts,'b','a',{},project));assert.throws(()=>planBodySymmetry(ts,'b',project,'copy'));assert.throws(()=>planTattooAlignment(ts,'a','b',{},()=>null));assert.throws(()=>planBodySymmetry(ts,'a',()=>({pos:[.2,.9,0],normal:[0,0,1]}),'copy'));assert.throws(()=>planBodySymmetry([{...a,pos:[0,.9,0]}],'a',project,'copy'));
+const rotated=planBodySymmetry([{...a,rot:.3}],'a',project,'rotated').additions[0];assert.ok(Math.abs(rotated.rot+.3)<1e-12);
+console.log('PASS center/edge/gap alignment, mirror vs symmetry distinction, protected original/reference, projection failures, centerline guard and reflection rotation');

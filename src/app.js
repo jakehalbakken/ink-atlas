@@ -1,9 +1,12 @@
+import { visibleInkAt, rankedInkHits, cycleInkHit } from './ink-picking.js';
 import * as THREE from 'three';
 import { INDEX, INDEX_ALL, COUNTS, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
 import { createSkin, updateSkin } from './skin.js';
 import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
 import './slider.js';
+import {twoPointerDelta,wrapAngle,planTapPlacement} from './view-gestures.js';
+import {findLiveAlignment} from './live-alignment.js';
 import { editArtwork } from './cleanup.js';
 import { applyArtworkRevision } from './cleanup-links.js';
 import { openShelf, openProjectShelf } from './shelf.js';
@@ -28,6 +31,7 @@ let state = freshState();
 let images = {}; // key -> dataURL
 const imgEls = {}; // key -> HTMLImageElement
 let selectedId = null;
+let tapPlaceId = null;
 let soloIds = null;
 const undoStack = [];
 const redoStack = [];
@@ -97,7 +101,7 @@ const decalGroup = new THREE.Group(); scene.add(decalGroup);
 const decals = {}; // id -> {mesh, outline, tex, texKey}
 
 /* ---------- camera rig ---------- */
-const cur = { theta: 0.35, phi: 1.45, r: 4.2, tx: 0, ty: 0.86, tz: 0 };
+const cur = { theta: 0.35, phi: 1.45, roll: 0, r: 4.2, tx: 0, ty: 0.86, tz: 0 };
 const goal = { ...cur };
 let glide = true; let needsRender = true;
 function fullBodyR() {
@@ -106,7 +110,7 @@ function fullBodyR() {
 }
 function fullBody(theta) {
   if (theta != null) goal.theta = theta;
-  goal.phi = 1.5; goal.r = fullBodyR(); goal.tx = 0; goal.ty = 0.73; goal.tz = 0.02; glide = true; needsRender = true;
+  goal.roll = 0; goal.phi = 1.5; goal.r = fullBodyR(); goal.tx = 0; goal.ty = 0.73; goal.tz = 0.02; glide = true; needsRender = true;
 }
 function focusTattoo(t) {
   const n = new V3(...t.normal);
@@ -122,7 +126,9 @@ function focusTattoo(t) {
 function applyCam() {
   const s = Math.sin(cur.phi);
   camera.position.set(cur.tx + cur.r * s * Math.sin(cur.theta), cur.ty + cur.r * Math.cos(cur.phi), cur.tz + cur.r * s * Math.cos(cur.theta));
+  camera.up.set(0,1,0);
   camera.lookAt(cur.tx, cur.ty, cur.tz);
+  camera.rotateZ(cur.roll || 0);
   camera.updateMatrixWorld(true);
 }
 function stepCam(dt) {
@@ -130,6 +136,7 @@ function stepCam(dt) {
   let d = 0;
   for (const p of ['phi', 'r', 'tx', 'ty', 'tz']) { const dv = goal[p] - cur[p]; cur[p] += dv * k; d += Math.abs(dv); }
   let dth = goal.theta - cur.theta; dth = Math.atan2(Math.sin(dth), Math.cos(dth)); cur.theta += dth * k; d += Math.abs(dth);
+  const dr=wrapAngle((goal.roll||0)-(cur.roll||0));cur.roll=wrapAngle((cur.roll||0)+dr*k);d+=Math.abs(dr);
   applyCam();
   if (d < 2e-4) { glide = false; return false; }
   return true;
@@ -166,14 +173,15 @@ function insideTattoo(point, t, pad = 1.12) {
   const hw = Math.max(t.width / 2 * pad, 0.028), hh = Math.max(t.width / t.aspect / 2 * pad, 0.028);
   return Math.abs(d.dot(f.right)) <= hw && Math.abs(d.dot(f.up)) <= hh && Math.abs(d.dot(f.n)) < 0.09;
 }
-function tattooAt(point, normal) {
-  for (let i = state.tattoos.length - 1; i >= 0; i--) {
-    const t = state.tattoos[i]; if (t.hidden) continue;
-    if (new V3(...t.normal).dot(normal) < 0.1) continue;
-    if (insideTattoo(point, t, 1.0)) return t;
-  }
-  return null;
+const inkPixels=new WeakMap();
+function inkIdsAt(x,y,bodyHit=hitBody(x,y)) {
+ if(!bodyHit)return [];
+ ray.setFromCamera(ndc(x,y),camera);
+ const entries=state.tattoos.map((t,order)=>({t,order,d:decals[t.id]})).filter(e=>!e.t.hidden&&e.d?.mesh.visible&&e.d.tex);
+ const hits=[];for(const e of entries)for(const h of ray.intersectObject(e.d.mesh,false))if(h.uv)hits.push({id:e.t.id,order:e.order,distance:h.distance,uv:h.uv,tex:e.d.tex});
+ return rankedInkHits(hits,bodyHit.distance,h=>{try{let pixels=inkPixels.get(h.tex);if(!pixels){pixels=h.tex.image.getContext('2d',{willReadFrequently:true}).getImageData(0,0,h.tex.image.width,h.tex.image.height);inkPixels.set(h.tex,pixels);}return visibleInkAt(pixels,h.uv.x,h.uv.y,h.tex.flipY);}catch{return false;}});
 }
+let lastInkTap=null;
 
 function nearestIndex(p) { const P = bodyGeo.attributes.position.array, end = vertEnd(); let best = 0, bd = Infinity; for (let i = 0; i < end; i += 3) { const d = (P[i] - p[0]) ** 2 + (P[i + 1] - p[1]) ** 2 + (P[i + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = i / 3; } } return best; }
 function anchorsNow() {
@@ -321,7 +329,7 @@ function commit() { syncDecals(); renderUI(); save(); }
 /* ---------- tattoo ops ---------- */
 const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) focusTattoo(t); }
+function select(id, focus) { if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) focusTattoo(t); }
 function sizeText(t) {
   const k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
   return `≈ ${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in  ·  ${w.toFixed(0)} × ${h.toFixed(0)} cm`;
@@ -362,6 +370,17 @@ async function seedSamples() {
 }
 
 /* ---------- gestures ---------- */
+let liveGuidePlan=null,guideSnapApplied=false;
+function clearLiveGuides(){liveGuidePlan=null;guideSnapApplied=false;$('#alignmentGuides').setAttribute('hidden','');$('#alignmentGuides').replaceChildren();}
+function drawLiveGuides(){const svg=$('#alignmentGuides');if(!liveGuidePlan){svg.setAttribute('hidden','');return;}svg.removeAttribute('hidden');const box=svg.getBoundingClientRect();svg.setAttribute('viewBox',`0 0 ${box.width||innerWidth} ${box.height||innerHeight}`);svg.replaceChildren();const ns='http://www.w3.org/2000/svg';
+ for(const guide of liveGuidePlan.lines){const a=screenOf(new V3(...guide.from)),b=screenOf(new V3(...guide.to)),line=document.createElementNS(ns,'line');for(const [k,v]of Object.entries({x1:a.x-box.left,y1:a.y-box.top,x2:b.x-box.left,y2:b.y-box.top,stroke:guideSnapApplied?'#8ae2c0':'#f3c776','stroke-width':1.5,'stroke-dasharray':guideSnapApplied?'none':'5 4'}))line.setAttribute(k,String(v));svg.append(line);const label=document.createElementNS(ns,'text');label.setAttribute('x',String(Math.max(6,Math.min(box.width-100,b.x-box.left+6))));label.setAttribute('y',String(Math.max(18,Math.min(box.height-10,b.y-box.top-6))));label.setAttribute('fill',guideSnapApplied?'#8ae2c0':'#f3c776');label.setAttribute('font-size','12');label.setAttribute('paint-order','stroke');label.setAttribute('stroke','#20232c');label.setAttribute('stroke-width','3');label.textContent=`${guideSnapApplied?'Snap: ':''}${guide.kind} · ${liveGuidePlan.referenceName}`;svg.append(label);}
+}
+function updateLiveGuides(t){clearLiveGuides();if(!$('#liveGuides').checked)return;const refs=state.tattoos.filter(r=>!soloIds||soloIds.has(r.id)),plan=findLiveAlignment(t,refs);if(!plan)return;const ref=state.tattoos.find(r=>r.id===plan.referenceId);
+ // A close normal match alone is not sufficient across adjacent body parts.
+ const connected=projectGroupSurface(ref.pos,ref.normal,t);if(!connected||Math.hypot(...connected.pos.map((v,i)=>v-ref.pos[i]))>.012)return;
+ liveGuidePlan=plan;if($('#snapGuides').checked){const hit=projectGroupSurface(plan.candidate,t.normal,t);if(hit&&Math.hypot(...hit.pos.map((v,i)=>v-plan.candidate[i]))<.012&&new V3(...hit.normal).dot(new V3(...t.normal))>.85){t.pos=hit.pos;t.normal=hit.normal;guideSnapApplied=true;}}
+ drawLiveGuides();
+}
 const pts = new Map();
 let gest = null; let lastTap = { t: 0, x: 0, y: 0, empty: false };
 function screenOf(v) { const p = v.clone().project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height }; }
@@ -369,10 +388,11 @@ function two() { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+  clearLiveGuides();
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pts.size === 1) {
     const t = sel(); const h = hitBody(e.clientX, e.clientY);
-    const onInk = !!(t && !t.locked && !t.hidden && h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t));
+    const onInk = !!(!tapPlaceId && t && !t.locked && t.status!=='existing' && !t.hidden && h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t));
     const sc = t ? screenOf(new V3(...t.pos)) : { x: 0, y: 0 };
     gest = { mode: onInk ? 'ink' : 'cam', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, ox: e.clientX - sc.x, oy: e.clientY - sc.y, type: e.pointerType };
   } else if (pts.size === 2 && gest) {
@@ -392,15 +412,18 @@ canvas.addEventListener('pointermove', (e) => {
     } else {
       const t = sel(); if (!t) return;
       const h = hitBody(e.clientX - gest.ox, e.clientY - gest.oy);
-      if (h) { if (!gest.snap) { snapshot(); gest.snap = true; } t.pos = h.point.toArray(); t.normal = h.normal.clone().normalize().toArray(); inkDirty = true; }
+      if (h) { if (!gest.snap) { snapshot(); gest.snap = true; } t.pos = h.point.toArray(); t.normal = h.normal.clone().normalize().toArray(); updateLiveGuides(t); inkDirty = true; }
     }
   } else if (pts.size === 2) {
+    clearLiveGuides();
     const s = two();
+    const delta=twoPointerDelta({distance:gest.pd,angle:gest.pa,cx:gest.pcx,cy:gest.pcy},{distance:s.d,angle:s.ang,cx:s.cx,cy:s.cy});
     if (gest.mode === 'ink' && sel()) {
       const t = sel(); t.width = THREE.MathUtils.clamp(gest.w0 * (s.d / gest.d0), 0.012, 0.9);
       let da = s.ang - gest.a0; da = Math.atan2(Math.sin(da), Math.cos(da)); t.rot = gest.r0 - da; inkDirty = true;
     } else {
-      glide = false; goal.r = THREE.MathUtils.clamp(goal.r * (gest.pd / s.d), 0.22, 7);
+      glide = false; goal.r = THREE.MathUtils.clamp(goal.r * delta.zoomRatio, 0.22, 7);
+      goal.roll=wrapAngle((goal.roll||0)+delta.rollDelta);
       const k = (2 * cur.r * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / canvas.getBoundingClientRect().height;
       const right = new V3().setFromMatrixColumn(camera.matrixWorld, 0), up = new V3().setFromMatrixColumn(camera.matrixWorld, 1);
       const mx = -(s.cx - gest.pcx) * k, my = (s.cy - gest.pcy) * k;
@@ -409,16 +432,19 @@ canvas.addEventListener('pointermove', (e) => {
       goal.tz = THREE.MathUtils.clamp(goal.tz + right.z * mx + up.z * my, -0.5, 0.5);
       needsRender = true;
     }
-    gest.pd = s.d; gest.pcx = s.cx; gest.pcy = s.cy;
+    gest.pd = s.d; gest.pa = s.ang; gest.pcx = s.cx; gest.pcy = s.cy;
   }
 });
 function cancelGesture() {
+  clearLiveGuides();
   const g = gest; gest = null;
   const ids = [...pts.keys()]; pts.clear();
   for (const id of ids) { try { canvas.releasePointerCapture(id); } catch (_) { /* already released */ } }
   if (g?.snap) commit();
+  if(tapPlaceId){tapPlaceId=null;renderSheet();}
 }
 function endPointer(e) {
+  clearLiveGuides();
   if (e.type === 'pointercancel') { cancelGesture(); return; }
   if (!pts.has(e.pointerId)) return;
   pts.delete(e.pointerId);
@@ -434,8 +460,10 @@ window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
-  const h = hitBody(x, y); const t = h ? tattooAt(h.point, h.normal) : null; const now = performance.now();
-  if (t) { select(t.id, true); lastTap = { t: 0, x, y, empty: false }; return; }
+  if(tapPlaceId){const t=sel(),h=hitBody(x,y);if(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'){tapPlaceId=null;renderSheet();return;}if(!h){toast('Tap directly on the body, or cancel tap-to-place.');return;}try{const placed=planTapPlacement(t,{pos:h.point.toArray(),normal:h.normal.toArray()});snapshot();Object.assign(t,placed);tapPlaceId=null;commit();toast('Tattoo placed.', 'Undo', undo);}catch(e){toast(e.message);}return;}
+  const h = hitBody(x, y),ids=inkIdsAt(x,y,h),now=performance.now();const id=cycleInkHit(ids,lastInkTap,{x,y,time:now});
+  if(id){lastInkTap={ids,id,x,y,time:now};select(id,ids.length===1);lastTap={t:0,x,y,empty:false};return;}
+  lastInkTap=null;
   const dbl = lastTap.empty && now - lastTap.t < 380 && Math.hypot(x - lastTap.x, y - lastTap.y) < 40;
   lastTap = { t: now, x, y, empty: true };
   if (dbl) { fullBody(); lastTap.t = 0; }
@@ -458,13 +486,15 @@ function renderTray() {
 function renderSheet() {
   const t = sel(); const sh = $('#sheet'); sh.hidden = !t; $('#hint').hidden = !!t || state.tattoos.length === 0;
   $('#empty').hidden = state.tattoos.length > 0;
+  if(tapPlaceId&&(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'))tapPlaceId=null;
+  $('#tapPlaceBar').hidden=!tapPlaceId;$('#bTapPlace').setAttribute('aria-pressed',String(!!tapPlaceId));$('#bTapPlace').textContent=tapPlaceId?'Cancel tap to place':'Tap to place';$('#bTapPlace').disabled=!t||t.locked||t.hidden||t.status==='existing';canvas.style.cursor=tapPlaceId?'crosshair':'';
   if (!t) return;
   if (document.activeElement !== $('#name')) $('#name').value = t.name;
   $('#size').textContent = sizeText(t);
   const linkedCount=t.artworkId?state.tattoos.filter(x=>x.artworkId===t.artworkId).length:1;
   $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=!!t.locked; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
   $('#exactWidth').value = (t.width * state.heightCm / 175 * 100 / 2.54).toFixed(2);
-  for (const id of ['rSize','rTurn','rFade','rWrap','rBend','rTaper','bFlip','bFlipVertical','bCleanup','bDel','exactWidth','resetTransform']) $('#'+id).toggleAttribute('disabled', !!t.locked);
+  for (const id of ['rSize','rTurn','rFade','rWrap','rBend','rTaper','bFlip','bFlipVertical','bDraft','bCleanup','bDel','exactWidth','resetTransform']) $('#'+id).toggleAttribute('disabled', !!t.locked);
   document.querySelectorAll('[data-inch],[data-nudge]').forEach(b => b.disabled = !!t.locked);
   $('#rSize').value = Math.round(Math.log(t.width / 0.012) / Math.log(0.9 / 0.012) * 1000);
   $('#rTurn').value = Math.round(((((t.rot * 180 / Math.PI) + 180) % 360 + 360) % 360) - 180);
@@ -475,7 +505,7 @@ function renderSheet() {
   $('#bHide').textContent = t.hidden ? 'Show' : 'Hide';
   $('#bStatus').textContent = t.status === 'existing' ? 'Already on me' : 'Planned'; $('#bStatus').setAttribute('aria-pressed', t.status === 'existing' ? 'true' : 'false');
   $('#bFlip').setAttribute('aria-pressed', t.flip ? 'true' : 'false');
-  $('#moveTip').textContent = t.locked ? 'Locked. Unlock to move it.' : 'Drag the tattoo to move it. Two fingers on it resize and turn. Drag anywhere else to look around.';
+  $('#moveTip').textContent = tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':'Use Tap to place, or drag the tattoo. Two fingers starting on it resize and turn the artwork. Elsewhere: pinch, pan and twist the view.';
 }
 function renderBody() {
   const sw = $('#skins'); sw.replaceChildren();
@@ -526,20 +556,24 @@ async function cleanupSelected(linked=false) {
   state.artworks ||= {};
   const art = state.artworks[t.artworkId];
   const source = art?.source || prior;
-  const result = await editArtwork(images[source] || images[prior], images[prior]);
+  const result = await editArtwork(images[source] || images[prior], images[prior], art?.cleanupSession);
   if (!result) return;
   const current = state.tattoos.find(x => x.id === id);
   if (!current || current.img !== prior || current.locked) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
   const key = uid(); images[key] = result.dataUrl;
   if(!await loadImg(key)){delete images[key];toast('The cleaned image could not be opened. Nothing changed.');return;}
   snapshot();
-  const revision=applyArtworkRevision(state,id,key,result.aspect,{linked});
+  const revision=applyArtworkRevision(state,id,key,result.aspect,{linked,session:result.session,settings:result.settings});
   state=revision.nextState;
   if(revision.artworkId)state.artworks[revision.artworkId].cleanup=result.settings || {};
   commit(); toast(`${revision.changedIds.length} artwork updated. Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
 }
 $('#bCleanup').addEventListener('click',()=>cleanupSelected(false).catch(e=>toast('Could not clean up artwork: '+e.message)));
 $('#bCleanupLinked').addEventListener('click',()=>cleanupSelected(true).catch(e=>toast('Could not clean up artwork: '+e.message)));
+$('#liveGuides').addEventListener('change',()=>{$('#snapGuides').disabled=!$('#liveGuides').checked;if(!$('#liveGuides').checked)$('#snapGuides').checked=false;clearLiveGuides();});
+$('#snapGuides').addEventListener('change',clearLiveGuides);
+$('#bTapPlace').addEventListener('click',()=>{if(tapPlaceId){tapPlaceId=null;renderSheet();return;}cancelGesture();const t=sel();if(!t||t.locked||t.hidden||t.status==='existing')return;tapPlaceId=t.id;renderSheet();toast('Tap the body to place it. Drag to adjust the view first.');});
+$('#cancelTapPlace').addEventListener('click',()=>{tapPlaceId=null;renderSheet();});
 $('#bDone').addEventListener('click', () => select(null));
 $('#undo').addEventListener('click', undo); $('#redo').addEventListener('click', redo);
 $('#full').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); select(null); fullBody(); });
@@ -679,6 +713,50 @@ async function transformSelection(options) {
   snapshot();for(const update of result.updates){const t=state.tattoos.find(x=>x.id===update.id);if(t)Object.assign(t,update);}
   commit();return {message:`${result.updates.length} pieces transformed.${result.skippedIds.length?' Locked/existing pieces unchanged.':''}`};
 }
+function placementProjection(position,normal,tattoo,{operation}={}) {
+ if(operation!=='bodySymmetry')return projectGroupSurface(position,normal,tattoo);
+ const n=new V3(...normal).normalize();ray.set(new V3(...position).addScaledVector(n,.04),n.clone().negate());ray.far=.08;
+ try{const hit=ray.intersectObject(body,false)[0];if(!hit||hit.faceIndex==null)return null;return {pos:hit.point.toArray(),normal:hit.normal.clone().normalize().toArray()};}finally{ray.far=Infinity;}
+}
+function previewPlacement(plan){
+ if(!plan)return null;
+ const oldCur={...cur},oldGoal={...goal},oldGlide=glide,visibility=[],temporary=[];
+ try{
+  for(const t of plan.updates){const d=decals[t.id];if(d){visibility.push([d.mesh,d.mesh.visible],[d.outline,d.outline.visible]);d.mesh.visible=false;d.outline.visible=false;}}
+  for(const t of [...plan.updates,...plan.additions]){
+   const tex=inkTexture(t),geo=decalGeometry(t),mat=new THREE.MeshBasicMaterial({map:tex,blending:THREE.MultiplyBlending,premultipliedAlpha:true,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4,toneMapped:false});
+   const mesh=new THREE.Mesh(geo,mat);mesh.renderOrder=200;scene.add(mesh);temporary.push({mesh,geo,mat,tex});
+  }
+  const target=[...plan.updates,...plan.additions][0];fullBody(Math.atan2(target.normal[0],target.normal[2]));Object.assign(cur,goal);applyCam();renderer.render(scene,camera);return {dataUrl:canvas.toDataURL('image/png')};
+ }finally{for(const x of temporary){scene.remove(x.mesh);x.geo.dispose();x.mat.dispose();x.tex.dispose();}for(const [mesh,visible]of visibility)mesh.visible=visible;Object.assign(cur,oldCur);Object.assign(goal,oldGoal);glide=oldGlide;applyCam();needsRender=true;}
+}
+$('#openArtworkLibrary').addEventListener('click',async()=>{
+ toggle('#planMenu',false);cancelGesture();
+ try{const {openArtworkLibrary}=await import('./artwork-library.js');await openArtworkLibrary({getState:()=>state,getImages:()=>images,onPlace:async plan=>{
+  if(!await loadImg(plan.outputKey))throw new Error('Artwork image unavailable. Nothing placed.');
+  if(state.tattoos.some(t=>t.id===plan.tattoo.id))throw new Error('Placement identity already exists.');
+  const place=viewCenterSpot()||nextSlot();snapshot();state.artworks||={};if(plan.artwork)state.artworks[plan.artworkId]=plan.artwork;
+  const tattoo={...plan.tattoo,pos:place.pos,normal:place.normal};state.tattoos.push(tattoo);selectedId=tattoo.id;commit();focusTattoo(tattoo);toast('Artwork placed as a new planned tattoo.','Undo',undo);
+ }});}catch(e){toast('Artwork library: '+e.message);}
+});
+async function openDraftEditor(){
+ toggle('#planMenu',false);cancelGesture();
+ try{await flushSave();while(saving)await new Promise(r=>setTimeout(r,20));const {openPlacementDraft}=await import('./placement-draft.js');await openPlacementDraft({getState:()=>state,selectedId,preview:previewPlacement,onApply:async next=>{
+  if(!store?.ok)throw new Error('Project storage is unavailable. Draft retained; placement was not committed.');
+  await flushSave();while(saving)await new Promise(r=>setTimeout(r,20));await store.save(next,usedImages());snapshot();state=next;commit();
+ }});}catch(e){toast('Placement draft: '+e.message);}
+}
+$('#openDraft').addEventListener('click',openDraftEditor);
+$('#bDraft').addEventListener('click',openDraftEditor);
+$('#openPlacement').addEventListener('click',async()=>{
+ toggle('#planMenu',false);cancelGesture();const baseline=JSON.stringify(state);
+ try{const {openPlacementTools}=await import('./placement-tools.js');await openPlacementTools({getState:()=>state,selectedId,projectToSurface:placementProjection,onPreview:previewPlacement,onApply:plan=>{
+  if(JSON.stringify(state)!==baseline)throw new Error('Project changed while tools were open. Reopen tools.');
+  for(const t of plan.updates){const old=state.tattoos.find(x=>x.id===t.id);if(!old||old.locked||old.status==='existing')throw new Error('Selected piece is no longer editable.');}
+  if(plan.additions.some(t=>state.tattoos.some(x=>x.id===t.id)))throw new Error('Duplicate placement identity.');
+  snapshot();for(const t of plan.updates)Object.assign(state.tattoos.find(x=>x.id===t.id),t);state.tattoos.push(...plan.additions);commit();toast('Placement applied.','Undo',undo);
+ }});}catch(e){toast('Placement tools: '+e.message);}
+});
 $('#openLayers').addEventListener('click',()=>{toggle('#planMenu',false);openLayers({getState:()=>state,onTransform:transformSelection,getImages:()=>images,onSolo:ids=>{soloIds=ids?new Set(ids):null;syncDecals();},select:id=>select(id,true),change:fn=>{snapshot();fn(state);commit();}});});
 $('#openUnplaced').addEventListener('click',()=>{
  toggle('#planMenu',false);const host=el('section',{class:'scrim',role:'dialog','aria-modal':'true','aria-label':'Saved artwork to place'});host.style.zIndex=10000;const panel=el('div',{class:'modal glass'},el('h2',{text:'Saved artwork to place'}),el('p',{text:'These pieces had no body position in the imported project. Place one deliberately, then adjust it on the body.'}));
@@ -688,7 +766,7 @@ $('#openUnplaced').addEventListener('click',()=>{
 });
 $('#openPlanning').addEventListener('click',async()=>{
  toggle('#planMenu',false);
- try { await openPlanning({getState:()=>state,getPreview:()=>planningPreview(),applyState:async next=>{snapshot();await openProject(next,images);commit();},getView:()=>({...goal}),setView:v=>{for(const k of Object.keys(goal))if(Number.isFinite(v[k]))goal[k]=v[k];needsRender=true;}}); }
+ try { await openPlanning({getState:()=>state,getPreview:()=>planningPreview(),applyState:async next=>{snapshot();await openProject(next,images);commit();},getView:()=>({...goal}),setView:v=>{goal.roll=Number.isFinite(v.roll)?v.roll:0;for(const k of Object.keys(goal))if(Number.isFinite(v[k]))goal[k]=v[k];needsRender=true;}}); }
  catch(e){toast('Could not open planning: '+e.message);}
 });
 $('#openProjects').addEventListener('click', async () => {
@@ -704,7 +782,7 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => toggle('#share', true));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -911,7 +989,7 @@ function tick(now) {
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) $('#size').textContent = sizeText(t); }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt);
-  if (moving || needsRender) { needsRender = false; renderer.render(scene, camera); }
+  if (moving || needsRender) { needsRender = false; renderer.render(scene, camera); if(liveGuidePlan)drawLiveGuides(); }
   requestAnimationFrame(tick);
 }
 
@@ -949,7 +1027,7 @@ function tick(now) {
 })();
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
-  state: () => state, cur, goal, importBackup,
+  state: () => state, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,

@@ -14,7 +14,7 @@ export default async function(p){
  assert.equal(await p.evaluate(()=>window.__ink.state().sketchPatch.id),saved.id,'patch survives reload');
  await p.click('#shareBtn');await p.click('#cSketch');await wait(900);
  await p.evaluate(async()=>{const c=document.createElement('canvas');c.width=c.height=768;const g=c.getContext('2d');g.fillStyle='#111';g.beginPath();g.arc(384,384,12,0,7);g.fill();const blob=await new Promise(r=>c.toBlob(r,'image/png'));const dt=new DataTransfer();dt.items.add(new File([blob],'returned.png',{type:'image/png'}));const input=document.querySelector('.patch-exchange input[type=file]');input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));});
- await wait(1000);assert(!(await p.$eval('.patch-exchange [data-apply]',e=>e.disabled)));await p.click('.patch-exchange [data-apply]');await wait(1000);
+ await wait(1000);assert(await p.$eval('.patch-exchange [data-apply]',e=>e.disabled));await p.click('.patch-exchange [data-confirm-alignment]');assert(!(await p.$eval('.patch-exchange [data-apply]',e=>e.disabled)));await p.click('.patch-exchange [data-apply]');await wait(1000);
  assert.equal(await p.evaluate(()=>window.__ink.state().tattoos.length),before+1);assert.equal(await p.evaluate(()=>window.__ink.state().sketchPatch),undefined);
  const added=await p.evaluate(()=>window.__ink.state().tattoos.at(-1));assert.deepEqual(added.pos,saved.patch.pos);assert.equal(added.status,'planned');
  console.log('PASS t16 surface drawing persistence and saved Procreate PNG roundtrip to new planned tattoo');

@@ -140,7 +140,9 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </head>
 <body>
 <div id="viewport">
-<div id="stage" aria-label="3D body. Drag to look around, pinch to zoom, tap a tattoo to select it."></div>
+<div id="stage" aria-label="3D body. Drag to look around. Pinch, pan and twist the view with two fingers away from selected ink. Tap a tattoo to select it."></div>
+<svg id="alignmentGuides" hidden aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2"></svg>
+<div id="tapPlaceBar" hidden style="position:absolute;left:50%;top:82px;transform:translateX(-50%);z-index:8;background:var(--panel,#f4f1eb);color:var(--text,#222);border-radius:12px;padding:8px 12px;max-width:90%;text-align:center;box-shadow:0 2px 12px #0003"><span>Tap the body to place the selected tattoo</span> <button id="cancelTapPlace" class="btn" style="min-height:44px">Cancel</button></div>
 
 <div id="top">
   <div class="brand"><b>Ink Atlas</b><small id="saved">Loading</small></div>
@@ -195,6 +197,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <div class="lbl">Ink strength<ink-slider id="rFade" min="15" max="100" default="92" aria-label="Ink strength"></ink-slider></div>
     </div>
     <details id="preciseBox"><summary>Precise placement</summary>
+      <div class="row"><label style="min-height:44px;display:flex;align-items:center;gap:8px"><input id="liveGuides" type="checkbox" checked style="width:22px;height:22px">Show drag alignment guides</label><label style="min-height:44px;display:flex;align-items:center;gap:8px"><input id="snapGuides" type="checkbox" style="width:22px;height:22px">Snap to guides</label></div>
+      <p class="tip">Nearby center/image-edge guides only. Snapping is optional and off by default; reference tattoos never move.</p>
       <div class="row"><label>Width (inches) <input id="exactWidth" type="number" min="0.1" max="36" step="0.1" style="width:90px;min-height:44px;font-size:16px"></label>
       <button class="btn" data-inch="1">1 in</button><button class="btn" data-inch="2">2 in</button><button class="btn" data-inch="3">3 in</button><button class="btn" data-inch="4">4 in</button></div>
       <div class="row"><span>Nudge 2 mm</span><button class="btn" data-nudge="-1,0">Left</button><button class="btn" data-nudge="1,0">Right</button><button class="btn" data-nudge="0,1">Up</button><button class="btn" data-nudge="0,-1">Down</button><button class="btn" id="resetTransform">Reset turn and wrap</button></div>
@@ -209,6 +213,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       </div>
     </details>
     <div class="row">
+      <button class="btn" id="bTapPlace" type="button" aria-pressed="false">Tap to place</button>
+      <button class="btn" id="bDraft" type="button">Edit placement draft</button>
       <button class="btn" id="bCleanup" type="button">Clean up artwork</button>
       <button class="btn" id="bCleanupLinked" type="button" hidden>Clean up linked copies</button>
       <button class="btn" id="bFlip" type="button">Mirror</button>
@@ -243,6 +249,9 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <button class="card" id="openPhotoFit"><b>Fit with photo references</b><span>Compare local photos and manually adjust a separate project copy.</span></button>
 <button class="card" id="openClothing"><b>Clothing coverage</b><span>Approximate sleeve, shorts and hair visibility studies.</span></button>
 <button class="card" id="openNotes"><b>Artist notes</b><span>Keep instructions with the plan or individual pieces.</span></button>
+<button class="card" id="openArtworkLibrary"><b>Artwork library</b><span>Place linked artwork or an independent copy; originals are retained.</span></button>
+<button class="card" id="openDraft"><b>Resume placement draft</b><span>Keep size and ink edits separate until explicitly saved.</span></button>
+<button class="card" id="openPlacement"><b>Align & body symmetry</b><span>Preview alignment to another tattoo or create an opposite-side copy.</span></button>
 <button class="card" id="openLayers"><b>Layers & groups</b><span>Organize artwork, visibility and groups.</span></button>
 </div></div></div>
 <div id="share" class="scrim" hidden>
