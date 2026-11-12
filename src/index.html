@@ -57,6 +57,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #full{position:fixed;top:82px;left:16px;z-index:4}
 #hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
 #hint{background:rgba(0,0,0,.28);padding:6px 12px;border-radius:999px;pointer-events:none}
+body.panel-open #hint{visibility:hidden}
 #sheet{max-height:55vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:10px 14px;display:flex;flex-direction:column;gap:8px}
 #editorAdvanced>summary{min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600}#editorAdvanced>summary::before{content:"+";font-size:20px}#editorAdvanced[open]>summary::before{content:"−"}#editorAdvanced>summary span{font-weight:400;color:var(--muted);font-size:12px}#editorAdvanced .editor-advanced-content{display:flex;flex-direction:column;gap:12px;padding-top:8px}.editor-quick{gap:8px}.editor-quick .btn{flex:1;white-space:nowrap}#sheet #moveTip{font-size:12px;line-height:1.35}@media(orientation:landscape) and (max-height:650px){#sheet{max-height:50vh;padding:8px 12px;gap:5px}#sheet #moveTip{display:none}#dock{gap:6px;padding-bottom:8px}#editorAdvanced>summary span{display:none}}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
