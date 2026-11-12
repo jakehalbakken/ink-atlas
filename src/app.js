@@ -553,8 +553,7 @@ async function cleanupSelected(linked=false) {
   if (t.locked) { toast('Unlock this tattoo before editing its artwork.'); return; }
   cancelGesture();
   const id = t.id, prior = t.img;
-  state.artworks ||= {};
-  const art = state.artworks[t.artworkId];
+  const art = state.artworks?.[t.artworkId];
   const source = art?.source || prior;
   const result = await editArtwork(images[source] || images[prior], images[prior], art?.cleanupSession);
   if (!result) return;

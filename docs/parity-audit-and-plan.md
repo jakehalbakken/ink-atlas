@@ -4,16 +4,16 @@ Written 2026-11-11 from the code in `src/`, the scripts in `tools/tests/`, `CLAU
 
 ## Current checkpoint (November 12, local versus live)
 
-**Live:** cleanup-only release `d2cf602`: upload, light-paper/manual cleanup, retained originals and navigation recovery. All subsequent parity work below is local, not published.
+**Deployment baseline:** cleanup-only release `d2cf602` was verified live before this parity release candidate. This document records implementation/test evidence, not a live deployment guarantee; use the latest successful GitHub Pages run and a fresh site check to establish what is currently live.
 
 **Local built and automated-tested:** project shelf; layouts/checkpoints/saved-picture comparisons; layer/group transforms and linked revisions; notes/body pins/drawing; chord and mesh-edge ruler; static pose + three restrained motion previews; approximate coverage masks; manual photo-reference fitting to a copy; Procreate patch round trip; artist packet; static GLB export/read-only import; strict v47 compatibility export and source-preserving import; explicit alignment/symmetry; view-roll and tap-to-place.
 
 **Still partial or absent against the original v47 specification:**
-- Cleanup: no persistent editable crop/mask recipe, exact-edge crop, trim, editor pan/zoom/backdrops, pressure/Pencil-only setting, automatic subject segmentation or multi-photo angle combination.
-- Placement: no fully separate durable Save/Cancel placement-draft state or on-canvas transform handles. Actual-decal alpha/depth tap selection and overlap cycling now tested; drag-start ownership retains its generous rectangle. Live center/edge guides and optional snapping now tested.
-- Artwork: no full 120-board library/reference-photo manager. Historical layouts are intentionally not silently rewritten by linked cleanup.
+- Cleanup: resumable crop/restore pixels now supported, plus exact crop/trim/pan/zoom/backdrops; still no replayable filter layers, Pencil-only setting, automatic subject segmentation or multi-photo angle combination.
+- Placement: explicit durable transform drafts now supported; direct drags/uploads are not yet universally draft-based and on-canvas transform handles remain absent. Actual-decal alpha/depth tap selection and overlap cycling now tested; drag-start ownership retains its generous rectangle. Live center/edge guides and optional snapping now tested.
+- Artwork: basic artwork library with linked/independent placement now supported; no full reference-photo/artist-board manager. Historical layouts are intentionally not silently rewritten by linked cleanup.
 - Body: manual reference fitting, not eight-landmark estimation; no portrait/likeness work (explicitly shelved). Approximate clothing/hair masks are not fitted garments.
-- Pose: four static previews and three motion studies, not the full original catalog or full posed editing/IK/anatomical simulation.
+- Pose: 24 bounded static previews and 12 motion studies, not the full original catalog or full posed editing/IK/anatomical simulation.
 - Comparison: saved pictures rather than synchronized live 3D/wipe.
 - Drawing/export: tangent-square patch, not arbitrary UV unwrap. Direct flat-patch drawing/erase now tested. Mesh-edge ruler can overestimate and is not a tape measurement.
 - 3D: static GLB with separate decals, no UV-baked skin, editable foreign-body replacement or OBJ/MTL round trip.
@@ -276,3 +276,13 @@ Pose foundation added after the checkpoint: `tools/rig.py`, `src/rig.js`, `src/p
 - Placement draft is an explicit, separately persisted transform editor. Size/rotation/opacity/wrap/bend/taper preview do not alter committed project/backups. Keep & close resumes after reload; Save verifies the committed baseline, writes the project, then removes the draft; Discard requires confirmation. It does not yet make every direct body drag/upload a durable draft or provide separate draft undo. t27 exercises reload, committed exclusion, save and project undo. Floating-point body normalization is rounded only in conflict fingerprints at 1e-10 precision.
 - Cleanup now retains bounded full edited/restore-baseline raster sessions with crop rectangle and source/output hashes. Reopening restores crop, outside pixels and restore-brush baseline; Remove crop is non-destructive. Crop/erase/reopen/restore/undo/uncrop/stale-session tests pass. History restarts on reopen; paper/contrast remain baked raster edits, not a full replayable layer recipe.
 - Artwork library discovers placed/unplaced/retained artwork and offers deliberate linked/independent placements. Sources and original instances retained. It is not yet a full reference-photo/artist-board manager.
+
+## Release QA expansion
+
+- Cleanup exact pixel crop, alpha-aware trim, bounded pan/zoom/Fit and backdrop choices tested; resumable crop/restore tests remain passing.
+- Pose catalog expanded to 24 restrained stills and 12 bounded loops with original cycle durations where applicable. Catalog tests cover 288 finite body/phase samples, support mapping and unchanged UV/input. Partial leg/seated studies are explicitly not chair/floor/contact/IK/anatomy guarantees; original full catalog/region studies remain incomplete.
+- Independent persistence reviewer found no release blocker in durable draft failed-write/reload/save/undo, cleanup source/session retention or shelf paths. Large retained image/session metadata and real-iPad performance remain risks requiring honest limits and future stress testing.
+
+## Parity release candidate verification
+
+Comprehensive fixture run completed through t28, covering core shape/storage/recovery/undo, old-save upgrade and malformed-import safety, all added local tools, SVG/GLB external-resource rejection, valid v47 roundtrip, guides/picking/tap/view gestures, durable draft failed-write preservation and library identity. Older t1/t2/t7b are smoke/visual scripts; asserted gesture/placement behavior is covered by t23/t24/t25. Old t3 used made-up off-surface anchors and is now explicitly a rejection-safety test; t21 validates safe canonical v47 mapping rather than accepting guessed positions. Independent persistence review found no release blocker. Final changed-module tests cover cleanup session/view controls and all 24/12 pose catalog entries. Real-device acceptance and documented incomplete features remain outstanding.
