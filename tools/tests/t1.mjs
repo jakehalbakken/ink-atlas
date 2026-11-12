@@ -11,13 +11,14 @@ export default async function (p) {
   await p.screenshot({ path: './shots/s_b.png' });
   // drag ink from screen centre-ish (tattoo is centred after focus)
   const before = await p.evaluate(() => JSON.stringify(window.__ink.state().tattoos[0].pos));
-  const sc = await p.evaluate(() => { const c = document.querySelector('canvas'); return null; }); const cx = 590, cy = 305;
+  const scp = await p.evaluate(() => window.__ink.projectPoint(window.__ink.state().tattoos[0].pos)); const cx = scp.x, cy = scp.y;
   const where = await p.evaluate(() => { const g = window.__ink.goal; return JSON.stringify(g); });
   console.log('goal', where);
   await p.mouse.move(cx, cy); await p.mouse.down(); await p.mouse.move(cx + 40, cy + 30, { steps: 6 }); await p.mouse.move(cx + 90, cy + 60, { steps: 6 }); await p.mouse.up();
   await wait(400);
   const after = await p.evaluate(() => JSON.stringify(window.__ink.state().tattoos[0].pos));
   console.log('ink moved', before !== after, before, after);
+  console.log(before !== after ? 'T1 DRAG PASS' : 'T1 DRAG FAIL (selected tattoo not draggable)');
   // drag background (far corner) to orbit while selected
   const th0 = await p.evaluate(() => window.__ink.goal.theta);
   await p.mouse.move(120, 300); await p.mouse.down(); await p.mouse.move(260, 300, { steps: 8 }); await p.mouse.up();

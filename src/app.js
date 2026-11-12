@@ -120,7 +120,10 @@ function focusTattoo(t) {
   const ext = Math.max(t.width, t.width / t.aspect) * 3.0 + 0.24;
   const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
   goal.r = THREE.MathUtils.clamp(ext / (2 * tn * Math.min(1, camera.aspect)), 0.45, 3.2);
-  goal.ty = t.pos[1] - 2 * goal.r * tn * 0.13;
+  // Keep the selected tattoo in the canvas area above the bottom sheet, which is tall when the edit controls are open.
+  const vpH = stage.clientHeight || 820, shEl = $('#sheet'), sheetH = shEl && !shEl.hidden ? shEl.getBoundingClientRect().height : 0;
+  const shiftFrac = THREE.MathUtils.clamp((sheetH > 0 ? (sheetH - 64) / 2 : 0.13 * vpH) / vpH, 0.1, 0.34);
+  goal.ty = t.pos[1] - 2 * goal.r * tn * shiftFrac;
   glide = true; needsRender = true;
 }
 function applyCam() {
