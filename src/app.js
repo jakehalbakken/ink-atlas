@@ -669,7 +669,24 @@ if (window.visualViewport) {
   vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV); onVV();
 }
 // An installed copy picks up a new build as soon as its service worker takes over.
-if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) location.reload(); }); }
+// A new version arrives in the background (service worker autoUpdate). Never reload
+// under Jake's hands: before he has touched anything it reloads straight away, after
+// that it waits until the app leaves the screen or he taps Reload, and it always
+// finishes writing the save first.
+let touchedSinceBoot = false, updateReady = false;
+window.addEventListener('pointerdown', () => { touchedSinceBoot = true; }, { capture: true, passive: true });
+async function reloadForUpdate() {
+  for (let i = 0; i < 100 && (saving || dirty); i++) { if (!saving) await flushSave(); else await new Promise((r) => setTimeout(r, 50)); }
+  if (dirty || saving) return; // the save is failing: keep the page (and the work) rather than reload
+  location.reload();
+}
+function onUpdateReady() {
+  if (updateReady) return; updateReady = true;
+  if (document.hidden || (!touchedSinceBoot && !gest)) { reloadForUpdate(); return; }
+  toast('A new version of Ink Atlas is ready.', 'Reload', reloadForUpdate);
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden && updateReady) reloadForUpdate(); });
+if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) onUpdateReady(); }); }
 $('#projectsBtn').addEventListener('click', () => {cancelGesture();toggle('#planMenu',true);});
 $('#openPose').addEventListener('click',async()=>{
   cancelGesture();toggle('#planMenu',false);
@@ -1024,11 +1041,12 @@ function adoptState() {
 }
 /* ---------- loop ---------- */
 let last = performance.now();
+let camMoving = false, booted = false;
 function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) $('#size').textContent = sizeText(t); }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
-  const moving = stepCam(dt);
+  const moving = stepCam(dt); camMoving = moving;
   if (moving || needsRender) { needsRender = false; renderer.render(scene, camera); if(liveGuidePlan)drawLiveGuides(); }
   requestAnimationFrame(tick);
 }
@@ -1063,11 +1081,12 @@ function tick(now) {
   let seen = false; try { seen = localStorage.getItem('ia-coach') === '1'; } catch (e) { /* no storage */ }
   $('#coach').hidden = seen;
   $('#coachOk').addEventListener('click', () => { $('#coach').hidden = true; try { localStorage.setItem('ia-coach', '1'); } catch (e) { /* no storage */ } });
+  booted = true;
   requestAnimationFrame(tick);
 })();
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
-  state: () => state, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
+  state: () => state, ready: () => booted, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
