@@ -394,6 +394,10 @@ function updateLiveGuides(t){clearLiveGuides();if(!$('#liveGuides').checked)retu
 const pts = new Map();
 let gest = null; let lastTap = { t: 0, x: 0, y: 0, empty: false };
 function screenOf(v) { const p = v.clone().project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height }; }
+function onSelectedInk(x, y) {
+  const t = sel(); if (tapPlaceId || !t || t.locked || t.status === 'existing' || t.hidden) return false;
+  const h = hitBody(x, y); return !!(h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t));
+}
 function two() { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, ang: Math.atan2(b.y - a.y, b.x - a.x), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; }
 canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -401,12 +405,17 @@ canvas.addEventListener('pointerdown', (e) => {
   clearLiveGuides();
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pts.size === 1) {
-    const t = sel(); const h = hitBody(e.clientX, e.clientY);
-    const onInk = !!(!tapPlaceId && t && !t.locked && t.status!=='existing' && !t.hidden && h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t));
+    const t = sel();
+    const onInk = onSelectedInk(e.clientX, e.clientY);
     const sc = t ? screenOf(new V3(...t.pos)) : { x: 0, y: 0 };
     gest = { mode: onInk ? 'ink' : 'cam', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, ox: e.clientX - sc.x, oy: e.clientY - sc.y, type: e.pointerType };
   } else if (pts.size === 2 && gest) {
-    const s = two(); gest.moved = true; gest.pd = s.d; gest.pa = s.ang; gest.pcx = s.cx; gest.pcy = s.cy;
+    const s = two();
+    // Fingers that land together arrive in no fixed order, so "two fingers starting on it"
+    // must not depend on which one the browser reports first: if the first finger has not
+    // moved yet and the second one lands on the selected tattoo, it is a resize/turn of it.
+    if (gest.mode === 'cam' && !gest.moved && performance.now() - gest.t0 < 350 && onSelectedInk(e.clientX, e.clientY)) gest.mode = 'ink';
+    gest.moved = true; gest.pd = s.d; gest.pa = s.ang; gest.pcx = s.cx; gest.pcy = s.cy;
     const t = sel(); if (gest.mode === 'ink' && t) { gest.w0 = t.width; gest.r0 = t.rot; gest.d0 = s.d; gest.a0 = s.ang; if (!gest.snap) { snapshot(); gest.snap = true; } }
   }
 });
