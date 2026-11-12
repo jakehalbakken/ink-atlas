@@ -7,7 +7,7 @@ export default async function(p){
  await p.select('[data-compare-a]',records[0].id);await p.select('[data-compare-b]',records[1].id);await p.click('[data-compare]');await wait();
  assert.equal(await p.$$eval('.ip-visual img',x=>x.length),2);await p.screenshot({path:'shots/visual-comparison.png'});
  await p.click('.ink-planning [data-close]');
- await p.evaluate(()=>{const s=window.__ink.state();s.tattoos=s.tattoos.filter(t=>t.name.includes('Sunburst'));window.__ink.commitTest();});await p.click('#trayItems .chip');await p.click('#bDup');await p.click('#full');await wait();
+ await p.evaluate(()=>{const s=window.__ink.state();s.tattoos=s.tattoos.filter(t=>t.name.includes('Sunburst'));window.__ink.commitTest();});await p.click('#trayItems .chip');if(!await p.$eval('#editorAdvanced',e=>e.open))await p.click('#editorAdvanced > summary');await p.click('#bDup');await p.click('#full');await wait();
  await open('#openLayers');await p.click('[data-act=all]');await p.click('#il-transform summary');
  const before=await p.evaluate(()=>window.__ink.state().tattoos.map(t=>({id:t.id,pos:t.pos,width:t.width})));
  await p.click('[data-transform=Larger]');await wait();

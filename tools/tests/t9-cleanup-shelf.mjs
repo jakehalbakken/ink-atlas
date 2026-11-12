@@ -12,7 +12,7 @@ export default async function(p) {
  assert.equal(await p.evaluate(()=>window.__ink.state().tattoos[0].img),art.img,'cleanup survives reload');
  await p.click('#trayItems .chip');await wait();await p.click('#bCleanup');await wait();
  assert(await p.$('[data-action="reset"]'),'source available after reload');await p.click('[data-action="cancel"]');
- await p.click('#preciseBox summary');await p.click('[data-inch="3"]');await wait();
+ await p.click('#editorAdvanced > summary');await p.click('#preciseBox summary');await p.click('[data-inch="3"]');await wait();
  assert(Math.abs(await p.evaluate(()=>{const s=window.__ink.state();return s.tattoos[0].width*100*s.heightCm/175/2.54;})-3)<.001);
  await p.click('#bLock');assert(await p.$eval('#bCleanup',b=>b.disabled),'locked art protected');
  await p.click('#full');await p.click('#projectsBtn');await p.click('#openProjects');await wait();

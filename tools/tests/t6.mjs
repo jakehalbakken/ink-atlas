@@ -26,6 +26,7 @@ export default async function (p) {
 
   // 2. leaving the app right after an edit
   await p.click('#trayItems .chip'); await wait(900);
+  if(!await p.$eval('#editorAdvanced',e=>e.open))await p.click('#editorAdvanced > summary');
   await p.click('#bFlip'); await p.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await wait(120); await reload();
   check('an edit made just before leaving is saved', await p.evaluate(() => window.__ink.state().tattoos[0].flip === true));
@@ -82,9 +83,11 @@ export default async function (p) {
   // Imported existing ink is locked. Unlock explicitly before testing edits.
   if (await p.$eval('#bFlip', b => b.disabled)) { await p.click('#bLock'); await wait(500); }
   await p.evaluate(() => { window.__put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function () { throw new DOMException('full', 'QuotaExceededError'); }; });
+  if(!await p.$eval('#editorAdvanced',e=>e.open))await p.click('#editorAdvanced > summary');
   await p.click('#bFlip'); await wait(900);
   const failText = await savedText(), failToast = await toastText();
   await p.evaluate(() => { IDBObjectStore.prototype.put = window.__put; });
+  if(!await p.$eval('#editorAdvanced',e=>e.open))await p.click('#editorAdvanced > summary');
   await p.click('#bFlip'); await wait(900);
   check('a failed save is shown as not saved, with a way out', failText.includes('Not saved') && failText.includes('[bad]') && failToast.includes('Back up now'), failText + ' | ' + failToast);
   check('saving recovers once the disk works again', (await savedText()) === 'Saved on this device');

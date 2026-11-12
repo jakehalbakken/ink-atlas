@@ -14,9 +14,9 @@ Written 2026-11-11 from the code in `src/`, the scripts in `tools/tests/`, `CLAU
 - Artwork: basic artwork library with linked/independent placement now supported; no full reference-photo/artist-board manager. Historical layouts are intentionally not silently rewritten by linked cleanup.
 - Body: manual reference fitting, not eight-landmark estimation; no portrait/likeness work (explicitly shelved). Approximate clothing/hair masks are not fitted garments.
 - Pose: 24 bounded static previews and 12 motion studies, not the full original catalog or full posed editing/IK/anatomical simulation.
-- Comparison: saved pictures rather than synchronized live 3D/wipe.
+- Comparison: saved pictures plus local synchronized live 3D wipe for layouts matching the active neutral body/fit/skin; differing-body live comparison remains unsupported.
 - Drawing/export: tangent-square patch, not arbitrary UV unwrap. Direct flat-patch drawing/erase now tested. Mesh-edge ruler can overestimate and is not a tape measurement.
-- 3D: static GLB with separate decals, no UV-baked skin, editable foreign-body replacement or OBJ/MTL round trip.
+- 3D: static GLB and local OBJ/MTL/PNG ZIP export with separate decals; no UV-baked skin, editable foreign-body replacement or OBJ import round trip.
 - Compatibility: unsupported old metadata retained in untouched source archive, not all runtime-editable; original runtime round trip not tested.
 - Accounts/private cross-device collaboration and AI-provider features remain deferred pending backend/provider decisions.
 - Real iPad Chrome/Pencil/share-sheet/performance acceptance remains outstanding for the new work.
@@ -296,3 +296,51 @@ Pose foundation added after the checkpoint: `tools/rig.py`, `src/rig.js`, `src/p
 ## Parity release candidate verification
 
 Comprehensive fixture run completed through t28, covering core shape/storage/recovery/undo, old-save upgrade and malformed-import safety, all added local tools, SVG/GLB external-resource rejection, valid v47 roundtrip, guides/picking/tap/view gestures, durable draft failed-write preservation and library identity. Older t1/t2/t7b are smoke/visual scripts; asserted gesture/placement behavior is covered by t23/t24/t25. Old t3 used made-up off-surface anchors and is now explicitly a rejection-safety test; t21 validates safe canonical v47 mapping rather than accepting guessed positions. Independent persistence review found no release blocker. Final changed-module tests cover cleanup session/view controls and all 24/12 pose catalog entries. Real-device acceptance and documented incomplete features remain outstanding.
+
+## Post-Claude cutout and draft refinement
+
+- Preserved Claude's selected-ink drag framing fix (037ab8e); asserted t1 drag regression passes.
+- Cleanup now offers edge-connected light-background removal, preserving enclosed pale details. Four-connected threshold flood fill is bounded to 1600-square images; gaps in outlines can admit removal. This is local paper cleanup, not AI subject segmentation. Source, undo/redo and resumable session/restore tests pass.
+- Explicit placement drafts now retain a bounded 50-edit undo/redo history across reload. This remains separate from committed project undo. Save, discard and close disable edits while asynchronous storage finishes, preventing late edits from being lost. Reload/undo/redo and injected-write-failure tests pass.
+- Remaining advanced parity and real-device acceptance gaps above still apply; no claim of full completion.
+
+## Further local artwork review
+
+Artwork library previews now show the cleaned output by default, with an explicit original-source switch. The switch changes only the view, never saved artwork or placement output. Updated t28 verifies unchanged project state and both linked and independent placement identities. Publication remains blocked pending authorization recognized by the execution reviewer; no new push has occurred.
+
+Cleanup now has an explicit stylus-only editing checkbox. Pen input can erase, restore and crop; touch/mouse cannot paint while enabled but can use Pan and controls. An unrelated touch release no longer cancels an active pen stroke. Synthetic pen/touch/mouse, mixed-pointer cancellation, crop/restore and non-mutating pan tests pass. This is browser pointer-type verification, not physical Apple Pencil acceptance.
+
+## Local sampled-color cleanup
+
+A collapsed connected-color tool now supports tapping a colored background with adjustable RGB tolerance. It removes only the four-connected sampled region, stopping at transparent boundaries. Similar-colored connected artwork can also be removed, so Undo/Restore remain explicit; this is not semantic AI segmentation. Bounded 1600-square algorithm and source/undo/redo/reopen/restore/cancel tests pass. No publication attempted after the approval block.
+
+## Compact selection editor (local)
+
+- Default selection sheet retains name, dimensions, Done, Tap to place, Placement draft, Cleanup and Lock. Size/turn/fade, precise placement, wrap and secondary actions remain available under deliberate More controls. Existing action IDs are preserved; selecting a different piece returns to compact mode.
+- Focus now measures the free area between the top controls and full dock (including tray), sets zoom against available height, and shifts the camera aim in screen-up including roll. Explicit details toggles and viewport resize recalculate focus without moving artwork.
+- Rebuilt t29 passes real visible-ink drags and undo in compact, expanded, resized and rolled landscape views. At 1024×768, default sheet measured 194 px with 382 px unobscured canvas; expanded sheet measured 422 px and selected ink remained above the dock. Affected older tests now explicitly open More controls only when using an advanced action.
+- Original embedded app untouched. No deployment in this pass. Physical iPad/Pencil acceptance remains pending.
+
+### Responsive top toolbar (local)
+- Fixed tablet turn-pill overlap with Undo: a left-offset single row at 901–1199px and a separate turn row at ≤900px; related popup/placement hints remain below that row. Existing action IDs and 44px hit targets preserved.
+- `t30-toolbar-targets.mjs` passes at 768/1024/1366px: all ten visible toolbar/full-view targets unobscured at multiple sample points, pairwise non-overlap, bounds and actual view/body button clicks. 1024px screenshot reviewed.
+- Compact editor `t29` actual drag/undo regression passes in compact, expanded, resized and rolled states; default landscape sheet remains 194px with 382px free canvas. No app logic changes or deployment; physical iPad verification remains pending.
+
+### Live shared-body layout wipe (local)
+- Plans and versions now offers Live 3D wipe alongside saved-picture comparison. Two saved layouts/checkpoints use independently cloned scenes with one synchronized orbit/zoom camera and a 0–100% wipe; Close leaves active project and camera unchanged.
+- Deliberately limited to matching neutral body, fit, height, skin and model identity, also matching the open project for safe parent decal reconstruction. Different bodies use existing saved-picture comparison. No posed comparison or editing inside preview.
+- `t31-layout-compare.mjs` passes through actual Plan UI: orbit, wipe endpoints, active-state/camera preservation, close, mismatch/missing-image rejection. Screenshot inspected. Source `layout-compare-resources.mjs` confirms all four cloned geometries/two cloned ink materials disposed, zero source-resource disposals, borrowed texture retained, state/geometry unchanged. Procedural skin materials are owned/disposed in module but use separate optimized Three instance in source fixture.
+- No deployment; physical-device acceptance pending.
+
+
+## Local OBJ package and live compare verification
+
+Static OBJ package export now includes meter-scale body/separate decal geometry, MTL and current rendered PNG textures in one ZIP, excluding private notes/source artwork. Actual app t32 initially caught naturally out-of-range decal UVs. Fixed with bounded pixel-aligned edge padding and one affine UV remap, preserving interpolation rather than clamping vertices. Normal/padded loader, orientation/alpha, immutability and ZIP CRC tests pass; actual app t32 now passes. Viewer alpha/skin differences remain documented; this is not UV-baked skin or rigging.
+
+Live comparison t31 passes actual Plan navigation, synchronized orbit/wipe, unchanged active project/camera, close, mismatched-body and missing-image rejection. Independent resource test verifies clone disposal and zero disposal/mutation of source textures/geometry. Both features are local-only; no publication retried.
+
+## Local artist boards and soft cleanup
+
+Artwork library now supports named boards with create/rename/filter and explicit add/remove membership. Each saved member pins original/output keys and orientation, so a board-only legacy artwork can still be placed independently after its last placement is removed. Linked placement requires a current canonical identity. Boards are bounded to 120 collections, 500 members each and 2 MiB metadata. They organize existing project artwork, not a complete external reference-photo manager. Asset traversal includes board references in active state and historical layouts/checkpoints. Actual UI t33 verifies failed-write preservation, reload, no placement mutations and board-only placement after removing the last legacy placement.
+
+Cleanup adds opt-in pen-pressure sizing and feathered erase/restore; defaults retain hard fixed-size behavior. Soft restore blends the retained baseline in premultiplied alpha, bounded to the brush patch. Independent tests cover pressure bounds/defaults, outside-pixel preservation, undo/redo and reopened saved sessions. Physical Apple Pencil acceptance remains pending. No publication retried.

@@ -119,11 +119,17 @@ function focusTattoo(t) {
   goal.tx = t.pos[0]; goal.ty = t.pos[1]; goal.tz = t.pos[2];
   const ext = Math.max(t.width, t.width / t.aspect) * 3.0 + 0.24;
   const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
-  goal.r = THREE.MathUtils.clamp(ext / (2 * tn * Math.min(1, camera.aspect)), 0.45, 3.2);
-  // Keep the selected tattoo in the canvas area above the bottom sheet, which is tall when the edit controls are open.
-  const vpH = stage.clientHeight || 820, shEl = $('#sheet'), sheetH = shEl && !shEl.hidden ? shEl.getBoundingClientRect().height : 0;
-  const shiftFrac = THREE.MathUtils.clamp((sheetH > 0 ? (sheetH - 64) / 2 : 0.13 * vpH) / vpH, 0.1, 0.34);
-  goal.ty = t.pos[1] - 2 * goal.r * tn * shiftFrac;
+  const bounds=canvas.getBoundingClientRect(),dock=$('#dock').getBoundingClientRect();
+  const top=Math.max(bounds.top,$('#top').getBoundingClientRect().bottom,$('#views').getBoundingClientRect().bottom)+12;
+  const bottom=Math.max(top+80,Math.min(bounds.bottom-12,dock.top-14));
+  const available=THREE.MathUtils.clamp((bottom-top)/Math.max(1,bounds.height),.18,1);
+  goal.r = THREE.MathUtils.clamp(ext / (2 * tn * Math.min(available, camera.aspect)), 0.45, 3.2);
+  const shiftFrac=THREE.MathUtils.clamp(.5-((top+bottom)/2-bounds.top)/Math.max(1,bounds.height),-.2,.4),shift=2*goal.r*tn*shiftFrac;
+  // Move the aim point in camera-screen up, including view roll, so the selected
+  // artwork lands in the measured unobscured area rather than behind the dock.
+  const st=Math.sin(goal.theta),ct=Math.cos(goal.theta),sp=Math.sin(goal.phi),cp=Math.cos(goal.phi),sr=Math.sin(goal.roll||0),cr=Math.cos(goal.roll||0);
+  const up=new V3(-cp*st*cr-ct*sr,sp*cr,-cp*ct*cr+st*sr);
+  goal.tx=t.pos[0]-up.x*shift;goal.ty=t.pos[1]-up.y*shift;goal.tz=t.pos[2]-up.z*shift;
   glide = true; needsRender = true;
 }
 function applyCam() {
@@ -153,6 +159,7 @@ function resize() {
   renderer.setSize(w, h, false);
   canvas.style.width = '100%'; canvas.style.height = '100%';
   camera.aspect = w / h; camera.updateProjectionMatrix(); updateInset(); applyInset(); needsRender = true;
+  if(selectedId)requestAnimationFrame(()=>{const t=sel();if(t)focusTattoo(t);});
 }
 new ResizeObserver(resize).observe(stage); resize();
 cur.r = fullBodyR() * 1.25; fullBody(0);
@@ -332,7 +339,7 @@ function commit() { syncDecals(); renderUI(); save(); }
 /* ---------- tattoo ops ---------- */
 const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) focusTattoo(t); }
+function select(id, focus) { if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) focusTattoo(t); }
 function sizeText(t) {
   const k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
   return `≈ ${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in  ·  ${w.toFixed(0)} × ${h.toFixed(0)} cm`;
@@ -572,6 +579,7 @@ async function cleanupSelected(linked=false) {
 }
 $('#bCleanup').addEventListener('click',()=>cleanupSelected(false).catch(e=>toast('Could not clean up artwork: '+e.message)));
 $('#bCleanupLinked').addEventListener('click',()=>cleanupSelected(true).catch(e=>toast('Could not clean up artwork: '+e.message)));
+for(const detail of document.querySelectorAll('#sheet details'))detail.addEventListener('toggle',()=>{requestAnimationFrame(()=>{const t=sel();if(t&&!gest)focusTattoo(t);});});
 $('#liveGuides').addEventListener('change',()=>{$('#snapGuides').disabled=!$('#liveGuides').checked;if(!$('#liveGuides').checked)$('#snapGuides').checked=false;clearLiveGuides();});
 $('#snapGuides').addEventListener('change',clearLiveGuides);
 $('#bTapPlace').addEventListener('click',()=>{if(tapPlaceId){tapPlaceId=null;renderSheet();return;}cancelGesture();const t=sel();if(!t||t.locked||t.hidden||t.status==='existing')return;tapPlaceId=t.id;renderSheet();toast('Tap the body to place it. Drag to adjust the view first.');});
@@ -734,7 +742,14 @@ function previewPlacement(plan){
 }
 $('#openArtworkLibrary').addEventListener('click',async()=>{
  toggle('#planMenu',false);cancelGesture();
- try{const {openArtworkLibrary}=await import('./artwork-library.js');await openArtworkLibrary({getState:()=>state,getImages:()=>images,onPlace:async plan=>{
+ try{const {openArtworkLibrary}=await import('./artwork-library.js');await openArtworkLibrary({getState:()=>state,getImages:()=>images,onBoardsChange:async nextBoards=>{
+  const {validateArtworkBoards}=await import('./artwork-boards.js');const boards=validateArtworkBoards(nextBoards),baseline=JSON.stringify(state);
+  await flushSave();while(saving)await new Promise(r=>setTimeout(r,20));
+  if(JSON.stringify(state)!==baseline)throw new Error('Project changed while saving the board. Try again.');
+  if(!store?.ok)throw new Error('Project storage unavailable. Boards were not changed.');
+  const next=structuredClone(state);next.artworkBoards=boards;const assets={};for(const k of imageKeysFor(next))if(images[k])assets[k]=images[k];
+  await store.save(next,assets);snapshot();state=next;commit();
+ },onPlace:async plan=>{
   if(!await loadImg(plan.outputKey))throw new Error('Artwork image unavailable. Nothing placed.');
   if(state.tattoos.some(t=>t.id===plan.tattoo.id))throw new Error('Placement identity already exists.');
   const place=viewCenterSpot()||nextSlot();snapshot();state.artworks||={};if(plan.artwork)state.artworks[plan.artworkId]=plan.artwork;
@@ -766,9 +781,31 @@ $('#openUnplaced').addEventListener('click',()=>{
   const image=await loadImg(record.img);if(!image){toast('That saved image could not be opened.');return;}const spot=viewCenterSpot()||nextSlot();snapshot();state.unplacedTattoos=state.unplacedTattoos.filter(t=>t.id!==record.id);const t={...record,pos:spot.pos,normal:spot.normal,locked:false};state.tattoos.push(t);selectedId=t.id;commit();focusTattoo(t);host.remove();toast('Adjust the placement, then lock it when ready.');
  }}));panel.append(el('button',{class:'btn',text:'Close',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape')host.remove();};
 });
+async function compareSavedLayouts({a,b}){
+ const {openLayoutCompare,compareBodyIdentity}=await import('./layout-compare.js');
+ const baseline=JSON.stringify(state),identity=compareBodyIdentity(state),owned=[];
+ try{
+  const bundles=[];
+  for(const record of [a,b]){
+   const checked=cleanState(record.state,k=>typeof images[k]==='string');
+   if(checked.dropped||checked.replace.length)throw new Error('This saved plan has missing artwork or invalid placements. Restore its backup before comparing.');
+   const saved=checked.state;
+   if(compareBodyIdentity(saved)!==identity)throw new Error('Live comparison currently needs both saved plans and the open project to use the same body, fit and skin. Saved-picture comparison remains available.');
+   const entries=[];
+   for(const t of saved.tattoos.filter(t=>!t.hidden)){
+    if(!await loadImg(t.img))throw new Error('A saved artwork image could not be loaded.');
+    const texture=inkTexture(t);owned.push(texture);const geometry=decalGeometry(t);owned.push(geometry);
+    const material=new THREE.MeshBasicMaterial({map:texture,blending:THREE.MultiplyBlending,premultipliedAlpha:true,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4,toneMapped:false});owned.push(material);entries.push({geometry,material});
+   }
+   bundles.push({name:record.name||'Saved plan',state:saved,bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:entries});
+  }
+  if(JSON.stringify(state)!==baseline)throw new Error('Project changed while preparing comparison. Open it again.');
+  await openLayoutCompare({THREE,a:bundles[0],b:bundles[1]});
+ }finally{owned.forEach(x=>x.dispose());}
+}
 $('#openPlanning').addEventListener('click',async()=>{
  toggle('#planMenu',false);
- try { await openPlanning({getState:()=>state,getPreview:()=>planningPreview(),applyState:async next=>{snapshot();await openProject(next,images);commit();},getView:()=>({...goal}),setView:v=>{goal.roll=Number.isFinite(v.roll)?v.roll:0;for(const k of Object.keys(goal))if(Number.isFinite(v[k]))goal[k]=v[k];needsRender=true;}}); }
+ try { await openPlanning({getState:()=>state,getPreview:()=>planningPreview(),onCompare3D:compareSavedLayouts,applyState:async next=>{snapshot();await openProject(next,images);commit();},getView:()=>({...goal}),setView:v=>{goal.roll=Number.isFinite(v.roll)?v.roll:0;for(const k of Object.keys(goal))if(Number.isFinite(v[k]))goal[k]=v[k];needsRender=true;}}); }
  catch(e){toast('Could not open planning: '+e.message);}
 });
 $('#openProjects').addEventListener('click', async () => {
@@ -887,6 +924,7 @@ $('#cBlank').addEventListener('click', () => showPreview(shot(true), 'ink-atlas-
 $('#cGlb').addEventListener('click',async()=>{
  toggle('#share',false);try{const {exportSceneGlb}=await import('./three-export.js');const result=await exportSceneGlb(previewInput());await saveFile('ink-atlas-neutral-model.glb',result.blob);}catch(e){toast('Could not export 3D model: '+e.message);}
 });
+$('#cObj').addEventListener('click',async()=>{toggle('#share',false);try{const {exportSceneObjPackage}=await import('./obj-export.js');const result=await exportSceneObjPackage(previewInput());await saveFile('ink-atlas-neutral-obj.zip',result.blob);}catch(e){toast('Could not export OBJ package: '+e.message);}});
 $('#cModelOpen').addEventListener('click',()=>$('#modelFile').click());
 $('#modelFile').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;toggle('#share',false);try{if(file.size>25*1024*1024)throw new Error('Use a GLB under 25 MiB.');const {openModelPreview}=await import('./model-preview.js');await openModelPreview({THREE,buffer:await file.arrayBuffer(),name:file.name});}catch(e){toast('Could not preview model: '+e.message);}});
 $('#cV47Source').addEventListener('click',()=>{const source=state.v47Source;if(source)saveFile('ink-atlas-original-import.ink.json',JSON.stringify({format:'ink-atlas-portable',project:source.project,assets:source.assets}));});

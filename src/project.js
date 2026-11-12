@@ -58,6 +58,7 @@ export function imageKeysFor(state) {
   const keys = new Set();
   const scan = (s) => {
     for (const t of [...(s?.tattoos || []),...(s?.unplacedTattoos || [])]) if (typeof t?.img === 'string') keys.add(t.img);
+    for(const board of Array.isArray(s?.artworkBoards)?s.artworkBoards:[])for(const entry of Object.values(board?.entries||{}))for(const k of [entry?.sourceKey,entry?.outputKey])if(typeof k==='string')keys.add(k);
     for (const a of Object.values(s?.artworks || {})) {
       for (const k of [a?.source, a?.output, a?.mask]) if (typeof k === 'string') keys.add(k);
     }

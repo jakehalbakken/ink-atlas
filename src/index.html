@@ -57,7 +57,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #full{position:fixed;top:82px;left:16px;z-index:4}
 #hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
 #hint{background:rgba(0,0,0,.28);padding:6px 12px;border-radius:999px;pointer-events:none}
-#sheet{max-height:65vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+#sheet{max-height:55vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:10px 14px;display:flex;flex-direction:column;gap:8px}
+#editorAdvanced>summary{min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600}#editorAdvanced>summary::before{content:"+";font-size:20px}#editorAdvanced[open]>summary::before{content:"−"}#editorAdvanced>summary span{font-weight:400;color:var(--muted);font-size:12px}#editorAdvanced .editor-advanced-content{display:flex;flex-direction:column;gap:12px;padding-top:8px}.editor-quick{gap:8px}.editor-quick .btn{flex:1;white-space:nowrap}#sheet #moveTip{font-size:12px;line-height:1.35}@media(orientation:landscape) and (max-height:650px){#sheet{max-height:50vh;padding:8px 12px;gap:5px}#sheet #moveTip{display:none}#dock{gap:6px;padding-bottom:8px}#editorAdvanced>summary span{display:none}}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 #name{flex:1 1 160px;min-height:44px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
 #size{font-variant-numeric:tabular-nums;color:var(--text);font-size:14px;white-space:pre}
@@ -127,13 +128,21 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #coach li b{flex:none;width:118px;color:var(--stencil);font-weight:600}
 #toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);padding:10px 14px;display:flex;gap:12px;align-items:center;z-index:6;border-radius:999px}
 #toast button{background:none;border:0;color:var(--stencil);font-weight:600;min-height:44px;min-width:44px;padding:0 6px}
+/* Keep turn controls clear of the right-hand actions on tablet widths. */
+@media (min-width:901px) and (max-width:1199px){
+  #views{left:144px;transform:none}
+}
+@media (max-width:900px){
+  #views{top:82px}
+  .pop,#toast{top:146px}
+  #tapPlaceBar{top:146px!important}
+}
 @media (max-width:720px){
-  #views{top:auto;bottom:auto;position:fixed;top:70px}
   .brand small{display:none}
   .sliders{grid-template-columns:1fr 1fr}
   .cards{grid-template-columns:1fr}
   #count{display:none}
-  .pop{top:126px}
+  .pop{top:146px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -191,6 +200,13 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <span id="size"></span>
       <button class="btn primary" id="bDone" type="button">Done</button>
     </div>
+    <div class="row editor-quick">
+      <button class="btn" id="bTapPlace" type="button" aria-pressed="false">Tap to place</button>
+      <button class="btn" id="bDraft" type="button">Placement draft</button>
+      <button class="btn" id="bCleanup" type="button">Clean up artwork</button>
+      <button class="btn" id="bLock" type="button">Lock in place</button>
+    </div>
+    <details id="editorAdvanced"><summary>More controls <span>size, turn, wrap & actions</span></summary><div class="editor-advanced-content">
     <div class="sliders">
       <div class="lbl">Size<ink-slider id="rSize" min="0" max="1000" aria-label="Size"></ink-slider></div>
       <div class="lbl">Turn<ink-slider id="rTurn" min="-180" max="180" aria-label="Turn"></ink-slider></div>
@@ -213,18 +229,15 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       </div>
     </details>
     <div class="row">
-      <button class="btn" id="bTapPlace" type="button" aria-pressed="false">Tap to place</button>
-      <button class="btn" id="bDraft" type="button">Edit placement draft</button>
-      <button class="btn" id="bCleanup" type="button">Clean up artwork</button>
       <button class="btn" id="bCleanupLinked" type="button" hidden>Clean up linked copies</button>
       <button class="btn" id="bFlip" type="button">Mirror</button>
       <button class="btn" id="bFlipVertical" type="button">Flip vertical</button>
       <button class="btn" id="bDup" type="button">Duplicate</button>
-      <button class="btn" id="bLock" type="button">Lock in place</button>
       <button class="btn" id="bStatus" type="button">Planned</button>
       <button class="btn" id="bHide" type="button">Hide</button>
       <button class="btn danger" id="bDel" type="button">Remove</button>
     </div>
+    </div></details>
     <p id="moveTip"></p>
   </div>
   <div id="empty" class="glass" hidden>
@@ -264,6 +277,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>
       <button class="card" id="cPacket" type="button"><b>Full artist packet</b><span>Four body views, all artwork and approximate sizes. Printable HTML file.</span></button>
       <button class="card" id="cGlb" type="button"><b>Export 3D model</b><span>Neutral body and visible ink as GLB. Separate decal meshes, not a baked skin texture.</span></button>
+      <button class="card" id="cObj" type="button"><b>Export OBJ package</b><span>Static body, separate ink meshes, MTL and PNG textures in one ZIP. Not UV-baked or rigged.</span></button>
       <button class="card" id="cModelOpen" type="button"><b>Preview a GLB model</b><span>Read-only import. Does not replace your body or saved project.</span></button>
       <button class="card" id="cV47Source" type="button" hidden><b>Save untouched imported source</b><span>The original v47 project and assets, without conversion.</span></button>
       <button class="card" id="cV47" type="button"><b>Export for original v47</b><span>Compatibility copy plus a full rebuild backup. Review the limitations first.</span></button>
