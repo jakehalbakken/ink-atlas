@@ -1040,6 +1040,68 @@ async function exportPainted(kind) {
   } catch (e) { toast('Could not make the 3D model: ' + ((e && e.message) || 'something went wrong')); }
   finally { needsRender = true; }
 }
+// Print at real size: a PDF with each visible tattoo at its true size.
+async function printRealSize() {
+  toggle('#share', false);
+  const list = state.tattoos.filter((t) => !t.hidden && imgEls[t.img]);
+  if (!list.length) { toast('No visible tattoos to print.'); return; }
+  try {
+    const { pieceSize, layoutPrint, buildPrintPdf, sizeNote } = await import('./print-size.js');
+    const pieces = [], art = {};
+    for (const t of list) {
+      const size = pieceSize(t, state.heightCm), im = imgEls[t.img];
+      const name = t.name || 'Tattoo', note = sizeNote(size) + (t.status === 'existing' ? ', already on me' : '') + (t.flip ? ', mirrored as on the body' : '');
+      // about 200 dots per inch, capped so a big back piece stays a sensible file
+      const scale = Math.min(1, 3000 / Math.max(size.w, size.h) / (200 / 72)), cw = Math.max(1, Math.round(size.w / 72 * 200 * scale)), ch = Math.max(1, Math.round(size.h / 72 * 200 * scale));
+      const c = document.createElement('canvas'); c.width = cw; c.height = ch; const g = c.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, cw, ch);
+      if (t.flip) { g.translate(cw, 0); g.scale(-1, 1); }
+      g.drawImage(im, 0, 0, cw, ch);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
+      art[t.id] = { name, note, jpeg: { width: cw, height: ch, data: new Uint8Array(await blob.arrayBuffer()) } };
+      pieces.push({ id: t.id, w: size.w, h: size.h, labelW: (name.length + note.length + 2) * 4.6 });
+    }
+    const pdf = buildPrintPdf(layoutPrint(pieces), art, { title: (state.projectName || 'My tattoos') + ': real size' });
+    window.__lastPrint = { bytes: pdf.length, pieces: pieces.map((p) => ({ id: p.id, w: p.w, h: p.h })) };
+    await saveFile('ink-atlas-real-size.pdf', new Blob([pdf], { type: 'application/pdf' }));
+  } catch (e) { toast('Could not make the print file: ' + ((e && e.message) || 'something went wrong')); }
+}
+$('#cPrint').addEventListener('click', printRealSize);
+// Spin video: the whole body turning once, in the current pose, with visible ink.
+let spinning = false;
+async function spinVideo() {
+  toggle('#share', false);
+  if (spinning) return; spinning = true;
+  toast('Making your spin video. Keep the app open for a few seconds.');
+  let result = null;
+  const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, inset = curInset;
+  try {
+    poseView.pause();
+    const { makeSpinVideo } = await import('./spin-video.js');
+    curInset = 0; applyInset(); exporting = true; syncDecals();
+    const frames = 180;
+    // Frame the body as it stands now (posed or not) so it fills the clip at every angle.
+    if (poseView.active) poseView.ensure();
+    const P = (poseView.active ? poseView.geometry : bodyGeo).attributes.position.array;
+    let y0 = Infinity, y1 = -Infinity, reach = 0;
+    for (let k = 0; k < P.length; k += 3) { y0 = Math.min(y0, P[k + 1]); y1 = Math.max(y1, P[k + 1]); reach = Math.max(reach, Math.hypot(P[k], P[k + 2] - 0.02)); }
+    const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2)), span = Math.max((y1 - y0) * 1.1, reach * 2 * 1.1 / 0.75);
+    result = await makeSpinVideo({ width: 720, height: 960, fps: 30, frames, draw: (i, g) => {
+      Object.assign(goal, { theta: Math.PI * 2 * i / frames, phi: 1.5, roll: 0, tx: 0, ty: (y0 + y1) / 2, tz: 0.02, r: span / Math.min(1, canvas.width / (canvas.height * 0.75)) / (2 * tn) + reach });
+      glide = false; Object.assign(cur, goal); applyCam();
+      poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+      // the largest 3:4 window in the middle of the picture
+      const cw = canvas.width, ch = canvas.height, w = Math.min(cw, ch * 0.75), h = w / 0.75;
+      g.drawImage(canvas, (cw - w) / 2, (ch - h) / 2, w, h, 0, 0, 720, 960);
+    } });
+    window.__lastSpin = { bytes: result.blob.size, codec: result.codec, name: result.name };
+  } catch (e) { toast('Could not make the video: ' + ((e && e.message) || 'something went wrong')); }
+  finally {
+    exporting = false; Object.assign(cur, oldCur); Object.assign(goal, oldGoal); glide = oldGlide; curInset = inset; applyInset(); applyCam(); syncDecals(); needsRender = true; spinning = false;
+  }
+  if (result) await saveFile(result.name, result.blob);
+}
+$('#cSpin').addEventListener('click', spinVideo);
 $('#cUsdz').addEventListener('click', () => exportPainted('usdz'));
 $('#cObjBaked').addEventListener('click', () => exportPainted('obj'));
 $('#cModelOpen').addEventListener('click',()=>$('#modelFile').click());
