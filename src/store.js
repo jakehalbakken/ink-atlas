@@ -1,3 +1,4 @@
+import { imageKeysFor } from './project.js';
 // Durable storage on this device (IndexedDB `ink-atlas-proto`, store `kv`). Keys:
 //   project             { format: 2, state, imageKeys, savedAt }   older saves: { state, images }
 //   img:<key>           one artwork data URL, written once and shared by every copy below
@@ -56,7 +57,7 @@ export async function openStore() {
       if (!db) return false;
       const json = JSON.stringify(state), sig = sigOf(json);
       if (index.length && index[0].sig === sig) return false;
-      const keys = [...new Set((Array.isArray(state.tattoos) ? state.tattoos : []).map((t) => t && t.img).filter((k) => typeof k === 'string' && typeof imgs[k] === 'string'))];
+      const keys = imageKeysFor(state).filter((k) => typeof imgs[k] === 'string');
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
       const next = [{ id, at: Date.now(), reason, tattoos: Array.isArray(state.tattoos) ? state.tattoos.length : 0, sig, imageKeys: keys }, ...index];
       const drop = next.splice(MAX_RECOVERY);

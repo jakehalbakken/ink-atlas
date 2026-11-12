@@ -26,9 +26,11 @@
 /* The page itself can never pan, bounce or zoom: only the canvas and the panels below take gestures. */
 html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:manipulation}
 body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
 #stage{position:fixed;inset:0}
 #stage canvas{display:block;outline:none}
 button,input{font:inherit;color:inherit}
+input,textarea,select{font-size:16px}
 button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outline-offset:2px}
 [hidden]{display:none!important}
@@ -52,10 +54,10 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #views .btn:active{color:var(--text);background:rgba(255,255,255,.1)}
 #dock{position:fixed;left:0;right:0;bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
 #dock>*{pointer-events:auto}
-#full{align-self:flex-end}
+#full{position:fixed;top:82px;left:16px;z-index:4}
 #hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
 #hint{background:rgba(0,0,0,.28);padding:6px 12px;border-radius:999px;pointer-events:none}
-#sheet{width:min(760px,100%);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+#sheet{max-height:65vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:14px 16px;display:flex;flex-direction:column;gap:12px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 #name{flex:1 1 160px;min-height:44px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
 #size{font-variant-numeric:tabular-nums;color:var(--text);font-size:14px;white-space:pre}
@@ -97,7 +99,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #count{flex:none;color:var(--muted);font-size:12.5px;padding-right:6px}
 #empty{padding:10px 14px;display:flex;gap:12px;align-items:center}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.seg .btn{padding:0 8px}.lbl{color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
-body.panel-open #full{visibility:hidden}
+
 .pop{position:fixed;z-index:3;top:74px;right:16px;width:320px;max-width:calc(100% - 32px);max-height:calc(100% - 184px);overflow-x:hidden;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .pop>*{flex:none}
 .pop h3,.modal h2{margin:0;font:700 17px/1.2 var(--display)}
@@ -137,6 +139,7 @@ body.panel-open #full{visibility:hidden}
 </style>
 </head>
 <body>
+<div id="viewport">
 <div id="stage" aria-label="3D body. Drag to look around, pinch to zoom, tap a tattoo to select it."></div>
 
 <div id="top">
@@ -175,8 +178,8 @@ body.panel-open #full{visibility:hidden}
   <button class="btn quiet" id="fitReset" type="button">Reset body shape</button>
 </div>
 
+<button class="btn glass" id="full" type="button">Full body</button>
 <div id="dock">
-  <button class="btn glass" id="full" type="button">Full body</button>
   <p id="hint">Tap a tattoo to work on it. Double-tap empty space for the full body.</p>
   <div id="sheet" class="glass" hidden>
     <div class="row">
@@ -199,6 +202,8 @@ body.panel-open #full{visibility:hidden}
       </div>
     </details>
     <div class="row">
+      <button class="btn" id="bCleanup" type="button">Clean up artwork</button>
+      <button class="btn" id="bFlipVertical" type="button">Flip vertical</button>
       <button class="btn" id="bFlip" type="button">Mirror</button>
       <button class="btn" id="bDup" type="button">Duplicate</button>
       <button class="btn" id="bLock" type="button">Lock in place</button>
@@ -210,15 +215,15 @@ body.panel-open #full{visibility:hidden}
   </div>
   <div id="empty" class="glass" hidden>
     <span>Start by adding a photo or drawing of a tattoo.</span>
-    <button class="btn primary" id="emptyAdd" type="button">Add ink</button>
+    <button class="btn primary" id="emptyAdd" type="button">Upload tattoo</button>
   </div>
   <div id="tray" class="glass">
-    <button class="btn primary" id="add" type="button">+ Add ink</button>
+    <button class="btn primary" id="add" type="button">+ Upload tattoo</button>
     <div id="trayItems"></div>
     <span id="count"></span>
   </div>
 </div>
-<input id="file" type="file" accept="image/*,.json,application/json" multiple hidden>
+<input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
 
 <div id="share" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="shTitle">
@@ -261,6 +266,7 @@ body.panel-open #full{visibility:hidden}
   <button class="btn primary" id="coachOk" type="button">Got it</button>
 </div>
 <div id="toast" class="glass" role="status" hidden></div>
+</div>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

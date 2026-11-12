@@ -52,3 +52,17 @@ export function cleanState(raw, hasImage) {
   s.tattoos = out;
   return { state: s, dropped, replace };
 }
+
+// Shared asset traversal for current state, named layouts, checkpoints and backups.
+export function imageKeysFor(state) {
+  const keys = new Set();
+  const scan = (s) => {
+    for (const t of [...(s?.tattoos || []),...(s?.unplacedTattoos || [])]) if (typeof t?.img === 'string') keys.add(t.img);
+    for (const a of Object.values(s?.artworks || {})) {
+      for (const k of [a?.source, a?.output, a?.mask]) if (typeof k === 'string') keys.add(k);
+    }
+  };
+  scan(state);
+  for (const group of ['layouts', 'checkpoints']) for (const s of state?.[group] || []) scan(s.state || s);
+  return [...keys];
+}

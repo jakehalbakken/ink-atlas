@@ -1,0 +1,9 @@
+import assert from 'node:assert/strict';
+export default async function(p){
+ await p.evaluate(async()=>{let s=window.__ink.state();s.tattoos=[];window.__ink.commitTest();const c=document.createElement('canvas');c.width=c.height=256;const g=c.getContext('2d');g.fillStyle='red';g.fillRect(80,0,96,100);g.fillStyle='blue';g.fillRect(80,156,96,100);const h=window.__ink.surfaceAt([0,1.2,2],[0,0,-1]);await window.__ink.addArt(c.toDataURL(),'Orientation',{...h,width:.28});window.__ink.commitTest();});
+ const sample=async()=>{await new Promise(r=>setTimeout(r,600));await p.click('#shareBtn');await p.click('#cView');await p.waitForFunction(()=>document.querySelector('#pvImg').complete);const result=await p.evaluate(()=>{const source=document.querySelector('#pvImg'),c=document.createElement('canvas');c.width=source.naturalWidth;c.height=source.naturalHeight;const g=c.getContext('2d');g.drawImage(source,0,0);const d=g.getImageData(0,0,c.width,c.height).data;let nr=0,nb=0,yr=0,yb=0;for(let k=0;k<d.length;k+=4){const y=Math.floor(k/4/c.width);if(d[k]>80&&d[k]>d[k+1]*2&&d[k]>d[k+2]*2){nr++;yr+=y;}if(d[k+2]>40&&d[k+2]>d[k]*2&&d[k+2]>d[k+1]*2){nb++;yb+=y;}}return {nr,nb,red:yr/nr,blue:yb/nb};});await p.click('#preview [data-close]');return result;};
+ let s=await sample();assert(s.nr>20&&s.nb>20);assert(s.red<s.blue,'new artwork top stays top');
+ await p.evaluate(()=>{delete window.__ink.state().tattoos[0].imageTopDown;window.__ink.commitTest();});s=await sample();assert(s.red>s.blue,'legacy saved appearance preserved');
+ await p.click('#trayItems .chip');await p.click('#bFlipVertical');s=await sample();assert(s.red<s.blue,'explicit vertical flip corrects legacy artwork');
+ console.log('PASS t19 new artwork orientation, legacy preservation, explicit flip');
+}

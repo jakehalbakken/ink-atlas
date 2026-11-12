@@ -4,7 +4,8 @@ import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
 import { createSkin, updateSkin } from './skin.js';
 import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
 import './slider.js';
-import { cleanState } from './project.js';
+import { cleanState, imageKeysFor } from './project.js';
+import { editArtwork } from './cleanup.js';
 import { openStore } from './store.js';
 import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
@@ -186,6 +187,7 @@ function applyAnchors(an) {
 function reshape(fn) { const an = anchorsNow(); fn(); applyShape(); applyAnchors(an); }
 /* ---------- decals ---------- */
 function loadImg(keyName) {
+  if(typeof images[keyName]!=='string'||!images[keyName].startsWith('data:image/'))return Promise.resolve(null);
   if (imgEls[keyName]) return Promise.resolve(imgEls[keyName]);
   return new Promise((res) => { const im = new Image(); im.onload = () => { imgEls[keyName] = im; res(im); }; im.onerror = () => res(null); im.src = images[keyName]; });
 }
@@ -194,7 +196,7 @@ function inkTexture(t) {
   const W = Math.min(1024, Math.max(64, im ? im.naturalWidth : 256)); c.width = W; c.height = Math.max(8, Math.round(W / t.aspect));
   const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
   if (im) { g.save(); g.globalAlpha = t.opacity ?? 0.92; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } const mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height; g.drawImage(im, mx, my, c.width - 2 * mx, c.height - 2 * my); g.restore(); }
-  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; return tex;
+  const tex = new THREE.CanvasTexture(c); tex.flipY = !t.imageTopDown; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; return tex;
 }
 function outlineTexture(aspect) {
   const c = document.createElement('canvas'); c.width = 384; c.height = Math.max(24, Math.round(384 / aspect));
@@ -223,7 +225,7 @@ function decalGeometry(t) {
   out.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   return out;
 }
-function texKeyOf(t) { return [t.img, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3)].join('|'); }
+function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3)].join('|'); }
 function syncDecals() {
   const ids = new Set(state.tattoos.map((t) => t.id));
   for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); d.tex.dispose(); d.outline.material.map.dispose(); delete decals[id]; }
@@ -250,7 +252,7 @@ let exporting = false;
 // store.js does the writing. Here: when to save, telling the truth about whether it
 // worked, and keeping copies to go back to.
 let store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
-function usedImages() { const o = {}; for (const t of state.tattoos) o[t.img] = images[t.img]; return o; }
+function usedImages() { const o = {}; for (const k of imageKeysFor(state)) if (images[k]) o[k] = images[k]; return o; }
 function setSaved(text, bad) { const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad); }
 function save() {
   dirty = true; clearTimeout(saveTimer);
@@ -284,7 +286,7 @@ function keepRecovery(reason) { return store && store.ok ? store.addRecovery(sta
 async function openProject(rawState, imgs) {
   imgs = imgs && typeof imgs === 'object' ? imgs : {};
   const c = cleanState(rawState, (k) => typeof imgs[k] === 'string' && imgs[k].startsWith('data:image'));
-  for (const t of c.state.tattoos) if (!images[t.img]) images[t.img] = imgs[t.img];
+  for (const k of imageKeysFor(c.state)) if (!images[k] && typeof imgs[k]==='string' && imgs[k].startsWith('data:image/')) images[k] = imgs[k];
   await Promise.all(c.state.tattoos.map((t) => loadImg(t.img)));
   const usable = c.state.tattoos.filter((t) => imgEls[t.img]);
   const dropped = c.dropped + c.state.tattoos.length - usable.length;
@@ -325,18 +327,21 @@ let slotI = 0;
 function nextSlot() { for (let i = 0; i < SLOTS.length; i++) { const s = SLOTS[(slotI++) % SLOTS.length]; const h = surfaceAt(new V3(...s[0]), new V3(...s[1])); if (h) return h; } return { pos: [0, 1.3, 0.12], normal: [0, 0, 1] }; }
 async function addImage(dataUrl, name, place) {
   const im = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = dataUrl; });
-  if (!im) return null;
+  if (!im) {toast('That picture could not be opened.');return null;}
+  const ratio=im.naturalWidth/im.naturalHeight;
+  if(im.naturalWidth*im.naturalHeight>24000000 || !Number.isFinite(ratio) || ratio<.05 || ratio>20){toast('Use artwork under 24 megapixels with an aspect ratio between 1:20 and 20:1.');return null;}
   let src = dataUrl;
-  const max = 1024;
+  const max = 1600;
   if (im.naturalWidth > max || im.naturalHeight > max || dataUrl.length > 900000) {
     const s = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight)); const c = document.createElement('canvas');
     c.width = Math.round(im.naturalWidth * s); c.height = Math.round(im.naturalHeight * s); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
-    src = c.toDataURL('image/png'); if (src.length > 1400000) { const c2 = document.createElement('canvas'); c2.width = c.width; c2.height = c.height; const g = c2.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(c, 0, 0); src = c2.toDataURL('image/jpeg', 0.88); }
+    src = c.toDataURL('image/png'); // Preserve transparency and line detail.
   }
   const k = uid(); images[k] = src; await loadImg(k);
   const p = place || nextSlot();
-  const t = { id: uid(), name: name || 'Tattoo', img: k, aspect: im.naturalWidth / im.naturalHeight, pos: p.pos, normal: p.normal, width: p.width || 0.11, rot: p.rot || 0, opacity: p.opacity ?? 0.92, flip: false, locked: false, hidden: false };
+  const t = { id: uid(), name: name || 'Tattoo', img: k, imageTopDown:true, aspect: im.naturalWidth / im.naturalHeight, pos: p.pos, normal: p.normal, width: p.width || 0.11, rot: p.rot || 0, opacity: p.opacity ?? 0.92, flip: false, locked: false, hidden: false };
   for (const k of ['wrap', 'bend', 'taper']) if (p[k]) t[k] = p[k];
+  state.artworks ||= {}; t.artworkId = uid(); const sourceKey = src === dataUrl ? k : uid(); if (sourceKey !== k) images[sourceKey] = dataUrl; state.artworks[t.artworkId] = { source: sourceKey, output: k, name: t.name };
   state.tattoos.push(t); return t;
 }
 function viewCenterSpot() { const r = canvas.getBoundingClientRect(); const h = hitBody(r.left + r.width / 2, r.top + r.height * 0.42); return h ? { pos: h.point.toArray(), normal: h.normal.clone().normalize().toArray() } : null; }
@@ -400,7 +405,14 @@ canvas.addEventListener('pointermove', (e) => {
     gest.pd = s.d; gest.pcx = s.cx; gest.pcy = s.cy;
   }
 });
+function cancelGesture() {
+  const g = gest; gest = null;
+  const ids = [...pts.keys()]; pts.clear();
+  for (const id of ids) { try { canvas.releasePointerCapture(id); } catch (_) { /* already released */ } }
+  if (g?.snap) commit();
+}
 function endPointer(e) {
+  if (e.type === 'pointercancel') { cancelGesture(); return; }
   if (!pts.has(e.pointerId)) return;
   pts.delete(e.pointerId);
   if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...t.pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; } return; }
@@ -410,6 +422,9 @@ function endPointer(e) {
   if (!g.moved && performance.now() - g.t0 < 450 && e.type === 'pointerup') tap(e.clientX, e.clientY);
 }
 canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('lostpointercapture', e=>{if(pts.has(e.pointerId))cancelGesture();});
+window.addEventListener('blur',cancelGesture);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelGesture();});
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
   const h = hitBody(x, y); const t = h ? tattooAt(h.point, h.normal) : null; const now = performance.now();
@@ -439,6 +454,7 @@ function renderSheet() {
   if (!t) return;
   if (document.activeElement !== $('#name')) $('#name').value = t.name;
   $('#size').textContent = sizeText(t);
+  $('#bCleanup').disabled=!!t.locked; $('#bFlipVertical').disabled=!!t.locked;
   $('#rSize').value = Math.round(Math.log(t.width / 0.012) / Math.log(0.9 / 0.012) * 1000);
   $('#rTurn').value = Math.round(((((t.rot * 180 / Math.PI) + 180) % 360 + 360) % 360) - 180);
   $('#rFade').value = Math.round((t.opacity ?? 0.92) * 100);
@@ -478,9 +494,23 @@ $('#bStatus').addEventListener('click', () => { const t = sel(); if (!t) return;
 $('#bHide').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.hidden = !t.hidden; commit(); });
 $('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); const f = frameOf(t); const p = new V3(...t.pos).addScaledVector(f.right, t.width * 0.6).addScaledVector(f.n, 0.2); const h = surfaceAt(p, f.n.clone().negate()); const c = { ...t, id: uid(), name: t.name + ' copy', locked: false, pos: h ? h.pos : t.pos, normal: h ? h.normal : t.normal }; state.tattoos.push(c); selectedId = c.id; commit(); });
 $('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
+async function cleanupSelected() {
+  const t=sel();if(!t)return;if(t.locked){toast('Unlock this tattoo before editing its artwork.');return;}
+  cancelGesture();const id=t.id,prior=t.img,art=state.artworks?.[t.artworkId],source=art?.source||prior;
+  try{
+    const result=await editArtwork(images[source]||images[prior],images[prior]);if(!result)return;
+    const current=state.tattoos.find(x=>x.id===id);
+    if(!current||current.img!==prior||current.locked){toast('The artwork changed while cleanup was open. Nothing was replaced.');return;}
+    const key=uid();images[key]=result.dataUrl;const decoded=await loadImg(key);if(!decoded){delete images[key];toast('The cleaned image could not be opened. Nothing changed.');return;}
+    snapshot();state.artworks||={};const artworkId=uid();state.artworks[artworkId]={...(art||{}),source,output:key,name:current.name};
+    current.artworkId=artworkId;current.img=key;current.aspect=result.aspect;commit();toast('Artwork updated. Original kept.','Undo',undo);
+  }catch(e){toast('Could not clean up artwork: '+e.message);}
+}
+$('#bCleanup').addEventListener('click',cleanupSelected);
+$('#bFlipVertical').addEventListener('click',()=>{const t=sel();if(!t||t.locked)return;snapshot();t.imageTopDown=!t.imageTopDown;commit();});
 $('#bDone').addEventListener('click', () => select(null));
 $('#undo').addEventListener('click', undo); $('#redo').addEventListener('click', redo);
-$('#full').addEventListener('click', () => fullBody());
+$('#full').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); select(null); fullBody(); });
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => fullBody(+b.dataset.view * Math.PI / 2)));
 $('#add').addEventListener('click', () => $('#file').click());
 $('#emptyAdd').addEventListener('click', () => $('#file').click());
@@ -489,11 +519,11 @@ $('#file').addEventListener('change', async (e) => {
   snapshot(); let last = null; let first = true;
   for (const f of files) {
     if (/json$/i.test(f.name) || f.type === 'application/json') { if (f.size > 300e6) { toast('That file is too large to open here.'); continue; } await importBackup(await f.text()); continue; }
-    if (!f.type.startsWith('image/')) continue;
-    if (f.size > 40e6) { toast('That picture is too large to add.'); continue; }
+    if (!/^image\/(png|jpeg|webp)$/.test(f.type)) {toast('Choose a PNG, JPEG or WebP picture.');continue;}
+    if (f.size > 10*1024*1024) { toast('Use a picture smaller than 10 MiB.'); continue; }
     const url = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(f); });
     if (typeof url !== 'string') continue;
-    const t = await addImage(url, f.name.replace(/\.[^.]+$/, '').slice(0, 40), first ? viewCenterSpot() : null); first = false; if (t) last = t;
+    const t = await addImage(url, f.name.replace(/\.[^.]+$/, '').slice(0, 100), first ? viewCenterSpot() : null); if (t) {first = false;last = t;}
   }
   if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
 });
@@ -542,17 +572,26 @@ function syncFitUI() {
   }
 }
 $('#fitReset').addEventListener('click', () => { snapshot(); reshape(() => { state.fit = {}; state.muscle = 0.5; state.weight = 0.5; }); commit(); toast('Body shape back to standard', 'Undo', undo); });
-// Nothing outside the panels may scroll or zoom the page (belt and braces for iOS Safari).
-document.addEventListener('touchmove', (e) => { if (!(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems')) e.preventDefault(); }, { passive: false });
-document.addEventListener('gesturestart', (e) => e.preventDefault());
-// The page is locked, so when the on-screen keyboard opens lift the bottom sheet above it
-// ourselves, and undo any shove Safari gives the page once the keyboard goes away.
+// Keep browser/page zoom separate from the 3D camera. Single-finger panel
+// scrolling is allowed; pinching panels must not zoom the entire app off-screen.
+document.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 1 || !(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems,#sheet,[aria-modal=true]')) e.preventDefault();
+}, { passive: false });
+for (const name of ['gesturestart', 'gesturechange']) document.addEventListener(name, (e) => e.preventDefault(), { passive: false });
+// iOS can still change its visual viewport (keyboard, accessibility/page zoom,
+// browser chrome). Fit the whole studio to that visible rectangle rather than
+// assuming fixed controls at layout-viewport corners are still reachable.
 if (window.visualViewport) {
-  const vv = window.visualViewport;
-  const onVV = () => { const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); document.documentElement.style.setProperty('--kb', kb > 80 ? kb + 'px' : '0px'); if (kb <= 80 && (window.scrollX || window.scrollY)) window.scrollTo(0, 0); };
-  vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV);
+  const vv = window.visualViewport, viewport = $('#viewport');
+  const onVV = () => {
+    const scale = vv.scale || 1;
+    viewport.style.width = `${vv.width * scale}px`;
+    viewport.style.height = `${vv.height * scale}px`;
+    viewport.style.transform = `translate(${vv.offsetLeft}px, ${vv.offsetTop}px) scale(${1 / scale})`;
+    document.documentElement.style.setProperty('--kb', '0px');
+  };
+  vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV); onVV();
 }
-document.addEventListener('focusout', () => setTimeout(() => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); }, 80));
 // An installed copy picks up a new build as soon as its service worker takes over.
 if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) location.reload(); }); }
 $('#shareBtn').addEventListener('click', () => toggle('#share', true));
@@ -704,7 +743,7 @@ async function readInkJson(proj, assets) {
       place = { pos: pp, normal: [pn[0] / l, pn[1] / l, pn[2] / l], width: THREE.MathUtils.clamp((fin(t.width) && t.width > 0 ? t.width : 0.14) * K, 0.012, 0.9), rot: (fin(t.rotation) ? t.rotation : 0) * Math.PI / 180, opacity: fin(t.opacity) ? THREE.MathUtils.clamp(t.opacity, 0.1, 1) : 0.92 };
     } else unplaced++;
     const nt = await addImage(src, typeof t.name === 'string' ? t.name.slice(0, 40) : 'Tattoo', place);
-    if (nt) { n++; nt.flip = !!t.flipX; nt.hidden = !!t.hidden; nt.status = t.status === 'existing' ? 'existing' : 'planned'; nt.locked = typeof t.placementLocked === 'boolean' ? t.placementLocked : t.status === 'existing';
+    if (nt) { n++; delete nt.imageTopDown; nt.flip = !!t.flipX; nt.hidden = !!t.hidden; nt.status = t.status === 'existing' ? 'existing' : 'planned'; nt.locked = typeof t.placementLocked === 'boolean' ? t.placementLocked : t.status === 'existing';
       if (fin(t.wrap) && t.wrap) nt.wrap = Math.max(0, Math.min(1, t.wrap)); if (fin(t.bend) && t.bend) nt.bend = Math.max(-1, Math.min(1, t.bend)); if (fin(t.taper) && t.taper) nt.taper = Math.max(-0.75, Math.min(0.75, t.taper)); }
   }
   lg.dispose();
