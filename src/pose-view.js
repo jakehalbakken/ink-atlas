@@ -163,6 +163,10 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
     choose, play, pause, scrub,
     setCustom(rotations, opts) { stop(); key = 'custom'; setRotations(rotations, opts); },
     reset() { stop(); key = 'neutral'; setRotations(null); },
+    // For pictures: show a still at once, then put back exactly what was showing before.
+    showNow(k) { stop(); if (!POSE_CATALOG[k]) throw new Error('Unknown pose'); key = k; setRotations(k === 'neutral' ? null : catalogRotations(k), { animate: false }); },
+    snapshot() { return { key, target, playing: motion.playing, kind: motion.kind, phase: motion.phase }; },
+    restore(s) { stop(); clearTimeout(blendTimer); blend = null; motion.kind = s.kind; motion.phase = s.phase; key = s.key; show(s.target); if (s.playing) play(s.kind); },
     withPosed, pointOn, ensure,
     restRig: () => rest(),
     settled: () => !blend,

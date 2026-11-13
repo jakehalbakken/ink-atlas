@@ -189,3 +189,5 @@ export function boneWeightSum(names){
  for(let v=0;v<RIG.vertexCount;v++){let s=0;for(let k=OFF[v];k<OFF[v+1];k++)if(ids.has(IDS[k]))s+=W[k];out[v]=s;}
  return out;
 }
+/** The bones that move one vertex, as [name, weight] pairs. */
+export function vertexBones(v){const out=[];if(v<0||v>=RIG.vertexCount)return out;for(let k=OFF[v];k<OFF[v+1];k++)out.push([POSE_BONES[IDS[k]].name,W[k]]);return out;}

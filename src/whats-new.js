@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'poses-sheet', date: '2026-11-13', title: 'As you move picture', how: 'Select a tattoo, then Share, then As you move. It shows the tattoo standing and in three poses that move that part of the body, like a flexed arm or a squat.', show: 'posesSheet' },
   { id: 'aging-sheet', date: '2026-11-13', title: 'How it ages picture', how: 'Select a tattoo, then Share, then How it ages. Fresh, healed, 10 and 20 years in one picture, to send to your artist or keep.', show: 'agingSheet' },
   { id: 'hair', date: '2026-11-13', title: 'Shaved or buzz-cut hair', how: 'Body, then Hair. Pick Shaved or Buzz cut and a colour, so the head looks less like a mannequin. Kept on this device.', show: 'hair' },
   { id: 'compare-shot', date: '2026-11-13', title: 'Before and after picture', how: 'Share, then Before and after. This view now and with your planned tattoos, side by side, ready to send.', show: 'compareShot' },

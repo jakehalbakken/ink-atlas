@@ -36,7 +36,8 @@ import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES, readTried, writeTried, untriedCount, ordered } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
 import { SPOTS, spotAim, turnAlong } from './spots.js';
-import { POSE_BONES } from './pose.js';
+import { POSE_BONES, vertexBones } from './pose.js';
+import { posesFor } from './pose-pick.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -1462,6 +1463,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
   hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved or Buzz cut, then a colour.']; },
   compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
@@ -1912,6 +1914,76 @@ function agingSheet() {
   return out.toDataURL('image/png');
 }
 let agingLast = null;
+// The tattoo in four poses, as one picture: standing, then three poses that move the skin under
+// it (an arm tattoo gets that arm flexed, overhead and forward; a leg tattoo a knee lift, a
+// squat and a stride; a torso tattoo arms overhead, a turn and a stretch). The live pose, view
+// and motion come back exactly as they were.
+function posesPicked(t) {
+  const tri = startTriangle(t), I = bodyGeo.index.array, sum = new Map();
+  for (let j = 0; j < 3; j++) for (const [n, w] of vertexBones(I[tri * 3 + j])) sum.set(n, (sum.get(n) || 0) + w);
+  return posesFor([...sum], t.normal[2] >= 0);
+}
+// A camera direction that sees the spot with nothing of the body in front of it: as square to the
+// skin as it can be, a little from above or below at most, and never through the head or an arm.
+function clearView(spot, r) {
+  const n = new V3(...spot.normal).normalize(), at = new V3(...spot.pos), dir = new V3(), from = new V3();
+  let best = null;
+  poseView.withPosed(() => {
+    for (const phi of [1.57, 1.3, 1.85, 1.05, 2.05]) for (let k = 0; k < 24; k++) {
+      const theta = k / 24 * Math.PI * 2, s = Math.sin(phi);
+      dir.set(s * Math.sin(theta), Math.cos(phi), s * Math.cos(theta));
+      const facing = dir.dot(n); if (facing < 0.25) continue;
+      const score = facing - Math.abs(phi - 1.57) * 0.15;
+      if (best && score <= best.score) continue;
+      from.copy(at).addScaledVector(dir, r); ray.set(from, dir.clone().negate()); ray.far = r + 0.02;
+      const h = ray.intersectObject(body, false)[0];
+      if (h && h.distance < r - 0.015) continue; // something is in the way
+      best = { score, theta, phi };
+    }
+  });
+  ray.far = Infinity;
+  return best ? { theta: best.theta, phi: best.phi } : {};
+}
+function posesSheet() {
+  const t = sel() && !sel().hidden ? sel() : state.tattoos.find((x) => !x.hidden);
+  if (!t) return null;
+  const pick = posesPicked(t);
+  const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, inset = curInset, pose = poseView.snapshot();
+  const W = canvas.width, H = canvas.height, side = Math.min(W, H), sx = Math.round((W - side) / 2), sy = Math.round((H - side) / 2);
+  const tile = Math.min(side, 1100), pad = Math.round(tile * 0.03), lab = Math.round(tile * 0.085), head = Math.round(tile * 0.12);
+  const out = document.createElement('canvas'); out.width = tile * 2 + pad * 3; out.height = head + (tile + lab) * 2 + pad * 2;
+  const g = out.getContext('2d'); g.fillStyle = '#16171c'; g.fillRect(0, 0, out.width, out.height);
+  g.fillStyle = '#f2f2f5'; g.textBaseline = 'middle'; g.textAlign = 'center';
+  const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+  try {
+    curInset = 0; applyInset(); exporting = true; syncDecals();
+    pick.keys.forEach((k, i) => {
+      poseView.showNow(k);
+      // straight at the tattoo where this pose puts it, with enough body round it to see the pose
+      focusTattoo(t); const spot = viewSpot(t);
+      goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
+      goal.r = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 4 + 0.36) / (2 * tn * Math.min(1, camera.aspect)), 0.7, 3.2);
+      Object.assign(goal, clearView(spot, goal.r));
+      Object.assign(cur, goal); glide = false; applyCam();
+      poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+      const x = pad + (i % 2) * (tile + pad), y = head + Math.floor(i / 2) * (tile + lab + pad);
+      g.drawImage(canvas, sx, sy, side, side, x, y, tile, tile);
+      g.font = `600 ${Math.round(lab * 0.42)}px -apple-system, system-ui, sans-serif`;
+      g.fillText(POSE_CATALOG[k].label, x + tile / 2, y + tile + lab / 2);
+    });
+  } finally {
+    exporting = false; poseView.restore(pose); syncDecals();
+    Object.assign(cur, oldCur); Object.assign(goal, oldGoal); glide = oldGlide; curInset = inset; applyInset(); applyCam(); needsRender = true;
+    if (typeof renderPose === 'function') renderPose();
+  }
+  g.font = `600 ${Math.round(head * 0.3)}px -apple-system, system-ui, sans-serif`;
+  g.fillText(`${t.name || 'This tattoo'} as you move`, out.width / 2, head * 0.42);
+  g.fillStyle = '#9a9cab'; g.font = `${Math.round(head * 0.19)}px -apple-system, system-ui, sans-serif`;
+  g.fillText('How it stretches and turns with the body.', out.width / 2, head * 0.78);
+  posesLast = { tile, pad, head, lab, id: t.id, keys: pick.keys, region: pick.region };
+  return out.toDataURL('image/png');
+}
+let posesLast = null;
 function artistPacket() {
   const oldCur = {...cur}, oldGoal = {...goal}, oldGlide = glide, oldSolo = soloIds;
   const views = [];
@@ -1972,6 +2044,7 @@ async function saveFile(filename, data) {
 }
 $('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(previewFile.filename, dataUrlBlob(previewFile.url)); });
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
+$('#cPoses').addEventListener('click', () => { const url = posesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('poses-sheet'); showPreview(url, 'ink-atlas-poses.png', 'As you move'); });
 $('#cAging').addEventListener('click', () => { const url = agingSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('aging-sheet'); showPreview(url, 'ink-atlas-aging.png', 'How it may age'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
@@ -2374,7 +2447,7 @@ window.__ink = {
     const withHair = read(); setSkinHair('none'); const plain = read(); setSkinHair(hair.style, HAIR_COLOURS[hair.colour]);
     decalGroup.visible = decalsWere; rt.dispose(); needsRender = true;
     const r = {}; for (const k of Object.keys(spots)) { r[k] = withHair[k]; r[k + 'Plain'] = plain[k]; } return r;
-  }, compareLast: () => compareLast, agingLast: () => agingLast,
+  }, compareLast: () => compareLast, agingLast: () => agingLast, posesLast: () => posesLast,
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
