@@ -25,6 +25,9 @@ import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
 import { AGES, ageInk } from './aging.js';
 import { skinSet, inkColours, swatchesFile } from './swatches.js';
+import { GUIDE_SIZE, areaExtent, drawGuide, inkBox, clearShare } from './procreate-draw.js';
+import { patchMaskTriangles } from './procreate-patch.js';
+import { makePatchReference } from './patch-reference.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -496,9 +499,12 @@ canvas.addEventListener('pointerdown', (e) => {
     const onInk = onSelectedInk(e.clientX, e.clientY);
     const sc = t ? screenOf(new V3(...viewSpot(t).pos)) : { x: 0, y: 0 };
     if (onInk && poseView.motion.playing) poseView.pause(); // hold the pose still while the ink moves
+    if (paint && hitBody(e.clientX, e.clientY)) { gest = { mode: 'paint', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: true, snap: false, type: e.pointerType, dab: new Set() }; paintAt(e.clientX, e.clientY, gest.dab); return; }
     gest = { mode: onInk ? 'ink' : 'cam', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, ox: e.clientX - sc.x, oy: e.clientY - sc.y, type: e.pointerType };
   } else if (pts.size === 2 && gest) {
     const s = two();
+    // two fingers that land together are a pan or zoom, not paint: take back the first finger's dab
+    if (gest.mode === 'paint') { if (paint && gest.dab && !gest.stroked && performance.now() - gest.t0 < 400) { for (const t of gest.dab) paint.tris.delete(t); showPaint(); } gest.mode = 'cam'; }
     // Fingers that land together arrive in no fixed order, so "two fingers starting on it"
     // must not depend on which one the browser reports first: if the first finger has not
     // moved yet and the second one lands on the selected tattoo, it is a resize/turn of it.
@@ -513,6 +519,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (pts.size === 1) {
     const dx = e.clientX - gest.px, dy = e.clientY - gest.py; gest.px = e.clientX; gest.py = e.clientY;
     if (gest.hadTwo) return; // the finger left behind after a pinch or pan must not jerk the view or the ink
+    if (gest.mode === 'paint') { gest.stroked = gest.stroked || Math.hypot(e.clientX - gest.sx, e.clientY - gest.sy) > 12; paintAt(e.clientX, e.clientY, gest.stroked ? null : gest.dab); return; }
     if (!gest.moved && Math.hypot(e.clientX - gest.sx, e.clientY - gest.sy) < (gest.type === 'mouse' ? 4 : 9)) return;
     if (!gest.moved) handsOn(true);
     gest.moved = true;
@@ -796,13 +803,133 @@ function editInProcreate() {
     toast(how === 'shared' ? 'Choose Procreate. When you finish, use Copy All in Procreate and tap Paste here.' : 'Picture saved. Open it in Procreate, then Copy All and tap Paste here.');
   }).catch((e) => toast('Could not send the picture: ' + e.message));
 }
-function procreatePending() { const p = readPending(); const t = p && state.tattoos.find((x) => x.id === p.tattooId); return t ? { p, t } : null; }
+function procreatePending() { const p = readPending(); if (p?.kind === 'new') return { p, t: null }; const t = p && state.tattoos.find((x) => x.id === p.tattooId); return t ? { p, t } : null; }
 function renderProcreateBar() {
   const bar = $('#procreateBar'); if (!bar) return; const now = procreatePending();
-  bar.hidden = !now; if (now) $('#pcName').textContent = now.t.name || 'your tattoo';
+  bar.hidden = !now || !!paint; if (!now) return;
+  const fresh = now.p.kind === 'new';
+  $('#pcHead').textContent = fresh ? 'Draw your new tattoo in Procreate.' : `Bring back ${now.t.name || 'your tattoo'} from Procreate.`;
+  $('#pcHow').textContent = fresh ? 'Draw on a new layer, hide the guide layer, then swipe down with three fingers, tap Copy All and tap Paste here.' : 'When you finish, swipe down with three fingers in Procreate and tap Copy All, then tap Paste here.';
+  $('#pcSend').hidden = !fresh;
+}
+/* ---------- draw a new tattoo in Procreate on a painted area ---------- */
+// One finger (or the Pencil) that starts on the body paints the area; one that starts off the
+// body still turns the view, and two fingers still zoom and pan. Nothing is saved until the
+// drawing comes back as a new tattoo.
+let paint = null, drawGuideUrl = null;
+const paintMat = new THREE.MeshBasicMaterial({ color: 0x8474ff, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+function startPaint() {
+  if (poseView.active) { toast('Turn off the pose first, then paint the area.'); return; }
+  cancelGesture(); select(null); showLook(false); tapPlaceId = null;
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', bodyGeo.attributes.position); geo.setIndex([]);
+  const mesh = new THREE.Mesh(geo, paintMat); mesh.renderOrder = 3; mesh.frustumCulled = false; scene.add(mesh);
+  paint = { tris: new Set(), mesh }; renderPaint(); renderProcreateBar();
+}
+function endPaint() { if (!paint) return; scene.remove(paint.mesh); paint.mesh.geometry.dispose(); paint = null; renderPaint(); renderProcreateBar(); needsRender = true; }
+function renderPaint() {
+  $('#paintBar').hidden = !paint; document.body.classList.toggle('painting', !!paint);
+  if (!paint) return; $('#paintGo').disabled = !paint.tris.size; $('#paintClear').disabled = !paint.tris.size;
+}
+function triCentre(tri, I = bodyGeo.index.array, P = bodyGeo.attributes.position.array) { const c = [0, 0, 0]; for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) c[j] += P[I[tri * 3 + k] * 3 + j] / 3; return c; }
+function paintAt(x, y, added = null) {
+  const h = hitBody(x, y); if (!h || h.faceIndex == null || !paint) return;
+  const k = (2 * cur.r * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / canvas.getBoundingClientRect().height, R = Math.max(0.006, 26 * k);
+  const A = bodyAdjacency(), seen = new Set([h.faceIndex]), queue = [h.faceIndex], p = h.point;
+  while (queue.length) {
+    const t = queue.pop(), c = triCentre(t); if (Math.hypot(c[0] - p.x, c[1] - p.y, c[2] - p.z) > R && t !== h.faceIndex) continue;
+    if (!paint.tris.has(t)) { paint.tris.add(t); added?.add(t); }
+    for (let j = 0; j < 3; j++) { const nx = A[t * 3 + j]; if (nx >= 0 && !seen.has(nx)) { seen.add(nx); queue.push(nx); } }
+  }
+  showPaint();
+}
+function showPaint() {
+  const I = bodyGeo.index.array, idx = new Uint32Array(paint.tris.size * 3); let i = 0;
+  for (const t of paint.tris) { idx[i++] = I[t * 3]; idx[i++] = I[t * 3 + 1]; idx[i++] = I[t * 3 + 2]; }
+  paint.mesh.geometry.setIndex(new THREE.BufferAttribute(idx, 1)); needsRender = true; renderPaint();
+}
+// The guide square that covers the painted area, and the picture that goes to Procreate.
+function paintedPatch() {
+  const I = bodyGeo.index.array, P = bodyGeo.attributes.position.array, pts = [], n = new V3();
+  for (const t of paint.tris) {
+    const c = triCentre(t, I, P); pts.push(c);
+    const a = new V3().fromArray(P, I[t * 3] * 3), b = new V3().fromArray(P, I[t * 3 + 1] * 3), d = new V3().fromArray(P, I[t * 3 + 2] * 3);
+    n.add(b.sub(a).cross(d.sub(a))); // area-weighted
+  }
+  const mid = pts.reduce((s, p) => s.map((v, j) => v + p[j] / pts.length), [0, 0, 0]);
+  if (n.lengthSq() < 1e-12) n.set(0, 0, 1); n.normalize();
+  const f = frameOf({ normal: n.toArray(), rot: 0 });
+  const ext = areaExtent(pts, mid, { right: f.right.toArray(), up: f.up.toArray() });
+  const centre = new V3(...mid).addScaledVector(f.right, ext.mx).addScaledVector(f.up, ext.my);
+  const hit = surfaceAt(centre.clone().addScaledVector(n, 0.3), n.clone().negate()) || { pos: centre.toArray() };
+  const width = THREE.MathUtils.clamp(Math.max(ext.w, ext.h) * 1.25 + 0.012, 0.03, 0.6);
+  const patch = { pos: hit.pos, normal: n.toArray(), width, aspect: 1, rot: 0, wrap: 0, bend: 0, taper: 0 };
+  // which way the picture's x and y run on the body, read off the patch itself
+  const geo = decalGeometry(patch), PP = geo.attributes.position.array, UV = geo.attributes.uv.array, c0 = new V3(...patch.pos);
+  let sx = 0, sy = 0; const q = new V3();
+  for (let i = 0; i < UV.length / 2; i++) { q.fromArray(PP, i * 3).sub(c0); sx += (UV[i * 2] - 0.5) * q.dot(f.right); sy += (UV[i * 2 + 1] - 0.5) * q.dot(f.up); }
+  patch.sx = sx >= 0 ? 1 : -1; patch.sy = sy >= 0 ? 1 : -1;
+  return { patch, geo, frame: f };
+}
+function makeDrawGuide() {
+  const { patch, geo, frame } = paintedPatch();
+  try {
+    const uvs = Float32Array.from(geo.attributes.uv.array, (v) => (v - UV_MARGIN) / (1 - 2 * UV_MARGIN));
+    const mask = patchMaskTriangles(geo.attributes.position.array, uvs);
+    // the painted area in the guide's own coordinates
+    const I = bodyGeo.index.array, P = bodyGeo.attributes.position.array, c0 = new V3(...patch.pos), q = new V3(), hl = [];
+    const toUv = (v) => { q.fromArray(P, v * 3).sub(c0); return [0.5 + patch.sx * q.dot(frame.right) / patch.width, 0.5 + patch.sy * q.dot(frame.up) / patch.width]; };
+    for (const t of paint.tris) hl.push([...toUv(I[t * 3]), ...toUv(I[t * 3 + 1]), ...toUv(I[t * 3 + 2])]);
+    const near = state.tattoos.filter((t) => !t.hidden).map((t) => decals[t.id]).filter((d) => d && d.tex).map((d) => ({ geometry: d.mesh.geometry, texture: d.tex }));
+    const ink = makePatchReference(geo, near, UV_MARGIN, GUIDE_SIZE, true);
+    // the patch's own picture runs u along sx·right and v along sy·up; show it upright
+    const guide = drawGuide({ mask, highlight: hl, skin: skinColor(), ink, label: 'New tattoo', widthCm: patch.width * 100 * state.heightCm / 175, flipX: patch.sx < 0, flipY: patch.sy > 0 });
+    return { patch, url: guide.toDataURL('image/png') };
+  } finally { geo.dispose(); }
+}
+function sendDrawGuide() {
+  if (!drawGuideUrl) { toast('The guide is gone after a reload. Paint the area again to get a new one.'); return; }
+  shareOrDownload('New tattoo guide.png', dataUrlBlob(drawGuideUrl)).then((how) => {
+    if (how === 'shared') toast('Choose Procreate. Draw on a new layer, hide the guide, Copy All, then tap Paste here.');
+    else if (how === 'downloaded') toast('Guide saved. Open it in Procreate, draw on a new layer, hide the guide, Copy All, then tap Paste here.');
+  }).catch((e) => toast('Could not send the guide: ' + e.message));
+}
+$('#drawNew').addEventListener('click', startPaint);
+$('#paintCancel').addEventListener('click', endPaint);
+$('#paintClear').addEventListener('click', () => { if (!paint) return; paint.tris.clear(); showPaint(); });
+$('#paintGo').addEventListener('click', () => {
+  if (!paint || !paint.tris.size) return;
+  let made; try { made = makeDrawGuide(); } catch (e) { toast('Could not make the guide: ' + e.message); return; }
+  drawGuideUrl = made.url;
+  writePending({ kind: 'new', tattooId: '', name: 'New tattoo', at: Date.now(), patch: { pos: made.patch.pos, normal: made.patch.normal, width: made.patch.width, sx: made.patch.sx, sy: made.patch.sy } });
+  endPaint(); sendDrawGuide(); // straight from the tap, so the share sheet may open
+});
+$('#pcSend').addEventListener('click', sendDrawGuide);
+async function bringBackNewDrawing(blob, p) {
+  const url = URL.createObjectURL(blob);
+  let im; try { im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('That picture could not be opened.')); i.src = url; }); } finally { URL.revokeObjectURL(url); }
+  const w = im.naturalWidth, h = im.naturalHeight;
+  if (Math.abs(w - h) > Math.max(w, h) * 0.02) { toast('That picture is not the square guide. Copy All from the canvas the guide opened in.'); return; }
+  const s = Math.min(1, 2048 / w), c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, c.width, c.height);
+  const px = g.getImageData(0, 0, c.width, c.height).data;
+  if (clearShare(px) < 0.02) { toast('The guide came back too. In Procreate, hide the guide layer, then Copy All again and tap Paste.'); return; }
+  const box = inkBox(px, c.width, c.height); if (!box) { toast('Nothing drawn came back. Show your drawing layer in Procreate and Copy All again.'); return; }
+  const cut = document.createElement('canvas'); cut.width = box.px[2]; cut.height = box.px[3]; cut.getContext('2d').drawImage(c, box.px[0], box.px[1], box.px[2], box.px[3], 0, 0, box.px[2], box.px[3]);
+  // The guide shows the body upright (x to the right, y down), like any picture you upload, so
+  // the drawing goes on like an upload: its middle on the same plane, then onto the skin.
+  const f = frameOf({ normal: p.normal, rot: 0 }), n = new V3(...p.normal).normalize();
+  const ox = (box.x + box.w / 2 - 0.5) * p.width, oy = -(box.y + box.h / 2 - 0.5) * p.width;
+  const at = new V3(...p.pos).addScaledVector(f.right, ox).addScaledVector(f.up, oy);
+  const hit = surfaceAt(at.clone().addScaledVector(n, 0.3), n.clone().negate());
+  cancelGesture(); snapshot();
+  const t = await addImage(cut.toDataURL('image/png'), 'New tattoo', { pos: hit ? hit.pos : at.toArray(), normal: p.normal, width: p.width * box.w });
+  if (!t) { toast('That drawing could not be added. Nothing changed.'); return; }
+  t.status = 'planned'; writePending(null); drawGuideUrl = null; selectedId = t.id; commit();
+  toast('Your drawing is on the body as a new tattoo, where you painted.', 'Undo', undo);
 }
 async function bringBackFromProcreate(blob) {
   const now = procreatePending();
+  if (now?.p.kind === 'new') return bringBackNewDrawing(blob, now.p.patch);
   if (!now) { toast('That tattoo is no longer in this project.'); writePending(null); renderProcreateBar(); return; }
   if (now.t.locked) { toast('Unlock this tattoo first, then bring the picture back.'); return; }
   const pic = await normalisePicture(blob), key = uid(); images[key] = pic.dataUrl;
@@ -1650,7 +1777,7 @@ window.__ink = {
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex }; }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
-  pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),
+  pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,

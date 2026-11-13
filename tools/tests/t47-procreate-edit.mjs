@@ -27,7 +27,7 @@ export default async function(p){
  assert.equal(out.type,'image/png');assert.deepEqual([out.w,out.h],[out.sw,out.sh],'full stored size');assert.ok(out.diff<1,'mirrored like on the body: '+out.diff);
  // the bar names the tattoo and survives a reload (iPadOS may close the app while you draw)
  await p.waitForFunction(()=>!document.querySelector('#procreateBar').hidden);
- assert.match(await p.$eval('#pcName',e=>e.textContent),/Sunburst/);
+ assert.match(await p.$eval('#pcHead',e=>e.textContent),/Sunburst/);
  await p.evaluate(()=>window.__ink.flush&&window.__ink.flush());await wait(500);
  await p.reload();await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
  assert.equal(await p.$eval('#procreateBar',e=>e.hidden),false,'bar back after reload');

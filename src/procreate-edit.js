@@ -15,7 +15,14 @@ export function readPending(storage = globalThis.localStorage) {
   try {
     const v = JSON.parse(storage?.getItem(KEY) || 'null');
     if (!v || typeof v.tattooId !== 'string' || typeof v.name !== 'string') return null;
-    return { tattooId: v.tattooId, name: v.name.slice(0, 100), at: Number(v.at) || 0, width: Number(v.width) || 0, height: Number(v.height) || 0 };
+    const out = { tattooId: v.tattooId, name: v.name.slice(0, 100), at: Number(v.at) || 0, width: Number(v.width) || 0, height: Number(v.height) || 0 };
+    if (v.kind === 'new') {
+      // a new drawing: where the guide square sits on the body
+      const p = v.patch, nums = (a) => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
+      if (!p || !nums(p.pos) || !nums(p.normal) || !(p.width > 0 && p.width < 1) || ![1, -1].includes(p.sx) || ![1, -1].includes(p.sy)) return null;
+      out.kind = 'new'; out.patch = { pos: p.pos, normal: p.normal, width: p.width, sx: p.sx, sy: p.sy };
+    }
+    return out;
   } catch (_) { return null; }
 }
 export function writePending(p, storage = globalThis.localStorage) {

@@ -29,6 +29,7 @@ body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webk
 #viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
 #handles{position:fixed;inset:0;pointer-events:none}#handles[hidden]{display:none}.hnd{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;pointer-events:auto;touch-action:none;cursor:grab}.hnd[hidden]{display:none}.hnd::after{content:"";position:absolute;left:12px;top:12px;width:20px;height:20px;box-sizing:border-box;background:#fff;border:2.5px solid var(--stencil);box-shadow:0 1px 5px rgba(0,0,0,.4)}#hSize::after{border-radius:5px}#hTurn::after{border-radius:50%}.hnd.on::after{background:var(--stencil)}body.hands-on #handles{opacity:0}
 #realSize{position:fixed;inset:0;z-index:9;background:var(--rs-skin,#e0b394);overflow:hidden;touch-action:none}#realSize[hidden]{display:none}#rsArt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#rsImg{display:block;width:100%;height:100%;mix-blend-mode:multiply}#rsTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#rsCal{position:absolute;left:16px;right:16px;bottom:16px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}#rsCal p{margin:0}#rsCard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px dashed #2b2f38;border-radius:12px;pointer-events:none}#rsCard[hidden]{display:none}#rsCheck{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;background:rgba(20,22,28,.7)}
+#paintBar{position:fixed;top:82px;left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}#paintBar[hidden]{display:none}#paintBar p{margin:0}body.painting #dock,body.painting #lookBtn,body.painting #full{display:none}
 #stage{position:fixed;inset:0}
 #stage canvas{display:block;outline:none}
 button,input{font:inherit;color:inherit}
@@ -176,7 +177,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   #views{top:82px}
   .pop,#toast{top:146px}
   #tapPlaceBar{top:146px!important}
-  #procreateBar{top:146px}
+  #procreateBar,#paintBar{top:146px}
 }
 @media (max-width:720px){
   .brand small{display:none}
@@ -196,7 +197,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   .editor-quick{flex-wrap:wrap}.editor-quick .btn{flex:1 1 40%;min-width:0;padding:0 8px;font-size:14px}
   #tray{flex-wrap:wrap}#tray #trayItems{flex-basis:100%;order:3}#tray #count{margin-left:auto}
   #hint{align-self:center;text-align:center}
-  #procreateBar{left:136px;transform:none;width:min(520px,calc(100% - 572px))}
+  #procreateBar{left:136px;transform:none;width:min(520px,calc(100% - 572px))}#paintBar{width:min(560px,calc(100% - 160px))}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -334,13 +335,15 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   </div>
   <div id="tray" class="glass">
     <button class="btn primary" id="add" type="button">+ Upload tattoo</button>
+    <button class="btn" id="drawNew" type="button">Draw in Procreate</button>
     <div id="trayItems"></div>
     <span id="count"></span>
   </div>
 </div>
+<div id="paintBar" class="glass" hidden><p><b>Paint the area you want to draw on.</b> Use a finger or the Pencil on the body. Two fingers move the view.</p><div class="row"><button class="btn primary" id="paintGo" type="button" disabled>Draw in Procreate</button><button class="btn" id="paintClear" type="button" disabled>Clear</button><button class="btn quiet" id="paintCancel" type="button">Cancel</button></div></div>
 <div id="procreateBar" class="glass" role="region" aria-label="Bring back from Procreate" hidden>
-  <p><b>Bring back <span id="pcName"></span> from Procreate.</b> When you finish, swipe down with three fingers in Procreate and tap Copy All, then tap Paste here.</p>
-  <div class="row"><button class="btn primary" id="pcPaste" type="button">Paste</button><button class="btn" id="pcFile" type="button">From Photos or Files</button><button class="btn quiet" id="pcCancel" type="button">Cancel</button></div>
+  <p><b id="pcHead">Bring back your tattoo from Procreate.</b> <span id="pcHow"></span></p>
+  <div class="row"><button class="btn primary" id="pcPaste" type="button">Paste</button><button class="btn" id="pcSend" type="button" hidden>Send the guide again</button><button class="btn" id="pcFile" type="button">From Photos or Files</button><button class="btn quiet" id="pcCancel" type="button">Cancel</button></div>
 </div>
 <input id="procreateFile" type="file" accept="image/*" hidden>
 <input id="modelFile" type="file" accept=".glb,model/gltf-binary" hidden>

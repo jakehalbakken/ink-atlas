@@ -1,5 +1,5 @@
 // Rasterize only existing ink supported by this exact patch, never the far side.
-export function makePatchReference(patchGeometry, entries, margin, size=768){
+export function makePatchReference(patchGeometry, entries, margin, size=768, asCanvas=false){
  const canvas=document.createElement('canvas');canvas.width=canvas.height=size;const ctx=canvas.getContext('2d');
  const supports=patchGeometry.userData.supports,uv=patchGeometry.attributes.uv.array,coords=new Map();
  for(let i=0;i<supports.length;i++)coords.set(supports[i],[(uv[i*2]-margin)/(1-2*margin)*size,(uv[i*2+1]-margin)/(1-2*margin)*size]);
@@ -17,5 +17,5 @@ export function makePatchReference(patchGeometry, entries, margin, size=768){
    ctx.save();ctx.beginPath();ctx.moveTo(...d0);ctx.lineTo(...d1);ctx.lineTo(...d2);ctx.closePath();ctx.clip();ctx.transform(a,b,c,d,d0[0]-a*s0[0]-c*s0[1],d0[1]-b*s0[0]-d*s0[1]);ctx.drawImage(ink,0,0);ctx.restore();drawn++;
   }
  }
- return drawn?canvas.toDataURL('image/png'):null;
+ return drawn?(asCanvas?canvas:canvas.toDataURL("image/png")):null;
 }
