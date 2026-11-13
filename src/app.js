@@ -1304,7 +1304,7 @@ function bmDraw(res) {
   for (const i of [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) { if (!seen(i)) continue; g.beginPath(); g.arc(...P(i), lw * 2, 0, Math.PI * 2); g.fill(); }
 }
 async function bmRun(file) {
-  const token = ++bm.token; bm.busy = true; bmButtons(false); bmText('Finding you in the photo...');
+  const token = ++bm.token; bm.busy = true; bm.tone = null; bmButtons(false); bmText('Finding you in the photo...');
   let url = null;
   try {
     url = URL.createObjectURL(file);
@@ -1321,6 +1321,16 @@ async function bmRun(file) {
     bmSetShape(fit.params); bm.result = fit.params; bmButtons(true); markTried('body-photo');
     if (res.ref !== 'height') markTried('body-photo-part');
     bmText(bmSaid(res));
+    // a bare back also shows the skin tone: offer it when it differs a lot from the body's
+    if (res.view === 'back' && res.canvas) {
+      const { backTone } = await import('./body-photo.js');
+      const raw = backTone(res.canvas.getContext('2d').getImageData(0, 0, res.w, res.h).data, res.mask, res.w, res.h, res.lm);
+      if (raw && !skinCheck(raw)) {
+        const n = nearestTone(raw), tone = toneColour(n.depth, n.warmth), [a, b] = [hexToRgb(tone), hexToRgb(skinColor())];
+        bm.tone = tone;
+        if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > 30) toast('Your back shows your skin tone too. Use it on the body?', 'Use tone', () => { snapshot(); state.skinHex = tone; skinOwnOpen = true; skinMat.color.set(state.skinHex); needsRender = true; renderBody(); save(); refreshUndo(); markTried('body-photo-part'); });
+      }
+    }
   } catch (e) {
     if (token === bm.token) bmText(e && e.message && !/^[A-Z][a-z]+Error/.test(e.message) && e.message.length < 140 ? e.message : 'That photo could not be read. Try another one.');
   } finally { if (url) URL.revokeObjectURL(url); if (token === bm.token) bm.busy = false; }
@@ -2506,7 +2516,7 @@ window.__ink = {
   state: () => state, ready: () => booted,
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
-  bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null }), bodyMatchLm: () => bm.lm || null,
+  bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null, tone: bm.tone || null, skin: skinColor() }), bodyMatchLm: () => bm.lm || null,
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), hairReading: (r) => applyHairReading(r), hairLast: () => hairLast, eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
   hairProbe: () => {
     // brightness of a few spots on the head, looked at straight on, with this hair and with none

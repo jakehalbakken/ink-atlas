@@ -3,7 +3,7 @@
 // usable, and the slider search finding a known body from its proportions, moving only the
 // sliders of the parts a partial photo shows, so photos build on each other.
 import assert from 'node:assert/strict';
-import { rowRun, measurePhoto, fitBody, searchFor, relativeTo, LM } from '../../src/body-photo.js';
+import { rowRun, measurePhoto, fitBody, searchFor, relativeTo, backTone, LM } from '../../src/body-photo.js';
 import { bodyMeasure, fitToPhoto } from '../../src/body-match.js';
 // rows
 const w = 20, h = 3, m = new Float32Array(w * h); for (let x = 5; x < 15; x++) m[w + x] = 1;
@@ -87,4 +87,10 @@ const low = uncal(asRead('hips', ['thigh', 'legs']));
 const f2 = fitToPhoto(low, f1).params;
 assert.equal(f2.fit.waist, f1.fit.waist, 'the legs photo keeps the upper body'); assert.equal(f2.fit.torsoLen, f1.fit.torsoLen);
 assert.ok(f2.fit.thighSize > 0.25 && f2.fit.thighLen < -0.2, 'legs matched ' + JSON.stringify(f2.fit));
-console.log(`PASS body-photo-unit: rows, whole and partial photos, back photos, unreadable photos named, search finds a known body in ${fit.looks} looks, partial photos build up`);
+// skin tone from a bare back: the back's colour, not its shadows; none from a shirt
+const px = new Uint8ClampedArray(W * H * 4);
+const paint = (rgb) => { for (let i = 0; i < W * H; i++) px.set([...rgb, 255], i * 4); };
+paint([196, 150, 122]); for (let y = 200; y < 215; y++) for (let x = 150; x < 250; x++) px.set([60, 40, 30, 255], (y * W + x) * 4);
+assert.equal(backTone(px, mask, W, H, lm), '#c4967a', 'bare back');
+paint([40, 70, 140]); assert.equal(backTone(px, mask, W, H, lm), null, 'a blue shirt is not skin');
+console.log(`PASS body-photo-unit: rows, whole and partial photos, back photos, unreadable photos named, search finds a known body in ${fit.looks} looks, partial photos build up, skin tone from a bare back`);

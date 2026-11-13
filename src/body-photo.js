@@ -203,3 +203,28 @@ export function fitBody(target, start, measure, { rounds = 8, search = SEARCH } 
   }
   return { params: best, error: bestE, looks };
 }
+
+// The skin tone of a bare back: the middle of the back (between the shoulders and hips, in from the
+// sides) by brightness, leaving out shadow and shine. Null when most of it doesn't look like skin
+// (a shirt, a tattoo-covered back) or too little of it is in the photo.
+export function backTone(pixels, mask, w, h, lm) {
+  const P = (i) => ({ x: lm[i].x * w, y: lm[i].y * h });
+  const sl = P(LM.shoulderL), sr = P(LM.shoulderR), hl = P(LM.hipL), hr = P(LM.hipR);
+  const top = (sl.y + sr.y) / 2, bottom = (hl.y + hr.y) / 2, span = bottom - top;
+  if (!(span > 20)) return null;
+  let n = 0; const skin = [];
+  for (let y = Math.round(top + span * 0.15); y < bottom - span * 0.12; y += 2) {
+    const t = (y - top) / span, xl = sl.x + (hl.x - sl.x) * t, xr = sr.x + (hr.x - sr.x) * t;
+    const a = Math.min(xl, xr), b = Math.max(xl, xr), inset = (b - a) * 0.2;
+    for (let x = Math.round(a + inset); x < b - inset; x += 2) {
+      if (x < 0 || y < 0 || x >= w || y >= h || mask[y * w + x] < 0.5) continue;
+      n++;
+      const o = (y * w + x) * 4, r = pixels[o], g = pixels[o + 1], bl = pixels[o + 2], lum = 0.299 * r + 0.587 * g + 0.114 * bl;
+      if (r >= g && g >= bl - 4 && r - bl > 12 && lum > 35 && lum < 245) skin.push([r, g, bl, lum]);
+    }
+  }
+  if (n < 200 || skin.length < n * 0.6) return null;
+  skin.sort((p, q) => p[3] - q[3]);
+  const mid = skin.slice(Math.floor(skin.length * 0.35), Math.ceil(skin.length * 0.8));
+  return '#' + [0, 1, 2].map((k) => Math.round(mid.reduce((s, c) => s + c[k], 0) / mid.length).toString(16).padStart(2, '0')).join('');
+}

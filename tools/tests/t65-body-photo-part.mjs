@@ -52,6 +52,13 @@ export default async function (p) {
   assert.match(text2, /^Matched/, 'the back photo is used: ' + text2);
   assert.equal(read2.view, 'back', 'seen as a back photo');
   assert.match(text2, /back/);
+  // the bare back's skin tone is read, and is close to the body's own (so it isn't offered)
+  const bt = await p.evaluate(() => window.__ink.bodyMatch());
+  console.log('back tone', bt.tone, 'body', bt.skin);
+  assert.ok(bt.tone, 'skin tone read from the back');
+  const hx = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [ta, tb] = [hx(bt.tone), hx(bt.skin)];
+  assert.ok(Math.hypot(ta[0] - tb[0], ta[1] - tb[1], ta[2] - tb[2]) < 60, 'close to the body\'s own tone');
   const s2 = await shape();
   // nothing the back photo didn't read moves
   const moved = Object.keys({ ...s1.fit, ...s2.fit }).filter((k) => (s1.fit[k] || 0) !== (s2.fit[k] || 0));
