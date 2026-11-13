@@ -379,7 +379,7 @@ Jake, after trying the live app: "The clothes feature right now sucks", biceps "
 - **Audit fixes.** Cleanup editor restyled to match the app with the canvas first, plain words (no "paper threshold" or "edge-connected"), rarely used settings folded away. Selecting a tattoo frames it closer. Share grouped into For your artist, Draw in Procreate and Keep it safe, with rarer 3D and old-app files folded away. "Placement draft" renamed "Try exact numbers" and moved under Precise placement; shorter edit-sheet hint.
 - **New: Aging** (`src/aging.js`, Aging button top left). Fresh, healed, 10 and 20 years: lines soften and spread, black lightens and drifts toward blue-green, scaled to each tattoo's real size. View only. `aging-unit.mjs`, `t46-aging.mjs`.
 
-## Navigation, menus and Procreate edit (2026-11-13, Claude; on the branch, not live)
+## Navigation, menus and Procreate edit (2026-11-13, Claude; live 05:32Z with Jake's OK)
 
 Jake, from the iPad: no easy way to pan without rotating; tapping a tattoo throws away the view he set up; the menus get in the way; and he wants to open a tattoo in Procreate, edit it, and have it come back to the same place.
 
