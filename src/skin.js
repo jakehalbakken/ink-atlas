@@ -9,6 +9,36 @@ import { landmarks3D, faceAttribute } from './face-fit.js';
 import { createRestRig, POSE_BONES } from './pose.js';
 
 const MUSCLE_GLSL = `
+// Eyebrows: a centre line of five points per brow (from the face points stored on the head) and
+// how wide (uBrowOn, 0 hides them).
+uniform vec3 uBrow[10];
+uniform float uBrowOn;
+float hash3(vec3 p) { p = fract(p * vec3(443.897, 441.423, 437.195)); p += dot(p, p.yzx + 19.19); return fract((p.x + p.y) * p.z); }
+float vnoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x), mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x), mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z);
+}
+// how much brow hair covers p (0..1): thick at the inner end, tapering out, with fine strokes
+float brow(vec3 p) {
+  if (uBrowOn < 0.1 || min(distance(p, uBrow[2]), distance(p, uBrow[7])) > 0.045) return 0.0;
+  float best = 0.0;
+  for (int side = 0; side < 2; side++) {
+    for (int k = 0; k < 4; k++) {
+      vec3 a = uBrow[side * 5 + k], b = uBrow[side * 5 + k + 1];
+      vec3 ab = b - a; float t = clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0);
+      float d = length(p - a - ab * t), along = (float(k) + t) / 4.0;
+      float hw = mix(0.0052, 0.0022, along * along) * uBrowOn;
+      float m = 1.0 - smoothstep(hw * 0.55, hw, d);
+      // hairs lie along the brow: noise stretched along it
+      vec3 dir = normalize(ab), q = p * 2600.0; float ql = dot(q, dir);
+      float hair = vnoise(q - dir * ql + dir * ql * 0.12);
+      m *= mix(0.55, 1.0, smoothstep(0.35, 0.7, hair)) * mix(0.7, 1.0, smoothstep(0.0, 0.25, along));
+      best = max(best, m);
+    }
+  }
+  return best;
+}
 uniform vec3 uDef;
 float mg(float d, float s) { return exp(-d * d / (s * s)); }
 float segD(vec2 p, vec2 a, vec2 b) { vec2 ab = b - a; float t = clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0); return length(p - a - ab * t); }
@@ -158,6 +188,8 @@ export function definition(shape = {}) {
 // "My face": one texture and one switch shared by every skin material, so the main body, the posed
 // body and every exported view show the same face. FACE.attr is where each vertex takes its colour
 // from, worked out per body shape (see face-fit.js).
+// MediaPipe brow points, upper with lower, inner end first: the subject's right brow, then left
+const BROWS = [[107, 55], [66, 65], [105, 52], [63, 53], [70, 46], [336, 285], [296, 295], [334, 282], [293, 283], [300, 276]];
 const blankFace = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1); blankFace.needsUpdate = true;
 const FACE_U = { uFace: { value: blankFace }, uFaceOn: { value: 0 }, uIris: { value: new THREE.Color('#4a3524') } };
 const FACE = { uv: null, key: '', attr: null };
@@ -193,7 +225,7 @@ export function createSkin(geo, color) {
   geo.setAttribute('cav', new THREE.BufferAttribute(new Float32Array(n), 1));
   if (!geo.attributes.face) geo.setAttribute('face', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   const V = () => ({ value: new THREE.Vector3() });
-  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
+  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
   const mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.54, metalness: 0, specularIntensity: 0.45, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffd9c8') });
   // A posed body keeps its standing positions in 'rest', so painted detail stays on the same
   // skin when the body bends; a standing body paints straight from its positions.
@@ -220,6 +252,10 @@ export function createSkin(geo, color) {
     skin = mix(skin, skin * vec3(0.74, 0.50, 0.48), (1.0 - smoothstep(uAreolaR * 0.78, uAreolaR, dn)) * 0.85);
     skin = mix(skin, skin * vec3(0.62, 0.42, 0.42), (1.0 - smoothstep(uAreolaR * 0.2, uAreolaR * 0.36, dn)) * 0.6);
     skin *= 1.0 - 0.4 * (1.0 - smoothstep(0.003, 0.013, distance(vObj, uNavel)));
+    // fine skin: a faint blotchy variation, and the eyebrows
+    skin *= 1.0 + 0.045 * (vnoise(vObj * 90.0) - 0.5) + 0.03 * (vnoise(vObj * 340.0) - 0.5);
+    float bw = brow(vObj) * (1.0 - (uFaceOn > 0.5 ? vFace.z : 0.0));
+    skin = mix(skin, plain * vec3(0.30, 0.22, 0.18) * 0.6, bw * 0.9);
     if (uFaceOn > 0.5 && vFace.z > 0.002) {
       // the selfie's detail (around 1) on the body's own skin tone
       vec3 detail = texture2D(uFace, vFace.xy).rgb * 2.0;
@@ -238,6 +274,8 @@ export function createSkin(geo, color) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   {
     float hb = mhAll.x;
+    float fw = length(fwidth(vObj));
+    hb += (vnoise(vObj * 1400.0) - 0.5) * 0.00007 * (1.0 - smoothstep(0.0003, 0.001, fw));
     vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
     vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
     float det = dot(sx, r1) * faceDirection;
@@ -282,6 +320,12 @@ export function updateSkin(geo, uniforms, areola, shape) {
     u.value.set(x / c, y / c, z / c);
   }
   uniforms.uAreolaR.value = areola;
+  // eyebrows: the middle of the upper and lower brow points, inner end first
+  if (geo.index && geo.attributes.position.count >= COUNTS.body) {
+    const lm = landmarks3D(R, geo.index.array, FACE_MAP);
+    BROWS.forEach(([up, low], i) => uniforms.uBrow.value[i].set((lm[up][0] + lm[low][0]) / 2, (lm[up][1] + lm[low][1]) / 2 + 0.0012, Math.max(lm[up][2], lm[low][2]) + 0.001));
+    uniforms.uBrowOn.value = shape && shape.figure === 'female' ? 0.78 : shape && shape.figure === 'neutral' ? 0.9 : 1; // width
+  }
   if (FACE.uv && geo.attributes.face) { geo.attributes.face.array.set(faceFor(geo, shape)); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = true; }
   else if (geo.userData.faceSet) { geo.attributes.face.array.fill(0); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = false; }
   if (shape) {

@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'skin-detail', date: '2026-11-13', title: 'Eyebrows and finer skin', how: 'Zoom in on the face: every body now has eyebrows, and the skin has fine texture up close, like pores.', show: 'skinDetail' },
   { id: 'face', date: '2026-11-13', title: 'Your face on the body', how: 'Body, then Add my face. Pick a clear photo of your face, looking straight at the camera. The head takes your face and its shape. The photo stays on this device, and Hide my face or Remove take it off.', show: 'face' },
   { id: 'body-photo', date: '2026-11-13', title: 'Match a photo of me', how: 'Body, then Match a photo of me. Pick a full-length photo taken straight on and the body takes your shape: shoulders, chest, waist, hips, thighs and how long your torso and legs are.', show: 'bodyPhoto' },
   { id: 'definition', date: '2026-11-13', title: 'More defined body', how: 'Body, then slide Muscle up or Weight down. Abs, chest, shoulders, arms and legs show more, and it follows every pose.', show: 'definition' },

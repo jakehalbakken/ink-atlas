@@ -1391,6 +1391,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  skinDetail: () => { toggle('#bodyPop', true); viewFace(); return ['#faceBtn', 'Eyebrows and fine skin texture now show on every body. Zoom in close to see them. Add my face puts your own face on.']; },
   face: () => { toggle('#bodyPop', true); return ['#faceBtn', 'Pick a clear photo of your face, looking straight at the camera.']; },
   bodyPhoto: () => { toggle('#bodyPop', true); return ['#bodyPhotoBtn', 'Pick a full-length photo of yourself, taken straight on. The body takes your shape.']; },
   definition: () => { toggle('#bodyPop', true); return ['#rMuscle', 'Slide Muscle up, or Weight down, to see more muscle definition.']; },

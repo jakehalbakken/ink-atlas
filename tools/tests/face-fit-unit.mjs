@@ -21,6 +21,8 @@ for (const p of lm3) { assert.ok(Math.abs(p[1] - ey) < 0.17 && Math.abs(p[0]) < 
 // nose tip (1) in front of the cheeks, chin (152) below the forehead (10)
 assert.ok(lm3[1][2] > lm3[234][2] + 0.03 && lm3[152][1] < lm3[10][1] - 0.15, 'face points the right way up and out');
 
+// the brow points the painted eyebrows use sit above the eyes and below the forehead's top
+for (const i of [107, 66, 105, 63, 70, 336, 296, 334, 293, 300]) assert.ok(lm3[i][1] > ey + 0.01 && lm3[i][1] < lm3[10][1], `brow point ${i} above the eye`);
 // a "photo" that is the head's own front view (scaled, shifted, v down) changes nothing
 const photo = lm3.map(([x, y]) => [0.5 + x * 3, 0.5 - y * 3 + 4.9]);
 const n = COUNTS.body + COUNTS.eyes, N = new Float32Array(P.length);
