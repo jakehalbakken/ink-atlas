@@ -28,6 +28,7 @@ html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden
 body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
 #handles{position:fixed;inset:0;pointer-events:none}#handles[hidden]{display:none}.hnd{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;pointer-events:auto;touch-action:none;cursor:grab}.hnd[hidden]{display:none}.hnd::after{content:"";position:absolute;left:12px;top:12px;width:20px;height:20px;box-sizing:border-box;background:#fff;border:2.5px solid var(--stencil);box-shadow:0 1px 5px rgba(0,0,0,.4)}#hSize::after{border-radius:5px}#hTurn::after{border-radius:50%}.hnd.on::after{background:var(--stencil)}body.hands-on #handles{opacity:0}
+#tryOn{position:fixed;inset:0;z-index:9;background:#0d0e12;overflow:hidden;touch-action:none}#tryOn[hidden]{display:none}#toVideo,#toPhoto{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}#toVideo.mirror{transform:scaleX(-1)}#toPhoto[hidden],#toVideo[hidden]{display:none}#toArt{position:absolute;left:0;top:0;transform-origin:50% 50%;mix-blend-mode:multiply;pointer-events:none}#toTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#toBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#toBar .row{display:flex;gap:8px;flex-wrap:wrap}#toBar .row[hidden]{display:none}#toBar .row .btn{flex:1;min-width:120px}
 #realSize{position:fixed;inset:0;z-index:9;background:var(--rs-skin,#e0b394);overflow:hidden;touch-action:none}#realSize[hidden]{display:none}#rsArt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#rsImg{display:block;width:100%;height:100%;mix-blend-mode:multiply}#rsTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#rsCal{position:absolute;left:16px;right:16px;bottom:16px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}#rsCal p{margin:0}#rsCard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px dashed #2b2f38;border-radius:12px;pointer-events:none}#rsCard[hidden]{display:none}#rsCheck{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;background:rgba(20,22,28,.7)}
 #paintBar{position:fixed;top:82px;left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}#paintBar[hidden]{display:none}#paintBar p{margin:0}body.painting #newBtn,body.painting #dock,body.painting #lookBtn,body.painting #full{display:none}
 #stage{position:fixed;inset:0}
@@ -78,6 +79,7 @@ body.hands-on #top,body.hands-on #views,body.hands-on #full,body.hands-on #lookB
 #lookMenu[hidden]{display:none}
 #lookMenu .btn{justify-content:flex-start;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #lookMenu #baBtn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
+#spotPop{left:16px;right:auto;top:82px;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#spotPop .posegrid{grid-template-columns:repeat(2,1fr)}#spotPop .posegrid .btn{font-size:14px;padding:0 6px}#spotPop .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#spotSide{display:flex;gap:8px;margin:0 0 8px}#spotSide .btn{flex:1}
 #agePop,#lightPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
 #agePop .posegrid,#lightPop .posegrid{grid-template-columns:repeat(4,1fr)}#lightPop .posegrid .btn{padding:0 4px;font-size:13px}#lightPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#agePop .posegrid .btn{padding:0 4px;font-size:13px}#agePop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
 #clothesPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
@@ -292,6 +294,12 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <h4>Hair</h4><div class="posegrid" id="clothesHair"></div>
   <p id="clothesShow" aria-live="polite"></p>
 </div>
+<div id="spotPop" class="pop glass" hidden>
+  <div class="pophead"><h3 id="spotTitle">Try it on</h3><button class="btn" type="button" data-close="spotPop">Done</button></div>
+  <p class="tip">Tap a spot to move the tattoo there. Undo puts it back.</p>
+  <div class="seg" id="spotSide" role="group" aria-label="Side"><button class="btn" type="button" data-side="L">Left side</button><button class="btn" type="button" data-side="R">Right side</button></div>
+  <div class="posegrid" id="spotChoices"></div>
+</div>
 <div id="lightPop" class="pop glass" hidden>
   <div class="pophead"><h3>Light</h3><button class="btn" type="button" data-close="lightPop">Done</button></div>
   <p class="tip">Ink looks different in different light. Check your design in the light you will see it in most. This only changes the view.</p>
@@ -348,6 +356,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="btn" id="bDup" type="button">Duplicate</button>
       <button class="btn" id="bOtherSide" type="button">Copy to other side</button>
       <button class="btn" id="bRealSize" type="button">Real size on screen</button>
+      <button class="btn" id="bTryOn" type="button">Try on with camera</button>
+      <button class="btn" id="bSpots" type="button">Try other spots</button>
       <button class="btn" id="bStatus" type="button">Planned</button>
       <button class="btn" id="bHide" type="button">Hide</button>
       <button class="btn danger" id="bDel" type="button">Remove</button>
@@ -442,6 +452,18 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <div id="spTop" class="glass"><p>Tap your skin where the light is even. Avoid shadows, shine and tattoos.</p></div>
   <div id="spRing" hidden></div>
   <div id="spBar" class="glass"><span id="spSwatch"></span><span id="spMsg">No spot picked yet.</span><button class="btn" type="button" id="spCancel">Cancel</button><button class="btn primary" type="button" id="spUse" disabled>Use this tone</button></div>
+</div>
+<div id="tryOn" hidden role="dialog" aria-label="Try it on with the camera">
+  <video id="toVideo" playsinline muted autoplay></video>
+  <img id="toPhoto" alt="Your photo" hidden>
+  <canvas id="toArt"></canvas>
+  <div id="toTop" class="glass"><span id="toText"></span><button class="btn primary" type="button" id="toClose">Done</button></div>
+  <div id="toBar" class="glass">
+    <div class="lbl" id="toCurveBox">Curve around an arm or leg<ink-slider id="rToCurve" min="0" max="100" default="0" origin="0" aria-label="Curve around an arm or leg"></ink-slider></div>
+    <div class="row" id="toLive"><button class="btn" type="button" id="toSwitch">Switch camera</button><button class="btn" type="button" id="toPhotoBtn">Use a photo</button><button class="btn primary" type="button" id="toSnap">Take photo</button></div>
+    <div class="row" id="toDone" hidden><button class="btn" type="button" id="toRetake">Back to camera</button><button class="btn primary" type="button" id="toShare">Save or share</button></div>
+    <input type="file" id="toFile" accept="image/*" hidden>
+  </div>
 </div>
 <div id="realSize" hidden role="dialog" aria-label="Real size on screen">
   <div id="rsArt"><img id="rsImg" alt=""></div>

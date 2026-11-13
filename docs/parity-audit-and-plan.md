@@ -410,3 +410,8 @@ Direction from Jake's chat: Procreate is where art gets drawn; Ink Atlas is wher
 ## New to try list (live 2026-11-13 08:07Z with Jake's OK)
 
 - New to try button under Preview, with a count of untried features. The list gives each new feature a one-line how-to and a Show me that opens the right panel (selecting a tattoo when needed) and rings the exact control with a short tip; a touch anywhere puts it away. Ticks are kept on this device (`ia-tried`, never in the project); using a feature ticks it. The button goes once all are tried; Plan > New to try still opens the list. Every batch adds its features in the same deploy. Tested: t55.
+
+## Try on with camera and Try other spots (2026-11-13, overnight on Jake's OK)
+
+- Try on with camera (More controls): rear camera first, Switch camera, or Use a photo. One finger moves the art, two size and turn it, Curve wraps it round an arm or leg (cylinder projection, middle at true scale). Take photo freezes the frame; Save or share gives a JPEG of exactly the view with the ink multiplied on. The camera stops on close, on leaving the app and after the photo. View only. Tested: try-on-unit, t56 (fake camera). Not yet tried on the iPad camera.
+- Try other spots (More controls): 20 placements from the rest skeleton (bone point plus a viewing direction; the ray keeps the last skin before the bone so an arm in the way is skipped), turned along the limb, either side, undoable; refused while posed or locked. The view centres the tattoo in the space between the spots panel and the edit panel. Tested: t57.

@@ -31,6 +31,9 @@ import { makePatchReference } from './patch-reference.js';
 import { toneColour, nearestTone, sampleSkin, skinCheck } from './skin-tone.js';
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES, readTried, writeTried, untriedCount, ordered } from './whats-new.js';
+import { curvedArt, compose, pinch } from './try-on.js';
+import { SPOTS, spotAim, turnAlong } from './spots.js';
+import { POSE_BONES } from './pose.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -162,7 +165,10 @@ function freeArea() {
   const dockTop = firstShown.length ? Math.min(...firstShown.map((r) => r.top)) : b.bottom;
   const bottom = side ? b.bottom - 12 : Math.max(top + 80, Math.min(b.bottom - 12, dockTop - 14));
   const right = side ? d.left + 4 : b.right - 12;
-  return { top, bottom, left: b.left + 12, right };
+  // a panel open at the left (Try other spots) takes that side too
+  const sp = $('#spotPop'), spr = sp.hidden ? null : sp.getBoundingClientRect();
+  const left = spr && spr.right < right - 240 ? spr.right + 12 : b.left + 12;
+  return { top, bottom, left, right };
 }
 // Already in sight: on screen above the bottom panels, below the top bar, and facing us.
 function inSight(t) {
@@ -771,6 +777,96 @@ $('#rsCheck').addEventListener('click', () => { $('#rsCal').hidden = false; $('#
 $('#rsSmaller').addEventListener('click', () => { rsPpi *= 0.99; renderRealSize(); });
 $('#rsBigger').addEventListener('click', () => { rsPpi *= 1.01; renderRealSize(); });
 $('#rsCalDone').addEventListener('click', () => { try { localStorage.setItem(PPI_KEY, String(Math.round(rsPpi * 10) / 10)); } catch (_) { /* kept until closed */ } $('#rsCal').hidden = true; $('#rsCard').hidden = true; $('#rsCheck').hidden = false; toast('Scale saved for this device.'); });
+// Try it on with the camera: the selected artwork over a live camera view or a photo of your
+// own skin. One finger moves it, two size and turn it, Curve wraps it round an arm or a leg,
+// and Take photo freezes the picture to save or share. View only: the project never changes.
+const tryOn = { id: null, stream: null, facing: 'environment', t: { x: 0, y: 0, s: 1, r: 0 }, baseW: 300, img: null, art: null, curve: 0, frozen: null, frozenMirror: false, pts: new Map(), start: null };
+function toView() { return { w: innerWidth, h: innerHeight }; }
+function toRenderArt() {
+  const t = state.tattoos.find((x) => x.id === tryOn.id); if (!t || !tryOn.img) return;
+  tryOn.art = curvedArt(tryOn.img, { flipX: !!t.flip, flipY: !t.imageTopDown, curve: tryOn.curve });
+  const c = $('#toArt'); c.width = tryOn.art.width; c.height = tryOn.art.height; c.getContext('2d').drawImage(tryOn.art, 0, 0);
+  c.style.opacity = String(t.opacity ?? 0.92); toPlace();
+}
+function toPlace() {
+  const c = $('#toArt'), a = tryOn.art; if (!a) return;
+  const w = tryOn.baseW * tryOn.t.s, h = w * a.height / a.width;
+  c.style.width = w + 'px'; c.style.height = h + 'px';
+  c.style.transform = `translate(${tryOn.t.x - w / 2}px,${tryOn.t.y - h / 2}px) rotate(${tryOn.t.r}rad)`;
+}
+function toStopCamera() { if (tryOn.stream) { for (const tr of tryOn.stream.getTracks()) tr.stop(); tryOn.stream = null; } $('#toVideo').srcObject = null; }
+async function toStartCamera() {
+  toStopCamera(); const v = $('#toVideo');
+  if (!navigator.mediaDevices?.getUserMedia) { toNoCamera(); return; }
+  try {
+    tryOn.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: tryOn.facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    if ($('#tryOn').hidden) { toStopCamera(); return; }
+    v.srcObject = tryOn.stream; v.classList.toggle('mirror', tryOn.facing === 'user'); v.hidden = false; await v.play().catch(() => {});
+    $('#toText').textContent = toLabel();
+  } catch (_) { toNoCamera(); }
+}
+function toNoCamera() { $('#toVideo').hidden = true; $('#toSnap').disabled = true; $('#toSwitch').disabled = true; $('#toText').textContent = 'The camera is not available here. Use a photo of your skin instead.'; }
+function toLabel() { const t = state.tattoos.find((x) => x.id === tryOn.id); if (!t) return ''; const { w, h } = inchesOf(t); return `${t.name}: ${w.toFixed(1)} × ${h.toFixed(1)} in on the body. Move it with one finger, size and turn it with two.`; }
+async function openTryOn() {
+  const t = sel(); if (!t) return; markTried('try-on');
+  tryOn.id = t.id; tryOn.img = await loadImg(t.img); if (!tryOn.img) { toast('This artwork could not be opened.'); return; }
+  const v = toView(); tryOn.baseW = Math.min(v.w, v.h) * 0.42; tryOn.t = { x: v.w / 2, y: v.h * 0.45, s: 1, r: 0 };
+  tryOn.curve = 0; $('#rToCurve').value = 0; tryOn.frozen = null; tryOn.pts.clear();
+  $('#tryOn').hidden = false; $('#toPhoto').hidden = true; $('#toLive').hidden = false; $('#toDone').hidden = true; $('#toSnap').disabled = false; $('#toSwitch').disabled = false;
+  $('#toText').textContent = toLabel(); toRenderArt(); toStartCamera();
+}
+function closeTryOn() { toStopCamera(); $('#tryOn').hidden = true; tryOn.pts.clear(); }
+function toFreeze(src, w, h, mirror) {
+  tryOn.frozen = { src, w, h }; tryOn.frozenMirror = mirror;
+  toStopCamera(); $('#toVideo').hidden = true;
+  const p = $('#toPhoto'); p.hidden = false; p.style.transform = mirror ? 'scaleX(-1)' : '';
+  $('#toLive').hidden = true; $('#toDone').hidden = false;
+  $('#toText').textContent = 'Adjust it on the photo, then save or share the picture.';
+}
+$('#bTryOn').addEventListener('click', openTryOn);
+$('#toClose').addEventListener('click', closeTryOn);
+$('#toSwitch').addEventListener('click', () => { tryOn.facing = tryOn.facing === 'user' ? 'environment' : 'user'; toStartCamera(); });
+$('#toSnap').addEventListener('click', () => {
+  const v = $('#toVideo'); if (!v.videoWidth) return;
+  const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0);
+  $('#toPhoto').src = c.toDataURL('image/jpeg', 0.92); toFreeze(c, c.width, c.height, tryOn.facing === 'user');
+});
+$('#toPhotoBtn').addEventListener('click', () => $('#toFile').click());
+$('#toFile').addEventListener('change', async (e) => {
+  const f = e.target.files?.[0]; e.target.value = ''; if (!f) return;
+  const url = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(f); });
+  if (!url) { toast('That photo could not be opened.'); return; }
+  const im = new Image(); im.onload = () => { $('#toPhoto').src = url; toFreeze(im, im.naturalWidth, im.naturalHeight, false); }; im.onerror = () => toast('That photo could not be opened.'); im.src = url;
+});
+$('#toRetake').addEventListener('click', () => { tryOn.frozen = null; $('#toPhoto').hidden = true; $('#toLive').hidden = false; $('#toDone').hidden = true; $('#toSnap').disabled = false; $('#toSwitch').disabled = false; $('#toText').textContent = toLabel(); toStartCamera(); });
+$('#toShare').addEventListener('click', async () => {
+  const f = tryOn.frozen, t = state.tattoos.find((x) => x.id === tryOn.id); if (!f || !tryOn.art || !t) return;
+  const v = toView(), c = compose(f.src, f.w, f.h, { mirror: tryOn.frozenMirror, art: tryOn.art, t: tryOn.t, baseW: tryOn.baseW, alpha: t.opacity ?? 0.92, viewW: v.w, viewH: v.h });
+  const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.92));
+  if (!blob) { toast('The picture could not be made.'); return; }
+  const r = await shareOrDownload(`${(t.name || 'tattoo').replace(/[^\w -]+/g, '').trim() || 'tattoo'} try-on.jpg`, blob);
+  if (r === 'downloaded') toast('Picture saved.');
+});
+$('#rToCurve').addEventListener('input', () => { tryOn.curve = +$('#rToCurve').value / 100; toRenderArt(); });
+{
+  const surf = $('#tryOn'), pt = (e) => ({ x: e.clientX, y: e.clientY });
+  const begin = () => { const p = [...tryOn.pts.values()]; tryOn.start = { t: { ...tryOn.t }, a: { ...p[0] }, b: p[1] ? { ...p[1] } : null }; };
+  surf.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('#toTop,#toBar') || tryOn.pts.size >= 2) return;
+    tryOn.pts.set(e.pointerId, pt(e)); try { surf.setPointerCapture(e.pointerId); } catch (_) { /* synthetic */ } begin();
+  });
+  surf.addEventListener('pointermove', (e) => {
+    if (!tryOn.pts.has(e.pointerId) || !tryOn.start) return; tryOn.pts.set(e.pointerId, pt(e));
+    const p = [...tryOn.pts.values()], s = tryOn.start;
+    if (p.length >= 2 && s.b) tryOn.t = pinch(s.t, s.a, s.b, p[0], p[1]);
+    else tryOn.t = { ...s.t, x: s.t.x + p[0].x - s.a.x, y: s.t.y + p[0].y - s.a.y };
+    tryOn.t.s = Math.max(0.15, Math.min(6, tryOn.t.s)); toPlace();
+  });
+  const end = (e) => { if (!tryOn.pts.delete(e.pointerId)) return; if (tryOn.pts.size) begin(); else tryOn.start = null; };
+  surf.addEventListener('pointerup', end); surf.addEventListener('pointercancel', end);
+}
+addEventListener('resize', () => { if (!$('#tryOn').hidden) toPlace(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && tryOn.stream) toStopCamera(); else if (!document.hidden && !$('#tryOn').hidden && !tryOn.frozen) toStartCamera(); });
 $('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); const f = frameOf(t); const p = new V3(...t.pos).addScaledVector(f.right, t.width * 0.6).addScaledVector(f.n, 0.2); const h = surfaceAt(p, f.n.clone().negate()); const c = { ...t, id: uid(), name: t.name + ' copy', locked: false, pos: h ? h.pos : t.pos, normal: h ? h.normal : t.normal }; state.tattoos.push(c); selectedId = c.id; commit(); });
 $('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.locked) { toast('Unlock this tattoo first.'); return; } snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
 function setWidthInches(value) {
@@ -1090,6 +1186,34 @@ $('#lightChoices').innerHTML = LIGHTS.map((l) => `<button class="btn" type="butt
 $('#lightBtn').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop'); renderLight(); });
 $('#lightChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-light]'); if (b) setLight(b.dataset.light); });
 renderLight();
+/* ---------- Quick spots: try the selected tattoo on the usual placements ---------- */
+let spotSide = 'L', spotId = null;
+function renderSpots() {
+  const t = sel(); $('#spotTitle').textContent = t ? `Try ${t.name} on` : 'Try it on';
+  document.querySelectorAll('#spotSide [data-side]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.side === spotSide)));
+  document.querySelectorAll('#spotChoices [data-spot]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.spot === spotId)));
+}
+function spotPlace(id) {
+  const t = sel(), spot = SPOTS.find((s) => s.id === id); if (!t || !spot) return false;
+  if (t.locked) { toast('Unlock this tattoo first.'); return false; }
+  if (poseView.active) { toast('Turn off the pose first, then try spots.'); return false; }
+  const aim = spotAim(spot, spotSide, POSE_BONES, poseView.restRig().joints); if (!aim) return false;
+  const p = new V3(...aim.point), d = new V3(...aim.dir), from = p.clone().addScaledVector(d, 1.5);
+  ray.set(from, d.clone().negate());
+  // the last skin the ray meets before the bone is this limb's own skin, not an arm in the way
+  const hits = ray.intersectObject(body, false).filter((h) => h.distance < 1.5 + 1e-6);
+  const h = hits[hits.length - 1]; if (!h) { toast('That spot could not be found on this body.'); return false; }
+  const n = h.normal.clone().transformDirection(body.matrixWorld).normalize();
+  snapshot();
+  t.pos = h.point.toArray(); t.normal = n.toArray(); t.rot = 0;
+  const up0 = frameOf(t).up.toArray(); t.rot = turnAlong(up0, aim.along, t.normal);
+  spotId = id; markTried('spots'); commit(); focusTattoo(t); renderSpots();
+  return true;
+}
+$('#spotChoices').innerHTML = SPOTS.map((s) => `<button class="btn" type="button" data-spot="${s.id}">${s.label}</button>`).join('');
+$('#spotChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-spot]'); if (b) spotPlace(b.dataset.spot); });
+$('#spotSide').addEventListener('click', (e) => { const b = e.target.closest('[data-side]'); if (!b) return; spotSide = b.dataset.side; renderSpots(); const s = SPOTS.find((x) => x.id === spotId); if (s && !s.mid) spotPlace(spotId); });
+$('#bSpots').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#lightPop', false); toggle('#agePop', false); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); const t = sel(); if (t) spotSide = t.pos[0] >= 0 ? 'L' : 'R'; spotId = null; toggle('#spotPop'); renderSpots(); });
 /* ---------- New to try: the newest features, how to try them, and Show me ---------- */
 function markTried(id) { if (tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
 function renderNew() {
@@ -1116,6 +1240,8 @@ const SHOW = {
   light: () => { showLook(true); return ['#lightBtn', 'Tap Light, then pick the light you will see it in most.']; },
   drawNew: () => ['#drawNew', 'Tap Draw in Procreate, then paint the spot on the body.'],
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
+  spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
+  tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
   realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },
   handles: () => { if (!needTattoo()) return null; return ['#hSize', 'Drag this corner to resize. Drag the dot above the tattoo to turn it.']; },
   palette: () => { toggle('#share', true); paletteReady = buildPalette(); return ['#cSwatches', 'Saves your skin and ink colours as a palette Procreate opens.']; },
@@ -1474,7 +1600,7 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {

@@ -5,6 +5,8 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'spots', date: '2026-11-13', title: 'Try other spots', how: 'Select a tattoo, open More controls, then Try other spots. One tap moves it to the forearm, calf, ribs, shoulder blade and more, on either side.', show: 'spots' },
+  { id: 'try-on', date: '2026-11-13', title: 'Try on with camera', how: 'Select a tattoo, open More controls, then Try on with camera. Point at your skin, move and size it with your fingers, curve it round your arm, then take a photo to share.', show: 'tryOn' },
   { id: 'skin-tone', date: '2026-11-13', title: 'Your own skin tone', how: 'Body, then the + next to the skin colours. Slide lighter or deeper and cooler or warmer, or match a photo of your skin.', show: 'skinTone' },
   { id: 'light', date: '2026-11-13', title: 'Light', how: 'Preview, then Light. See your ink in daylight, a warm room or midday sun.', show: 'light' },
   { id: 'draw-new', date: '2026-11-13', title: 'Draw in Procreate on a spot you paint', how: 'Draw in Procreate under your tattoos. Paint the spot on the body, draw on the guide in Procreate, then Copy All and Paste.', show: 'drawNew' },
