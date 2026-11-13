@@ -8,7 +8,7 @@ export default async function(p){
  await settled();await wait(600);
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  // the Pose panel lists every still in plain words and opens from its own button
- await p.click('#poseBtn');await p.waitForSelector('#posePop:not([hidden])');
+ await p.click('#lookBtn');await p.click('#poseBtn');await p.waitForSelector('#posePop:not([hidden])');
  const labels=await p.$$eval('#poseList [data-pose]',b=>b.map(x=>x.textContent.trim()));
  assert.ok(labels.length>=29,'about 30 stills: '+labels.length);assert.ok(labels.includes('Standing')&&labels.includes('Squat'));
  const minSize=await p.$$eval('#poseList [data-pose], #motionPlay, #posePop [data-speed]',b=>Math.min(...b.map(x=>Math.min(x.getBoundingClientRect().width,x.getBoundingClientRect().height))));
@@ -43,7 +43,7 @@ export default async function(p){
  await p.evaluate(()=>window.__ink.undo());await wait(300);
  assert.deepEqual(await p.evaluate(()=>window.__ink.state().tattoos[0].pos),t.pos,'undo puts it back');
  // motion: play advances, pause holds, step jumps
- await p.click('#poseBtn');await p.waitForSelector('#posePop:not([hidden])');
+ await p.click('#lookBtn');await p.click('#poseBtn');await p.waitForSelector('#posePop:not([hidden])');
  await p.select('#motionKind','walk');await p.click('#motionPlay');await wait(700);
  s=await p.evaluate(()=>window.__ink.pose());assert.equal(s.playing,true);assert.equal(s.kind,'walk');const ph=s.phase;await wait(500);
  s=await p.evaluate(()=>window.__ink.pose());assert.ok(s.phase!==ph,'motion advances');

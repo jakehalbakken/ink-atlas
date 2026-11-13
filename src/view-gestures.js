@@ -19,3 +19,26 @@ export function planTapPlacement(tattoo,hit){
  const length=Math.hypot(...hit.normal);if(length<1e-9)throw new Error('Body hit has no valid normal');
  return {...structuredClone(tattoo),pos:[...hit.pos],normal:hit.normal.map(v=>v/length)};
 }
+// Two fingers on the view do three things at once: pan (the fingers move together), zoom
+// (they spread or pinch) and turn (they twist). A plain two-finger drag always wobbles a
+// little in spread and angle, which used to tilt and zoom the view while panning. This
+// filter keeps pan live from the first frame and lets zoom and turn in only once the
+// fingers clearly mean them; a drag that is mostly a pan needs an even clearer twist.
+// Once zoom or turn is in, it follows the fingers exactly for the rest of the gesture.
+export function twoFingerIntent({zoomStart=0.06,turnStart=0.3,turnStartWhilePanning=0.55,panningAfter=60}={}){
+ let scale=0,twist=0,pan=0,zoomOn=false,turnOn=false;
+ return {
+  step(delta){
+   const out={zoomRatio:1,rollDelta:0,dx:delta.dx,dy:delta.dy};
+   pan+=Math.hypot(delta.dx,delta.dy);
+   if(!delta.stable)return out;
+   const ls=Math.log(delta.zoomRatio);
+   if(zoomOn)out.zoomRatio=delta.zoomRatio;
+   else{scale+=ls;if(Math.abs(scale)>zoomStart){zoomOn=true;out.zoomRatio=Math.exp(scale-Math.sign(scale)*zoomStart);}}
+   if(turnOn)out.rollDelta=delta.rollDelta;
+   else{twist+=delta.rollDelta;const need=pan>panningAfter&&!zoomOn?turnStartWhilePanning:turnStart;if(Math.abs(twist)>need){turnOn=true;out.rollDelta=twist-Math.sign(twist)*need;}}
+   return out;
+  },
+  get zooming(){return zoomOn;},get turning(){return turnOn;},
+ };
+}

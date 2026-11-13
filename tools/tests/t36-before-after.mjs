@@ -12,7 +12,7 @@ export default async function(p){
  const grid=()=>p.evaluate(id=>{const a=window.__ink,t=a.state().tattoos.find(t=>t.id===id),c=a.projectPoint(t.pos),out=[];for(let dx=-24;dx<=24;dx+=8)for(let dy=-24;dy<=24;dy+=8)out.push(...a.pixelAt(c.x+dx,c.y+dy).slice(0,3));return out;},id);
  const diff=(a,b)=>a.reduce((s,v,i)=>s+Math.abs(v-b[i]),0)/a.length;
  const plain=await grid();
- await p.click('#baBtn');await wait();
+ await p.click('#lookBtn');await p.click('#baBtn');await wait();
  assert.equal((await p.evaluate(()=>window.__ink.beforeAfter())).on,true,'turned on');
  assert.equal(await p.$eval('#baBtn',e=>e.getAttribute('aria-pressed')),'true');
  assert.equal(await p.$eval('#beforeAfter',e=>e.hidden),false);
@@ -35,19 +35,19 @@ export default async function(p){
  assert.ok(Math.abs(s-(box.x-236)/1180)<.01,`line follows the finger (${s})`);
  assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.goal)),cam,'dragging the line does not move the view');
  // the edit sheet sits above the line
- await p.evaluate(()=>window.__ink.setBeforeAfterSplit(.5));await wait(100);
- const sheetHit=await p.evaluate(()=>{const r=document.querySelector('#sheet').getBoundingClientRect();const e=document.elementFromPoint(window.innerWidth/2,r.y+r.height/2);return !!(e&&e.closest('#sheet'));});
+ await p.evaluate(()=>{const r=document.querySelector('#sheet').getBoundingClientRect();window.__ink.setBeforeAfterSplit((r.x+r.width/2)/window.innerWidth);});await wait(100);
+ const sheetHit=await p.evaluate(()=>{const r=document.querySelector('#sheet').getBoundingClientRect();const e=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return !!(e&&e.closest('#sheet'));});
  assert.ok(sheetHit,'edit sheet is above the line');
  await p.screenshot({path:'shots/t36-before-after.png'});
  // off again; project untouched
- await p.click('#baBtn');await wait();
+ await p.click('#lookBtn');await p.click('#baBtn');await wait();
  assert.equal((await p.evaluate(()=>window.__ink.beforeAfter())).on,false);
  assert.equal(await p.$eval('#beforeAfter',e=>e.hidden),true);
  const after=JSON.parse(await p.evaluate(()=>JSON.stringify(window.__ink.state())));const b0=JSON.parse(before);
  assert.deepEqual(after.tattoos.map(t=>[t.id,t.status||'planned',t.pos,t.width]),b0.tattoos.map(t=>[t.id,t.status||'planned',t.pos,t.width]),'tattoos unchanged');
  // nothing planned: it says so and stays off
  await p.evaluate(()=>{const a=window.__ink;for(const t of a.state().tattoos){t.status='existing';t.locked=true;}a.commitTest();});await wait();
- await p.click('#baBtn');await wait();
+ await p.click('#lookBtn');await p.click('#baBtn');await wait();
  assert.equal((await p.evaluate(()=>window.__ink.beforeAfter())).on,false,'stays off with nothing planned');
  assert.match(await p.evaluate(()=>document.body.innerText),/Nothing planned to compare/);
  console.log('PASS t36 before/after: planned ink only on the right, existing on both, line drags without moving the view, sheet above, project unchanged');

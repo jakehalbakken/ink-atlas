@@ -10,6 +10,8 @@ export default async function(p){
  // press: a pen (or finger) press on a selector, with drift, optionally followed by the browser's own click
  const press=(sel,{type='pen',drift=3,browserClick=false}={})=>p.evaluate(({sel,type,drift,browserClick})=>{
   const el=document.querySelector(sel);if(!el)throw new Error('missing '+sel);
+  // Before/after, Pose, Clothes and Aging sit behind the Preview button
+  const menu=el.closest('#lookMenu');if(menu&&menu.hidden)menu.hidden=false;
   let n=0;const count=()=>{n++;};el.addEventListener('click',count);
   const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2;
   const ev=(name,dx)=>el.dispatchEvent(new PointerEvent(name,{bubbles:true,cancelable:true,composed:true,pointerId:7,pointerType:type,isPrimary:true,clientX:x+dx,clientY:y+dx,button:0,buttons:name==='pointerup'?0:1}));

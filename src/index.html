@@ -55,10 +55,20 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #dock{position:fixed;left:0;right:0;bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
 #dock>*{pointer-events:auto}
 #full{position:fixed;top:82px;left:16px;z-index:4}
-#baBtn{position:fixed;top:136px;left:16px;z-index:4}
-#poseBtn{position:fixed;top:190px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#clothesBtn{position:fixed;top:244px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#ageBtn{position:fixed;top:298px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* fingers on the body: everything floating fades almost away until they lift */
+#top,#views,#full,#lookBtn,#lookMenu,#dock,.pop{transition:opacity .25s ease}
+body.hands-on #top,body.hands-on #views,body.hands-on #full,body.hands-on #lookBtn,body.hands-on #lookMenu,body.hands-on #dock,body.hands-on .pop{opacity:.08;transition:opacity .12s ease}
+#procreateBar{position:fixed;top:82px;left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+#procreateBar[hidden]{display:none}
+#procreateBar p{margin:0;font-size:14px;line-height:1.35;color:var(--muted)}#procreateBar p b{color:var(--text)}
+#procreateBar .row{gap:8px}#procreateBar #pcPaste{flex:1}
+#lookBtn{position:fixed;top:136px;left:16px;z-index:4;max-width:min(260px,calc(100% - 32px));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#lookBtn.active{border-color:var(--stencil)}
+#lookBtn[aria-expanded=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
+#lookMenu{position:fixed;top:190px;left:16px;z-index:5;display:flex;flex-direction:column;gap:6px;padding:8px;width:220px}
+#lookMenu[hidden]{display:none}
+#lookMenu .btn{justify-content:flex-start;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#lookMenu #baBtn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
 #agePop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
 #agePop .posegrid{grid-template-columns:repeat(4,1fr)}#agePop .posegrid .btn{padding:0 4px;font-size:13px}#agePop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
 #clothesPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
@@ -66,7 +76,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #clothesPop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
 #clothesPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
 #clothesShow{margin:0;font-size:14px;line-height:1.4}
-#posePop{left:16px;right:auto;top:298px;width:300px;max-height:calc(100% - 394px)}
+#posePop{left:16px;right:auto;top:82px;z-index:5;width:320px;max-height:calc(100% - 190px)}
 #posePop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
 .posegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.posegrid .btn{padding:0 8px;font-size:14px;line-height:1.15}
 .posegrid .btn[aria-pressed=true],#posePop .seg .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
@@ -164,6 +174,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   #views{top:82px}
   .pop,#toast{top:146px}
   #tapPlaceBar{top:146px!important}
+  #procreateBar{top:146px}
 }
 @media (max-width:720px){
   .brand small{display:none}
@@ -171,6 +182,19 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   .cards{grid-template-columns:1fr}
   #count{display:none}
   .pop{top:146px}
+}
+/* Wide landscape: the tattoo list and the edit panel stand in a column at the right, so the
+   middle of the screen, where the body is, stays clear. */
+@media (orientation:landscape) and (min-width:1000px){
+  #dock{left:auto;right:0;top:84px;width:420px;justify-content:flex-end;align-items:stretch;padding:0 16px 16px}
+  #sheet,#tray,#empty{width:100%}
+  #sheet{max-height:none;flex:0 1 auto;min-height:0}
+  #sheet #size{flex-basis:100%;order:3}
+  #sheet .row:first-child{flex-wrap:wrap}
+  .editor-quick{flex-wrap:wrap}.editor-quick .btn{flex:1 1 40%;min-width:0;padding:0 8px;font-size:14px}
+  #tray{flex-wrap:wrap}#tray #trayItems{flex-basis:100%;order:3}#tray #count{margin-left:auto}
+  #hint{align-self:center;text-align:center}
+  #procreateBar{left:136px;transform:none;width:min(520px,calc(100% - 572px))}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -219,8 +243,13 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </div>
 
 <button class="btn glass" id="full" type="button">Full body</button>
-<button class="btn glass" id="baBtn" type="button" aria-pressed="false">Before / after</button>
-<button class="btn glass" id="poseBtn" type="button" aria-expanded="false">Pose</button>
+<button class="btn glass" id="lookBtn" type="button" aria-expanded="false" aria-controls="lookMenu">Preview</button>
+<div id="lookMenu" class="glass" role="group" aria-label="Preview" hidden>
+  <button class="btn" id="baBtn" type="button" aria-pressed="false">Before / after</button>
+  <button class="btn" id="poseBtn" type="button" aria-expanded="false">Pose</button>
+  <button class="btn" id="clothesBtn" type="button" aria-expanded="false">Clothes</button>
+  <button class="btn" id="ageBtn" type="button" aria-expanded="false">Aging</button>
+</div>
 <div id="posePop" class="pop glass" hidden>
   <div class="pophead"><h3>Pose</h3><button class="btn" type="button" data-close="posePop">Done</button></div>
   <p class="tip">Your tattoos move with the body, and you can still move, resize and place them in any pose. Poses are only for looking. They are not saved.</p>
@@ -230,7 +259,6 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <div class="seg" role="group" aria-label="Speed"><button class="btn" type="button" data-speed="0.5">Slow</button><button class="btn" type="button" data-speed="1">Normal</button><button class="btn" type="button" data-speed="1.5">Fast</button></div>
   <div class="lbl">Step through the movement<ink-slider id="motionScrub" min="0" max="100" default="0" origin="0" aria-label="Step through the movement"></ink-slider></div>
 </div>
-<button class="btn glass" id="clothesBtn" type="button" aria-expanded="false">Clothes</button>
 <div id="clothesPop" class="pop glass" hidden>
   <div class="pophead"><h3>Clothes</h3><button class="btn" type="button" data-close="clothesPop">Done</button></div>
   <p class="tip">See which tattoos show in everyday clothes. They fit your body and follow any pose. Only for looking, not saved.</p>
@@ -239,7 +267,6 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <h4>Hair</h4><div class="posegrid" id="clothesHair"></div>
   <p id="clothesShow" aria-live="polite"></p>
 </div>
-<button class="btn glass" id="ageBtn" type="button" aria-expanded="false">Aging</button>
 <div id="agePop" class="pop glass" hidden>
   <div class="pophead"><h3>Aging</h3><button class="btn" type="button" data-close="agePop">Done</button></div>
   <p class="tip">See how your tattoos may look as they age. Lines soften and spread a little, and black ink lightens. A rough guide, not a promise. Only for looking, not saved.</p>
@@ -259,6 +286,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="btn" id="bTapPlace" type="button" aria-pressed="false">Tap to place</button>
       <button class="btn" id="bCleanup" type="button">Clean up artwork</button>
       <button class="btn" id="bLock" type="button">Lock in place</button>
+      <button class="btn" id="bProcreate" type="button">Edit in Procreate</button>
     </div>
     <details id="editorAdvanced"><summary>More controls <span>size, turn, wrap & actions</span></summary><div class="editor-advanced-content">
     <div class="sliders">
@@ -305,6 +333,11 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     <span id="count"></span>
   </div>
 </div>
+<div id="procreateBar" class="glass" role="region" aria-label="Bring back from Procreate" hidden>
+  <p><b>Bring back <span id="pcName"></span> from Procreate.</b> When you finish, swipe down with three fingers in Procreate and tap Copy All, then tap Paste here.</p>
+  <div class="row"><button class="btn primary" id="pcPaste" type="button">Paste</button><button class="btn" id="pcFile" type="button">From Photos or Files</button><button class="btn quiet" id="pcCancel" type="button">Cancel</button></div>
+</div>
+<input id="procreateFile" type="file" accept="image/*" hidden>
 <input id="modelFile" type="file" accept=".glb,model/gltf-binary" hidden>
 <input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
 <input id="paintedFile" type="file" accept=".usdz,.zip,.png,.jpg,.jpeg,model/vnd.usdz+zip,application/zip" hidden>

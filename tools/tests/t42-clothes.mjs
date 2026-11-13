@@ -7,7 +7,7 @@ export default async function(p){
  await settled();await wait(600);
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  const t=await p.evaluate(()=>window.__ink.state().tattoos.find(x=>!x.hidden));
- await p.click('#clothesBtn');await p.waitForSelector('#clothesPop:not([hidden])');
+ await p.click('#lookBtn');await p.click('#clothesBtn');await p.waitForSelector('#clothesPop:not([hidden])');
  const minSize=await p.$$eval('#clothesPop button',b=>Math.min(...b.map(x=>Math.min(x.getBoundingClientRect().width,x.getBoundingClientRect().height))));
  assert.ok(minSize>=44,'clothes buttons are 44pt: '+minSize);
  assert.equal(await p.$eval('#clothesShow',e=>e.textContent),'','nothing to report with no clothes');
@@ -39,7 +39,7 @@ export default async function(p){
  await p.evaluate(()=>window.__ink.setPose('neutral'));await wait(400);await settled();
  // Escape closes; None takes everything off; the project never changed
  await p.keyboard.press('Escape');assert.ok(await p.$eval('#clothesPop',e=>e.hidden),'Escape closes the panel');
- await p.click('#clothesBtn');
+ await p.click('#lookBtn');await p.click('#clothesBtn');
  for(const [row,k] of [['clothesTop','top'],['clothesBottom','bottom'],['clothesHair','hair']])await p.click(`#${row} [data-${k}=none]`);
  c=await p.evaluate(()=>window.__ink.clothes());assert.ok(c.meshes.every(m=>!m.visible)&&c.report===null,'all off: '+JSON.stringify(c));
  assert.equal(await p.$eval('#clothesBtn',e=>e.textContent),'Clothes');
