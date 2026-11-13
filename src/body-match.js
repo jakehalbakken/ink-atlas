@@ -3,7 +3,7 @@
 // model loads on first use from vision/ and is cached for offline use.
 import { shapePositions, COUNTS } from './mesh.js';
 import { createRestRig, POSE_BONES, boneWeightSum } from './pose.js';
-import { measurePhoto, measureBody, fitBody, KEYS } from './body-photo.js';
+import { measurePhoto, measureBody, fitBody, relativeTo, searchFor, KEYS } from './body-photo.js';
 
 // The landmarker puts its shoulder and hip points a little differently from the body's own
 // joints, and the outline of a photo is a little wider than the 3D mesh. These factors were
@@ -40,12 +40,11 @@ export async function readBodyPhoto(source) {
   const res = finder.detect(canvas);
   const lm = res.landmarks && res.landmarks[0];
   const m = res.segmentationMasks && res.segmentationMasks[0];
-  if (!lm || !m) { if (m) m.close(); throw new Error('I could not find a person in that photo. Use a full-length photo, facing the camera.'); }
+  if (!lm || !m) { if (m) m.close(); throw new Error('I could not find a person in that photo. Try one that shows at least your upper body.'); }
   let mask = m.getAsFloat32Array(); const mw = m.width, mh = m.height;
   mask = new Float32Array(mask); m.close();
   if (mw !== w || mh !== h) { const out = new Float32Array(w * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out[y * w + x] = mask[Math.min(mh - 1, Math.floor(y * mh / h)) * mw + Math.min(mw - 1, Math.floor(x * mw / w))]; mask = out; }
-  const { ratios, problems } = measurePhoto(lm, mask, w, h);
-  return { lm, mask, w, h, canvas, ratios, problems };
+  return { lm, mask, w, h, canvas, ...measurePhoto(lm, mask, w, h) };
 }
 
 let parts = null;
@@ -57,8 +56,11 @@ export function bodyMeasure(params) {
   return measureBody(shapePositions(params), createRestRig(params).joints, POSE_BONES, parts, COUNTS.body);
 }
 
-// The body settings that match the photo, starting from the current ones.
-export function fitToPhoto(ratios, start) {
-  const target = {}; for (const k of KEYS) target[k] = ratios[k] * CALIBRATION[k];
-  return fitBody(target, start, bodyMeasure);
+// The body settings that match the photo, starting from the current ones. read: what
+// measurePhoto gave ({ ratios, ref, parts }). Only the sliders of the parts the photo shows move.
+export function fitToPhoto(read, start) {
+  const { ratios, ref = 'height', parts = KEYS.filter((k) => Number.isFinite(ratios[k])) } = read;
+  const cal = (k) => (k === 'height' ? 1 : CALIBRATION[k]);
+  const target = {}; for (const k of KEYS) target[k] = ratios[k] * CALIBRATION[k] / cal(ref);
+  return fitBody(target, start, (p) => relativeTo(bodyMeasure(p), ref), { search: searchFor(parts, ref) });
 }

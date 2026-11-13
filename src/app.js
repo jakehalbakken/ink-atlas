@@ -2,7 +2,7 @@ import { visibleInkAt, rankedInkHits, cycleInkHit } from './ink-picking.js';
 import * as THREE from 'three';
 import { INDEX, INDEX_ALL, COUNTS, EYES, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
-import { createSkin, updateSkin, setSkinFace, skinFaceOn, setSkinHair } from './skin.js';
+import { createSkin, updateSkin, setSkinFace, skinFaceOn, setSkinHair, setSkinIris, skinIrisHex, skinPhotoIrisHex } from './skin.js';
 import { HAIR_STYLES, HAIR_COLOURS } from './hair.js';
 import { FACE_MAP } from './face-map.js';
 import { landmarks3D, faceMorph } from './face-fit.js';
@@ -38,6 +38,7 @@ import { curvedArt, compose, pinch } from './try-on.js';
 import { SPOTS, spotAim, turnAlong } from './spots.js';
 import { POSE_BONES, vertexBones } from './pose.js';
 import { posesFor } from './pose-pick.js';
+import { PART_NAMES } from './body-photo.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -1295,8 +1296,10 @@ function bmDraw(res) {
   g.putImageData(img, 0, 0);
   const P = (i) => [res.lm[i].x * res.w, res.lm[i].y * res.h], lw = Math.max(2, res.w / 220);
   g.strokeStyle = '#ffd36b'; g.fillStyle = '#ffd36b'; g.lineWidth = lw;
-  for (const [a, b] of [[11, 12], [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28], [11, 13], [13, 15], [12, 14], [14, 16]]) { g.beginPath(); g.moveTo(...P(a)); g.lineTo(...P(b)); g.stroke(); }
-  for (const i of [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) { g.beginPath(); g.arc(...P(i), lw * 2, 0, Math.PI * 2); g.fill(); }
+  // only the joints the photo really shows
+  const seen = (i) => { const p = res.lm[i]; return p && (p.visibility ?? 1) >= 0.5 && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1; };
+  for (const [a, b] of [[11, 12], [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28], [11, 13], [13, 15], [12, 14], [14, 16]]) { if (!seen(a) || !seen(b)) continue; g.beginPath(); g.moveTo(...P(a)); g.lineTo(...P(b)); g.stroke(); }
+  for (const i of [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) { if (!seen(i)) continue; g.beginPath(); g.arc(...P(i), lw * 2, 0, Math.PI * 2); g.fill(); }
 }
 async function bmRun(file) {
   const token = ++bm.token; bm.busy = true; bmButtons(false); bmText('Finding you in the photo...');
@@ -1306,17 +1309,28 @@ async function bmRun(file) {
     const img = new Image(); img.src = url; await img.decode();
     const res = await readBodyPhotoLazy(img); if (token !== bm.token) return;
     bmDraw(res);
-    bm.ratios = res.ratios;
+    bm.ratios = res.ratios; bm.read = { ref: res.ref, parts: res.parts, view: res.view }; bm.lm = res.lm;
     if (res.problems.length) { bmText(res.problems.join(' ')); return; }
     bmText('Shaping the body to match...');
     await new Promise((r) => setTimeout(r, 30));
     const { fitToPhoto } = await import('./body-match.js');
-    const fit = fitToPhoto(res.ratios, bm.before); if (token !== bm.token) return;
+    // a second photo builds on the first: it starts from the body the first one made
+    const fit = fitToPhoto(res, bm.result || bm.before); if (token !== bm.token) return;
     bmSetShape(fit.params); bm.result = fit.params; bmButtons(true); markTried('body-photo');
-    bmText('Here is your shape. Keep it, or put the old one back. You can fine-tune any part in Body.');
+    if (res.ref !== 'height') markTried('body-photo-part');
+    bmText(bmSaid(res));
   } catch (e) {
     if (token === bm.token) bmText(e && e.message && !/^[A-Z][a-z]+Error/.test(e.message) && e.message.length < 140 ? e.message : 'That photo could not be read. Try another one.');
   } finally { if (url) URL.revokeObjectURL(url); if (token === bm.token) bm.busy = false; }
+}
+// What a photo matched, in plain words: "Matched your shoulders, chest and waist from your back."
+function bmSaid(res) {
+  const names = res.parts.map((k) => PART_NAMES[k]);
+  const list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
+  const whole = res.ref === 'height';
+  let msg = whole ? `Matched your whole body${res.view === 'back' ? ', from the back' : ''}.` : `Matched your ${list}${res.view === 'back' ? ', from your back' : ''}. The rest is as it was.`;
+  if (res.notes.length) msg += ' ' + res.notes.join(' ');
+  return msg + (whole ? ' Keep it, or put the old one back.' : ' Add another photo to fill in more, or keep this.');
 }
 async function readBodyPhotoLazy(img) { const { readBodyPhoto } = await import('./body-match.js'); return readBodyPhoto(img); }
 function openBodyMatch(file) {
@@ -1337,7 +1351,7 @@ function closeBodyMatch(keep) {
 }
 $('#bodyPhotoBtn').addEventListener('click', () => { const f = $('#bodyPhotoFile'); f.value = ''; f.click(); });
 $('#bodyPhotoFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; if ($('#bodyMatch').hidden) openBodyMatch(f); else bmRun(f); });
-$('#bmAgain').addEventListener('click', () => { if (bm.result) { bmSetShape(bm.before); bm.result = null; } const f = $('#bodyPhotoFile'); f.value = ''; f.click(); });
+$('#bmAgain').addEventListener('click', () => { const f = $('#bodyPhotoFile'); f.value = ''; f.click(); }); // adds to what the earlier photos matched
 $('#bmKeep').addEventListener('click', () => closeBodyMatch(true));
 $('#bmBack').addEventListener('click', () => { if (bm.result) { bmSetShape(bm.before); bm.result = null; } bmButtons(false); bmText('Put back. Try another photo, or tap Done.'); });
 $('#bmClose').addEventListener('click', () => closeBodyMatch(true)); // Done keeps what is showing
@@ -1376,7 +1390,7 @@ function viewFace() {
 }
 async function faceUse(saved, texture) {
   face.uv = texture.uv; face.version++;
-  setSkinFace(texture); skinFaceOn(saved.on !== false); faceRefresh(); faceButtons();
+  setSkinFace(texture); skinFaceOn(saved.on !== false); faceRefresh(); faceButtons(); if (typeof renderEyes === 'function') renderEyes();
 }
 async function faceRestore() {
   const f = faceRead(); if (!f) return;
@@ -1412,7 +1426,7 @@ async function faceFromFile(file) {
 $('#faceBtn').addEventListener('click', () => { const f = $('#faceFile'); f.value = ''; f.click(); });
 $('#faceFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) faceFromFile(f); });
 $('#faceShow').addEventListener('click', () => { if (!face.saved) return; face.saved.on = face.saved.on === false; faceWrite(face.saved); skinFaceOn(face.saved.on); faceRefresh(); faceButtons(); if (face.saved.on) viewFace(); });
-$('#faceRemove').addEventListener('click', () => { face.saved = null; face.uv = null; face.version++; faceWrite(null); setSkinFace(null); faceRefresh(); faceButtons(); toast('Your face photo is removed from this device.'); });
+$('#faceRemove').addEventListener('click', () => { face.saved = null; face.uv = null; face.version++; faceWrite(null); setSkinFace(null); faceRefresh(); faceButtons(); renderEyes(); toast('Your face photo is removed from this device.'); });
 faceButtons(); faceRestore();
 
 // ---------- Hair ----------
@@ -1441,6 +1455,29 @@ document.querySelectorAll('#hairRow [data-hair]').forEach((b) => b.addEventListe
 }));
 setSkinHair(hair.style, HAIR_COLOURS[hair.colour]); renderHair();
 
+/* ---------- Eye colour (Body > Eyes): kept on this device, like hair ---------- */
+const EYES_KEY = 'ia-eyes';
+const EYE_COLOURS = { dark: '#2a1c14', brown: '#4a3524', hazel: '#7a5a2c', green: '#4f6b3a', blue: '#4a6f96', grey: '#7d8790' };
+const EYE_NAMES = { photo: 'From my photo', dark: 'Dark brown', brown: 'Brown', hazel: 'Hazel', green: 'Green', blue: 'Blue', grey: 'Grey' };
+let eyes = (() => { try { const v = localStorage.getItem(EYES_KEY); if (EYE_COLOURS[v]) return v; } catch (_) { /* no storage */ } return null; })();
+function renderEyes() {
+  const row = $('#eyeCols'), photo = skinPhotoIrisHex();
+  const keys = [...(photo ? ['photo'] : []), ...Object.keys(EYE_COLOURS)];
+  if (row.dataset.keys !== keys.join()) {
+    row.replaceChildren(...keys.map((k) => el('button', { class: 'sw' + (k === 'photo' ? ' photo' : ''), type: 'button', 'data-eye': k, style: `background:${k === 'photo' ? photo : EYE_COLOURS[k]}`, 'aria-label': 'Eyes: ' + EYE_NAMES[k], title: EYE_NAMES[k], onclick: () => setEyes(k === 'photo' ? null : k) })));
+    row.dataset.keys = keys.join();
+  }
+  // with no pick: the photo's colour if there is a face photo, else brown
+  const current = eyes || (photo ? 'photo' : 'brown');
+  for (const b of row.children) { const on = b.dataset.eye === current; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+}
+function setEyes(k) {
+  eyes = k; try { if (k) localStorage.setItem(EYES_KEY, k); else localStorage.removeItem(EYES_KEY); } catch (_) { /* private mode: lasts until reload */ }
+  setSkinIris(k ? EYE_COLOURS[k] : null); markTried('eyes'); needsRender = true; renderEyes();
+}
+$('#eyeCols').addEventListener('click', () => viewFace(), true);
+setSkinIris(eyes ? EYE_COLOURS[eyes] : null); renderEyes();
+
 /* ---------- New to try: the newest features, how to try them, and Show me ---------- */
 function markTried(id) { if (tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
 function renderNew() {
@@ -1465,6 +1502,7 @@ function needTattoo() {
 const SHOW = {
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
+  eyes: () => { toggle('#bodyPop', true); viewFace(); return ['#eyeCols', 'Tap a colour for the eyes. The view moves to the face.']; },
   hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved or Buzz cut, then a colour.']; },
   compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
   gap: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', state.tattoos.filter((x) => !x.hidden).length > 1 ? 'This line says how far the tattoo is from the nearest other one.' : 'Add a second tattoo and this line says how far apart they are.']; },
@@ -2427,8 +2465,8 @@ window.__ink = {
   state: () => state, ready: () => booted,
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
-  bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null }),
-  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }),
+  bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null }), bodyMatchLm: () => bm.lm || null,
+  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
   hairProbe: () => {
     // brightness of a few spots on the head, looked at straight on, with this hair and with none
     const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array, lm = landmarks3D(P, bodyGeo.index.array, FACE_MAP);

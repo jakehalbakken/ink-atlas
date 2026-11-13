@@ -194,15 +194,22 @@ export function definition(shape = {}) {
 const BROWS = [[107, 55], [66, 65], [105, 52], [63, 53], [70, 46], [336, 285], [296, 295], [334, 282], [293, 283], [300, 276]];
 const blankFace = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1); blankFace.needsUpdate = true;
 const FACE_U = { uFace: { value: blankFace }, uFaceOn: { value: 0 }, uIris: { value: new THREE.Color('#4a3524') } };
-const FACE = { uv: null, key: '', attr: null };
+const FACE = { uv: null, key: '', attr: null, iris: null, irisPick: null };
+const DEFAULT_IRIS = '#4a3524';
+// the eye colour: one picked in Body > Eyes, else the face photo's, else brown
+function applyIris() { const c = FACE_U.uIris.value; if (FACE.irisPick) c.set(FACE.irisPick); else if (FACE.iris) c.setRGB(FACE.iris[0], FACE.iris[1], FACE.iris[2], THREE.SRGBColorSpace); else c.set(DEFAULT_IRIS); }
+// hex: a colour such as '#4a6f96', or null for the photo's own (or brown without a photo)
+export function setSkinIris(hex) { FACE.irisPick = hex || null; applyIris(); }
+export function skinIrisHex() { return '#' + FACE_U.uIris.value.getHexString(THREE.SRGBColorSpace); }
+export function skinPhotoIrisHex() { if (!FACE.iris) return null; return '#' + new THREE.Color().setRGB(FACE.iris[0], FACE.iris[1], FACE.iris[2], THREE.SRGBColorSpace).getHexString(THREE.SRGBColorSpace); }
 // uv: the 478 landmarks in the texture ([u, v], v down), canvas: the detail texture, iris: [r, g, b]
 // in 0..1 sRGB or null. Call with null to take the face off.
 export function setSkinFace(face) {
   if (FACE_U.uFace.value !== blankFace) FACE_U.uFace.value.dispose();
-  if (!face) { FACE.uv = null; FACE.key = ''; FACE.attr = null; FACE_U.uFace.value = blankFace; FACE_U.uFaceOn.value = 0; FACE_U.uIris.value.set('#4a3524'); return; }
+  if (!face) { FACE.uv = null; FACE.key = ''; FACE.attr = null; FACE_U.uFace.value = blankFace; FACE_U.uFaceOn.value = 0; FACE.iris = null; applyIris(); return; }
   const tex = new THREE.CanvasTexture(face.canvas); tex.flipY = false; tex.colorSpace = THREE.NoColorSpace; tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = 4;
   FACE_U.uFace.value = tex; FACE.uv = face.uv; FACE.key = ''; FACE.attr = null;
-  if (face.iris) FACE_U.uIris.value.setRGB(face.iris[0], face.iris[1], face.iris[2], THREE.SRGBColorSpace); else FACE_U.uIris.value.set('#4a3524');
+  FACE.iris = face.iris || null; applyIris();
 }
 // Short hair on the scalp, shared by every body material.
 const HAIR_U = { uHairCol: { value: new THREE.Color('#3b2a1f') }, uHairOn: { value: 0 }, uHairDense: { value: 0.7 } };
