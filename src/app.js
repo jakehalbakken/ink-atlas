@@ -1236,6 +1236,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  definition: () => { toggle('#bodyPop', true); return ['#rMuscle', 'Slide Muscle up, or Weight down, to see more muscle definition.']; },
   skinTone: () => { toggle('#bodyPop', true); return ['#skinOwnBtn', 'Tap + to make your own skin tone, or match a photo of your skin.']; },
   light: () => { showLook(true); return ['#lightBtn', 'Tap Light, then pick the light you will see it in most.']; },
   drawNew: () => ['#drawNew', 'Tap Draw in Procreate, then paint the spot on the body.'],
@@ -1330,7 +1331,7 @@ function bindShape(r, set) {
   r.addEventListener('input', () => { if (!shapeSlide) { snapshot(); shapeSlide = anchorsNow(); } set(+r.value / 100); applyShape(); applyAnchors(shapeSlide); syncDecals(); });
   r.addEventListener('change', () => { shapeSlide = null; commit(); });
 }
-bindShape($('#rMuscle'), (v) => { state.muscle = v; });
+bindShape($('#rMuscle'), (v) => { state.muscle = v; markTried('definition'); });
 bindShape($('#rWeight'), (v) => { state.weight = v; });
 /* ---------- your own skin tone ---------- */
 function skinFromSliders() {
