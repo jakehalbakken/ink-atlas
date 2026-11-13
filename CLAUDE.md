@@ -84,7 +84,7 @@ Advice from the v47 thread worth taking: one surface adapter for hit testing, de
 - Plain words on the surface. Jake could not find "Focus ink" or work out "Current View" in v47.
 - 44pt minimum touch targets. Test portrait and landscape.
 - Jake's real project and backup must always open with nothing lost. Never ship a storage change without a migration.
-- Custom likeness: Jake asked for his face on the body on 2026-11-13, so Add my face exists. Hair and a full likeness are not built.
+- Custom likeness: Jake asked for his face on the body on 2026-11-13, so Add my face exists. Hair up to Medium exists; long hair and a full likeness are not built.
 
 ## Commands
 
