@@ -1,8 +1,10 @@
 import { visibleInkAt, rankedInkHits, cycleInkHit } from './ink-picking.js';
 import * as THREE from 'three';
-import { INDEX, INDEX_ALL, COUNTS, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
+import { INDEX, INDEX_ALL, COUNTS, EYES, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
-import { createSkin, updateSkin } from './skin.js';
+import { createSkin, updateSkin, setSkinFace, skinFaceOn } from './skin.js';
+import { FACE_MAP } from './face-map.js';
+import { landmarks3D, faceMorph } from './face-fit.js';
 import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
 import './slider.js';
 import {twoPointerDelta,twoFingerIntent,wrapAngle,planTapPlacement} from './view-gestures.js';
@@ -28,7 +30,7 @@ import { skinSet, inkColours, swatchesFile } from './swatches.js';
 import { GUIDE_SIZE, areaExtent, drawGuide, inkBox, clearShare } from './procreate-draw.js';
 import { patchMaskTriangles } from './procreate-patch.js';
 import { makePatchReference } from './patch-reference.js';
-import { toneColour, nearestTone, sampleSkin, skinCheck } from './skin-tone.js';
+import { toneColour, nearestTone, sampleSkin, skinCheck, hexToRgb } from './skin-tone.js';
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES, readTried, writeTried, untriedCount, ordered } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
@@ -91,13 +93,18 @@ const { mat: skinMat, uniforms: skinU } = createSkin(bodyGeo, SKINS[1]);
 let shapeKey = 0;
 let poseView = null; // set up once the body exists; poses are for looking and never saved
 const genitalsShown = () => state.figure === 'male' && state.genitals !== false;
+// My face (see the My face section): its state is here because the body is built before that code runs.
+const face = { saved: null, busy: false, uv: null, version: 0 };
+let faceMorphCache = { key: '', off: null };
 // Vertices past this are the genital geometry, which is only on the body when shown.
 const vertEnd = () => (genitalsShown() ? COUNTS.body + COUNTS.eyes + COUNTS.genital : COUNTS.body + COUNTS.eyes) * 3;
 // Put raw positions on the body and refresh everything derived from them.
 function setBodyPositions(pos, withGenitals) {
   bodyGeo.attributes.position.array.set(pos); bodyGeo.attributes.position.needsUpdate = true;
   bodyGeo.setIndex(withGenitals ? idxAll : idxBody);
-  bodyGeo.computeVertexNormals(); bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
+  bodyGeo.computeVertexNormals();
+  const fm = faceShapeOffsets(); if (fm) { const P = bodyGeo.attributes.position.array; for (let i = 0; i < fm.length; i++) P[i] += fm[i]; bodyGeo.computeVertexNormals(); }
+  bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
   const fem = state.figure === 'female' ? 1 : state.figure === 'male' ? 0 : 0.5;
   updateSkin(bodyGeo, skinU, (0.0155 + 0.006 * fem) * (1 + 0.35 * ((state.fit && state.fit.nippleSize) || 0)), state);
   shapeKey++; needsRender = true; if (poseView) poseView.invalidate();
@@ -1289,6 +1296,79 @@ $('#bmKeep').addEventListener('click', () => closeBodyMatch(true));
 $('#bmBack').addEventListener('click', () => { if (bm.result) { bmSetShape(bm.before); bm.result = null; } bmButtons(false); bmText('Put back. Try another photo, or tap Done.'); });
 $('#bmClose').addEventListener('click', () => closeBodyMatch(true)); // Done keeps what is showing
 
+/* ---------- My face: a selfie on the 3D head, kept on this device only ---------- */
+// The photo (cut to the face, 512px) and its face points live in localStorage 'ia-face', never in
+// the project, backups or the shared files' data. Shared pictures show it only while it is on.
+const FACE_KEY = 'ia-face';
+function faceRead() { try { const f = JSON.parse(localStorage.getItem(FACE_KEY) || 'null'); return f && typeof f.photo === 'string' && Array.isArray(f.lm) && f.lm.length === 478 ? f : null; } catch { return null; } }
+function faceWrite(f) { try { if (f) localStorage.setItem(FACE_KEY, JSON.stringify(f)); else localStorage.removeItem(FACE_KEY); return true; } catch { return false; } }
+function faceRefresh() { applyShape(); if (typeof syncDecals === 'function') syncDecals(); }
+// The head's shape from the photo, on top of the body shape (cached: slider drags call this often)
+function faceShapeOffsets() {
+  if (!face || !face.saved || face.saved.on === false || !face.uv) return null;
+  const P = bodyGeo.attributes.position.array; let h = 0; for (let i = 0; i < P.length; i += 97) h = (h * 31 + Math.round(P[i] * 1e5)) | 0;
+  const key = face.version + ':' + h;
+  if (faceMorphCache.key !== key) {
+    const lm3 = landmarks3D(P, bodyGeo.index.array, FACE_MAP);
+    faceMorphCache = { key, off: faceMorph(P, bodyGeo.attributes.normal.array, COUNTS.body + COUNTS.eyes, lm3, face.uv, [EYES.l, EYES.r]) };
+  }
+  return faceMorphCache.off;
+}
+function faceButtons() {
+  const has = !!face.saved, on = has && face.saved.on !== false;
+  $('#faceBtn').textContent = face.busy ? 'Finding your face...' : has ? 'Use another face photo' : 'Add my face';
+  $('#faceBtn').disabled = face.busy;
+  $('#faceRow').hidden = !has; $('#faceShow').textContent = on ? 'Hide my face' : 'Show my face'; $('#faceShow').setAttribute('aria-pressed', String(on));
+}
+// Front view of the head
+function viewFace() {
+  const P = bodyGeo.attributes.position.array, c = new V3();
+  for (let v = COUNTS.body; v < COUNTS.body + COUNTS.eyes; v++) c.add(new V3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]));
+  c.multiplyScalar(1 / COUNTS.eyes); body.localToWorld(c);
+  const k = body.scale.y || 1;
+  Object.assign(goal, { theta: 0, phi: Math.PI / 2, roll: 0, tx: c.x, ty: c.y - 0.035 * k, tz: c.z, r: 0.75 * k }); glide = true; needsRender = true;
+}
+async function faceUse(saved, texture) {
+  face.uv = texture.uv; face.version++;
+  setSkinFace(texture); skinFaceOn(saved.on !== false); faceRefresh(); faceButtons();
+}
+async function faceRestore() {
+  const f = faceRead(); if (!f) return;
+  try {
+    const { makeFaceTexture } = await import('./face.js');
+    const img = new Image(); img.src = f.photo; await img.decode();
+    const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext('2d').drawImage(img, 0, 0);
+    const t = makeFaceTexture(c, f.lm.map(([x, y]) => ({ x, y })), { x: 0, y: 0, s: c.width });
+    face.saved = f; await faceUse(f, { canvas: t.texture, uv: t.uv, iris: t.iris });
+  } catch { /* a face that can't be rebuilt just stays off; the photo is kept */ }
+}
+async function faceFromFile(file) {
+  face.busy = true; faceButtons();
+  let url = null;
+  try {
+    url = URL.createObjectURL(file);
+    const img = new Image(); img.src = url; await img.decode();
+    const { readFacePhoto } = await import('./face.js');
+    const r = await readFacePhoto(img);
+    const saved = { v: 1, photo: r.photo.toDataURL('image/jpeg', 0.9), lm: r.lm.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]), on: true };
+    face.saved = saved; const kept = faceWrite(saved);
+    face.busy = false; await faceUse(saved, { canvas: r.texture, uv: r.uv, iris: r.iris });
+    viewFace(); markTried('face');
+    const msg = r.problems[0] || (kept ? 'Your face is on. The photo stays on this device.' : 'Your face is on for now, but this device is out of room to keep it.');
+    // the face takes the body's skin tone; offer the photo's tone when they differ a lot
+    face.tone = r.tone; const [a, b] = [hexToRgb(r.tone || '#000000'), hexToRgb(skinColor())];
+    if (r.tone && !skinCheck(r.tone) && Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > 40) {
+      toast(msg + ' Use the skin tone from this photo too?', 'Use tone', () => { snapshot(); state.skinHex = r.tone; skinOwnOpen = true; skinMat.color.set(state.skinHex); needsRender = true; renderBody(); save(); refreshUndo(); });
+    } else toast(msg);
+  } catch (e) { toast((e && e.message) || 'That photo could not be read.'); }
+  finally { if (url) URL.revokeObjectURL(url); face.busy = false; faceButtons(); $('#faceFile').value = ''; }
+}
+$('#faceBtn').addEventListener('click', () => { const f = $('#faceFile'); f.value = ''; f.click(); });
+$('#faceFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) faceFromFile(f); });
+$('#faceShow').addEventListener('click', () => { if (!face.saved) return; face.saved.on = face.saved.on === false; faceWrite(face.saved); skinFaceOn(face.saved.on); faceRefresh(); faceButtons(); if (face.saved.on) viewFace(); });
+$('#faceRemove').addEventListener('click', () => { face.saved = null; face.uv = null; face.version++; faceWrite(null); setSkinFace(null); faceRefresh(); faceButtons(); toast('Your face photo is removed from this device.'); });
+faceButtons(); faceRestore();
+
 /* ---------- New to try: the newest features, how to try them, and Show me ---------- */
 function markTried(id) { if (tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
 function renderNew() {
@@ -1311,6 +1391,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  face: () => { toggle('#bodyPop', true); return ['#faceBtn', 'Pick a clear photo of your face, looking straight at the camera.']; },
   bodyPhoto: () => { toggle('#bodyPop', true); return ['#bodyPhotoBtn', 'Pick a full-length photo of yourself, taken straight on. The body takes your shape.']; },
   definition: () => { toggle('#bodyPop', true); return ['#rMuscle', 'Slide Muscle up, or Weight down, to see more muscle definition.']; },
   skinTone: () => { toggle('#bodyPop', true); return ['#skinOwnBtn', 'Tap + to make your own skin tone, or match a photo of your skin.']; },
@@ -2124,11 +2205,12 @@ function tick(now) {
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted,
+  face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null }),
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }),
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
-  pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex }; }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
+  pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
   pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },

@@ -245,6 +245,12 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   </div>
   <button class="btn" id="bodyPhotoBtn" type="button">Match a photo of me</button>
   <input type="file" id="bodyPhotoFile" accept="image/*" hidden>
+  <button class="btn" id="faceBtn" type="button">Add my face</button>
+  <div class="seg" role="group" aria-label="Your face" id="faceRow" hidden>
+    <button class="btn" id="faceShow" type="button">Hide my face</button>
+    <button class="btn" id="faceRemove" type="button">Remove</button>
+  </div>
+  <input type="file" id="faceFile" accept="image/*" hidden>
   <div class="lbl">Muscle: less to more<ink-slider id="rMuscle" min="0" max="100" default="50" origin="50" aria-label="Muscle"></ink-slider></div>
   <div class="lbl">Weight: lighter to heavier<ink-slider id="rWeight" min="0" max="100" default="50" origin="50" aria-label="Weight"></ink-slider></div>
   <div class="lbl">Height, used for real-world sizes<ink-slider id="rHeight" min="150" max="205" step="1" aria-label="Height"></ink-slider></div>

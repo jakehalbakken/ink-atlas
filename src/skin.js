@@ -4,6 +4,8 @@
 // Detail is positioned from landmark vertices, so it follows every shape change.
 import * as THREE from 'three';
 import { COUNTS, MARKS, EYES, LIPS_MASK } from './mesh.js';
+import { FACE_MAP } from './face-map.js';
+import { landmarks3D, faceAttribute } from './face-fit.js';
 import { createRestRig, POSE_BONES } from './pose.js';
 
 const MUSCLE_GLSL = `
@@ -153,6 +155,34 @@ export function definition(shape = {}) {
   return { front, back, chest: c(1 - 0.85 * fem, 0, 1), limbs };
 }
 
+// "My face": one texture and one switch shared by every skin material, so the main body, the posed
+// body and every exported view show the same face. FACE.attr is where each vertex takes its colour
+// from, worked out per body shape (see face-fit.js).
+const blankFace = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1); blankFace.needsUpdate = true;
+const FACE_U = { uFace: { value: blankFace }, uFaceOn: { value: 0 }, uIris: { value: new THREE.Color('#4a3524') } };
+const FACE = { uv: null, key: '', attr: null };
+// uv: the 478 landmarks in the texture ([u, v], v down), canvas: the detail texture, iris: [r, g, b]
+// in 0..1 sRGB or null. Call with null to take the face off.
+export function setSkinFace(face) {
+  if (FACE_U.uFace.value !== blankFace) FACE_U.uFace.value.dispose();
+  if (!face) { FACE.uv = null; FACE.key = ''; FACE.attr = null; FACE_U.uFace.value = blankFace; FACE_U.uFaceOn.value = 0; FACE_U.uIris.value.set('#4a3524'); return; }
+  const tex = new THREE.CanvasTexture(face.canvas); tex.flipY = false; tex.colorSpace = THREE.NoColorSpace; tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter; tex.anisotropy = 4;
+  FACE_U.uFace.value = tex; FACE.uv = face.uv; FACE.key = ''; FACE.attr = null;
+  if (face.iris) FACE_U.uIris.value.setRGB(face.iris[0], face.iris[1], face.iris[2], THREE.SRGBColorSpace); else FACE_U.uIris.value.set('#4a3524');
+}
+export function skinFaceOn(on) { FACE_U.uFaceOn.value = on && FACE.uv ? 1 : 0; FACE.key = ''; FACE.attr = null; }
+const shapeKeyOf = (shape) => JSON.stringify([shape.figure, shape.muscle, shape.weight, shape.fit]);
+function faceFor(geo, shape) {
+  const n = geo.attributes.position.count, R = geo.attributes.rest ? geo.attributes.rest.array : geo.attributes.position.array;
+  const key = shape ? shapeKeyOf(shape) : '';
+  if (!FACE.attr || FACE.key !== key || FACE.attr.length !== n * 3) {
+    const eyes = (v) => v >= COUNTS.body && v < COUNTS.body + COUNTS.eyes;
+    const lm3 = landmarks3D(R, geo.index.array, FACE_MAP);
+    FACE.attr = faceAttribute(R, geo.attributes.normal.array, n, lm3, FACE.uv, eyes); FACE.key = key;
+  }
+  return FACE.attr;
+}
+
 export function createSkin(geo, color) {
   const n = geo.attributes.position.count;
   const part = new Float32Array(n), lip = new Float32Array(n);
@@ -161,8 +191,9 @@ export function createSkin(geo, color) {
   geo.setAttribute('part', new THREE.BufferAttribute(part, 1));
   geo.setAttribute('lip', new THREE.BufferAttribute(lip, 1));
   geo.setAttribute('cav', new THREE.BufferAttribute(new Float32Array(n), 1));
+  if (!geo.attributes.face) geo.setAttribute('face', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   const V = () => ({ value: new THREE.Vector3() });
-  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, uIris: { value: new THREE.Color('#4a3524') }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
+  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
   const mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.54, metalness: 0, specularIntensity: 0.45, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffd9c8') });
   // A posed body keeps its standing positions in 'rest', so painted detail stays on the same
   // skin when the body bends; a standing body paints straight from its positions.
@@ -171,14 +202,14 @@ export function createSkin(geo, color) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute float lip;\nattribute float cav;\n#ifdef USE_REST\nattribute vec3 rest;\n#endif\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = part; vLip = lip; vCav = cav;\n#ifdef USE_REST\nvObj = rest;\n#else\nvObj = position;\n#endif');
+      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute float lip;\nattribute float cav;\nattribute vec3 face;\nvarying vec3 vFace;\n#ifdef USE_REST\nattribute vec3 rest;\n#endif\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = part; vLip = lip; vCav = cav; vFace = face;\n#ifdef USE_REST\nvObj = rest;\n#else\nvObj = position;\n#endif');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nuniform sampler2D uFace;\nuniform float uFaceOn;\nvarying vec3 vFace;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
   vec2 mhAll = muscleH(vObj); // once per pixel: shading here, the bump below
   {
-    vec3 skin = diffuseColor.rgb;
+    vec3 skin = diffuseColor.rgb, plain = skin;
     float crease = smoothstep(0.0, 1.0, vCav), ridge = smoothstep(0.0, 1.0, -vCav);
     skin *= mix(vec3(1.0), vec3(0.60, 0.47, 0.45), crease * 0.8);
     skin *= 1.0 + 0.07 * ridge;
@@ -189,6 +220,11 @@ export function createSkin(geo, color) {
     skin = mix(skin, skin * vec3(0.74, 0.50, 0.48), (1.0 - smoothstep(uAreolaR * 0.78, uAreolaR, dn)) * 0.85);
     skin = mix(skin, skin * vec3(0.62, 0.42, 0.42), (1.0 - smoothstep(uAreolaR * 0.2, uAreolaR * 0.36, dn)) * 0.6);
     skin *= 1.0 - 0.4 * (1.0 - smoothstep(0.003, 0.013, distance(vObj, uNavel)));
+    if (uFaceOn > 0.5 && vFace.z > 0.002) {
+      // the selfie's detail (around 1) on the body's own skin tone
+      vec3 detail = texture2D(uFace, vFace.xy).rgb * 2.0;
+      skin = mix(skin, plain * detail * mix(vec3(1.0), vec3(0.60, 0.47, 0.45), crease * 0.35), vFace.z);
+    }
     if (vPart > 0.5) {
       vec3 c = vObj.x > 0.0 ? uEyeL : uEyeR;
       float f = normalize(vObj - c).z;
@@ -246,6 +282,8 @@ export function updateSkin(geo, uniforms, areola, shape) {
     u.value.set(x / c, y / c, z / c);
   }
   uniforms.uAreolaR.value = areola;
+  if (FACE.uv && geo.attributes.face) { geo.attributes.face.array.set(faceFor(geo, shape)); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = true; }
+  else if (geo.userData.faceSet) { geo.attributes.face.array.fill(0); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = false; }
   if (shape) {
     const d = definition(shape); uniforms.uDef.value.set(d.front, d.back, d.chest);
     const j = limbJoints(shape);
