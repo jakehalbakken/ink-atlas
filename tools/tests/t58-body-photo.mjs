@@ -22,7 +22,7 @@ export default async function (p) {
   await (await p.$('#bodyPhotoFile')).uploadFile('shots/t58-photo.png');
   await p.waitForFunction(() => window.__ink.bodyMatch().fitted, { timeout: 90000 });
   assert.equal(await p.$eval('#bodyPop', (e) => e.hidden), true, 'Body panel steps aside');
-  assert.ok((await p.$$eval('#bodyMatch button:not([hidden])', (a) => a.map((b) => b.getBoundingClientRect().height))).every((h) => h >= 44), 'buttons big enough');
+  assert.ok((await p.$$eval('#bodyMatch button', (a) => a.filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect().height))).every((h) => h >= 44), 'buttons big enough');
   const fitted = await p.evaluate(() => { const s = window.__ink.state(); return { figure: s.figure, muscle: s.muscle, weight: s.weight, fit: { ...s.fit } }; });
   const want = bodyMeasure(truth), got = bodyMeasure(fitted), start = bodyMeasure(std);
   for (const k of Object.keys(want)) {

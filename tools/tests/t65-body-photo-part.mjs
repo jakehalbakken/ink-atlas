@@ -42,7 +42,7 @@ export default async function (p) {
     if (before > 0.04) assert.ok(err < before, `${k} moved towards the photo`);
   }
   // the panel's own picture only marks joints it saw, and the buttons are big enough
-  assert.ok((await p.$$eval('#bodyMatch button:not([hidden])', (a) => a.map((b) => b.getBoundingClientRect().height))).every((h) => h >= 44), 'buttons big enough');
+  assert.ok((await p.$$eval('#bodyMatch button', (a) => a.filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect().height))).every((h) => h >= 44), 'buttons big enough');
   assert.equal(await p.$eval('#bmAgain', (e) => e.textContent), 'Add another photo');
   // a second photo, of the back, builds on the first
   await (await p.$('#bodyPhotoFile')).uploadFile('shots/t65-back.png');
