@@ -28,6 +28,8 @@ import { skinSet, inkColours, swatchesFile } from './swatches.js';
 import { GUIDE_SIZE, areaExtent, drawGuide, inkBox, clearShare } from './procreate-draw.js';
 import { patchMaskTriangles } from './procreate-patch.js';
 import { makePatchReference } from './patch-reference.js';
+import { toneColour, nearestTone, sampleSkin, skinCheck } from './skin-tone.js';
+import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -68,7 +70,7 @@ const scene = new THREE.Scene();
 }
 const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 50);
 scene.add(camera);
-scene.add(new THREE.HemisphereLight(0xffffff, 0x4a4652, 1.15));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x4a4652, 1.15); scene.add(hemi);
 const key = new THREE.DirectionalLight(0xfff4ea, 2.1);
 key.position.set(-0.7, 0.9, 0.6); camera.add(key);
 const keyTarget = new THREE.Object3D(); keyTarget.position.set(0, 1, 0); scene.add(keyTarget); key.target = keyTarget;
@@ -424,6 +426,7 @@ function commit() { syncDecals(); renderUI(); if (!$('#clothesPop').hidden) rend
 
 /* ---------- tattoo ops ---------- */
 const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
+let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
 function select(id, focus) { if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
 function sizeText(t) {
@@ -675,7 +678,15 @@ function renderSheet() {
 }
 function renderBody() {
   const sw = $('#skins'); sw.replaceChildren();
-  SKINS.forEach((c, i) => sw.append(el('button', { class: 'sw' + (i === state.skin && !state.skinHex ? ' on' : ''), type: 'button', style: `background:${c}`, 'aria-label': 'Skin tone ' + (i + 1), onclick: () => { snapshot(); state.skin = i; state.skinHex = null; skinMat.color.set(c); needsRender = true; renderBody(); save(); } })));
+  SKINS.forEach((c, i) => sw.append(el('button', { class: 'sw' + (i === state.skin && !state.skinHex ? ' on' : ''), type: 'button', style: `background:${c}`, 'aria-label': 'Skin tone ' + (i + 1), onclick: () => { snapshot(); state.skin = i; state.skinHex = null; skinOwnOpen = false; skinMat.color.set(c); needsRender = true; renderBody(); save(); refreshUndo(); } })));
+  // your own tone: any shade in between, warmer or cooler, or matched from a photo
+  const own = el('button', { id: 'skinOwnBtn', class: 'sw own' + (state.skinHex ? ' on set' : ''), type: 'button', text: '+', style: state.skinHex ? `background:${state.skinHex}` : '', 'aria-label': 'Your own skin tone', 'aria-expanded': String(skinOwnOpen), onclick: () => {
+    if (!state.skinHex) { snapshot(); state.skinHex = skinColor(); save(); refreshUndo(); skinOwnOpen = true; } else skinOwnOpen = !skinOwnOpen;
+    renderBody();
+  } });
+  sw.append(own);
+  $('#skinOwn').hidden = !skinOwnOpen;
+  if (state.skinHex && !skinSlide) { const n = nearestTone(state.skinHex); $('#rSkinDepth').value = Math.round(n.depth * 100); $('#rSkinWarm').value = Math.round(n.warmth * 100); }
   document.querySelectorAll('[data-fig]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.fig === state.figure ? 'true' : 'false'));
   $('#rMuscle').value = Math.round((state.muscle ?? 0.5) * 100); $('#rWeight').value = Math.round((state.weight ?? 0.5) * 100);
   syncFitUI();
@@ -1006,7 +1017,7 @@ function renderPose() {
 }
 let scrubbing = false;
 function afterPoseChange() { spotCache.clear(); const t = sel(); if (t && !gest) requestAnimationFrame(() => { if (sel() === t && poseView.settled()) revealTattoo(t); }); }
-$('#poseBtn').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#posePop'); renderPose(); });
+$('#poseBtn').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); toggle('#lightPop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#posePop'); renderPose(); });
 $('#poseList').addEventListener('click', (e) => { const b = e.target.closest('[data-pose]'); if (!b) return; cancelGesture(); poseView.choose(b.dataset.pose); renderPose(); setTimeout(afterPoseChange, 320); });
 $('#motionKind').addEventListener('change', () => { poseView.scrub(0, $('#motionKind').value); if ($('#motionPlay').getAttribute('aria-pressed') === 'true') poseView.play(); renderPose(); });
 $('#motionPlay').addEventListener('click', () => { if (poseView.motion.playing) poseView.pause(); else poseView.play($('#motionKind').value); renderPose(); });
@@ -1043,7 +1054,7 @@ function renderClothes() {
     [r.covered.length ? 'Covered: ' + list(r.covered) + '.' : 'Nothing fully covered.', r.partly.length ? 'Partly showing: ' + list(r.partly) + '.' : '', r.showing.length ? 'Showing: ' + list(r.showing) + '.' : ''].filter(Boolean).join(' ');
 }
 function setClothes(next) { clothes.set(next); clothes.sync(shapeKey, poseView.version); needsRender = true; renderClothes(); }
-$('#clothesBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#agePop', false); toggle('#clothesPop'); renderClothes(); });
+$('#clothesBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#lightPop', false); toggle('#bodyPop', false); toggle('#agePop', false); toggle('#clothesPop'); renderClothes(); });
 $('#clothesTop').addEventListener('click', (e) => { const b = e.target.closest('[data-top]'); if (b) setClothes({ top: b.dataset.top }); });
 $('#clothesBottom').addEventListener('click', (e) => { const b = e.target.closest('[data-bottom]'); if (b) setClothes({ bottom: b.dataset.bottom }); });
 $('#clothesHair').addEventListener('click', (e) => { const b = e.target.closest('[data-hair]'); if (b) setClothes({ hair: b.dataset.hair }); });
@@ -1058,9 +1069,22 @@ function renderAging() {
 }
 function setAging(years) { agingYears = AGES.some((a) => a.years === years) ? years : 0; syncDecals(); renderAging(); }
 $('#ageChoices').innerHTML = AGES.map((a) => `<button class="btn" type="button" data-years="${a.years}">${a.label}</button>`).join('');
-$('#ageBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop'); renderAging(); });
+$('#ageBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#lightPop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop'); renderAging(); });
 $('#ageChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-years]'); if (b) setAging(+b.dataset.years); });
 renderAging();
+/* ---------- light: studio, daylight, warm room or midday sun (view only, kept on this device) ---------- */
+let lightId = applyLight(readLight(), { hemi, key, rim, rim2 });
+function renderLight() {
+  const L = LIGHTS.find((l) => l.id === lightId);
+  $('#lightBtn').textContent = lightId === 'studio' ? 'Light' : 'Light: ' + L.label;
+  $('#lightBtn').setAttribute('aria-expanded', String(!$('#lightPop').hidden));
+  document.querySelectorAll('#lightChoices [data-light]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.light === lightId)));
+}
+function setLight(id) { lightId = applyLight(id, { hemi, key, rim, rim2 }); writeLight(lightId); needsRender = true; renderLight(); }
+$('#lightChoices').innerHTML = LIGHTS.map((l) => `<button class="btn" type="button" data-light="${l.id}">${l.label}</button>`).join('');
+$('#lightBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop'); renderLight(); });
+$('#lightChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-light]'); if (b) setLight(b.dataset.light); });
+renderLight();
 $('#baBtn').addEventListener('click', () => {
   if (beforeAfter.on) { beforeAfter.set(false); return; }
   if (!plannedShown().length) { toast('Nothing planned to compare yet. Mark a tattoo as Planned to see it here.'); return; }
@@ -1071,13 +1095,13 @@ function showLook(open) { const m = $('#lookMenu'); m.hidden = open == null ? !m
 function renderLook() {
   const on = [];
   if ($('#baBtn').getAttribute('aria-pressed') === 'true') on.push('Before / after');
-  for (const id of ['#poseBtn', '#clothesBtn', '#ageBtn']) { const t = $(id).textContent, i = t.indexOf(': '); if (i > 0) on.push(t.slice(i + 2)); }
+  for (const id of ['#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn']) { const t = $(id).textContent, i = t.indexOf(': '); if (i > 0) on.push(t.slice(i + 2)); }
   $('#lookBtn').textContent = on.length ? 'Preview: ' + on.join(', ') : 'Preview';
   $('#lookBtn').classList.toggle('active', on.length > 0);
 }
-$('#lookBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#clothesPop', false); toggle('#agePop', false); showLook(); });
+$('#lookBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); showLook(); });
 // picking one of them closes the little menu: its own panel (or the wipe) takes over
-for (const id of ['#baBtn', '#poseBtn', '#clothesBtn', '#ageBtn']) $(id).addEventListener('click', () => showLook(false));
+for (const id of ['#baBtn', '#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn']) $(id).addEventListener('click', () => showLook(false));
 new MutationObserver(renderLook).observe($('#lookMenu'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-pressed'] });
 renderLook();
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => fullBody(+b.dataset.view * Math.PI / 2)));
@@ -1097,7 +1121,7 @@ $('#file').addEventListener('change', async (e) => {
   }
   if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
 });
-function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
+function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#lightPop' && typeof renderLight === 'function') renderLight(); if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
 $('#bodyBtn').addEventListener('click', () => { showLook(false); toggle('#bodyPop'); });
 $('#rHeight').addEventListener('input', () => { state.heightCm = +$('#rHeight').value; renderBody(); renderSheet(); save(); });
 document.querySelectorAll('[data-fig]').forEach((b) => b.addEventListener('click', () => { if (state.figure === b.dataset.fig) return; snapshot(); reshape(() => { state.figure = b.dataset.fig; }); commit(); }));
@@ -1111,6 +1135,54 @@ function bindShape(r, set) {
 }
 bindShape($('#rMuscle'), (v) => { state.muscle = v; });
 bindShape($('#rWeight'), (v) => { state.weight = v; });
+/* ---------- your own skin tone ---------- */
+function skinFromSliders() {
+  if (!skinSlide) { snapshot(); skinSlide = true; }
+  state.skinHex = toneColour(+$('#rSkinDepth').value / 100, +$('#rSkinWarm').value / 100);
+  skinMat.color.set(state.skinHex); needsRender = true;
+  const b = $('#skinOwnBtn'); if (b) { b.style.background = state.skinHex; b.classList.add('on', 'set'); }
+  document.querySelectorAll('#skins .sw:not(.own)').forEach((x) => x.classList.remove('on'));
+}
+for (const id of ['#rSkinDepth', '#rSkinWarm']) {
+  $(id).addEventListener('input', skinFromSliders);
+  $(id).addEventListener('change', () => { skinSlide = false; save(); refreshUndo(); });
+}
+// Match a photo: open it full screen, tap the skin, keep the middle colour of a small disc.
+let skinPhoto = null;
+$('#skinPhotoBtn').addEventListener('click', () => $('#skinPhotoFile').click());
+$('#skinPhotoFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const url = URL.createObjectURL(f);
+  try {
+    const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('That photo could not be opened.')); i.src = url; });
+    const s = Math.min(1, 1600 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(im.naturalWidth * s)); c.height = Math.max(1, Math.round(im.naturalHeight * s));
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, c.width, c.height);
+    skinPhoto = { url, w: c.width, h: c.height, px: g.getImageData(0, 0, c.width, c.height).data, hex: null };
+    $('#spImg').src = url; $('#spRing').hidden = true; $('#spSwatch').style.background = 'transparent';
+    $('#spMsg').textContent = 'No spot picked yet.'; $('#spUse').disabled = true; $('#skinPick').hidden = false;
+  } catch (err) { URL.revokeObjectURL(url); toast(err.message); }
+});
+function closeSkinPick() { $('#skinPick').hidden = true; if (skinPhoto) URL.revokeObjectURL(skinPhoto.url); skinPhoto = null; $('#spImg').removeAttribute('src'); }
+$('#skinPick').addEventListener('pointerdown', (e) => {
+  if (!skinPhoto || e.target.closest('#spBar,#spTop')) return;
+  const r = $('#spImg').getBoundingClientRect(), k = Math.min(r.width / skinPhoto.w, r.height / skinPhoto.h);
+  const ox = r.left + (r.width - skinPhoto.w * k) / 2, oy = r.top + (r.height - skinPhoto.h * k) / 2;
+  const x = (e.clientX - ox) / k, y = (e.clientY - oy) / k;
+  if (x < 0 || y < 0 || x >= skinPhoto.w || y >= skinPhoto.h) return;
+  const hex = sampleSkin(skinPhoto.px, skinPhoto.w, skinPhoto.h, x, y, Math.max(4, 0.012 * Math.max(skinPhoto.w, skinPhoto.h)));
+  const ring = $('#spRing'); ring.hidden = false; ring.style.left = e.clientX + 'px'; ring.style.top = e.clientY + 'px';
+  const why = hex ? skinCheck(hex) : 'Tap on the photo.';
+  skinPhoto.hex = why ? null : hex; ring.style.background = hex || 'transparent'; $('#spSwatch').style.background = hex || 'transparent';
+  $('#spMsg').textContent = why || 'This is the tone you tapped. Tap another spot to try again.'; $('#spUse').disabled = !!why;
+});
+$('#spCancel').addEventListener('click', closeSkinPick);
+$('#spUse').addEventListener('click', () => {
+  if (!skinPhoto?.hex) return;
+  snapshot(); state.skinHex = skinPhoto.hex; skinOwnOpen = true; skinMat.color.set(state.skinHex); needsRender = true;
+  closeSkinPick(); renderBody(); save(); refreshUndo();
+  toast('Your skin tone now matches the photo.', 'Undo', undo);
+});
 const fitEls = {}; const fitGroupEls = [];
 (function buildFitUI() {
   const host = $('#fitGroups');
@@ -1330,7 +1402,7 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
