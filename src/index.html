@@ -135,10 +135,12 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .modal header{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .modal h2{font-size:24px}
 .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-.card{min-height:112px;text-align:left;padding:16px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.05);display:flex;flex-direction:column;gap:6px}
+.card{min-height:96px;text-align:left;padding:16px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.05);display:flex;flex-direction:column;gap:6px}
 .card:active{background:var(--stencil-soft);border-color:var(--stencil)}
 .card b{font:700 18px/1.2 var(--display)}
 .card span{color:var(--muted);font-size:14px}
+.shHead{margin:4px 0 -4px;font:650 13px/1.2 var(--body);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+#shMore summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--muted)}#shMore[open] summary{margin-bottom:12px}
 .card.slim{min-height:64px;padding:12px 16px;gap:2px;width:100%}
 .card.slim b{font-size:16px}
 #rcList{display:flex;flex-direction:column;gap:8px}
@@ -314,25 +316,35 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <div id="share" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="shTitle">
     <header><h2 id="shTitle">Share</h2><button class="btn" type="button" data-close="share">Close</button></header>
+    <h3 class="shHead">For your artist</h3>
     <div class="cards">
       <button class="card" id="cView" type="button"><b>Picture of this view</b><span>Exactly what is on screen now, tattoos included.</span></button>
-      <button class="card" id="cSheet" type="button"><b>Artist sheet</b><span>Quick picture of this view and up to seven visible tattoos.</span></button>
-      <button class="card" id="cSketch" type="button"><b>Sketch in Procreate</b><span>Export or resume a saved body patch; return a transparent PNG as a new tattoo.</span></button>
-      <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>
-      <button class="card" id="cPrint" type="button"><b>Print at real size</b><span>Every visible tattoo at its true size on the body, to print, cut out and hold against your skin.</span></button>
-      <button class="card" id="cSpin" type="button"><b>Spin video</b><span>A few seconds of the body turning once with your tattoos, to send your artist.</span></button>
-      <button class="card" id="cPacket" type="button"><b>Full artist packet</b><span>Four body views, all artwork and approximate sizes. Printable HTML file.</span></button>
-      <button class="card" id="cUsdz" type="button"><b>3D model with your tattoos</b><span>One file with the ink painted onto the skin. Opens in Procreate, Files and AR on iPad.</span></button>
-      <button class="card" id="cPsd" type="button"><b>Layered file for Procreate (PSD)</b><span>This view with the body and each tattoo on its own layer, ready to draw over.</span></button>
-      <button class="card" id="cPainted" type="button"><b>Bring back from Procreate</b><span>Open the 3D model after drawing on it in Procreate. What you drew becomes new tattoos you can move and size.</span></button>
-      <button class="card" id="cObjBaked" type="button"><b>3D model for other apps (OBJ)</b><span>The same painted body as OBJ, MTL and a skin picture in one ZIP. For Blender and desktop 3D apps.</span></button>
-      <button class="card" id="cGlb" type="button"><b>Export 3D model</b><span>Neutral body and visible ink as GLB. Separate decal meshes, not a baked skin texture.</span></button>
-      <button class="card" id="cObj" type="button"><b>Export OBJ package</b><span>Static body, separate ink meshes, MTL and PNG textures in one ZIP. Not UV-baked or rigged.</span></button>
-      <button class="card" id="cModelOpen" type="button"><b>Preview a GLB model</b><span>Read-only import. Does not replace your body or saved project.</span></button>
-      <button class="card" id="cV47Source" type="button" hidden><b>Save untouched imported source</b><span>The original v47 project and assets, without conversion.</span></button>
-      <button class="card" id="cV47" type="button"><b>Export for original v47</b><span>Compatibility copy plus a full rebuild backup. Review the limitations first.</span></button>
-      <button class="card" id="cBackup" type="button"><b>Back up project</b><span>One file with all artwork and placements.</span></button>
+      <button class="card" id="cSheet" type="button"><b>Artist sheet</b><span>This view and up to seven of your tattoos on one page.</span></button>
+      <button class="card" id="cPacket" type="button"><b>Full artist packet</b><span>Front, back and side views, every tattoo and its size. Prints well.</span></button>
+      <button class="card" id="cPrint" type="button"><b>Print at real size</b><span>Each tattoo at its true size, to print, cut out and hold against your skin.</span></button>
+      <button class="card" id="cSpin" type="button"><b>Spin video</b><span>A few seconds of the body turning once with your tattoos.</span></button>
     </div>
+    <h3 class="shHead">Draw in Procreate</h3>
+    <div class="cards">
+      <button class="card" id="cSketch" type="button"><b>Sketch on a body patch</b><span>A flat square of skin to draw on. Send back the PNG and it lands on the same spot.</span></button>
+      <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>
+      <button class="card" id="cPsd" type="button"><b>Layered file</b><span>This view with the body and each tattoo on its own layer, ready to draw over.</span></button>
+      <button class="card" id="cUsdz" type="button"><b>3D model with your tattoos</b><span>Paint on the body in Procreate's 3D view. Also opens in Files and AR.</span></button>
+      <button class="card" id="cPainted" type="button"><b>Bring back from Procreate</b><span>Open the 3D model you drew on. What you drew becomes new tattoos you can move and size.</span></button>
+    </div>
+    <h3 class="shHead">Keep it safe</h3>
+    <div class="cards">
+      <button class="card" id="cBackup" type="button"><b>Back up project</b><span>One file with all your artwork and placements.</span></button>
+    </div>
+    <details id="shMore"><summary>Other 3D files and the old app</summary>
+    <div class="cards">
+      <button class="card" id="cObjBaked" type="button"><b>3D model for computer apps</b><span>The painted body as an OBJ in a ZIP, for Blender and similar apps.</span></button>
+      <button class="card" id="cGlb" type="button"><b>3D model with separate ink</b><span>GLB file with the body and each tattoo as its own piece.</span></button>
+      <button class="card" id="cObj" type="button"><b>OBJ with separate ink</b><span>The body and each tattoo as separate pieces with their pictures, in a ZIP.</span></button>
+      <button class="card" id="cModelOpen" type="button"><b>Look at a GLB model</b><span>Opens a 3D file to look at. Your project stays as it is.</span></button>
+      <button class="card" id="cV47Source" type="button" hidden><b>Save the old app's original file</b><span>The project exactly as it came from the old Ink Atlas.</span></button>
+      <button class="card" id="cV47" type="button"><b>Copy for the old Ink Atlas</b><span>A file the old ChatGPT version can open. Some newer things don't carry over.</span></button>
+    </div></details>
     <button class="btn quiet" id="cRestore" type="button">Open a backup file, including older Ink Atlas .ink.json</button>
     <button class="btn quiet" id="cRecover" type="button">Go back to an earlier save</button>
   </div>

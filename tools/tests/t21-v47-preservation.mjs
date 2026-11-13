@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 export default async function(p){
  const wait=(n=700)=>new Promise(r=>setTimeout(r,n));
  await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});const old=URL.createObjectURL;window.savedJson={};URL.createObjectURL=function(blob){if(blob.name?.endsWith('.json'))window.savedJson[blob.name]=blob.text();return old.call(this,blob);};});
- await p.click('#shareBtn');await p.click('#cV47');await p.waitForSelector('#v47Export');await p.evaluate(()=>[...document.querySelectorAll('#v47Export button')].find(x=>x.textContent==='Save v47 compatibility copy').click());await wait();
+ await p.click('#shareBtn');await p.evaluate(()=>{document.querySelector('#shMore').open=true;});await p.click('#cV47');await p.waitForSelector('#v47Export');await p.evaluate(()=>[...document.querySelectorAll('#v47Export button')].find(x=>x.textContent==='Save v47 compatibility copy').click());await wait();
  const portable=await p.evaluate(async()=>JSON.parse(await window.savedJson['ink-atlas-v47-compatibility.ink.json']));assert.equal(portable.format,'ink-atlas-portable');await p.evaluate(()=>[...document.querySelectorAll('#v47Export button')].find(x=>x.textContent==='Close').click());
  portable.project.tattoos.push({...portable.project.tattoos[0],id:'unplaced-test',artworkId:'unplaced-art',name:'Saved unplaced',position:null,normal:null,status:'planned'});
  await p.evaluate(async doc=>{window.__ink.state().notes=[{id:'old',text:'OLD PROJECT MUST NOT LEAK'}];window.__ink.state().projectName='Old project';await window.__ink.importBackup(JSON.stringify(doc));},portable);await wait();
