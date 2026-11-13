@@ -94,6 +94,7 @@ function applyShape() { setBodyPositions(shapePositions(state), genitalsShown())
 const body = new THREE.Mesh(bodyGeo, skinMat);
 scene.add(body); body.updateMatrixWorld(true);
 
+let floorShadow = null;
 { // soft floor shadow
   const c = document.createElement('canvas'); c.width = c.height = 256;
   const g = c.getContext('2d');
@@ -101,7 +102,7 @@ scene.add(body); body.updateMatrixWorld(true);
   gr.addColorStop(0, 'rgba(0,0,0,.55)'); gr.addColorStop(0.5, 'rgba(0,0,0,.18)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = gr; g.fillRect(0, 0, 256, 256);
   const m = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
-  m.rotation.x = -Math.PI / 2; m.position.y = 0.001; scene.add(m);
+  m.rotation.x = -Math.PI / 2; m.position.y = 0.001; scene.add(m); floorShadow = m;
 }
 const decalGroup = new THREE.Group(); scene.add(decalGroup);
 const areolaSize = () => { const fem = state.figure === 'female' ? 1 : state.figure === 'male' ? 0 : 0.5; return (0.0155 + 0.006 * fem) * (1 + 0.35 * ((state.fit && state.fit.nippleSize) || 0)); };
@@ -1129,6 +1130,51 @@ async function importPainted(file, undoStep = true) {
   } catch (e) { toast('Could not read that model: ' + ((e && e.message) || 'something went wrong')); return []; }
   finally { needsRender = true; }
 }
+// Layered PSD for Procreate: this view with the body on one layer and each visible
+// tattoo on its own layer above it (multiply, transparent around the ink), plus the
+// flattened picture. Clothes, the floor shadow and the selection outline are left out.
+// Each tattoo is drawn alone on white with the body hiding what is behind it, then white
+// is turned into transparency, so the layers multiplied over the body give this view.
+function inkToAlpha(px) {
+  for (let o = 0; o < px.length; o += 4) {
+    const r = px[o], g = px[o + 1], b = px[o + 2], a = 255 - Math.min(r, g, b);
+    if (!a) { px[o] = px[o + 1] = px[o + 2] = px[o + 3] = 0; continue; }
+    px[o] = 255 - Math.round((255 - r) * 255 / a); px[o + 1] = 255 - Math.round((255 - g) * 255 / a); px[o + 2] = 255 - Math.round((255 - b) * 255 / a); px[o + 3] = a;
+  }
+  return px;
+}
+async function exportLayers() {
+  toggle('#share', false);
+  const list = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex && (!soloIds || soloIds.has(t.id))).slice(0, 60);
+  const { writePsd, cropLayer } = await import('./psd.js');
+  const inset = curInset, bg = scene.background, off = [];
+  let layers, merged, W, H;
+  try {
+    curInset = 0; applyInset(); exporting = true; syncDecals();
+    for (const m of [...clothes.meshes(), floorShadow]) if (m && m.visible) { m.visible = false; off.push(m); }
+    W = canvas.width; H = canvas.height;
+    const grab = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(canvas, 0, 0); return g.getImageData(0, 0, W, H).data; };
+    const render = (bodyColour = true) => poseView.withPosed(() => { const m = body.material, cw = m.colorWrite; m.colorWrite = bodyColour; try { renderer.render(scene, camera); } finally { m.colorWrite = cw; } }, posedInk());
+    decalGroup.visible = true; render(); merged = grab();
+    decalGroup.visible = false; render(); layers = [{ name: 'Body', rgba: grab() }];
+    decalGroup.visible = true; scene.background = new THREE.Color(0xffffff);
+    for (const t of list) {
+      for (const [id, d] of Object.entries(decals)) { d.mesh.visible = id === t.id; d.outline.visible = false; }
+      render(false);
+      const { box, rgba } = cropLayer(inkToAlpha(grab()), W, H);
+      if (box.bottom <= box.top) continue; // not seen from this side
+      layers.push({ name: t.name || 'Tattoo', box, rgba, blend: 'mul ', opacity: 255 });
+    }
+  } catch (e) { toast('Could not make the layered file: ' + ((e && e.message) || 'something went wrong')); return null; }
+  finally {
+    scene.background = bg; for (const m of off) m.visible = true; decalGroup.visible = true;
+    exporting = false; curInset = inset; applyInset(); syncDecals(); needsRender = true;
+  }
+  const blob = writePsd({ width: W, height: H, layers, merged });
+  window.__lastPsd = { width: W, height: H, layers: layers.map((l) => l.name), bytes: blob.size };
+  await saveFile('ink-atlas-layers.psd', blob);
+  return blob;
+}
 // Print at real size: a PDF with each visible tattoo at its true size.
 async function printRealSize() {
   toggle('#share', false);
@@ -1192,6 +1238,7 @@ async function spinVideo() {
 }
 $('#cSpin').addEventListener('click', spinVideo);
 $('#cUsdz').addEventListener('click', () => exportPainted('usdz'));
+$('#cPsd').addEventListener('click', () => exportLayers());
 $('#cPainted').addEventListener('click', () => { toggle('#share', false); $('#paintedFile').click(); });
 $('#paintedFile').addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) await importPainted(f); });
 $('#cObjBaked').addEventListener('click', () => exportPainted('obj'));
