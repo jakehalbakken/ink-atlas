@@ -128,7 +128,8 @@ function focusTattoo(t) {
   goal.theta = Math.atan2(n.x, n.z);
   goal.phi = THREE.MathUtils.clamp(Math.acos(THREE.MathUtils.clamp(n.y, -1, 1)), 0.75, 2.0);
   goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2];
-  const ext = Math.max(t.width, t.width / t.aspect) * 3.0 + 0.24;
+  // the tattoo fills about a third of the free space, with enough body round it to see where it sits
+  const ext = Math.max(t.width, t.width / t.aspect) * 2.2 + 0.12;
   const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
   const bounds=canvas.getBoundingClientRect(),dock=$('#dock').getBoundingClientRect();
   const top=Math.max(bounds.top,$('#top').getBoundingClientRect().bottom,$('#views').getBoundingClientRect().bottom)+12;

@@ -102,7 +102,7 @@ export const POSE_CATALOG=Object.freeze({
  kneeLeft:still('Legs','Left knee up',leg('L',1.2,1.4)),
  kneeRight:still('Legs','Right knee up',leg('R',1.2,1.4)),
  squat:still('Legs','Squat',merge(leg('L',1.45,1.8),leg('R',1.45,1.8),spine({},{bend:.62}),both({hang:1,reach:1.05,elbow:.15}))),
- seated:still('Legs','Seated',merge(leg('L',1.5,1.5),leg('R',1.5,1.5),spine({},{bend:.08}),both({hang:1,reach:.25,elbow:.9}))),
+ seated:still('Legs','Seated',merge(leg('L',1.5,1.5),leg('R',1.5,1.5),spine({},{bend:.16}),both({hang:1.1,reach:.1,elbow:.5}),{'wrist.L':[['x',.15]],'wrist.R':[['x',.15]]})), // hands resting on the thighs
  stride:still('Legs','Stride',merge(leg('L',.42,.15),leg('R',-.3,.35))),
 });
 export function catalogRotations(key){const preset=POSE_CATALOG[key];if(!preset)throw new Error('Unknown pose study');return pack(preset.angles);}
