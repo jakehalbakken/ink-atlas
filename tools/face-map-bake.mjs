@@ -16,7 +16,7 @@ export default async function (p) {
   });
   await p.waitForFunction(() => window.__ink.settled(), { timeout: 30000 });
   await new Promise((r) => setTimeout(r, 300));
-  const shot = await p.screenshot({ encoding: 'base64' }); writeFileSync('/tmp/claude-0/facehead.png', Buffer.from(shot, 'base64'));
+  const shot = await p.screenshot({ encoding: 'base64' });
   const lm = await p.evaluate((u) => window.__ink.findFace(u), 'data:image/png;base64,' + shot);
   if (!lm) throw new Error('no face found on the 3D head');
   const map = [], misses = [];
