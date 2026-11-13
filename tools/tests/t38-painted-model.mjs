@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 export default async function(p){
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.name]=blob.arrayBuffer();return old.call(this,blob);};window.toasts=[];new MutationObserver(()=>{const t=document.querySelector('#toast').textContent;if(t)window.toasts.push(t);}).observe(document.querySelector('#toast'),{childList:true,subtree:true,characterData:true});});
- const run=async(card,name)=>{await p.click('#shareBtn');await p.click(card);await p.waitForFunction(n=>!!window.saved[n]||window.toasts.some(x=>x.includes('Could not make')),{timeout:120000},name);assert.ok(await p.evaluate(n=>!!window.saved[n],name),await p.evaluate(()=>JSON.stringify(window.toasts)));};
+ const run=async(card,name)=>{await p.click('#shareBtn');await p.evaluate(()=>{document.querySelector('#shMore').open=true;});await p.click(card);await p.waitForFunction(n=>!!window.saved[n]||window.toasts.some(x=>x.includes('Could not make')),{timeout:120000},name);assert.ok(await p.evaluate(n=>!!window.saved[n],name),await p.evaluate(()=>JSON.stringify(window.toasts)));};
  const unzip=(name)=>p.evaluate(async name=>{const b=await window.saved[name],v=new DataView(b),out={};let i=0;while(i+30<b.byteLength&&v.getUint32(i,true)===0x04034b50){const len=v.getUint32(i+18,true),n=v.getUint16(i+26,true),extra=v.getUint16(i+28,true),nm=new TextDecoder().decode(new Uint8Array(b,i+30,n)),start=i+30+n+extra;out[nm]={start,len};i=start+len;}return out;},name);
  // USDZ
  await run('#cUsdz','ink-atlas-model.usdz');

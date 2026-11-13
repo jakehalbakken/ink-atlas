@@ -58,7 +58,7 @@ export default async function(p){
  // nothing new drawn adds nothing: the same USDZ again, and the OBJ ZIP whose picture is the right way up
  const none=await p.evaluate(async()=>{const f=new File([await window.saved['ink-atlas-model.usdz']],'again.usdz');return (await window.__ink.importPainted(f)).length;});
  assert.equal(none,0,'nothing new in the USDZ, nothing added');
- await p.click('#shareBtn');await p.click('#cObjBaked');await p.waitForFunction(()=>!!window.saved['ink-atlas-model-obj.zip'],{timeout:120000});
+ await p.click('#shareBtn');await p.evaluate(()=>{document.querySelector('#shMore').open=true;});await p.click('#cObjBaked');await p.waitForFunction(()=>!!window.saved['ink-atlas-model-obj.zip'],{timeout:120000});
  const none2=await p.evaluate(async()=>{const f=new File([await window.saved['ink-atlas-model-obj.zip']],'model.zip',{type:'application/zip'});return (await window.__ink.importPainted(f)).length;});
  assert.equal(none2,0,'nothing new in the OBJ ZIP, nothing added');
  assert.equal(JSON.parse(await p.evaluate(()=>JSON.stringify(window.__ink.state()))).tattoos.length,before.tattoos.length+1,'only the one new tattoo');
