@@ -1462,6 +1462,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
   hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved or Buzz cut, then a colour.']; },
   compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
   gap: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', state.tattoos.filter((x) => !x.hidden).length > 1 ? 'This line says how far the tattoo is from the nearest other one.' : 'Add a second tattoo and this line says how far apart they are.']; },
@@ -1872,6 +1873,45 @@ function compareShot() {
   return out.toDataURL('image/png');
 }
 let compareLast = null;
+// How it ages, as one picture: the selected tattoo (or the first one showing) close up, fresh,
+// healed, at 10 and at 20 years, in a two by two grid with a label on each.
+function agingSheet() {
+  const t = sel() && !sel().hidden ? sel() : state.tattoos.find((x) => !x.hidden);
+  if (!t) return null;
+  const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, oldYears = agingYears, inset = curInset;
+  const W = canvas.width, H = canvas.height, side = Math.min(W, H), sx = Math.round((W - side) / 2), sy = Math.round((H - side) / 2);
+  const tile = Math.min(side, 1100), pad = Math.round(tile * 0.03), lab = Math.round(tile * 0.085), head = Math.round(tile * 0.12);
+  const out = document.createElement('canvas'); out.width = tile * 2 + pad * 3; out.height = head + (tile + lab) * 2 + pad * 2;
+  const g = out.getContext('2d'); g.fillStyle = '#16171c'; g.fillRect(0, 0, out.width, out.height);
+  g.fillStyle = '#f2f2f5'; g.textBaseline = 'middle'; g.textAlign = 'center';
+  try {
+    curInset = 0; applyInset();
+    // straight at the tattoo, centred in the square, filling about half of it
+    focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
+    goal.r = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 2 + 0.06) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.2);
+    Object.assign(cur, goal); glide = false; applyCam();
+    exporting = true;
+    AGES.forEach((a, i) => {
+      agingYears = a.years; syncDecals();
+      poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+      const x = pad + (i % 2) * (tile + pad), y = head + Math.floor(i / 2) * (tile + lab + pad);
+      g.drawImage(canvas, sx, sy, side, side, x, y, tile, tile);
+      g.font = `600 ${Math.round(lab * 0.42)}px -apple-system, system-ui, sans-serif`;
+      g.fillText(a.years === 1 ? 'Healed, about a year' : a.label, x + tile / 2, y + tile + lab / 2);
+    });
+  } finally {
+    exporting = false; agingYears = oldYears; syncDecals();
+    Object.assign(cur, oldCur); Object.assign(goal, oldGoal); glide = oldGlide; curInset = inset; applyInset(); applyCam(); needsRender = true;
+  }
+  g.font = `600 ${Math.round(head * 0.3)}px -apple-system, system-ui, sans-serif`;
+  g.fillText(`How ${t.name || 'this tattoo'} may age`, out.width / 2, head * 0.42);
+  g.fillStyle = '#9a9cab'; g.font = `${Math.round(head * 0.19)}px -apple-system, system-ui, sans-serif`;
+  g.fillText('A rough guide, not a promise. Fine lines soften first.', out.width / 2, head * 0.78);
+  agingLast = { tile, pad, head, lab, id: t.id };
+  return out.toDataURL('image/png');
+}
+let agingLast = null;
 function artistPacket() {
   const oldCur = {...cur}, oldGoal = {...goal}, oldGlide = glide, oldSolo = soloIds;
   const views = [];
@@ -1932,6 +1972,7 @@ async function saveFile(filename, data) {
 }
 $('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(previewFile.filename, dataUrlBlob(previewFile.url)); });
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
+$('#cAging').addEventListener('click', () => { const url = agingSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('aging-sheet'); showPreview(url, 'ink-atlas-aging.png', 'How it may age'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
 // Procreate colour palette: skin tone, its shade and highlight, then the project's ink colours.
@@ -2333,7 +2374,7 @@ window.__ink = {
     const withHair = read(); setSkinHair('none'); const plain = read(); setSkinHair(hair.style, HAIR_COLOURS[hair.colour]);
     decalGroup.visible = decalsWere; rt.dispose(); needsRender = true;
     const r = {}; for (const k of Object.keys(spots)) { r[k] = withHair[k]; r[k + 'Plain'] = plain[k]; } return r;
-  }, compareLast: () => compareLast,
+  }, compareLast: () => compareLast, agingLast: () => agingLast,
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
