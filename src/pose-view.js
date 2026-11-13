@@ -72,7 +72,7 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
   // Bring the posed body up to date. Cheap when nothing changed.
   function ensure() {
     if (!target || built === version) return;
-    const r = rest(), posed = skinPose(r, target).positions;
+    const r = rest(), posed = skinPose(r, target, { muscle: state().muscle ?? 0.5 }).positions;
     // Keep the lowest point on the floor, so a squat or a knee lift stands on a foot.
     let low = Infinity, restLow = Infinity;
     for (let i = 1; i < posed.length; i += 3) { if (posed[i] < low) low = posed[i]; if (r.positions[i] < restLow) restLow = r.positions[i]; }
