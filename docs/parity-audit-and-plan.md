@@ -395,3 +395,8 @@ Direction from Jake's chat: Procreate is where art gets drawn; Ink Atlas is wher
 
 - On-canvas handles: the selected tattoo shows a corner handle that resizes and a round one above that turns it, on the tattoo's own corners, 44pt targets, one undo per drag, settles on straight at 0/90/180. None for locked, already-on-me or hidden ink, before/after, or while the view moves. Tested: t49. Not yet on the iPad.
 - Procreate colour palette (Share > Draw in Procreate > Colour palette): a .swatches file with the skin tone, its shade and highlight, then up to 12 ink colours picked from the visible artwork (paper, see-through pixels, specks and soft edges skipped). Built when the Share sheet opens so the tap goes straight to the share sheet. Tested: swatches-unit, t50. Not yet opened in Procreate on the iPad.
+
+## Other side and real size (2026-11-13, Claude; built, waiting for Jake's deploy OK)
+
+- Copy to other side (More controls): the same artwork, mirrored, at the matching spot on the other side of the body, linked to the original, named left and right, one undo. A tattoo in the middle of the body says there is no other side. Tested: t51.
+- Real size on screen (More controls): the artwork at its true size on the skin colour, to hold the iPad against the skin. Pixels per inch is guessed per device (132 for most iPads, 163 for iPad mini) and a bank-card check corrects and keeps it on this device. Tested: t51. Not yet checked on the iPad, where the guess matters most.

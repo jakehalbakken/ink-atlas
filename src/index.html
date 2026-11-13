@@ -28,6 +28,7 @@ html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden
 body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
 #handles{position:fixed;inset:0;pointer-events:none}#handles[hidden]{display:none}.hnd{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;pointer-events:auto;touch-action:none;cursor:grab}.hnd[hidden]{display:none}.hnd::after{content:"";position:absolute;left:12px;top:12px;width:20px;height:20px;box-sizing:border-box;background:#fff;border:2.5px solid var(--stencil);box-shadow:0 1px 5px rgba(0,0,0,.4)}#hSize::after{border-radius:5px}#hTurn::after{border-radius:50%}.hnd.on::after{background:var(--stencil)}body.hands-on #handles{opacity:0}
+#realSize{position:fixed;inset:0;z-index:9;background:var(--rs-skin,#e0b394);overflow:hidden;touch-action:none}#realSize[hidden]{display:none}#rsArt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#rsImg{display:block;width:100%;height:100%;mix-blend-mode:multiply}#rsTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#rsCal{position:absolute;left:16px;right:16px;bottom:16px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}#rsCal p{margin:0}#rsCard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px dashed #2b2f38;border-radius:12px;pointer-events:none}#rsCard[hidden]{display:none}#rsCheck{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;background:rgba(20,22,28,.7)}
 #stage{position:fixed;inset:0}
 #stage canvas{display:block;outline:none}
 button,input{font:inherit;color:inherit}
@@ -318,6 +319,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="btn" id="bFlip" type="button">Mirror</button>
       <button class="btn" id="bFlipVertical" type="button">Flip vertical</button>
       <button class="btn" id="bDup" type="button">Duplicate</button>
+      <button class="btn" id="bOtherSide" type="button">Copy to other side</button>
+      <button class="btn" id="bRealSize" type="button">Real size on screen</button>
       <button class="btn" id="bStatus" type="button">Planned</button>
       <button class="btn" id="bHide" type="button">Hide</button>
       <button class="btn danger" id="bDel" type="button">Remove</button>
@@ -404,6 +407,13 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   </div>
 </div>
 
+<div id="realSize" hidden role="dialog" aria-label="Real size on screen">
+  <div id="rsArt"><img id="rsImg" alt=""></div>
+  <div id="rsTop" class="glass"><span id="rsText"></span><button class="btn primary" type="button" id="rsClose">Done</button></div>
+  <div id="rsCal" class="glass" hidden><p>Hold a bank card on the outline and match its size.</p><div class="row"><button class="btn" type="button" id="rsSmaller">Smaller</button><button class="btn" type="button" id="rsBigger">Bigger</button><button class="btn primary" type="button" id="rsCalDone">It matches</button></div></div>
+  <div id="rsCard" hidden></div>
+  <button class="btn quiet" type="button" id="rsCheck">Check the scale with a bank card</button>
+</div>
 <div id="preview" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="pvTitle">
     <header><h2 id="pvTitle">Picture</h2><button class="btn" type="button" data-close="preview">Close</button></header>

@@ -693,6 +693,60 @@ $('#bLock').addEventListener('click', () => { const t = sel(); if (!t) return; s
 $('#bStatus').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.status = t.status === 'existing' ? 'planned' : 'existing'; t.locked = t.status === 'existing'; commit(); });
 $('#bHide').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.hidden = !t.hidden; commit(); });
 $('#bFlipVertical').addEventListener('click',()=>{const t=sel();if(!t||t.locked)return;snapshot();t.imageTopDown=!t.imageTopDown;commit();});
+// Copy to other side: the same artwork, mirrored, at the matching spot on the other side of the
+// body (the body is symmetric left to right). It shares the artwork, so cleaning one up offers
+// to clean both.
+function otherSide(t) {
+  const p = new V3(-t.pos[0], t.pos[1], t.pos[2]), n = new V3(-t.normal[0], t.normal[1], t.normal[2]).normalize();
+  const h = surfaceAt(p.clone().addScaledVector(n, 0.2), n.clone().negate());
+  if (!h || Math.hypot(...h.pos.map((v, i) => v - p.getComponent(i))) > 0.03) return null;
+  return { pos: h.pos, normal: h.normal, rot: wrapAngle(-(t.rot || 0)), flip: !t.flip };
+}
+$('#bOtherSide').addEventListener('click', () => {
+  const t = sel(); if (!t) return;
+  if (Math.abs(t.pos[0]) < Math.max(0.02, t.width * 0.3)) { toast('This tattoo sits in the middle of the body, so there is no other side.'); return; }
+  const m = otherSide(t); if (!m) { toast('Could not find the matching spot on the other side.'); return; }
+  snapshot();
+  const base = t.name.replace(/ \((left|right)\)$/i, '');
+  const sideName = (x) => (x > 0 ? 'left' : 'right'); // the body's own left is +x
+  const c = { ...structuredClone(t), id: uid(), name: `${base} (${sideName(m.pos[0])})`.slice(0, 40), locked: false, ...m };
+  if (!/\((left|right)\)$/i.test(t.name)) t.name = `${base} (${sideName(t.pos[0])})`.slice(0, 40);
+  state.tattoos.push(c); selectedId = c.id; commit();
+  toast('Copied to the other side.', 'Undo', undo);
+});
+// Real size on screen: the artwork at its true size, to hold the iPad against your skin. The
+// screen's pixels per inch is a guess per device that a bank card can correct; it is kept on
+// this device only, outside the project.
+const PPI_KEY = 'ia-screen-ppi';
+function guessPpi() {
+  try { const v = +localStorage.getItem(PPI_KEY); if (v > 40 && v < 400) return v; } catch (_) { /* private mode */ }
+  const ua = navigator.userAgent || '', touchMac = /Macintosh/.test(ua) && navigator.maxTouchPoints > 1;
+  if (/iPad/.test(ua) || touchMac) return Math.min(screen.width, screen.height) <= 744 ? 163 : 132; // iPad mini is denser
+  if (/iPhone/.test(ua)) return 160;
+  return 96;
+}
+let rsPpi = 0, rsId = null;
+function inchesOf(t) { const w = t.width * state.heightCm / 175 * 100 / 2.54; return { w, h: w / t.aspect }; }
+function renderRealSize() {
+  const t = state.tattoos.find((x) => x.id === rsId); if (!t) { $('#realSize').hidden = true; return; }
+  const { w, h } = inchesOf(t), box = $('#rsArt'), img = $('#rsImg');
+  box.style.width = w * rsPpi + 'px'; box.style.height = h * rsPpi + 'px';
+  img.src = images[t.img]; img.style.transform = `scale(${t.flip ? -1 : 1},${t.imageTopDown ? 1 : -1})`;
+  $('#realSize').style.setProperty('--rs-skin', skinColor());
+  const big = w * rsPpi > innerWidth || h * rsPpi > innerHeight;
+  $('#rsText').textContent = `${t.name}: ${w.toFixed(1)} × ${h.toFixed(1)} in (${(w * 2.54).toFixed(0)} × ${(h * 2.54).toFixed(0)} cm) at real size.` + (big ? ' Bigger than the screen, so the middle shows.' : ' Hold the screen against your skin.');
+  const card = $('#rsCard'); card.style.width = 3.370 * rsPpi + 'px'; card.style.height = 2.125 * rsPpi + 'px';
+}
+function showRealSize(on) {
+  $('#realSize').hidden = !on; if (!on) { $('#rsCal').hidden = true; $('#rsCard').hidden = true; $('#rsCheck').hidden = false; return; }
+  rsPpi = guessPpi(); rsId = selectedId; renderRealSize();
+}
+$('#bRealSize').addEventListener('click', () => showRealSize(true));
+$('#rsClose').addEventListener('click', () => showRealSize(false));
+$('#rsCheck').addEventListener('click', () => { $('#rsCal').hidden = false; $('#rsCard').hidden = false; $('#rsCheck').hidden = true; });
+$('#rsSmaller').addEventListener('click', () => { rsPpi *= 0.99; renderRealSize(); });
+$('#rsBigger').addEventListener('click', () => { rsPpi *= 1.01; renderRealSize(); });
+$('#rsCalDone').addEventListener('click', () => { try { localStorage.setItem(PPI_KEY, String(Math.round(rsPpi * 10) / 10)); } catch (_) { /* kept until closed */ } $('#rsCal').hidden = true; $('#rsCard').hidden = true; $('#rsCheck').hidden = false; toast('Scale saved for this device.'); });
 $('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); const f = frameOf(t); const p = new V3(...t.pos).addScaledVector(f.right, t.width * 0.6).addScaledVector(f.n, 0.2); const h = surfaceAt(p, f.n.clone().negate()); const c = { ...t, id: uid(), name: t.name + ' copy', locked: false, pos: h ? h.pos : t.pos, normal: h ? h.normal : t.normal }; state.tattoos.push(c); selectedId = c.id; commit(); });
 $('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.locked) { toast('Unlock this tattoo first.'); return; } snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
 function setWidthInches(value) {
@@ -1146,7 +1200,7 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -1596,7 +1650,7 @@ window.__ink = {
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex }; }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
-  pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
+  pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
