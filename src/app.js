@@ -1151,10 +1151,10 @@ async function exportLayers() {
   let layers, merged, W, H;
   try {
     curInset = 0; applyInset(); exporting = true; syncDecals();
-    for (const m of [...clothes.meshes(), floorShadow]) if (m && m.visible) { m.visible = false; off.push(m); }
+    for (const m of [floorShadow]) if (m && m.visible) { m.visible = false; off.push(m); }
     W = canvas.width; H = canvas.height;
     const grab = () => { const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(canvas, 0, 0); return g.getImageData(0, 0, W, H).data; };
-    const render = (bodyColour = true) => poseView.withPosed(() => { const m = body.material, cw = m.colorWrite; m.colorWrite = bodyColour; try { renderer.render(scene, camera); } finally { m.colorWrite = cw; } }, posedInk());
+    const render = (bodyColour = true) => clothes.bare(() => poseView.withPosed(() => { const m = body.material, cw = m.colorWrite; m.colorWrite = bodyColour; try { renderer.render(scene, camera); } finally { m.colorWrite = cw; } }, posedInk()));
     decalGroup.visible = true; render(); merged = grab();
     decalGroup.visible = false; render(); layers = [{ name: 'Body', rgba: grab() }];
     decalGroup.visible = true; scene.background = new THREE.Color(0xffffff);
