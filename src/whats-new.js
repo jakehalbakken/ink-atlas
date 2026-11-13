@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'photo-ink', date: '2026-11-13', title: 'Your tattoos from a photo', how: 'Body, then Match a photo of me, with a photo of your back, arm or chest that shows your tattoos. Each tattoo it finds gets a box: tap one to leave it out, then Add to the body. They go on as already on me, in the same spot, and undo takes them off.', show: 'photoInk' },
   { id: 'hair-photo', date: '2026-11-13', title: 'Match my hair from a photo', how: 'Body, then Hair, then Match my hair from a photo. Use a photo with your whole head in it. Your hair colour goes on the head, with the nearest length it can show. The photo is not kept.', show: 'hairPhoto' },
   { id: 'eyes', date: '2026-11-13', title: 'Eye colour', how: 'Body, then Eyes. Pick brown, hazel, green, blue, grey or dark brown. With your face on, the first colour is the one from your photo. Kept on this device.', show: 'eyes' },
   { id: 'body-photo-part', date: '2026-11-13', title: 'Match from any photo of you', how: 'Body, then Match a photo of me. A mirror selfie, an upper body shot or a photo of your back works now: it matches the parts it can see and leaves the rest. Add another photo to fill in more. A bare back also offers its skin tone.', show: 'bodyPhoto' },

@@ -1273,7 +1273,7 @@ $('#bSpots').addEventListener('click', () => { cancelGesture(); toggle('#newPop'
 /* ---------- Match a photo of me: fit the body sliders to a full-length photo ---------- */
 // The photo is read on this device and dropped when the panel closes; only the body settings
 // it leads to are kept, and only when Keep this body is tapped. Undo puts the old body back.
-const bm = { before: null, busy: false, token: 0, result: null };
+const bm = { before: null, busy: false, token: 0, result: null, ink: null };
 function bmShape() { return { figure: state.figure, muscle: state.muscle ?? 0.5, weight: state.weight ?? 0.5, fit: { ...(state.fit || {}) } }; }
 function bmSetShape(p) {
   const a = anchorsNow();
@@ -1302,15 +1302,90 @@ function bmDraw(res) {
   const seen = (i) => { const p = res.lm[i]; return p && (p.visibility ?? 1) >= 0.5 && p.x >= 0 && p.x <= 1 && p.y >= 0 && p.y <= 1; };
   for (const [a, b] of [[11, 12], [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28], [11, 13], [13, 15], [12, 14], [14, 16]]) { if (!seen(a) || !seen(b)) continue; g.beginPath(); g.moveTo(...P(a)); g.lineTo(...P(b)); g.stroke(); }
   for (const i of [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) { if (!seen(i)) continue; g.beginPath(); g.arc(...P(i), lw * 2, 0, Math.PI * 2); g.fill(); }
+  if (bm.ink) { const k = document.createElement('canvas'); k.width = c.width; k.height = c.height; k.getContext('2d').drawImage(c, 0, 0); bm.ink.drawn = k; }
+  bmDrawInk();
+}
+// The tattoos found in the photo: a numbered box round each, solid when it will be added
+function bmDrawInk() {
+  const ink = bm.ink; if (!ink) return;
+  const c = $('#bmPic'), g = c.getContext('2d'), lw = Math.max(2, c.width / 200);
+  g.font = `700 ${Math.round(lw * 9)}px system-ui, sans-serif`; g.textBaseline = 'top';
+  ink.pieces.forEach((p, i) => {
+    const on = ink.on.has(i), m = lw * 3;
+    g.setLineDash(on ? [] : [lw * 3, lw * 3]); g.lineWidth = lw * 1.5; g.strokeStyle = on ? '#7ee0b0' : '#ffffff99';
+    g.strokeRect(p.x0 - m, p.y0 - m, p.x1 - p.x0 + 2 * m, p.y1 - p.y0 + 2 * m);
+    g.setLineDash([]); g.fillStyle = on ? '#7ee0b0' : '#ffffffaa';
+    g.fillText(String(i + 1), p.x0 - m, Math.max(0, p.y0 - m - lw * 10));
+  });
+}
+function bmInkRender() {
+  const ink = bm.ink; $('#bmInk').hidden = !ink;
+  if (!ink) return;
+  const n = ink.on.size, all = ink.pieces.length;
+  $('#bmInkText').textContent = (all === 1 ? 'I see a tattoo in this photo.' : `I see ${all} tattoos in this photo.`) + (all > 1 ? ' Tap one in the picture to leave it out.' : ' Tap it in the picture to leave it out.');
+  $('#bmMirror').hidden = ink.view === 'back'; $('#bmMirror').setAttribute('aria-pressed', String(!!ink.mirror));
+  $('#bmInkAdd').disabled = !n || bm.busy;
+  $('#bmInkAdd').textContent = n ? `Add ${n === 1 ? 'it' : n} to the body as already on me` : 'Nothing picked';
+}
+// Look for tattoos on the skin of a photo that was read
+async function bmFindInk(res) {
+  bm.ink = null;
+  const { findInk } = await import('./photo-ink.js');
+  const s = res.lm[11], t = res.lm[12];
+  if (!s || !t || (s.visibility ?? 1) < 0.5 || (t.visibility ?? 1) < 0.5) return;
+  const px = res.canvas.getContext('2d').getImageData(0, 0, res.w, res.h).data;
+  const found = findInk(px, res.mask, res.w, res.h, res.lm);
+  if (!found.pieces.length) return;
+  bm.ink = { ...found, px, lm: res.lm, w: res.w, h: res.h, view: res.view, on: new Set(found.pieces.map((_, i) => i)), mirror: false };
+}
+// The 3D body's joints, flat, for the photo's landmark numbers
+function bmJoints() {
+  const J = poseView.restRig().joints, at = (name, end = 'head') => { const b = POSE_BONES.find((x) => x.name === name); return [J[b[end] * 3], J[b[end] * 3 + 1]]; };
+  return { 11: at('upperarm01.L'), 12: at('upperarm01.R'), 13: at('lowerarm01.L'), 14: at('lowerarm01.R'), 15: at('wrist.L'), 16: at('wrist.R'), 23: at('upperleg01.L'), 24: at('upperleg01.R'), 25: at('lowerleg01.L'), 26: at('lowerleg01.R'), 27: at('lowerleg02.L', 'tail'), 28: at('lowerleg02.R', 'tail') };
+}
+// Put the picked tattoos on the body where the photo shows them, as already on me. Keeps the
+// body the photo made too, all as one undo step.
+async function bmInkAdd() {
+  const ink = bm.ink; if (!ink || !ink.on.size || bm.busy) return;
+  bm.busy = true; bmInkRender();
+  try {
+    const { cutPiece, inkMapper, mirrorLandmarks, mirrorArt } = await import('./photo-ink.js');
+    if (bm.result) { bmSetShape(bm.before); snapshot(); bmSetShape(bm.result); } else snapshot();
+    const lm = ink.mirror ? mirrorLandmarks(ink.lm) : ink.lm;
+    const map = inkMapper(lm, ink.w, ink.h, bmJoints(), ink.view);
+    const back = ink.view === 'back', added = [];
+    let n = state.tattoos.filter((t) => /^From photo \d+$/.test(t.name || '')).length;
+    for (const i of [...ink.on].sort((a, b) => a - b)) {
+      let art = cutPiece(ink.px, ink.w, ink.h, ink.pieces[i], ink.ref, ink.sw);
+      let cx = art.x0 + art.w / 2; const cy = art.y0 + art.h / 2;
+      if (ink.mirror) { art = mirrorArt(art); cx = ink.w - cx; }
+      const m = map && map(cx, cy); if (!m) continue;
+      const k = body.scale.x || 1;
+      const o = body.localToWorld(new V3(m.x, m.y, back ? -3 : 3)), hit = surfaceAt(o, new V3(0, 0, back ? 1 : -1));
+      if (!hit) continue;
+      const c = document.createElement('canvas'); c.width = art.w; c.height = art.h; c.getContext('2d').putImageData(new ImageData(art.pixels, art.w, art.h), 0, 0);
+      const rot = back ? Math.atan2(m.up[0], m.up[1]) : Math.atan2(-m.up[0], m.up[1]);
+      const t = await addImage(c.toDataURL('image/png'), `From photo ${++n}`, { ...hit, width: art.w * m.k * k, rot, opacity: 1 });
+      if (!t) continue;
+      t.status = 'existing'; t.locked = true; added.push(t);
+    }
+    if (!added.length) { undoStack.pop(); refreshUndo(); bmInkRender(); bmText('Those tattoos are off the edge of the body. Try a photo that shows more of you.'); return; }
+    commit(); markTried('photo-ink');
+    bm.result = null; bm.before = null; bm.ink = null;
+    closeBodyMatch(true);
+    Object.assign(goal, { theta: back ? Math.PI : 0 }); glide = true; needsRender = true;
+    toast(added.length === 1 ? 'Added the tattoo from your photo, as already on you. Undo takes it off.' : `Added ${added.length} tattoos from your photo, as already on you. Undo takes them off.`, 'Undo', undo);
+  } catch (e) { console.error('photo ink', e); bmText('Those tattoos could not be added. Try another photo.'); } finally { bm.busy = false; if (bm.ink) bmInkRender(); }
 }
 async function bmRun(file) {
-  const token = ++bm.token; bm.busy = true; bm.tone = null; bmButtons(false); bmText('Finding you in the photo...');
+  const token = ++bm.token; bm.busy = true; bm.tone = null; bm.ink = null; bmInkRender(); bmButtons(false); bmText('Finding you in the photo...');
   let url = null;
   try {
     url = URL.createObjectURL(file);
     const img = new Image(); img.src = url; await img.decode();
     const res = await readBodyPhotoLazy(img); if (token !== bm.token) return;
-    bmDraw(res);
+    try { await bmFindInk(res); } catch { bm.ink = null; } if (token !== bm.token) return;
+    bmDraw(res); bmInkRender();
     bm.ratios = res.ratios; bm.read = { ref: res.ref, parts: res.parts, view: res.view }; bm.lm = res.lm;
     if (res.problems.length) { bmText(res.problems.join(' ')); return; }
     bmText('Shaping the body to match...');
@@ -1333,7 +1408,7 @@ async function bmRun(file) {
     }
   } catch (e) {
     if (token === bm.token) bmText(e && e.message && !/^[A-Z][a-z]+Error/.test(e.message) && e.message.length < 140 ? e.message : 'That photo could not be read. Try another one.');
-  } finally { if (url) URL.revokeObjectURL(url); if (token === bm.token) bm.busy = false; }
+  } finally { if (url) URL.revokeObjectURL(url); if (token === bm.token) { bm.busy = false; bmInkRender(); } }
 }
 // What a photo matched, in plain words: "Matched your shoulders, chest and waist from your back."
 function bmSaid(res) {
@@ -1367,6 +1442,19 @@ $('#bmAgain').addEventListener('click', () => { const f = $('#bodyPhotoFile'); f
 $('#bmKeep').addEventListener('click', () => closeBodyMatch(true));
 $('#bmBack').addEventListener('click', () => { if (bm.result) { bmSetShape(bm.before); bm.result = null; } bmButtons(false); bmText('Put back. Try another photo, or tap Done.'); });
 $('#bmClose').addEventListener('click', () => closeBodyMatch(true)); // Done keeps what is showing
+$('#bmInkAdd').addEventListener('click', () => bmInkAdd());
+$('#bmMirror').addEventListener('click', () => { if (!bm.ink) return; bm.ink.mirror = !bm.ink.mirror; bmInkRender(); });
+// tap a found tattoo in the picture to leave it out or put it back
+$('#bmPic').addEventListener('click', (e) => {
+  const ink = bm.ink; if (!ink || bm.busy) return;
+  const c = $('#bmPic'), r = c.getBoundingClientRect(), x = (e.clientX - r.left) * c.width / r.width, y = (e.clientY - r.top) * c.height / r.height;
+  const slack = 22 * c.width / r.width; // a finger's worth round each box
+  let best = -1, bd = Infinity;
+  ink.pieces.forEach((p, i) => { const d = Math.hypot(Math.max(0, p.x0 - x, x - p.x1), Math.max(0, p.y0 - y, y - p.y1)); if (d <= slack && d < bd) { bd = d; best = i; } });
+  if (best < 0) return;
+  if (ink.on.has(best)) ink.on.delete(best); else ink.on.add(best);
+  const g = c.getContext('2d'); g.drawImage(ink.drawn, 0, 0); bmDrawInk(); bmInkRender();
+});
 
 /* ---------- My face: a selfie on the 3D head, kept on this device only ---------- */
 // The photo (cut to the face, 512px) and its face points live in localStorage 'ia-face', never in
@@ -1560,6 +1648,7 @@ const SHOW = {
   skinDetail: () => { toggle('#bodyPop', true); viewFace(); return ['#faceBtn', 'Eyebrows and fine skin texture now show on every body. Zoom in close to see them. Add my face puts your own face on.']; },
   face: () => { toggle('#bodyPop', true); return ['#faceBtn', 'Pick a clear photo of your face, looking straight at the camera.']; },
   bodyPhoto: () => { toggle('#bodyPop', true); return ['#bodyPhotoBtn', 'Pick a full-length photo of yourself, taken straight on. The body takes your shape.']; },
+  photoInk: () => { toggle('#bodyPop', true); return ['#bodyPhotoBtn', 'Pick a photo that shows one of your tattoos on bare skin. I find it and put it on the body.']; },
   definition: () => { toggle('#bodyPop', true); return ['#rMuscle', 'Slide Muscle up, or Weight down, to see more muscle definition.']; },
   skinTone: () => { toggle('#bodyPop', true); return ['#skinOwnBtn', 'Tap + to make your own skin tone, or match a photo of your skin.']; },
   light: () => { showLook(true); return ['#lightBtn', 'Tap Light, then pick the light you will see it in most.']; },
@@ -2516,7 +2605,7 @@ window.__ink = {
   state: () => state, ready: () => booted,
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
-  bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null, tone: bm.tone || null, skin: skinColor() }), bodyMatchLm: () => bm.lm || null,
+  bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null, tone: bm.tone || null, skin: skinColor(), ink: bm.ink ? { pieces: bm.ink.pieces.map((p) => [p.x0, p.y0, p.x1, p.y1]), stats: bm.ink.pieces.map((p) => [+p.sharp.toFixed(3), +p.dark.toFixed(3), +p.mid.toFixed(3), +p.fill.toFixed(2), +p.cloth.toFixed(3), +p.out.toFixed(3), Math.round(p.area), Math.round(bm.ink.sw)]), on: [...bm.ink.on], view: bm.ink.view, mirror: bm.ink.mirror } : null }), bodyMatchLm: () => bm.lm || null,
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), hairReading: (r) => applyHairReading(r), hairLast: () => hairLast, eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
   hairProbe: () => {
     // brightness of a few spots on the head, looked at straight on, with this hair and with none
