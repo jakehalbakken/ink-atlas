@@ -1435,6 +1435,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
   gap: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', state.tattoos.filter((x) => !x.hidden).length > 1 ? 'This line says how far the tattoo is from the nearest other one.' : 'Add a second tattoo and this line says how far apart they are.']; },
   skinDetail: () => { toggle('#bodyPop', true); viewFace(); return ['#faceBtn', 'Eyebrows and fine skin texture now show on every body. Zoom in close to see them. Add my face puts your own face on.']; },
   face: () => { toggle('#bodyPop', true); return ['#faceBtn', 'Pick a clear photo of your face, looking straight at the camera.']; },
@@ -1813,6 +1814,36 @@ function shot(hideInk) {
   const url = canvas.toDataURL('image/png');
   exporting = false; decalGroup.visible = true; syncDecals(); curInset = inset; applyInset(); needsRender = true; return url;
 }
+// Before and after as one picture: this view without the planned tattoos, then with them,
+// side by side with a plain label over each. Tattoos already on you show in both.
+function compareShot() {
+  const planned = state.tattoos.filter((t) => t.status !== 'existing' && !t.hidden);
+  if (!planned.length) return null;
+  const inset = curInset; curInset = 0; applyInset();
+  exporting = true; syncDecals();
+  const H = canvas.height, pad = Math.round(H * 0.02), head = Math.round(H * 0.075);
+  // trim the empty sides: keep the width the body takes on screen, with a margin
+  const geo = (poseView.active && poseView.geometry) || bodyGeo, P = geo.attributes.position.array, v = new THREE.Vector3();
+  let lo = 1, hi = -1;
+  camera.updateMatrixWorld(); for (let i = 0; i < P.length; i += 21) { v.set(P[i], P[i + 1], P[i + 2]).project(camera); if (v.z < 1 && v.y > -1.1 && v.y < 1.1) { lo = Math.min(lo, v.x); hi = Math.max(hi, v.x); } }
+  let x0 = 0, W = canvas.width;
+  if (hi > lo) { const m = (hi - lo) * 0.12 + 0.04; const a = Math.max(-1, lo - m), b = Math.min(1, hi + m); x0 = Math.round((a + 1) / 2 * canvas.width); W = Math.max(Math.round(H * 0.45), Math.round((b - a) / 2 * canvas.width)); x0 = Math.max(0, Math.min(canvas.width - W, x0 - Math.max(0, W - Math.round((b - a) / 2 * canvas.width)) / 2 | 0)); W = Math.min(W, canvas.width); }
+  const out = document.createElement('canvas'); out.width = W * 2 + pad * 3; out.height = H + head + pad;
+  const g = out.getContext('2d');
+  g.fillStyle = '#16171c'; g.fillRect(0, 0, out.width, out.height);
+  try {
+    const restore = hidePlanned();
+    try { poseView.withPosed(() => renderer.render(scene, camera), posedInk()); g.drawImage(canvas, x0, 0, W, H, pad, head, W, H); } finally { restore(); }
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk()); g.drawImage(canvas, x0, 0, W, H, W + pad * 2, head, W, H);
+  } finally { exporting = false; syncDecals(); curInset = inset; applyInset(); needsRender = true; }
+  g.fillStyle = '#f2f2f5'; g.textBaseline = 'middle'; g.textAlign = 'center';
+  g.font = `600 ${Math.round(head * 0.42)}px -apple-system, system-ui, sans-serif`;
+  g.fillText('Now', pad + W / 2, head / 2 + pad / 2);
+  g.fillText(planned.length === 1 ? 'With the planned tattoo' : `With ${planned.length} planned tattoos`, W + pad * 2 + W / 2, head / 2 + pad / 2);
+  compareLast = { W, H, x0 };
+  return out.toDataURL('image/png');
+}
+let compareLast = null;
 function artistPacket() {
   const oldCur = {...cur}, oldGoal = {...goal}, oldGlide = glide, oldSolo = soloIds;
   const views = [];
@@ -1873,6 +1904,7 @@ async function saveFile(filename, data) {
 }
 $('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(previewFile.filename, dataUrlBlob(previewFile.url)); });
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
+$('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
 // Procreate colour palette: skin tone, its shade and highlight, then the project's ink colours.
 // Built when the Share sheet opens, so the tap hands the file straight to the share sheet.
@@ -2254,7 +2286,7 @@ window.__ink = {
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null }),
-  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }),
+  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), compareLast: () => compareLast,
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),

@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'compare-shot', date: '2026-11-13', title: 'Before and after picture', how: 'Share, then Before and after. This view now and with your planned tattoos, side by side, ready to send.', show: 'compareShot' },
   { id: 'gap', date: '2026-11-13', title: 'Space between tattoos', how: 'Select a tattoo. Under its size, the edit panel says how far it is from the nearest other tattoo, or that they touch. Handy for keeping an even gap.', show: 'gap' },
   { id: 'skin-detail', date: '2026-11-13', title: 'Eyebrows and finer skin', how: 'Zoom in on the face: every body now has eyebrows, and the skin has fine texture up close, like pores.', show: 'skinDetail' },
   { id: 'face', date: '2026-11-13', title: 'Your face on the body', how: 'Body, then Add my face. Pick a clear photo of your face, looking straight at the camera. The head takes your face and its shape. The photo stays on this device, and Hide my face or Remove take it off.', show: 'face' },
