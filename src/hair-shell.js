@@ -61,8 +61,72 @@ float hsField(vec3 p, vec3 n) {
   return {
     mesh,
     set(style, colour) {
-      mesh.visible = style === 'crop';
+      mesh.visible = style === 'crop' || style === 'medium';
+      U.uThick.value = style === 'medium' ? 0.0035 : 0.012; // under strands, only a thin dark base
       if (colour) { U.uHairCol.value.set(colour); mat.sheenColor.set(colour).lerp(new THREE.Color('#ffffff'), 0.35); }
+    },
+  };
+}
+
+// Medium hair: strands from hair-strands.js over the Short shell. Built on the rest body when the
+// style is first shown or the head's shape changes; in a pose it follows the skull as one piece
+// (the head barely bends), read from four skull vertices each time it draws.
+export function createHairStrands({ THREE, body, build, skullMove }) {
+  const mat = new THREE.MeshPhysicalMaterial({ color: 0x3b2a1f, roughness: 0.55, metalness: 0, sheen: 0.3, sheenRoughness: 0.4, sheenColor: new THREE.Color('#5a4535'), side: THREE.DoubleSide, vertexColors: true });
+  // both sides of a ribbon light as the outside of the hair (three.js would light the back side
+  // as if it faced into the head, which shows as dark spikes)
+  mat.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', 'float faceDirection = 1.0;\nvec3 normal = normalize( vNormal );\nvec3 nonPerturbedNormal = normal;'); };
+  const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+  mesh.raycast = () => {}; mesh.visible = false; mesh.renderOrder = 2; mesh.userData.notBody = true; mesh.frustumCulled = false;
+  mesh.matrixAutoUpdate = false;
+  body.add(mesh);
+  let builtFor = null, anchors = null, restCopy = null, want = false;
+  const m4 = new THREE.Matrix4();
+  function rebuild() {
+    const geo = body.geometry, key = geo.userData.hairKey;
+    if (!want || !key || key === builtFor || !geo.attributes.hair) return;
+    const R = geo.attributes.rest ? geo.attributes.rest.array : geo.attributes.position.array;
+    const s = build(R, geo.attributes.normal.array, geo.index.array, geo.attributes.hair.array);
+    builtFor = key; if (!s) { mesh.visible = false; return; }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(s.position, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(s.normal, 3));
+    const col = new Float32Array(s.shade.length * 3); for (let i = 0; i < s.shade.length; i++) col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = s.shade[i];
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    g.setIndex(new THREE.BufferAttribute(s.index, 1));
+    mesh.geometry.dispose(); mesh.geometry = g;
+    anchors = s.anchors; restCopy = Float32Array.from(anchors.flatMap((v) => [R[v * 3], R[v * 3 + 1], R[v * 3 + 2]]));
+    mesh.visible = true;
+  }
+  mesh.onBeforeRender = () => {
+    // in a pose the body's geometry is the posed one while it draws
+    const geo = body.geometry;
+    if (!geo.attributes.rest || !anchors) { mesh.matrix.identity(); }
+    else {
+      const P = geo.attributes.position.array;
+      const now = Float32Array.from(anchors.flatMap((v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]));
+      mesh.matrix.fromArray(skullMove(restCopy, now, [0, 1, 2, 3]));
+    }
+    mesh.matrixWorld.multiplyMatrices(body.matrixWorld, mesh.matrix);
+  };
+  return {
+    mesh,
+    set(style, colour) {
+      want = style === 'medium'; mesh.visible = want && !!anchors && builtFor === body.geometry.userData.hairKey;
+      if (colour) { mat.color.set(colour); mat.sheenColor.set(colour).lerp(new THREE.Color('#ffffff'), 0.15); }
+      if (want) rebuild();
+    },
+    update() { if (want) rebuild(); },
+    // for tests: how far the first root sits from each skull anchor, at rest and as last drawn
+    probe(posed) {
+      const g = mesh.geometry; if (!anchors || !g.attributes.position) return null;
+      const a = g.attributes.position.array, root = new THREE.Vector3((a[0] + a[3]) / 2, (a[1] + a[4]) / 2, (a[2] + a[5]) / 2);
+      const now = root.clone().applyMatrix4(mesh.matrix), P = posed ? posed.attributes.position.array : null;
+      return anchors.map((v, i) => {
+        const rest = new THREE.Vector3(restCopy[i * 3], restCopy[i * 3 + 1], restCopy[i * 3 + 2]).distanceTo(root);
+        const drawn = P ? new THREE.Vector3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]).distanceTo(now) : null;
+        return [rest, drawn];
+      });
     },
   };
 }
