@@ -247,7 +247,6 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     </div>
     <div class="row editor-quick">
       <button class="btn" id="bTapPlace" type="button" aria-pressed="false">Tap to place</button>
-      <button class="btn" id="bDraft" type="button">Placement draft</button>
       <button class="btn" id="bCleanup" type="button">Clean up artwork</button>
       <button class="btn" id="bLock" type="button">Lock in place</button>
     </div>
@@ -259,10 +258,11 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     </div>
     <details id="preciseBox"><summary>Precise placement</summary>
       <div class="row"><label style="min-height:44px;display:flex;align-items:center;gap:8px"><input id="liveGuides" type="checkbox" checked style="width:22px;height:22px">Show drag alignment guides</label><label style="min-height:44px;display:flex;align-items:center;gap:8px"><input id="snapGuides" type="checkbox" style="width:22px;height:22px">Snap to guides</label></div>
-      <p class="tip">Nearby center/image-edge guides only. Snapping is optional and off by default; reference tattoos never move.</p>
+      <p class="tip">Lines show when the tattoo lines up with another one. Snapping is off unless you turn it on.</p>
       <div class="row"><label>Width (inches) <input id="exactWidth" type="number" min="0.1" max="36" step="0.1" style="width:90px;min-height:44px;font-size:16px"></label>
       <button class="btn" data-inch="1">1 in</button><button class="btn" data-inch="2">2 in</button><button class="btn" data-inch="3">3 in</button><button class="btn" data-inch="4">4 in</button></div>
       <div class="row"><span>Nudge 2 mm</span><button class="btn" data-nudge="-1,0">Left</button><button class="btn" data-nudge="1,0">Right</button><button class="btn" data-nudge="0,1">Up</button><button class="btn" data-nudge="0,-1">Down</button><button class="btn" id="resetTransform">Reset turn and wrap</button></div>
+      <div class="row"><button class="btn" id="bDraft" type="button">Try exact numbers</button><span class="tip">Type a size, angle or wrap and save it only when it looks right.</span></div>
       <p class="tip">Sizes are approximate and depend on your body height setting.</p>
     </details>
     <details id="wrapBox">
@@ -309,7 +309,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <button class="card" id="openClothing"><b>Clothes</b><span>Put a T-shirt, tank top, shorts, pants or hair on the body to see which tattoos show.</span></button>
 <button class="card" id="openNotes"><b>Artist notes</b><span>Keep instructions with the plan or individual pieces.</span></button>
 <button class="card" id="openArtworkLibrary"><b>Artwork library</b><span>Place linked artwork or an independent copy; originals are retained.</span></button>
-<button class="card" id="openDraft"><b>Resume placement draft</b><span>Keep size and ink edits separate until explicitly saved.</span></button>
+<button class="card" id="openDraft"><b>Try exact numbers</b><span>Type a size, angle or wrap and save it only when it looks right.</span></button>
 <button class="card" id="openPlacement"><b>Align & body symmetry</b><span>Preview alignment to another tattoo or create an opposite-side copy.</span></button>
 <button class="card" id="openLayers"><b>Layers & groups</b><span>Organize artwork, visibility and groups.</span></button>
 </div></div></div>

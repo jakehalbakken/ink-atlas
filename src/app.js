@@ -562,7 +562,7 @@ function renderSheet() {
   $('#bHide').textContent = t.hidden ? 'Show' : 'Hide';
   $('#bStatus').textContent = t.status === 'existing' ? 'Already on me' : 'Planned'; $('#bStatus').setAttribute('aria-pressed', t.status === 'existing' ? 'true' : 'false');
   $('#bFlip').setAttribute('aria-pressed', t.flip ? 'true' : 'false');
-  $('#moveTip').textContent = tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':'Use Tap to place, or drag the tattoo. Two fingers starting on it resize and turn the artwork. Elsewhere: pinch, pan and twist the view.';
+  $('#moveTip').textContent = tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':'Drag the tattoo to move it. Two fingers on it resize and turn it.';
 }
 function renderBody() {
   const sw = $('#skins'); sw.replaceChildren();
