@@ -162,6 +162,7 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
     setCustom(rotations, opts) { stop(); key = 'custom'; setRotations(rotations, opts); },
     reset() { stop(); key = 'neutral'; setRotations(null); },
     withPosed, pointOn, ensure,
+    restRig: () => rest(),
     settled: () => !blend,
     geometry: geo,
   };

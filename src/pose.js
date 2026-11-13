@@ -79,3 +79,10 @@ export function validateRig(){
  POSE_BONES.forEach((b,i)=>{if(b.parent>=i||b.parent< -1||b.head<0||b.tail<0||b.head*3>=JB.length||b.tail*3>=JB.length)throw new Error('Invalid skeleton topology');});
  if(maxWeightError>1e-12)throw new Error('Unnormalized weights');return {...POSE_FIDELITY,maxWeightError,bones:POSE_BONES.length,joints:JB.length/3};
 }
+/** Per vertex, the summed skin weight of the named bones (0..1). */
+export function boneWeightSum(names){
+ const ids=new Set(names.map(n=>{const i=POSE_BONES.findIndex(b=>b.name===n);if(i<0)throw new Error(`Unknown bone: ${n}`);return i;}));
+ const out=new Float32Array(RIG.vertexCount);
+ for(let v=0;v<RIG.vertexCount;v++){let s=0;for(let k=OFF[v];k<OFF[v+1];k++)if(ids.has(IDS[k]))s+=W[k];out[v]=s;}
+ return out;
+}

@@ -19,6 +19,7 @@ import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
 import { createBeforeAfter } from './before-after.js';
 import { createPoseView } from './pose-view.js';
+import { createClothes, TOPS, BOTTOMS, HAIR } from './clothes.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
 
 const $ = (s) => document.querySelector(s);
@@ -104,6 +105,7 @@ scene.add(body); body.updateMatrixWorld(true);
 const decalGroup = new THREE.Group(); scene.add(decalGroup);
 const areolaSize = () => { const fem = state.figure === 'female' ? 1 : state.figure === 'male' ? 0 : 0.5; return (0.0155 + 0.006 * fem) * (1 + 0.35 * ((state.fit && state.fit.nippleSize) || 0)); };
 poseView = createPoseView({ THREE, bodyMesh: body, bodyGeo, skinMat, state: () => state, areola: areolaSize, onChange: () => { needsRender = true; if (typeof renderPose === 'function') renderPose(); } });
+const clothes = createClothes({ THREE, bodyGeo, scene, rig: () => poseView.restRig(), posed: () => (poseView.active ? (poseView.ensure(), poseView.geometry) : null) });
 const decals = {}; // id -> {mesh, outline, tex, texKey}
 
 /* ---------- camera rig ---------- */
@@ -366,7 +368,7 @@ function restore(json) { state = JSON.parse(json); if (!state.tattoos.find((t) =
 function undo() { if (!undoStack.length) return; redoStack.push(JSON.stringify(state)); restore(undoStack.pop()); refreshUndo(); }
 function redo() { if (!redoStack.length) return; undoStack.push(JSON.stringify(state)); restore(redoStack.pop()); refreshUndo(); }
 function refreshUndo() { $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
-function commit() { syncDecals(); renderUI(); save(); }
+function commit() { syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); }
 
 /* ---------- tattoo ops ---------- */
 const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
@@ -638,7 +640,7 @@ function hidePlanned() {
   return () => { for (const [m, v] of off) m.visible = v; };
 }
 function posedInk() { return poseView.active ? Object.values(decals).flatMap((d) => [d.mesh, d.outline]) : []; }
-function drawFrame() { poseView.withPosed(() => { if (beforeAfter.on) beforeAfter.render(renderer, scene, camera, hidePlanned); else renderer.render(scene, camera); }, posedInk()); }
+function drawFrame() { clothes.sync(shapeKey, poseView.version); poseView.withPosed(() => { if (beforeAfter.on) beforeAfter.render(renderer, scene, camera, hidePlanned); else renderer.render(scene, camera); }, posedInk()); }
 /* ---------- poses ---------- */
 // The body poses in the main view; ink follows and can still be placed. Nothing is saved.
 {
@@ -663,7 +665,7 @@ function renderPose() {
 }
 let scrubbing = false;
 function afterPoseChange() { spotCache.clear(); const t = sel(); if (t && !gest) requestAnimationFrame(() => { if (sel() === t && poseView.settled()) focusTattoo(t); }); }
-$('#poseBtn').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); toggle('#posePop'); renderPose(); });
+$('#poseBtn').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#posePop'); renderPose(); });
 $('#poseList').addEventListener('click', (e) => { const b = e.target.closest('[data-pose]'); if (!b) return; cancelGesture(); poseView.choose(b.dataset.pose); renderPose(); setTimeout(afterPoseChange, 320); });
 $('#motionKind').addEventListener('change', () => { poseView.scrub(0, $('#motionKind').value); if ($('#motionPlay').getAttribute('aria-pressed') === 'true') poseView.play(); renderPose(); });
 $('#motionPlay').addEventListener('click', () => { if (poseView.motion.playing) poseView.pause(); else poseView.play($('#motionKind').value); renderPose(); });
@@ -671,6 +673,40 @@ document.querySelectorAll('#posePop [data-speed]').forEach((b) => b.addEventList
 $('#motionScrub').addEventListener('input', () => { scrubbing = true; poseView.scrub($('#motionScrub').value / 100, $('#motionKind').value); scrubbing = false; renderPose(); });
 $('#motionScrub').addEventListener('change', afterPoseChange);
 renderPose();
+/* ---------- clothes ---------- */
+// Everyday clothes drawn over the body, to see which tattoos show. Only for looking: not saved.
+{
+  const fill = (host, list, part) => { for (const [k, label] of Object.entries(list)) { const b = document.createElement('button'); b.className = 'btn'; b.type = 'button'; b.dataset[part] = k; b.textContent = label; $(host).append(b); } };
+  fill('#clothesTop', TOPS, 'top'); fill('#clothesBottom', BOTTOMS, 'bottom'); fill('#clothesHair', HAIR, 'hair');
+}
+function clothesLabel() { const c = clothes.choice, parts = []; if (c.top !== 'none') parts.push(TOPS[c.top]); if (c.bottom !== 'none') parts.push(BOTTOMS[c.bottom]); if (c.hair !== 'none') parts.push('hair'); return parts.join(' + '); }
+// Which visible tattoos the clothes hide, partly hide or leave showing.
+function clothesReport() {
+  const c = clothes.choice; if (c.top === 'none' && c.bottom === 'none' && c.hair === 'none') return null;
+  const out = { covered: [], partly: [], showing: [] };
+  for (const t of state.tattoos) {
+    if (t.hidden) continue; const d = decals[t.id]; const sup = d && d.mesh.geometry.userData.supports;
+    const share = clothes.coveredShare(sup); (share >= 0.9 ? out.covered : share > 0.1 ? out.partly : out.showing).push(t.name || 'Untitled');
+  }
+  return out;
+}
+function renderClothes() {
+  const c = clothes.choice, label = clothesLabel();
+  $('#clothesBtn').textContent = label ? 'Clothes: ' + label : 'Clothes';
+  $('#clothesBtn').setAttribute('aria-expanded', String(!$('#clothesPop').hidden));
+  document.querySelectorAll('#clothesTop [data-top]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.top === c.top)));
+  document.querySelectorAll('#clothesBottom [data-bottom]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.bottom === c.bottom)));
+  document.querySelectorAll('#clothesHair [data-hair]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hair === c.hair)));
+  const r = clothesReport(), list = (a) => a.join(', ');
+  $('#clothesShow').textContent = !r ? '' : !state.tattoos.some((t) => !t.hidden) ? 'Add a tattoo to see whether it shows.' :
+    [r.covered.length ? 'Covered: ' + list(r.covered) + '.' : 'Nothing fully covered.', r.partly.length ? 'Partly showing: ' + list(r.partly) + '.' : '', r.showing.length ? 'Showing: ' + list(r.showing) + '.' : ''].filter(Boolean).join(' ');
+}
+function setClothes(next) { clothes.set(next); clothes.sync(shapeKey, poseView.version); needsRender = true; renderClothes(); }
+$('#clothesBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop'); renderClothes(); });
+$('#clothesTop').addEventListener('click', (e) => { const b = e.target.closest('[data-top]'); if (b) setClothes({ top: b.dataset.top }); });
+$('#clothesBottom').addEventListener('click', (e) => { const b = e.target.closest('[data-bottom]'); if (b) setClothes({ bottom: b.dataset.bottom }); });
+$('#clothesHair').addEventListener('click', (e) => { const b = e.target.closest('[data-hair]'); if (b) setClothes({ hair: b.dataset.hair }); });
+renderClothes();
 $('#baBtn').addEventListener('click', () => {
   if (beforeAfter.on) { beforeAfter.set(false); return; }
   if (!plannedShown().length) { toast('Nothing planned to compare yet. Mark a tattoo as Planned to see it here.'); return; }
@@ -692,7 +728,7 @@ $('#file').addEventListener('change', async (e) => {
   }
   if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
 });
-function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); }
+function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
 $('#bodyBtn').addEventListener('click', () => { toggle('#bodyPop'); });
 $('#rHeight').addEventListener('input', () => { state.heightCm = +$('#rHeight').value; renderBody(); renderSheet(); save(); });
 document.querySelectorAll('[data-fig]').forEach((b) => b.addEventListener('click', () => { if (state.figure === b.dataset.fig) return; snapshot(); reshape(() => { state.figure = b.dataset.fig; }); commit(); }));
@@ -796,9 +832,8 @@ $('#openPhotoFit').addEventListener('click',async()=>{
   snapshot();reshape(()=>{for(const k of ['figure','muscle','weight','heightCm','fit'])state[k]=proposed[k];});state.projectName=(state.projectName||'My tattoos')+' · fitted copy';commit();fullBody();toast('Fitted copy opened. The original is kept in Projects.');
  }});}catch(e){toast('Could not open photo fitting: '+e.message);}
 });
-$('#openClothing').addEventListener('click',async()=>{
-  cancelGesture();toggle('#planMenu',false);
-  try{const {openClothingPreview}=await import('./clothing-preview.js');await openClothingPreview(previewInput());}catch(e){toast('Could not open clothing preview: '+e.message);}
+$('#openClothing').addEventListener('click',()=>{
+  cancelGesture();toggle('#planMenu',false);toggle('#posePop',false);toggle('#clothesPop',true);
 });
 $('#openNotes').addEventListener('click',async()=>{
   toggle('#planMenu',false);
@@ -922,7 +957,7 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => toggle('#share', true));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); toggle('#posePop', false); renderPose(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -1250,6 +1285,7 @@ function tick(now) {
 window.__ink = {
   state: () => state, ready: () => booted,
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }),
+  clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex }; }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
   pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },

@@ -57,7 +57,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #full{position:fixed;top:82px;left:16px;z-index:4}
 #baBtn{position:fixed;top:136px;left:16px;z-index:4}
 #poseBtn{position:fixed;top:190px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#posePop{left:16px;right:auto;top:244px;width:300px;max-height:calc(100% - 340px)}
+#clothesBtn{position:fixed;top:244px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#clothesPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
+#clothesPop .posegrid{grid-template-columns:repeat(4,1fr)}#clothesPop .posegrid .btn{padding:0 4px;font-size:13px}
+#clothesPop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
+#clothesPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
+#clothesShow{margin:0;font-size:14px;line-height:1.4}
+#posePop{left:16px;right:auto;top:298px;width:300px;max-height:calc(100% - 394px)}
 #posePop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
 .posegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.posegrid .btn{padding:0 8px;font-size:14px;line-height:1.15}
 .posegrid .btn[aria-pressed=true],#posePop .seg .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
@@ -219,6 +225,15 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <div class="seg" role="group" aria-label="Speed"><button class="btn" type="button" data-speed="0.5">Slow</button><button class="btn" type="button" data-speed="1">Normal</button><button class="btn" type="button" data-speed="1.5">Fast</button></div>
   <div class="lbl">Step through the movement<ink-slider id="motionScrub" min="0" max="100" default="0" origin="0" aria-label="Step through the movement"></ink-slider></div>
 </div>
+<button class="btn glass" id="clothesBtn" type="button" aria-expanded="false">Clothes</button>
+<div id="clothesPop" class="pop glass" hidden>
+  <div class="pophead"><h3>Clothes</h3><button class="btn" type="button" data-close="clothesPop">Done</button></div>
+  <p class="tip">See which tattoos show in everyday clothes. They fit your body and follow any pose. Only for looking, not saved.</p>
+  <h4>Top</h4><div class="posegrid" id="clothesTop"></div>
+  <h4>Bottom</h4><div class="posegrid" id="clothesBottom"></div>
+  <h4>Hair</h4><div class="posegrid" id="clothesHair"></div>
+  <p id="clothesShow" aria-live="polite"></p>
+</div>
 <div id="dock">
   <p id="hint">Tap a tattoo to work on it. Double-tap empty space for the full body.</p>
   <div id="sheet" class="glass" hidden>
@@ -288,7 +303,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <button class="card" id="openPose"><b>Poses</b><span>Bend, turn and move the body. Your tattoos move with it, and you can keep placing them.</span></button>
 <button class="card" id="openBodyTools"><b>Body pins & ruler</b><span>Pin notes, draw on the body, or compare chord and approximate mesh-edge distance.</span></button>
 <button class="card" id="openPhotoFit"><b>Fit with photo references</b><span>Compare local photos and manually adjust a separate project copy.</span></button>
-<button class="card" id="openClothing"><b>Clothing coverage</b><span>Approximate sleeve, shorts and hair visibility studies.</span></button>
+<button class="card" id="openClothing"><b>Clothes</b><span>Put a T-shirt, tank top, shorts, pants or hair on the body to see which tattoos show.</span></button>
 <button class="card" id="openNotes"><b>Artist notes</b><span>Keep instructions with the plan or individual pieces.</span></button>
 <button class="card" id="openArtworkLibrary"><b>Artwork library</b><span>Place linked artwork or an independent copy; originals are retained.</span></button>
 <button class="card" id="openDraft"><b>Resume placement draft</b><span>Keep size and ink edits separate until explicitly saved.</span></button>

@@ -12,9 +12,9 @@ export default async function(p){
  assert((await p.$eval('.bt-measure',e=>e.textContent)).includes('cm'),'ruler reports cm');
  await p.screenshot({path:'shots/body-ruler.png'});await p.click('#ink-body-tools [data-close]');
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));await open('#openClothing');
- let d=await p.evaluate(()=>document.querySelector('.clothing-preview').__clothingTest());assert.equal(d.enabled.length,0);
- for(const kind of ['short','long','collar','shorts','hair']){await p.click(`[data-coverage=${kind}]`);await wait(200);}
- d=await p.evaluate(()=>document.querySelector('.clothing-preview').__clothingTest());assert(d.inputsUnchanged);assert(d.coveredDecalTriangles>0,'clothing hides covered ink');assert(!d.enabled.includes('short'));assert(d.enabled.includes('long'));assert(Object.values(d.triangles).every(n=>n>0));
- await p.screenshot({path:'shots/coverage-all.png'});await p.click('.clothing-preview [data-close]');assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before);
- console.log('PASS t15 body pin save/reload, approximate ruler, isolated coverage toggles');
+ assert(await p.$eval('#clothesPop',e=>!e.hidden),'Plan > Clothes opens the clothes panel');
+ await p.click('#clothesTop [data-top=long]');await p.click('#clothesBottom [data-bottom=shorts]');await p.click('#clothesHair [data-hair=neck]');await wait(300);
+ const c=await p.evaluate(()=>window.__ink.clothes());assert.deepEqual([c.top,c.bottom,c.hair],['long','shorts','neck']);assert(c.meshes.every(m=>m.visible&&m.tris>0));
+ await p.screenshot({path:'shots/coverage-all.png'});await p.click('#clothesPop [data-close]');await p.evaluate(()=>window.__ink.setClothes({top:'none',bottom:'none',hair:'none'}));assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before);
+ console.log('PASS t15 body pin save/reload, approximate ruler, clothes panel from Plan');
 }
