@@ -295,6 +295,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </div>
 <input id="modelFile" type="file" accept=".glb,model/gltf-binary" hidden>
 <input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
+<input id="paintedFile" type="file" accept=".usdz,.zip,.png,.jpg,.jpeg,model/vnd.usdz+zip,application/zip" hidden>
 
 <div id="planMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="planTitle"><header><h2 id="planTitle">Plan your tattoos</h2><button class="btn" data-close="planMenu">Close</button></header><div class="cards">
 <button class="card" id="openProjects"><b>Projects</b><span>Keep separate projects and recoverable copies on this device.</span></button>
@@ -322,6 +323,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="card" id="cSpin" type="button"><b>Spin video</b><span>A few seconds of the body turning once with your tattoos, to send your artist.</span></button>
       <button class="card" id="cPacket" type="button"><b>Full artist packet</b><span>Four body views, all artwork and approximate sizes. Printable HTML file.</span></button>
       <button class="card" id="cUsdz" type="button"><b>3D model with your tattoos</b><span>One file with the ink painted onto the skin. Opens in Procreate, Files and AR on iPad.</span></button>
+      <button class="card" id="cPainted" type="button"><b>Bring back from Procreate</b><span>Open the 3D model after drawing on it in Procreate. What you drew becomes new tattoos you can move and size.</span></button>
       <button class="card" id="cObjBaked" type="button"><b>3D model for other apps (OBJ)</b><span>The same painted body as OBJ, MTL and a skin picture in one ZIP. For Blender and desktop 3D apps.</span></button>
       <button class="card" id="cGlb" type="button"><b>Export 3D model</b><span>Neutral body and visible ink as GLB. Separate decal meshes, not a baked skin texture.</span></button>
       <button class="card" id="cObj" type="button"><b>Export OBJ package</b><span>Static body, separate ink meshes, MTL and PNG textures in one ZIP. Not UV-baked or rigged.</span></button>

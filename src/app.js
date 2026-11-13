@@ -720,6 +720,7 @@ $('#file').addEventListener('change', async (e) => {
   const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
   snapshot(); let last = null; let first = true;
   for (const f of files) {
+    if (/\.(usdz|zip)$/i.test(f.name) || /usdz|zip/.test(f.type)) { await importPainted(f, false); continue; }
     if (/json$/i.test(f.name) || f.type === 'application/json') { if (f.size > 300e6) { toast('That file is too large to open here.'); continue; } await importBackup(await f.text()); continue; }
     if (!/^image\/(png|jpeg|webp)$/.test(f.type)) {toast('Choose a PNG, JPEG or WebP picture.');continue;}
     if (f.size > 10*1024*1024) { toast('Use a picture smaller than 10 MiB.'); continue; }
@@ -1080,6 +1081,54 @@ async function exportPainted(kind) {
   } catch (e) { toast('Could not make the 3D model: ' + ((e && e.message) || 'something went wrong')); }
   finally { needsRender = true; }
 }
+// Back from Procreate: a painted model (USDZ, OBJ in a ZIP, or its skin picture) made
+// from "3D model with your tattoos". New drawing on its skin becomes tattoos here.
+const PAINT_SIZE = 2048;
+async function importPainted(file, undoStep = true) {
+  toggle('#share', false);
+  if (file.size > 300e6) { toast('That file is too large to open here.'); return []; }
+  toast('Looking for new drawing on the model. This takes a few seconds.');
+  try {
+    const P = await import('./procreate-import.js'), { bakeSkin, texturedBody } = await import('./uv-bake.js');
+    const pic = await P.skinPictureOf(file), S = PAINT_SIZE;
+    // The picture and the skin it is compared with are both shrunk the same way from the
+    // picture's own size, so thin lines of the existing tattoos match exactly.
+    const bmp = await createImageBitmap(pic), native = Math.max(256, Math.min(bmp.width, renderer.capabilities.maxTextureSize || 4096, 4096));
+    const shrink = (src) => { const c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, S, S); return g.getImageData(0, 0, S, S).data; };
+    const raw = shrink(bmp); bmp.close && bmp.close();
+    const map = P.triangleMap(S), skin = P.skinColorOf(raw, null);
+    syncDecals();
+    const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
+    const skinColor = new THREE.Color().setRGB(skin[0] / 255, skin[1] / 255, skin[2] / 255, THREE.SRGBColorSpace);
+    const baked = bakeSkin({ THREE, renderer, bodyGeometry: bodyGeo, skinColor, decals: visible.map((t) => ({ geometry: decals[t.id].mesh.geometry, material: decals[t.id].mesh.material })), size: native });
+    const full = document.createElement('canvas'); full.width = full.height = baked.size; full.getContext('2d').putImageData(new ImageData(baked.pixels, baked.size, baked.size), 0, 0);
+    const baseline = shrink(full); full.width = full.height = 0;
+    const pixels = P.uprightPixels(raw, baseline, map, S);
+    const groups = P.findDrawings({ pixels, baseline, map, size: S, skin, positions: bodyGeo.attributes.position.array, normals: bodyGeo.attributes.normal.array, index: bodyGeo.index.array });
+    if (!groups.length) { toast('No new drawing found on that model.'); return []; }
+    const layer = document.createElement('canvas'); layer.width = layer.height = S; layer.getContext('2d').putImageData(P.paintLayer({ pixels, baseline, map, size: S, skin }), 0, 0);
+    const paint = new THREE.CanvasTexture(layer); paint.colorSpace = THREE.SRGBColorSpace; paint.flipY = true;
+    const geometry = texturedBody({ THREE, bodyGeometry: bodyGeo });
+    const caster = new THREE.Raycaster(), restBody = new THREE.Mesh(bodyGeo), added = [];
+    if (undoStep) snapshot();
+    try {
+      for (const grp of groups.slice(0, 12)) {
+        const box = P.drawingBox(grp), n = new V3(...grp.normal);
+        caster.set(new V3(...box.mid).addScaledVector(n, 0.05), n.clone().negate()); caster.far = 0.15;
+        const hit = caster.intersectObject(restBody, false)[0], pos = hit ? hit.point.toArray() : grp.center;
+        const shot = P.photographDrawing({ THREE, renderer, geometry, paint, center: pos, normal: grp.normal, box });
+        const span = 1 - 2 * UV_MARGIN;
+        const t = await addImage(shot.toDataURL('image/png'), 'From Procreate ' + (added.length + 1), { pos, normal: grp.normal, width: box.w / span, rot: 0, opacity: 1 });
+        if (t) added.push(t);
+      }
+    } finally { paint.dispose(); geometry.dispose(); }
+    if (!added.length) { commit(); return []; }
+    selectedId = added[0].id; commit(); focusTattoo(added[0]);
+    toast(added.length === 1 ? 'Added 1 new tattoo from the model.' : `Added ${added.length} new tattoos from the model.`);
+    return added.map((t) => t.id);
+  } catch (e) { toast('Could not read that model: ' + ((e && e.message) || 'something went wrong')); return []; }
+  finally { needsRender = true; }
+}
 // Print at real size: a PDF with each visible tattoo at its true size.
 async function printRealSize() {
   toggle('#share', false);
@@ -1143,6 +1192,8 @@ async function spinVideo() {
 }
 $('#cSpin').addEventListener('click', spinVideo);
 $('#cUsdz').addEventListener('click', () => exportPainted('usdz'));
+$('#cPainted').addEventListener('click', () => { toggle('#share', false); $('#paintedFile').click(); });
+$('#paintedFile').addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) await importPainted(f); });
 $('#cObjBaked').addEventListener('click', () => exportPainted('obj'));
 $('#cModelOpen').addEventListener('click',()=>$('#modelFile').click());
 $('#modelFile').addEventListener('change',async e=>{const file=e.target.files?.[0];e.target.value='';if(!file)return;toggle('#share',false);try{if(file.size>25*1024*1024)throw new Error('Use a GLB under 25 MiB.');const {openModelPreview}=await import('./model-preview.js');await openModelPreview({THREE,buffer:await file.arrayBuffer(),name:file.name});}catch(e){toast('Could not preview model: '+e.message);}});
@@ -1292,7 +1343,7 @@ window.__ink = {
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex }; }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
-  pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
+  pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
