@@ -31,10 +31,10 @@ export default async function(p){
  await p.click('#bodyBtn');await wait(200);
  await p.click('[data-hair-colour="blond"]');await p.click('#hairRow [data-hair="buzz"]');await wait(200);await p.keyboard.press('Escape');
  await look(0.6,'buzz-blond');
- assert.deepEqual(await p.evaluate(()=>window.__ink.hair()),{style:'buzz',colour:'blond'});
+ assert.deepEqual(await p.evaluate(()=>window.__ink.hair()),{style:'buzz',colour:'blond',hex:null});
  assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before,'project not changed');
  await p.reload();await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(500);
- assert.deepEqual(await p.evaluate(()=>window.__ink.hair()),{style:'buzz',colour:'blond'},'kept on this device');
+ assert.deepEqual(await p.evaluate(()=>window.__ink.hair()),{style:'buzz',colour:'blond',hex:null},'kept on this device');
  await p.click('#bodyBtn');await wait(200);await p.click('#hairRow [data-hair="none"]');await wait(200);
  assert.equal(await p.$eval('#hairCols',(e)=>e.hidden),true);
  assert.ok(plain.length>0);

@@ -5,7 +5,7 @@
 // shape and pose without a mesh of its own. Strands are shaded in the fragment shader.
 export function createHairShell({ THREE, body }) {
   const U = { uThick: { value: 0.012 }, uHairCol: { value: new THREE.Color('#3b2a1f') } };
-  const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0, sheen: 0.6, sheenRoughness: 0.45, sheenColor: new THREE.Color('#ffffff'), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0, sheen: 0.35, sheenRoughness: 0.5, sheenColor: new THREE.Color('#3b2a1f'), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, U);
     sh.vertexShader = sh.vertexShader
@@ -37,7 +37,7 @@ float hsField(vec3 p, vec3 n) {
       .replace('#include <color_fragment>', `#include <color_fragment>
   {
     // a ragged edge at the hairline, where the shell is thin and the painted hair below shows
-    float edge = vHairS + (hsNoise(vPosS * 420.0) - 0.5) * 0.006;
+    float edge = vHairS + (hsNoise(vPosS * 900.0) * 0.6 + hsNoise(vPosS * 260.0) * 0.4 - 0.5) * 0.004;
     if (edge < 0.0015) discard;
     hsStrands = hsField(vPosS, normalize(vNorS));
     float clump = hsNoise(vPosS * 160.0);
@@ -62,7 +62,7 @@ float hsField(vec3 p, vec3 n) {
     mesh,
     set(style, colour) {
       mesh.visible = style === 'crop';
-      if (colour) U.uHairCol.value.set(colour);
+      if (colour) { U.uHairCol.value.set(colour); mat.sheenColor.set(colour).lerp(new THREE.Color('#ffffff'), 0.35); }
     },
   };
 }

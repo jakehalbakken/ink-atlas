@@ -19,11 +19,9 @@ export default async function(p){
  assert.match(await toastText(),/buzz cut, in your colour/);
  // the head shows the colour: the scalp, from the front, is close to the photo's brown
  await p.keyboard.press('Escape');await p.waitForFunction(()=>window.__ink.settled(),{timeout:30000});await wait(300);
- const scalp=await p.evaluate(()=>{const c=document.querySelector('canvas');const g=document.createElement('canvas');g.width=c.width;g.height=c.height;const x=g.getContext('2d');x.drawImage(c,0,0);
-  // the top middle of the head is a little above the screen's middle in the face view
-  const d=x.getImageData(Math.round(c.width/2)-10,Math.round(c.height*0.2),20,20).data;let r=0,gg=0,b=0;for(let i=0;i<d.length;i+=4){r+=d[i];gg+=d[i+1];b+=d[i+2];}const n=d.length/4;return [r/n,gg/n,b/n];});
  await p.screenshot({path:'shots/t67-hair.png'});
- console.log('scalp',scalp.map(Math.round));
+ const pr=await p.evaluate(()=>window.__ink.hairProbe());console.log('probe crown',Math.round(pr.crown),'bare',Math.round(pr.crownPlain));
+ assert.ok(pr.crown<pr.crownPlain*0.8,'the crown shows the hair colour');
  // a longer-haired reading: the nearest length it can show (Short, with volume), and it says so
  await p.evaluate(()=>window.__ink.hairReading({found:true,colour:'#2a1d16',style:'long',volume:0.2,reach:1.1,cover:0.95}));await wait(200);
  assert.deepEqual(await p.evaluate(()=>window.__ink.hair()),{style:'crop',colour:'photo',hex:'#2a1d16'});
