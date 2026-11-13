@@ -24,6 +24,7 @@ import { createClothes, TOPS, BOTTOMS, HAIR } from './clothes.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
 import { AGES, ageInk } from './aging.js';
+import { skinSet, inkColours, swatchesFile } from './swatches.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -477,7 +478,7 @@ const pts = new Map();
 // While a finger is moving the body or a tattoo, the panels and buttons fade almost away so
 // they never hide what you are looking at, and come back when the finger lifts.
 let handsOnTimer = 0;
-function handsOn(on) { clearTimeout(handsOnTimer); if (on) document.body.classList.add('hands-on'); else handsOnTimer = setTimeout(() => document.body.classList.remove('hands-on'), 120); }
+function handsOn(on) { clearTimeout(handsOnTimer); if (on) document.body.classList.add('hands-on'); else handsOnTimer = setTimeout(() => { document.body.classList.remove("hands-on"); needsRender = true; }, 120); }
 let gest = null; let lastTap = { t: 0, x: 0, y: 0, empty: false };
 function screenOf(v) { const p = v.clone().project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height }; }
 function onSelectedInk(x, y) {
@@ -579,6 +580,55 @@ function tap(x, y) {
   if (selectedId) select(null);
 }
 let inkDirty = false;
+/* ---------- on-canvas handles ---------- */
+// Two small handles on the selected tattoo, for one finger or the Apple Pencil: the corner
+// one resizes, the round one above turns it. They sit on the tattoo's own corners, so they
+// turn with it. Everything else keeps the usual gestures; the handles are just one more way.
+const handleBox = $('#handles'), hSize = $('#hSize'), hTurn = $('#hTurn');
+let handleDrag = null;
+function handleSpots(t) {
+  const spot = viewSpot(t), f = frameOf({ ...t, normal: spot.normal }), c = new V3(...spot.pos);
+  const hw = t.width / 2, hh = t.width / t.aspect / 2;
+  const toCam = camera.position.clone().sub(c).normalize();
+  if (f.n.dot(toCam) < 0.15) return null; // facing away: nothing sensible to grab
+  const cs = screenOf(c), corner = screenOf(c.clone().addScaledVector(f.right, hw).addScaledVector(f.up, -hh)), top = screenOf(c.clone().addScaledVector(f.up, hh));
+  const ux = top.x - cs.x, uy = top.y - cs.y, ul = Math.hypot(ux, uy) || 1;
+  // keep the corner handle clear of the middle on tiny tattoos, so a drag on the ink still moves it
+  const cx = corner.x - cs.x, cy = corner.y - cs.y, cl = Math.hypot(cx, cy) || 1, cmin = 34;
+  return { c: cs, size: cl < cmin ? { x: cs.x + cx / cl * cmin, y: cs.y + cy / cl * cmin } : corner, turn: { x: top.x + ux / ul * 34, y: top.y + uy / ul * 34 } };
+}
+function placeHandles() {
+  const t = sel();
+  const show = !!t && !t.locked && !t.hidden && t.status !== 'existing' && !tapPlaceId && !beforeAfter.on && !(gest && gest.mode === 'cam' && gest.moved);
+  const s = show ? handleSpots(t) : null;
+  if (!s) { if (!handleDrag) handleBox.hidden = true; return; }
+  const r = canvas.getBoundingClientRect(), inView = (p) => p.x > r.left + 8 && p.x < r.right - 8 && p.y > r.top + 8 && p.y < r.bottom - 8;
+  handleBox.hidden = false;
+  for (const [b, p] of [[hSize, s.size], [hTurn, s.turn]]) { b.style.left = p.x + 'px'; b.style.top = p.y + 'px'; b.hidden = !inView(p); }
+}
+for (const [b, kind] of [[hSize, 'size'], [hTurn, 'turn']]) {
+  b.addEventListener('pointerdown', (e) => {
+    const t = sel(); if (!t || t.locked || handleDrag) return;
+    e.preventDefault(); e.stopPropagation(); try { b.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    const s = handleSpots(t); if (!s) return;
+    if (poseView.motion.playing) poseView.pause();
+    handleDrag = { id: e.pointerId, kind, c: s.c, d0: Math.hypot(e.clientX - s.c.x, e.clientY - s.c.y) || 1, a0: Math.atan2(e.clientY - s.c.y, e.clientX - s.c.x), w0: t.width, r0: t.rot || 0, snap: false };
+    b.classList.add('on');
+  });
+  b.addEventListener('pointermove', (e) => {
+    const g = handleDrag, t = sel(); if (!g || g.id !== e.pointerId || !t) return;
+    if (!g.snap) { snapshot(); g.snap = true; }
+    if (g.kind === 'size') t.width = THREE.MathUtils.clamp(g.w0 * Math.hypot(e.clientX - g.c.x, e.clientY - g.c.y) / g.d0, 0.012, 0.9);
+    else {
+      let da = Math.atan2(e.clientY - g.c.y, e.clientX - g.c.x) - g.a0; da = Math.atan2(Math.sin(da), Math.cos(da));
+      let r = wrapAngle(g.r0 - da); const q = Math.round(r / (Math.PI / 2)) * (Math.PI / 2); if (Math.abs(r - q) < 0.05) r = wrapAngle(q); // settle on straight
+      t.rot = r; $('#rTurn').value = Math.round(r * 180 / Math.PI);
+    }
+    inkDirty = true; needsRender = true;
+  });
+  const end = (e) => { const g = handleDrag; if (!g || g.id !== e.pointerId) return; handleDrag = null; b.classList.remove('on'); if (g.snap) commit(); needsRender = true; };
+  b.addEventListener('pointerup', end); b.addEventListener('pointercancel', end); b.addEventListener('lostpointercapture', end);
+}
 
 /* ---------- UI ---------- */
 function el(tag, props = {}, ...kids) { const n = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else if (v !== false && v != null) n.setAttribute(k, v === true ? '' : v); } for (const c of kids) if (c) n.append(c); return n; }
@@ -614,7 +664,7 @@ function renderSheet() {
   $('#bHide').textContent = t.hidden ? 'Show' : 'Hide';
   $('#bStatus').textContent = t.status === 'existing' ? 'Already on me' : 'Planned'; $('#bStatus').setAttribute('aria-pressed', t.status === 'existing' ? 'true' : 'false');
   $('#bFlip').setAttribute('aria-pressed', t.flip ? 'true' : 'false');
-  $('#moveTip').textContent = tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':'Drag the tattoo to move it. Two fingers on it resize and turn it.';
+  $('#moveTip').textContent = tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
 }
 function renderBody() {
   const sw = $('#skins'); sw.replaceChildren();
@@ -624,7 +674,7 @@ function renderBody() {
   syncFitUI();
   $('#rHeight').value = state.heightCm; const inch = state.heightCm / 2.54; $('#hText').textContent = `${Math.floor(inch / 12)} ft ${Math.round(inch % 12)} in  ·  ${state.heightCm} cm`;
 }
-function renderUI() { renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); }
+function renderUI() { needsRender = true; renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); }
 function toast(msg, action, fn) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 5200);
@@ -1094,7 +1144,7 @@ $('#openProjects').addEventListener('click', async () => {
   commit();fullBody();toast('Project opened. Your previous work is saved in Projects.','Undo',undo);
  } catch(e) { toast('Could not open Projects: '+e.message); }
 });
-$('#shareBtn').addEventListener('click', () => toggle('#share', true));
+$('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
 document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
@@ -1166,6 +1216,29 @@ async function saveFile(filename, data) {
 $('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(previewFile.filename, dataUrlBlob(previewFile.url)); });
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
+// Procreate colour palette: skin tone, its shade and highlight, then the project's ink colours.
+// Built when the Share sheet opens, so the tap hands the file straight to the share sheet.
+let paletteReady = null;
+async function buildPalette() {
+  const pics = [];
+  for (const key of new Set(state.tattoos.filter((t) => !t.hidden).map((t) => t.img))) {
+    const src = images[key]; if (!src) continue;
+    try {
+      const im = new Image(); im.src = src; await im.decode();
+      const k = Math.min(1, 160 / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
+      const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, c.width, c.height); pics.push(g.getImageData(0, 0, c.width, c.height).data);
+    } catch (_) { /* a picture that will not open adds no colours */ }
+  }
+  const colours = [...skinSet(skinColor()), ...inkColours(pics, { max: 12 })];
+  const name = 'Ink Atlas ' + (state.projectName || 'My tattoos');
+  return { name, colours, blob: swatchesFile(name, colours), file: (state.projectName || 'Ink Atlas').replace(/[^\w\- ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 50) + ' colours.swatches' };
+}
+$('#cSwatches').addEventListener('click', async () => {
+  const p = await (paletteReady || (paletteReady = buildPalette()));
+  toggle('#share', false); paletteReady = null;
+  await saveFile(p.file, p.blob);
+});
 $('#cPacket').addEventListener('click', () => { const html=artistPacket(); toggle('#share',false); saveFile('ink-atlas-artist-packet.html',new Blob([html],{type:'text/html'})); });
 function bodySignature(){return JSON.stringify([state.figure,state.muscle,state.weight,Object.keys(state.fit||{}).sort().map(k=>[k,state.fit[k]]),state.genitals,state.heightCm]);}
 async function sketchPatch() {
@@ -1479,7 +1552,7 @@ function tick(now) {
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) $('#size').textContent = sizeText(t); }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
-  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); }
+  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); }
   requestAnimationFrame(tick);
 }
 

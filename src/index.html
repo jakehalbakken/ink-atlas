@@ -27,6 +27,7 @@
 html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:none}
 body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
+#handles{position:fixed;inset:0;pointer-events:none}#handles[hidden]{display:none}.hnd{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;pointer-events:auto;touch-action:none;cursor:grab}.hnd[hidden]{display:none}.hnd::after{content:"";position:absolute;left:12px;top:12px;width:20px;height:20px;box-sizing:border-box;background:#fff;border:2.5px solid var(--stencil);box-shadow:0 1px 5px rgba(0,0,0,.4)}#hSize::after{border-radius:5px}#hTurn::after{border-radius:50%}.hnd.on::after{background:var(--stencil)}body.hands-on #handles{opacity:0}
 #stage{position:fixed;inset:0}
 #stage canvas{display:block;outline:none}
 button,input{font:inherit;color:inherit}
@@ -202,6 +203,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <body>
 <div id="viewport">
 <div id="stage" aria-label="3D body. Drag to look around. Pinch, pan and twist the view with two fingers away from selected ink. Tap a tattoo to select it."></div>
+<div id="handles" hidden><button id="hSize" class="hnd" type="button" aria-label="Drag to resize the tattoo"></button><button id="hTurn" class="hnd" type="button" aria-label="Drag to turn the tattoo"></button></div>
 <svg id="alignmentGuides" hidden aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2"></svg>
 <div id="tapPlaceBar" hidden style="position:absolute;left:50%;top:82px;transform:translateX(-50%);z-index:8;background:var(--panel,#f4f1eb);color:var(--text,#222);border-radius:12px;padding:8px 12px;max-width:90%;text-align:center;box-shadow:0 2px 12px #0003"><span>Tap the body to place the selected tattoo</span> <button id="cancelTapPlace" class="btn" style="min-height:44px">Cancel</button></div>
 
@@ -373,6 +375,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>
       <button class="card" id="cPsd" type="button"><b>Layered file</b><span>This view with the body and each tattoo on its own layer, ready to draw over.</span></button>
       <button class="card" id="cUsdz" type="button"><b>3D model with your tattoos</b><span>Paint on the body in Procreate's 3D view. Also opens in Files and AR.</span></button>
+      <button class="card" id="cSwatches" type="button"><b>Colour palette</b><span>Your skin tone and the ink colours in your tattoos, as a Procreate palette.</span></button>
       <button class="card" id="cPainted" type="button"><b>Bring back from Procreate</b><span>Open the 3D model you drew on. What you drew becomes new tattoos you can move and size.</span></button>
     </div>
     <h3 class="shHead">Keep it safe</h3>
