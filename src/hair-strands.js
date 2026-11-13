@@ -19,16 +19,18 @@ function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s ^= 
 export const STRAND_STYLES = {
   // lengths in body units (the body is 1.75 tall, so 0.01 is about a centimetre)
   medium: { count: 14000, segs: 7, top: 0.065, side: 0.03, back: 0.04, width: 0.0016, lift: 0.5 },
+  // long: to just below the shoulders (cut is how far below the top of the head the ends fall)
+  long: { count: 15000, segs: 14, cut: 0.34, width: 0.0019, long: true },
 };
 
 // R: rest positions; N: rest normals; index: triangle index; hair: the hairline field per vertex
 // (positive under hair); bodyCount: vertices of the body proper. Returns { position, normal,
 // shade, index, anchors, strands } where shade is a per-vertex brightness (root darker, tips
 // lighter) and anchors are four skull vertices for following the head in a pose.
-export function buildStrands(R, N, index, hair, bodyCount, style = 'medium', seed = 7) {
-  const S = STRAND_STYLES[style] || STRAND_STYLES.medium;
+// The scalp and what the strands are measured against: an ellipsoid round the skull, four skull
+// vertices that carry the hair through a pose, and the scalp triangles roots grow from.
+function scalpFrame(R, index, hair, bodyCount) {
   const P = (v) => [R[v * 3], R[v * 3 + 1], R[v * 3 + 2]];
-  // the scalp: body vertices under hair
   const scalp = [];
   for (let v = 0; v < bodyCount; v++) if (hair[v] > 0.002) scalp.push(v);
   if (scalp.length < 20) return null;
@@ -39,7 +41,6 @@ export function buildStrands(R, N, index, hair, bodyCount, style = 'medium', see
   const rad = [(hi[0] - lo[0]) / 2, hi[1] - c[1], (hi[2] - lo[2]) / 2];
   const rMean = (rad[0] + rad[1] + rad[2]) / 3;
   const ell = (q) => Math.hypot((q[0] - c[0]) / rad[0], (q[1] - c[1]) / rad[1], (q[2] - c[2]) / rad[2]);
-  // the skull vertices that carry the hair through a pose
   let top = scalp[0], left = scalp[0], right = scalp[0], back = scalp[0];
   for (const v of scalp) {
     if (R[v * 3 + 1] > R[top * 3 + 1]) top = v;
@@ -59,6 +60,16 @@ export function buildStrands(R, N, index, hair, bodyCount, style = 'medium', see
     total += ar; tris.push(t); cum.push(total);
   }
   if (!tris.length) return null;
+  return { scalp, lo, hi, c, rad, rMean, ell, anchors: [top, left, right, back], tris, cum, total };
+}
+
+export function buildStrands(R, N, index, hair, bodyCount, style = 'medium', seed = 7) {
+  const S = STRAND_STYLES[style] || STRAND_STYLES.medium;
+  const F = scalpFrame(R, index, hair, bodyCount);
+  if (!F) return null;
+  if (S.long) return buildLong(R, N, index, hair, bodyCount, S, F, seed);
+  const { c, rad, rMean, ell, tris, cum, total } = F, I = index;
+  const [top, left, right, back] = F.anchors;
   const rand = rng(seed);
   const K = S.segs, per = (K + 1) * 2, count = S.count;
   const position = new Float32Array(count * per * 3), normal = new Float32Array(count * per * 3), shade = new Float32Array(count * per);
@@ -127,6 +138,145 @@ export function buildStrands(R, N, index, hair, bodyCount, style = 'medium', see
     made++;
   }
   return { position, normal, shade, index: idx, anchors: [top, left, right, back], strands: made, centre: c, radii: rad };
+}
+
+// Long hair: parted in the middle, over the ears and round the face, to a soft line a little
+// below the shoulders, longer at the back. Grown in small steps that keep outside the head, out of
+// the face and off the neck and shoulders (it slides over them, in front or behind), then
+// resampled to even segments. Also returns follow per vertex (0 down to the jaw, rising to 1 at the
+// shoulders) and four upper-chest vertices, so in a pose the top moves with the skull and the
+// ends with the chest.
+function buildLong(R, N, index, hair, bodyCount, S, F, seed) {
+  const { c, rad, rMean, ell, tris, cum, total, hi } = F, I = index, top = hi[1];
+  // the front hairline: the lowest scalp point at the front middle
+  let frontZ = -Infinity, frontY = top;
+  for (const v of F.scalp) if (Math.abs(R[v * 3] - c[0]) < 0.25 * rad[0]) frontZ = Math.max(frontZ, R[v * 3 + 2]);
+  for (const v of F.scalp) if (Math.abs(R[v * 3] - c[0]) < 0.25 * rad[0] && R[v * 3 + 2] > frontZ - 0.02) frontY = Math.min(frontY, R[v * 3 + 1]);
+  const cutY = top - S.cut, browY = frontY - 0.035, faceZ = c[2] + 0.2 * rad[2], faceW = 0.74 * rad[0];
+  const jawY = c[1] - 0.8 * rad[1];
+  // the skin round the head, neck and shoulders, for the hair to rest on: vertices in a grid
+  const cell = 0.04, grid = new Map(), key = (x, y, z) => (x * 73856093) ^ (y * 19349663) ^ (z * 83492791);
+  for (let v = 0; v < bodyCount; v++) {
+    const y = R[v * 3 + 1];
+    if (y < cutY - 0.06 || y > top + 0.01 || hair[v] > 0.002) continue; // the scalp is the ellipsoid's
+    const k = key(Math.floor(R[v * 3] / cell), Math.floor(y / cell), Math.floor(R[v * 3 + 2] / cell));
+    let list = grid.get(k); if (!list) grid.set(k, list = []); list.push(v);
+  }
+  // the nearest skin vertex within half a cell: only the eight cells round the nearest corner
+  const nearest = (q) => {
+    const fx = q[0] / cell, fy = q[1] / cell, fz = q[2] / cell;
+    const gx = Math.round(fx) - 1, gy = Math.round(fy) - 1, gz = Math.round(fz) - 1;
+    let best = -1, bd = (cell / 2) * (cell / 2);
+    for (let a = 0; a <= 1; a++) for (let b = 0; b <= 1; b++) for (let e = 0; e <= 1; e++) {
+      const list = grid.get(key(gx + a, gy + b, gz + e)); if (!list) continue;
+      for (const v of list) { const dx = R[v * 3] - q[0], dy = R[v * 3 + 1] - q[1], dz = R[v * 3 + 2] - q[2], dd = dx * dx + dy * dy + dz * dz; if (dd < bd) { bd = dd; best = v; } }
+    }
+    return best;
+  };
+  // the upper chest, which carries the ends through a pose
+  let cf = -1, cl = -1, cr = -1, cb = -1;
+  for (let v = 0; v < bodyCount; v++) {
+    const x = R[v * 3] - c[0], y = R[v * 3 + 1], z = R[v * 3 + 2];
+    if (y < top - 0.34 || y > top - 0.27 || Math.abs(x) > 0.12) continue;
+    if (cf < 0 || z > R[cf * 3 + 2]) cf = v;
+    if (cb < 0 || z < R[cb * 3 + 2]) cb = v;
+    if (cl < 0 || x > R[cl * 3] - c[0]) cl = v;
+    if (cr < 0 || x < R[cr * 3] - c[0]) cr = v;
+  }
+  // a neck and a jaw, as two capsules, so the ends can be kept out of them in a pose
+  const nt = [c[0], c[1] - 0.85 * rad[1], c[2]];
+  const ring = [];
+  for (let v = 0; v < bodyCount; v++) { const y = R[v * 3 + 1]; if (y < nt[1] - 0.07 || y > nt[1] - 0.035 || Math.abs(R[v * 3] - c[0]) > 0.09) continue; ring.push(v); }
+  let ncx = 0, ncz = 0; for (const v of ring) { ncx += R[v * 3]; ncz += R[v * 3 + 2]; } ncx /= ring.length || 1; ncz /= ring.length || 1;
+  const rd = ring.map((v) => Math.hypot(R[v * 3] - ncx, R[v * 3 + 2] - ncz)).sort((x, y) => x - y);
+  const rn = rd.length ? rd[rd.length >> 1] : 0.055;
+  const nb = cf >= 0 ? [0, 1, 2].map((a) => (R[cf * 3 + a] + R[cl * 3 + a] + R[cr * 3 + a] + R[cb * 3 + a]) / 4) : [nt[0], nt[1] - 0.1, nt[2]];
+  const rand = rng(seed);
+  const K = S.segs, per = (K + 1) * 2, count = S.count, stepLen = 0.0075, maxSteps = 110;
+  const position = new Float32Array(count * per * 3), normal = new Float32Array(count * per * 3), shade = new Float32Array(count * per), follow = new Float32Array(count * per);
+  const idx = new Uint32Array(count * K * 6);
+  let vi = 0, ii = 0, made = 0;
+  for (let s = 0; s < count; s++) {
+    const pick = rand() * total; let lo2 = 0, hi2 = cum.length - 1;
+    while (lo2 < hi2) { const m = (lo2 + hi2) >> 1; if (cum[m] < pick) lo2 = m + 1; else hi2 = m; }
+    const t = tris[lo2];
+    let u = rand(), w = rand(); if (u + w > 1) { u = 1 - u; w = 1 - w; }
+    const ids = [I[t * 3], I[t * 3 + 1], I[t * 3 + 2]], bw = [1 - u - w, u, w];
+    const p = [0, 0, 0], n = [0, 0, 0]; let depth = 0;
+    for (let k = 0; k < 3; k++) { for (let a = 0; a < 3; a++) { p[a] += R[ids[k] * 3 + a] * bw[k]; n[a] += N[ids[k] * 3 + a] * bw[k]; } depth += hair[ids[k]] * bw[k]; }
+    const nn = norm(n), rel = norm([p[0] - c[0], p[1] - c[1], p[2] - c[2]]);
+    // the parting runs down the middle; each strand falls to its own side
+    const sx = Math.abs(p[0] - c[0]) < 0.003 ? (rand() < 0.5 ? -1 : 1) : Math.sign(p[0] - c[0]);
+    const onTop = smooth(0.3, 0.8, rel[1]), front = smooth(0.1, 0.5, rel[2]) * smooth(-0.2, 0.3, rel[1]);
+    const toFront = rel[2] > 0.05 ? 1 : -1; // over the shoulder: in front or behind
+    const layer = rand(), edge = smooth(0, 0.012, depth);
+    const myCut = cutY - 0.03 * smooth(0, 0.8, -rel[2]) + (rand() - 0.5) * 0.02;
+    const scale = ell(p);
+    let q = p.slice(), d = norm([nn[0] * 0.3, nn[1] * 0.3 - 1, nn[2] * 0.3]);
+    const pts = [p.slice()];
+    for (let k = 0; k < maxSteps; k++) {
+      const r2 = norm([q[0] - c[0], q[1] - c[1], q[2] - c[2]]);
+      const up = smooth(c[1] - 0.4 * rad[1], c[1] + 0.4 * rad[1], q[1]); // still up on the head
+      let T = [sx * (0.9 * onTop + 2.5 * front) * up, -1, -(0.35 * onTop + 0.3 * front) * up];
+      const tin = dot(T, r2); if (tin < 0 && ell(q) < scale * 1.3) T = [T[0] - r2[0] * tin, T[1] - r2[1] * tin, T[2] - r2[2] * tin];
+      T = norm(T);
+      d = norm([d[0] + T[0] * 0.35, d[1] + T[1] * 0.35, d[2] + T[2] * 0.35]);
+      const prev = q;
+      q = [q[0] + d[0] * stepLen, q[1] + d[1] * stepLen, q[2] + d[2] * stepLen];
+      // outside the head, with a little body to it, laid on it while up on the head
+      const lift = 0.002 + (0.003 + 0.01 * layer * (0.4 + 0.6 * onTop)) * edge;
+      const want = scale * (1 + lift / rMean), cap = scale * (1 + (lift + 0.005) / rMean), e = ell(q);
+      if (e < want || (e > cap && q[1] > c[1] - 0.1 * rad[1])) { const g = (e < want ? want : cap) / Math.max(e, 1e-6); q = [c[0] + (q[0] - c[0]) * g, c[1] + (q[1] - c[1]) * g, c[2] + (q[2] - c[2]) * g]; }
+      // out of the face: below the brows the face stays clear and the hair frames it
+      if (q[2] > faceZ && q[1] < browY && Math.abs(q[0] - c[0]) < faceW) q[0] += clamp(c[0] + sx * faceW - q[0], -0.01, 0.01);
+      // off the skin: lifted out to rest on it, and slid over it, in front of or behind the shoulder
+      const v = nearest(q);
+      if (v >= 0) {
+        const vn = [N[v * 3], N[v * 3 + 1], N[v * 3 + 2]];
+        const off = 0.002 + 0.005 * layer, sd = (q[0] - R[v * 3]) * vn[0] + (q[1] - R[v * 3 + 1]) * vn[1] + (q[2] - R[v * 3 + 2]) * vn[2];
+        if (sd < off) {
+          q = [q[0] + vn[0] * (off - sd), q[1] + vn[1] * (off - sd), q[2] + vn[2] * (off - sd)];
+          const dn = dot(d, vn); if (dn < 0) d = norm([d[0] - vn[0] * dn, d[1] - vn[1] * dn, d[2] - vn[2] * dn]);
+          // on the shoulders it parts in front or behind instead of fanning out along them
+          if (q[1] < jawY) d = norm([d[0] * 0.3, d[1], d[2] + toFront * 0.6]);
+        }
+      }
+      const step = [q[0] - prev[0], q[1] - prev[1], q[2] - prev[2]], sl = Math.hypot(...step);
+      if (sl > 1e-6) d = norm([d[0] * 0.5 + step[0] / sl * 0.5, d[1] * 0.5 + step[1] / sl * 0.5, d[2] * 0.5 + step[2] / sl * 0.5]);
+      pts.push(q);
+      if (q[1] < myCut) break;
+    }
+    // even segments along the strand
+    const arc = [0]; for (let k = 1; k < pts.length; k++) arc.push(arc[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1], pts[k][2] - pts[k - 1][2]));
+    const L = arc[arc.length - 1]; if (L < 0.01) continue;
+    const at = []; let j = 0;
+    for (let k = 0; k <= K; k++) {
+      const want = L * k / K; while (j < arc.length - 2 && arc[j + 1] < want) j++;
+      const f = clamp((want - arc[j]) / Math.max(1e-9, arc[j + 1] - arc[j]), 0, 1);
+      at.push([0, 1, 2].map((a) => pts[j][a] + (pts[j + 1][a] - pts[j][a]) * f));
+    }
+    const tone = 0.85 + 0.3 * rand();
+    for (let k = 0; k <= K; k++) {
+      const f = k / K, q2 = at[k], a2 = at[Math.max(0, k - 1)], b2 = at[Math.min(K, k + 1)];
+      const dir = norm([b2[0] - a2[0], b2[1] - a2[1], b2[2] - a2[2]]), out = norm([q2[0] - c[0], Math.max(0, q2[1] - c[1]), q2[2] - c[2]]);
+      const across = norm(cross(dir, out)), hw = S.width * (1 - 0.6 * f) / 2;
+      const ribbon = norm(cross(across, dir));
+      const nrm = norm([ribbon[0] * 0.5 + out[0] * 0.5, ribbon[1] * 0.5 + out[1] * 0.5, ribbon[2] * 0.5 + out[2] * 0.5]);
+      for (const sgn of [-1, 1]) {
+        for (let a = 0; a < 3; a++) { position[vi * 3 + a] = q2[a] + across[a] * hw * sgn; normal[vi * 3 + a] = nrm[a]; }
+        shade[vi] = tone * (0.6 + 0.4 * smooth(0, 0.15, f) + 0.12 * f);
+        follow[vi] = smooth(Math.min(jawY + 0.01, p[1]), cutY + 0.02, q2[1]); vi++;
+      }
+    }
+    const base = made * per;
+    for (let k = 0; k < K; k++) {
+      const a = base + k * 2;
+      idx[ii++] = a; idx[ii++] = a + 1; idx[ii++] = a + 2; idx[ii++] = a + 1; idx[ii++] = a + 3; idx[ii++] = a + 2;
+    }
+    made++;
+  }
+  const sl = (A) => A.subarray(0, made * per * (A === shade || A === follow ? 1 : 3));
+  return { position: sl(position), normal: sl(normal), shade: sl(shade), follow: sl(follow), index: idx.subarray(0, made * K * 6), anchors: F.anchors, chest: cf >= 0 ? [cf, cl, cr, cb] : null, collide: { nb, nt, c: c.slice(), rn: rn + 0.006, rh: 0.8 * rad[0] }, strands: made, segs: K, centre: c, radii: rad };
 }
 
 // The rigid move of the skull from rest to now, from the four anchor vertices: a 4x4 matrix

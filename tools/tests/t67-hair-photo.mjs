@@ -1,6 +1,6 @@
 // Match my hair from a photo (Body > Hair): a reading puts the photo's colour on the head with the
-// nearest length the app shows, adds a swatch for that colour, says when the hair is longer than it
-// can show, goes bald when no hair is seen, changes nothing in the project and is kept on this device.
+// nearest length the app shows (long hair as Long), adds a swatch for that colour, goes bald when no
+// hair is seen, changes nothing in the project and is kept on this device.
 // With HAIR_PHOTO set to a local photo of a person, the real model reads it too (not checked in).
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
@@ -22,10 +22,10 @@ export default async function(p){
  await p.screenshot({path:'shots/t67-hair.png'});
  const pr=await p.evaluate(()=>window.__ink.hairProbe());console.log('probe crown',Math.round(pr.crown),'bare',Math.round(pr.crownPlain));
  assert.ok(pr.crown<pr.crownPlain*0.8,'the crown shows the hair colour');
- // a longer-haired reading: the nearest length it can show (Short, with volume), and it says so
+ // a longer-haired reading: Long, in the photo's colour, and it says how long it shows
  await p.evaluate(()=>window.__ink.hairReading({found:true,colour:'#2a1d16',style:'long',volume:0.2,reach:1.1,cover:0.95}));await wait(200);
- assert.deepEqual(await p.evaluate(()=>window.__ink.hair()),{style:'crop',colour:'photo',hex:'#2a1d16'});
- assert.match(await toastText(),/longer than I can show yet/);
+ assert.deepEqual(await p.evaluate(()=>window.__ink.hair()),{style:'long',colour:'photo',hex:'#2a1d16'});
+ assert.match(await toastText(),/long, in your colour.*just below the shoulders/);
  // no hair seen: bald
  await p.evaluate(()=>window.__ink.hairReading({found:false,colour:null,style:'none',volume:0,reach:0,cover:0}));await wait(200);
  assert.equal((await p.evaluate(()=>window.__ink.hair())).style,'none');

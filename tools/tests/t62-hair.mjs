@@ -13,7 +13,7 @@ export default async function(p){
   const style=await p.addStyleTag({content:'body *{visibility:hidden!important} canvas{visibility:visible!important}'});await wait(250);
   const buf=await p.screenshot({path:`shots/t62-${name}.png`});await style.evaluate((s)=>s.remove());return buf;};
  await p.click('#bodyBtn');await wait(200);
- const hb=await p.$$eval('#hairRow [data-hair]',(a)=>a.map((b)=>[b.getBoundingClientRect().height,b.scrollWidth,b.clientWidth]));assert.ok(hb.length===5&&hb.every(([h,s,c])=>h>=44&&s<=c+1),'five choices, big enough, words fit '+JSON.stringify(hb));
+ const hb=await p.$$eval('#hairRow [data-hair]',(a)=>a.map((b)=>[b.getBoundingClientRect().height,b.scrollWidth,b.clientWidth]));assert.ok(hb.length===6&&hb.every(([h,s,c])=>h>=44&&s<=c+1),'six choices, big enough, words fit '+JSON.stringify(hb));
  assert.equal(await p.$eval('#hairCols',(e)=>e.hidden),true,'no colours without hair');
  const plain=await look(0.6,'plain');
  await p.click('#hairRow [data-hair="short"]');await wait(300);
