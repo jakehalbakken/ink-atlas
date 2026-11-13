@@ -30,6 +30,7 @@ import { patchMaskTriangles } from './procreate-patch.js';
 import { makePatchReference } from './patch-reference.js';
 import { toneColour, nearestTone, sampleSkin, skinCheck } from './skin-tone.js';
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
+import { NEW_FEATURES, readTried, writeTried, untriedCount, ordered } from './whats-new.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -426,6 +427,7 @@ function commit() { syncDecals(); renderUI(); if (!$('#clothesPop').hidden) rend
 
 /* ---------- tattoo ops ---------- */
 const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
+let tried = readTried(); // features from New to try that were tried on this device
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
 function select(id, focus) { if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
@@ -542,7 +544,7 @@ canvas.addEventListener('pointermove', (e) => {
       const t = sel(); t.width = THREE.MathUtils.clamp(gest.w0 * (s.d / gest.d0), 0.012, 0.9);
       let da = s.ang - gest.a0; da = Math.atan2(Math.sin(da), Math.cos(da)); t.rot = gest.r0 - da; inkDirty = true;
     } else {
-      glide = false; goal.r = THREE.MathUtils.clamp(goal.r * delta.zoomRatio, 0.22, 7);
+      glide = false; if (!tried.has('pan')) markTried('pan'); goal.r = THREE.MathUtils.clamp(goal.r * delta.zoomRatio, 0.22, 7);
       goal.roll=wrapAngle((goal.roll||0)+delta.rollDelta);
       const k = (2 * cur.r * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / canvas.getBoundingClientRect().height;
       const right = new V3().setFromMatrixColumn(camera.matrixWorld, 0), up = new V3().setFromMatrixColumn(camera.matrixWorld, 1);
@@ -620,7 +622,7 @@ for (const [b, kind] of [[hSize, 'size'], [hTurn, 'turn']]) {
   b.addEventListener('pointerdown', (e) => {
     const t = sel(); if (!t || t.locked || handleDrag) return;
     e.preventDefault(); e.stopPropagation(); try { b.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-    const s = handleSpots(t); if (!s) return;
+    const s = handleSpots(t); if (!s) return; markTried('handles');
     if (poseView.motion.playing) poseView.pause();
     handleDrag = { id: e.pointerId, kind, c: s.c, d0: Math.hypot(e.clientX - s.c.x, e.clientY - s.c.y) || 1, a0: Math.atan2(e.clientY - s.c.y, e.clientX - s.c.x), w0: t.width, r0: t.rot || 0, snap: false };
     b.classList.add('on');
@@ -724,6 +726,7 @@ function otherSide(t) {
   return { pos: h.pos, normal: h.normal, rot: wrapAngle(-(t.rot || 0)), flip: !t.flip };
 }
 $('#bOtherSide').addEventListener('click', () => {
+  markTried('other-side');
   const t = sel(); if (!t) return;
   if (Math.abs(t.pos[0]) < Math.max(0.02, t.width * 0.3)) { toast('This tattoo sits in the middle of the body, so there is no other side.'); return; }
   const m = otherSide(t); if (!m) { toast('Could not find the matching spot on the other side.'); return; }
@@ -760,7 +763,7 @@ function renderRealSize() {
 }
 function showRealSize(on) {
   $('#realSize').hidden = !on; if (!on) { $('#rsCal').hidden = true; $('#rsCard').hidden = true; $('#rsCheck').hidden = false; return; }
-  rsPpi = guessPpi(); rsId = selectedId; renderRealSize();
+  markTried('real-size'); rsPpi = guessPpi(); rsId = selectedId; renderRealSize();
 }
 $('#bRealSize').addEventListener('click', () => showRealSize(true));
 $('#rsClose').addEventListener('click', () => showRealSize(false));
@@ -803,6 +806,7 @@ async function cleanupSelected(linked=false) {
 }
 /* ---------- edit in Procreate and bring it back to the same tattoo ---------- */
 function editInProcreate() {
+  markTried('edit-procreate');
   const t = sel(); if (!t) return;
   if (t.locked) { toast('Unlock this tattoo before editing its artwork.'); return; }
   cancelGesture();
@@ -833,6 +837,7 @@ function renderProcreateBar() {
 let paint = null, drawGuideUrl = null;
 const paintMat = new THREE.MeshBasicMaterial({ color: 0x8474ff, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 function startPaint() {
+  markTried('draw-new');
   if (poseView.active) { toast('Turn off the pose first, then paint the area.'); return; }
   cancelGesture(); select(null); showLook(false); tapPlaceId = null;
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', bodyGeo.attributes.position); geo.setIndex([]);
@@ -1080,11 +1085,77 @@ function renderLight() {
   $('#lightBtn').setAttribute('aria-expanded', String(!$('#lightPop').hidden));
   document.querySelectorAll('#lightChoices [data-light]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.light === lightId)));
 }
-function setLight(id) { lightId = applyLight(id, { hemi, key, rim, rim2 }); writeLight(lightId); needsRender = true; renderLight(); }
+function setLight(id) { if (id !== 'studio') markTried('light'); lightId = applyLight(id, { hemi, key, rim, rim2 }); writeLight(lightId); needsRender = true; renderLight(); }
 $('#lightChoices').innerHTML = LIGHTS.map((l) => `<button class="btn" type="button" data-light="${l.id}">${l.label}</button>`).join('');
-$('#lightBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop'); renderLight(); });
+$('#lightBtn').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop'); renderLight(); });
 $('#lightChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-light]'); if (b) setLight(b.dataset.light); });
 renderLight();
+/* ---------- New to try: the newest features, how to try them, and Show me ---------- */
+function markTried(id) { if (tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
+function renderNew() {
+  const n = untriedCount(tried); $('#newBtn').hidden = n === 0; $('#newCount').textContent = String(n);
+  $('#newBtn').setAttribute('aria-label', `New to try, ${n} not tried yet`); $('#newBtn').setAttribute('aria-expanded', String(!$('#newPop').hidden));
+  if ($('#newPop').hidden) return;
+  $('#newList').replaceChildren(...ordered(tried).map((f) => {
+    const done = tried.has(f.id);
+    const tick = el('button', { class: 'tick', type: 'button', role: 'checkbox', 'aria-checked': String(done), 'aria-label': (done ? 'Tried: ' : 'Not tried yet: ') + f.title, onclick: () => { if (tried.has(f.id)) tried.delete(f.id); else tried.add(f.id); writeTried(tried); renderNew(); } });
+    const text = el('div', {}, el('b', { text: f.title }), el('small', { text: f.how }));
+    return el('div', { class: 'newrow' + (done ? ' done' : ''), 'data-feature': f.id }, tick, text, el('button', { class: 'btn', type: 'button', text: 'Show me', onclick: () => showMe(f) }));
+  }));
+}
+function openNew(on = true) { closePanels(); toggle('#planMenu', false); $('#newPop').hidden = !on; renderNew(); }
+function closePanels() { cancelGesture(); showLook(false); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#newPop']) toggle(id, false); }
+function needTattoo() {
+  const t = sel() || state.tattoos.find((x) => !x.hidden) || state.tattoos[0];
+  if (!t) { toast('Add a tattoo first, then try this.'); return null; }
+  if (sel() !== t) select(t.id, true); else revealTattoo(t);
+  return t;
+}
+const SHOW = {
+  skinTone: () => { toggle('#bodyPop', true); return ['#skinOwnBtn', 'Tap + to make your own skin tone, or match a photo of your skin.']; },
+  light: () => { showLook(true); return ['#lightBtn', 'Tap Light, then pick the light you will see it in most.']; },
+  drawNew: () => ['#drawNew', 'Tap Draw in Procreate, then paint the spot on the body.'],
+  otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
+  realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },
+  handles: () => { if (!needTattoo()) return null; return ['#hSize', 'Drag this corner to resize. Drag the dot above the tattoo to turn it.']; },
+  palette: () => { toggle('#share', true); paletteReady = buildPalette(); return ['#cSwatches', 'Saves your skin and ink colours as a palette Procreate opens.']; },
+  editProcreate: () => { if (!needTattoo()) return null; return ['#bProcreate', 'Sends this tattoo to Procreate. Copy All there, then tap Paste here.']; },
+  pan: () => [null, 'Put two fingers on the screen away from a tattoo and slide them to move the view. Twist clearly to turn it.'],
+};
+let coachTimer = 0, coachArmed = 0;
+function showMe(f) {
+  closePanels();
+  const r = SHOW[f.show]?.(); if (!r) return;
+  coach(r[0], r[1]);
+}
+function coach(target, text) {
+  const ring = $('#pointRing'), tip = $('#pointTip'), t0 = performance.now();
+  tip.textContent = text; tip.hidden = false; ring.hidden = !target; coachArmed = t0 + 350;
+  cancelAnimationFrame(coachTimer);
+  let scrolled = false;
+  const place = () => {
+    const now = performance.now(); if (now - t0 > 8000) return endCoach();
+    const n = target && document.querySelector(target), vis = n && n.getClientRects().length && !n.hidden;
+    if (vis && !scrolled) { n.scrollIntoView({ block: 'nearest', inline: 'nearest' }); scrolled = true; }
+    if (vis) {
+      const b = n.getBoundingClientRect(), pad = 6; ring.hidden = false;
+      Object.assign(ring.style, { left: b.left - pad + 'px', top: b.top - pad + 'px', width: b.width + pad * 2 + 'px', height: b.height + pad * 2 + 'px' });
+      const tw = tip.offsetWidth, th = tip.offsetHeight, below = b.bottom + pad + 12 + th < innerHeight - 8;
+      tip.style.left = Math.max(16, Math.min(innerWidth - tw - 16, b.left + b.width / 2 - tw / 2)) + 'px';
+      tip.style.top = (below ? b.bottom + pad + 12 : Math.max(16, b.top - pad - 12 - th)) + 'px';
+    } else {
+      ring.hidden = true;
+      tip.style.left = Math.max(16, innerWidth / 2 - tip.offsetWidth / 2) + 'px'; tip.style.top = Math.round(innerHeight * 0.42) + 'px';
+    }
+    coachTimer = requestAnimationFrame(place);
+  };
+  coachTimer = requestAnimationFrame(() => requestAnimationFrame(place));
+}
+function endCoach() { cancelAnimationFrame(coachTimer); $('#pointRing').hidden = true; $('#pointTip').hidden = true; }
+document.addEventListener('pointerdown', () => { if (!$('#pointTip').hidden && performance.now() > coachArmed) endCoach(); }, true);
+$('#newBtn').addEventListener('click', () => openNew($('#newPop').hidden));
+$('#openNew').addEventListener('click', () => openNew(true));
+renderNew();
 $('#baBtn').addEventListener('click', () => {
   if (beforeAfter.on) { beforeAfter.set(false); return; }
   if (!plannedShown().length) { toast('Nothing planned to compare yet. Mark a tattoo as Planned to see it here.'); return; }
@@ -1099,7 +1170,7 @@ function renderLook() {
   $('#lookBtn').textContent = on.length ? 'Preview: ' + on.join(', ') : 'Preview';
   $('#lookBtn').classList.toggle('active', on.length > 0);
 }
-$('#lookBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); showLook(); });
+$('#lookBtn').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#posePop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); showLook(); });
 // picking one of them closes the little menu: its own panel (or the wipe) takes over
 for (const id of ['#baBtn', '#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn']) $(id).addEventListener('click', () => showLook(false));
 new MutationObserver(renderLook).observe($('#lookMenu'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-pressed'] });
@@ -1121,7 +1192,7 @@ $('#file').addEventListener('change', async (e) => {
   }
   if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
 });
-function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#lightPop' && typeof renderLight === 'function') renderLight(); if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
+function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#lightPop' && typeof renderLight === 'function') renderLight(); if (id === '#newPop' && typeof renderNew === 'function') renderNew(); if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
 $('#bodyBtn').addEventListener('click', () => { showLook(false); toggle('#bodyPop'); });
 $('#rHeight').addEventListener('input', () => { state.heightCm = +$('#rHeight').value; renderBody(); renderSheet(); save(); });
 document.querySelectorAll('[data-fig]').forEach((b) => b.addEventListener('click', () => { if (state.figure === b.dataset.fig) return; snapshot(); reshape(() => { state.figure = b.dataset.fig; }); commit(); }));
@@ -1137,6 +1208,7 @@ bindShape($('#rMuscle'), (v) => { state.muscle = v; });
 bindShape($('#rWeight'), (v) => { state.weight = v; });
 /* ---------- your own skin tone ---------- */
 function skinFromSliders() {
+  markTried('skin-tone');
   if (!skinSlide) { snapshot(); skinSlide = true; }
   state.skinHex = toneColour(+$('#rSkinDepth').value / 100, +$('#rSkinWarm').value / 100);
   skinMat.color.set(state.skinHex); needsRender = true;
@@ -1179,7 +1251,7 @@ $('#skinPick').addEventListener('pointerdown', (e) => {
 $('#spCancel').addEventListener('click', closeSkinPick);
 $('#spUse').addEventListener('click', () => {
   if (!skinPhoto?.hex) return;
-  snapshot(); state.skinHex = skinPhoto.hex; skinOwnOpen = true; skinMat.color.set(state.skinHex); needsRender = true;
+  markTried('skin-tone'); snapshot(); state.skinHex = skinPhoto.hex; skinOwnOpen = true; skinMat.color.set(state.skinHex); needsRender = true;
   closeSkinPick(); renderBody(); save(); refreshUndo();
   toast('Your skin tone now matches the photo.', 'Undo', undo);
 });
@@ -1402,7 +1474,7 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -1491,6 +1563,7 @@ async function buildPalette() {
   return { name, colours, blob: swatchesFile(name, colours), file: (state.projectName || 'Ink Atlas').replace(/[^\w\- ]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 50) + ' colours.swatches' };
 }
 $('#cSwatches').addEventListener('click', async () => {
+  markTried('palette');
   const p = await (paletteReady || (paletteReady = buildPalette()));
   toggle('#share', false); paletteReady = null;
   await saveFile(p.file, p.blob);

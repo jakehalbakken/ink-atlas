@@ -406,3 +406,7 @@ Direction from Jake's chat: Procreate is where art gets drawn; Ink Atlas is wher
 
 - Your own skin tone (Body > Skin tone, + swatch): lighter/deeper and cooler/warmer sliders between and beyond the five presets, one undo per drag; Match a photo of your skin takes the middle colour of a small disc where you tap and refuses background, shadow and glare. Uses the existing `skinHex` field, so old saves and v47 imports are unaffected. Tested: skin-tone-unit, t53. Not yet checked with a real iPad photo.
 - Light in Preview: Studio (unchanged default), Daylight, Warm room, Midday sun. View only, kept per device, never in the project or undo history. Tested: t54.
+
+## New to try list (built 2026-11-13, waiting for Jake's OK)
+
+- New to try button under Preview, with a count of untried features. The list gives each new feature a one-line how-to and a Show me that opens the right panel (selecting a tattoo when needed) and rings the exact control with a short tip; a touch anywhere puts it away. Ticks are kept on this device (`ia-tried`, never in the project); using a feature ticks it. The button goes once all are tried; Plan > New to try still opens the list. Every batch adds its features in the same deploy. Tested: t55.
