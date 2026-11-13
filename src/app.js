@@ -684,6 +684,9 @@ function renderBody() {
 function renderUI() { needsRender = true; renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); }
 function toast(msg, action, fn) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
+  // below a bar that is showing at the top, never behind it
+  const bar = ['#procreateBar', '#paintBar'].map((q) => $(q)).find((b) => b && !b.hidden);
+  t.style.top = bar ? `${Math.round(bar.getBoundingClientRect().bottom + 8)}px` : '';
   t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 5200);
 }
 let slideSnap = false;

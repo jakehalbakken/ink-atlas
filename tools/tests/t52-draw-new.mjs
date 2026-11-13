@@ -65,7 +65,8 @@ export default async function(p){
  const right=norm(cross(ref,n)),up=cross(n,right);
  const at=(dx,dy)=>pend.patch.pos.map((v,i)=>v+right[i]*(dx-.5)*W-up[i]*(dy-.5)*W);
  const off=t.pos.map((v,i)=>v-pend.patch.pos[i]);
- assert.ok(Math.hypot(off[0]*right[0]+off[1]*right[1]+off[2]*right[2],off[0]*up[0]+off[1]*up[1]+off[2]*up[2])<.006,'middle of the drawing where it was drawn');
+ const mid=973/2048-.5,gx=off[0]*right[0]+off[1]*right[1]+off[2]*right[2],gy=off[0]*up[0]+off[1]*up[1]+off[2]*up[2];
+ assert.ok(Math.hypot(gx-mid*W,gy+mid*W)<.004,`middle of the drawing where it was drawn: ${gx.toFixed(4)},${gy.toFixed(4)} vs ${(mid*W).toFixed(4)},${(-mid*W).toFixed(4)}`);
  const px=async(pt)=>{const q=await p.evaluate(pt=>window.__ink.projectPoint(pt),pt);return p.evaluate(q=>window.__ink.pixelAt(q.x,q.y),q);};
  const red=await px(at(717/2048,717/2048)),black=await px(at(1229/2048,1229/2048));
  assert.ok(red[0]>red[1]+40,'red up and to the left: '+red);assert.ok(Math.max(...black.slice(0,3))<90,'black down and to the right: '+black);

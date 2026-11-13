@@ -32,8 +32,15 @@ export function drawGuide({ size = GUIDE_SIZE, mask, highlight = [], skin = '#e0
   g.fillStyle = skin; tri(g, mask); g.fill(); g.strokeStyle = skin; g.lineWidth = 1.5; g.stroke(); // close hairline seams
   if (ink) g.drawImage(ink, 0, 0, size, size);
   if (highlight.length) {
-    const h = document.createElement('canvas'); h.width = h.height = size; const hg = h.getContext('2d');
-    hg.fillStyle = '#8474ff'; tri(hg, highlight); hg.fill(); hg.strokeStyle = '#8474ff'; hg.lineWidth = 2; hg.stroke();
+    // the painted triangles have a stepped edge; soften it, then cut it clean again, so the
+    // area reads as one smooth shape
+    const raw = document.createElement('canvas'); raw.width = raw.height = size; const rg = raw.getContext('2d');
+    rg.fillStyle = '#8474ff'; tri(rg, highlight); rg.fill(); rg.strokeStyle = '#8474ff'; rg.lineWidth = 2; rg.stroke();
+    const h = document.createElement('canvas'); h.width = h.height = size; const hg = h.getContext('2d', { willReadFrequently: true });
+    hg.filter = `blur(${Math.round(size / 90)}px)`; hg.drawImage(raw, 0, 0); hg.filter = 'none';
+    const im = hg.getImageData(0, 0, size, size), d = im.data;
+    for (let i = 3; i < d.length; i += 4) { const a = d[i]; d[i - 3] = 0x84; d[i - 2] = 0x74; d[i - 1] = 0xff; d[i] = a < 104 ? 0 : a > 152 ? 255 : Math.round((a - 104) * 255 / 48); }
+    hg.putImageData(im, 0, 0);
     g.globalAlpha = 0.22; g.drawImage(h, 0, 0); g.globalAlpha = 1;
     // edge: the outline of the tinted area, drawn as a thin ring from a slightly grown copy
     const e = document.createElement('canvas'); e.width = e.height = size; const eg = e.getContext('2d');
@@ -47,7 +54,7 @@ export function drawGuide({ size = GUIDE_SIZE, mask, highlight = [], skin = '#e0
   g.save(); g.translate(flipX ? size : 0, flipY ? size : 0); g.scale(flipX ? -1 : 1, flipY ? -1 : 1); g.drawImage(c, 0, 0); g.restore();
   const f = size / 768;
   g.fillStyle = 'rgba(30,30,34,.82)'; g.font = `600 ${Math.round(16 * f)}px system-ui, sans-serif`;
-  g.fillText(`${label}${widthCm > 0 ? `  ·  this square is ${widthCm.toFixed(1)} cm wide` : ''}`, 18 * f, 30 * f, size - 36 * f);
+  g.fillText(`${label}${widthCm > 0 ? `  ·  this square is ${(widthCm / 2.54).toFixed(1)} in (${widthCm.toFixed(1)} cm) wide` : ''}`, 18 * f, 30 * f, size - 36 * f);
   g.font = `${Math.round(13 * f)}px system-ui, sans-serif`;
   g.fillText('Draw on a new layer. Hide this layer, then Copy All and Paste in Ink Atlas. Top is up.', 18 * f, size - 18 * f, size - 36 * f);
   return o;
