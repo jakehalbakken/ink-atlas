@@ -389,7 +389,7 @@ Jake, from the iPad: no easy way to pan without rotating; tapping a tattoo throw
 - **Edit in Procreate** (`src/procreate-edit.js`, button in the edit panel). Sends the tattoo's artwork as a PNG through the share sheet, as it looks on the body (mirror and flip applied), at its stored size. A bar remembers which tattoo is out, kept in local storage outside the project so it survives iPadOS closing the app. Back: Copy All in Procreate, then Paste (Safari asks once more with its own Paste button), or pick the saved picture from Photos or Files. The picture replaces that tattoo's artwork as a new revision with the same place, size, turn and ink strength; the earlier artwork is kept and one Undo restores it. Linked copies are left alone. No project format change. A web app cannot open Procreate itself or receive Procreate's share, which is why the way back is copy and paste. `t47-procreate-edit.mjs`.
 - Not checked on the iPad yet.
 
-## Handles and Procreate palette (2026-11-13, Claude; built, waiting for Jake's deploy OK)
+## Handles and Procreate palette (2026-11-13, Claude; live 05:56Z with Jake's OK)
 
 Direction from Jake's chat: Procreate is where art gets drawn; Ink Atlas is where it gets fitted, checked and approved. In-app tools stay light, and the Procreate round trip gets smoother.
 
