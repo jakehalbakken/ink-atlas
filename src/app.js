@@ -99,7 +99,7 @@ function setBodyPositions(pos, withGenitals) {
   bodyGeo.setIndex(withGenitals ? idxAll : idxBody);
   bodyGeo.computeVertexNormals(); bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
   const fem = state.figure === 'female' ? 1 : state.figure === 'male' ? 0 : 0.5;
-  updateSkin(bodyGeo, skinU, (0.0155 + 0.006 * fem) * (1 + 0.35 * ((state.fit && state.fit.nippleSize) || 0)));
+  updateSkin(bodyGeo, skinU, (0.0155 + 0.006 * fem) * (1 + 0.35 * ((state.fit && state.fit.nippleSize) || 0)), state);
   shapeKey++; needsRender = true; if (poseView) poseView.invalidate();
 }
 function applyShape() { setBodyPositions(shapePositions(state), genitalsShown()); }

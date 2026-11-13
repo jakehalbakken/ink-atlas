@@ -39,7 +39,7 @@ export function openBodyTools({THREE,state,bodyGeometry,bodyMaterial,decals=[],o
  const drawColor='#e9bf6c',drawWidth=.002;
  const heightCm=Number.isFinite(state.heightCm)&&state.heightCm>0?state.heightCm:175;
  const geo=bodyGeometry.clone();geometries.push(geo);geo.computeVertexNormals();geo.computeBoundingBox();
- const skin=createSkin(geo,bodyMaterial.color.clone());materials.push(skin.mat);const fem=state.figure==='female'?1:state.figure==='male'?0:.5;updateSkin(geo,skin.uniforms,(.0155+.006*fem)*(1+.35*(state.fit?.nippleSize||0)));
+ const skin=createSkin(geo,bodyMaterial.color.clone());materials.push(skin.mat);const fem=state.figure==='female'?1:state.figure==='male'?0:.5;updateSkin(geo,skin.uniforms,(.0155+.006*fem)*(1+.35*(state.fit?.nippleSize||0)),state);
  const positions=geo.attributes.position.array,index=geo.index?.array;if(!index)throw new Error('Body tools require indexed geometry');const adjacency=buildAdjacency(index),normals=geo.attributes.normal.array;
  const scene=new THREE.Scene();scene.background=new THREE.Color('#20232c');const body=new THREE.Mesh(geo,skin.mat);scene.add(body);
  for(const d of decals){const g=d.geometry.clone();geometries.push(g);const clone=m=>{const out=m.clone();materials.push(out);return out;};scene.add(new THREE.Mesh(g,Array.isArray(d.material)?d.material.map(clone):clone(d.material)));}

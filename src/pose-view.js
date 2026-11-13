@@ -39,6 +39,7 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
   const len = bodyGeo.attributes.position.array.length;
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(len), 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(len), 3));
+  geo.setAttribute('rest', new THREE.BufferAttribute(new Float32Array(len), 3));
   geo.setIndex(bodyGeo.index);
   const { mat, uniforms } = createSkin(geo, skinMat.color.clone());
 
@@ -78,9 +79,10 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
     for (let i = 1; i < posed.length; i += 3) { if (posed[i] < low) low = posed[i]; if (r.positions[i] < restLow) restLow = r.positions[i]; }
     const drop = restLow - low; if (drop) for (let i = 1; i < posed.length; i += 3) posed[i] += drop;
     geo.attributes.position.array.set(posed); geo.attributes.position.needsUpdate = true;
+    geo.attributes.rest.array.set(r.positions); geo.attributes.rest.needsUpdate = true;
     if (geo.index !== bodyGeo.index) geo.setIndex(bodyGeo.index);
     geo.computeVertexNormals(); geo.computeBoundingBox(); geo.computeBoundingSphere();
-    updateSkin(geo, uniforms, areola());
+    updateSkin(geo, uniforms, areola(), state());
     built = version;
   }
   function decalGeometry(restGeo) {

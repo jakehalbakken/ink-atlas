@@ -20,7 +20,7 @@ export function openLayoutCompare({THREE,a,b}){
   const material=m=>{if(Array.isArray(m))return m.map(material);const c=m.clone();mats.push(c);return c;};
   const scenes=[a,b].map(bundle=>{
    const scene=new THREE.Scene();scene.background=new THREE.Color('#20232c');const geometry=bundle.bodyGeometry.clone();geos.push(geometry);
-   const {mat,uniforms}=createSkin(geometry,bundle.bodyMaterial.color.clone());mats.push(mat);const fem=bundle.state.figure==='female'?1:bundle.state.figure==='male'?0:.5;updateSkin(geometry,uniforms,(.0155+.006*fem)*(1+.35*(bundle.state.fit?.nippleSize||0)));scene.add(new THREE.Mesh(geometry,mat));
+   const {mat,uniforms}=createSkin(geometry,bundle.bodyMaterial.color.clone());mats.push(mat);const fem=bundle.state.figure==='female'?1:bundle.state.figure==='male'?0:.5;updateSkin(geometry,uniforms,(.0155+.006*fem)*(1+.35*(bundle.state.fit?.nippleSize||0)),bundle.state);scene.add(new THREE.Mesh(geometry,mat));
    for(const d of bundle.decals||[]){const g=d.geometry.clone();geos.push(g);const mesh=new THREE.Mesh(g,material(d.material));mesh.renderOrder=d.renderOrder||0;scene.add(mesh);}
    scene.add(new THREE.HemisphereLight(0xffffff,0x4a4652,1.6));const light=new THREE.DirectionalLight(0xfff4ea,2.4);light.position.set(-2,3,4);scene.add(light);const rim=new THREE.DirectionalLight(0xb9c4ff,1.2);rim.position.set(2,2,-3);scene.add(rim);return scene;
   });
