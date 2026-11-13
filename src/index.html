@@ -58,6 +58,9 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #baBtn{position:fixed;top:136px;left:16px;z-index:4}
 #poseBtn{position:fixed;top:190px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #clothesBtn{position:fixed;top:244px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ageBtn{position:fixed;top:298px;left:16px;z-index:4;max-width:calc(100% - 32px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#agePop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
+#agePop .posegrid{grid-template-columns:repeat(4,1fr)}#agePop .posegrid .btn{padding:0 4px;font-size:13px}#agePop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
 #clothesPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
 #clothesPop .posegrid{grid-template-columns:repeat(4,1fr)}#clothesPop .posegrid .btn{padding:0 4px;font-size:13px}
 #clothesPop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
@@ -235,6 +238,13 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <h4>Bottom</h4><div class="posegrid" id="clothesBottom"></div>
   <h4>Hair</h4><div class="posegrid" id="clothesHair"></div>
   <p id="clothesShow" aria-live="polite"></p>
+</div>
+<button class="btn glass" id="ageBtn" type="button" aria-expanded="false">Aging</button>
+<div id="agePop" class="pop glass" hidden>
+  <div class="pophead"><h3>Aging</h3><button class="btn" type="button" data-close="agePop">Done</button></div>
+  <p class="tip">See how your tattoos may look as they age. Lines soften and spread a little, and black ink lightens. A rough guide, not a promise. Only for looking, not saved.</p>
+  <div class="posegrid" id="ageChoices"></div>
+  <p class="tip">Very fine lines and small lettering blur first. If a design still reads at 10 years, it will hold up.</p>
 </div>
 <div id="dock">
   <p id="hint">Tap a tattoo to work on it. Double-tap empty space for the full body.</p>

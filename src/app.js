@@ -22,6 +22,7 @@ import { createPoseView } from './pose-view.js';
 import { createClothes, TOPS, BOTTOMS, HAIR } from './clothes.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
+import { AGES, ageInk } from './aging.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -257,6 +258,11 @@ function inkTexture(t) {
   const W = Math.min(1024, Math.max(64, im ? im.naturalWidth : 256)); c.width = W; c.height = Math.max(8, Math.round(W / t.aspect));
   const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
   if (im) { g.save(); g.globalAlpha = t.opacity ?? 0.92; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } const mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height; g.drawImage(im, mx, my, c.width - 2 * mx, c.height - 2 * my); g.restore(); }
+  if (im && agingYears > 0) {
+    // the ink as it would look after this many years (only for looking)
+    const mm = t.width * 1000 * (state.heightCm || 175) / 175, d = g.getImageData(0, 0, c.width, c.height);
+    ageInk(d.data, c.width, c.height, agingYears, (c.width * (1 - 2 * UV_MARGIN)) / Math.max(1, mm)); g.putImageData(d, 0, 0);
+  }
   const tex = new THREE.CanvasTexture(c); tex.flipY = !t.imageTopDown; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; return tex;
 }
 function outlineTexture(aspect) {
@@ -287,7 +293,8 @@ function decalGeometry(t) {
   out.userData.supports = supports; out.userData.tris = tris;
   return out;
 }
-function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3)].join('|'); }
+let agingYears = 0; // view only: how the ink looks after this many years
+function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0].join('|'); }
 function syncDecals() {
   const ids = new Set(state.tattoos.map((t) => t.id));
   for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); d.tex.dispose(); d.outline.material.map.dispose(); delete decals[id]; }
@@ -668,7 +675,7 @@ function renderPose() {
 }
 let scrubbing = false;
 function afterPoseChange() { spotCache.clear(); const t = sel(); if (t && !gest) requestAnimationFrame(() => { if (sel() === t && poseView.settled()) focusTattoo(t); }); }
-$('#poseBtn').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#posePop'); renderPose(); });
+$('#poseBtn').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#posePop'); renderPose(); });
 $('#poseList').addEventListener('click', (e) => { const b = e.target.closest('[data-pose]'); if (!b) return; cancelGesture(); poseView.choose(b.dataset.pose); renderPose(); setTimeout(afterPoseChange, 320); });
 $('#motionKind').addEventListener('change', () => { poseView.scrub(0, $('#motionKind').value); if ($('#motionPlay').getAttribute('aria-pressed') === 'true') poseView.play(); renderPose(); });
 $('#motionPlay').addEventListener('click', () => { if (poseView.motion.playing) poseView.pause(); else poseView.play($('#motionKind').value); renderPose(); });
@@ -705,11 +712,24 @@ function renderClothes() {
     [r.covered.length ? 'Covered: ' + list(r.covered) + '.' : 'Nothing fully covered.', r.partly.length ? 'Partly showing: ' + list(r.partly) + '.' : '', r.showing.length ? 'Showing: ' + list(r.showing) + '.' : ''].filter(Boolean).join(' ');
 }
 function setClothes(next) { clothes.set(next); clothes.sync(shapeKey, poseView.version); needsRender = true; renderClothes(); }
-$('#clothesBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop'); renderClothes(); });
+$('#clothesBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#agePop', false); toggle('#clothesPop'); renderClothes(); });
 $('#clothesTop').addEventListener('click', (e) => { const b = e.target.closest('[data-top]'); if (b) setClothes({ top: b.dataset.top }); });
 $('#clothesBottom').addEventListener('click', (e) => { const b = e.target.closest('[data-bottom]'); if (b) setClothes({ bottom: b.dataset.bottom }); });
 $('#clothesHair').addEventListener('click', (e) => { const b = e.target.closest('[data-hair]'); if (b) setClothes({ hair: b.dataset.hair }); });
 renderClothes();
+
+/* ---------- aging: how the ink looks after some years (view only, not saved) ---------- */
+function renderAging() {
+  const a = AGES.find((x) => x.years === agingYears);
+  $('#ageBtn').textContent = agingYears ? 'Aging: ' + a.label : 'Aging';
+  $('#ageBtn').setAttribute('aria-expanded', String(!$('#agePop').hidden));
+  document.querySelectorAll('#ageChoices [data-years]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.years === agingYears)));
+}
+function setAging(years) { agingYears = AGES.some((a) => a.years === years) ? years : 0; syncDecals(); renderAging(); }
+$('#ageChoices').innerHTML = AGES.map((a) => `<button class="btn" type="button" data-years="${a.years}">${a.label}</button>`).join('');
+$('#ageBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop'); renderAging(); });
+$('#ageChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-years]'); if (b) setAging(+b.dataset.years); });
+renderAging();
 $('#baBtn').addEventListener('click', () => {
   if (beforeAfter.on) { beforeAfter.set(false); return; }
   if (!plannedShown().length) { toast('Nothing planned to compare yet. Mark a tattoo as Planned to see it here.'); return; }
@@ -732,7 +752,7 @@ $('#file').addEventListener('change', async (e) => {
   }
   if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
 });
-function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
+function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
 $('#bodyBtn').addEventListener('click', () => { toggle('#bodyPop'); });
 $('#rHeight').addEventListener('input', () => { state.heightCm = +$('#rHeight').value; renderBody(); renderSheet(); save(); });
 document.querySelectorAll('[data-fig]').forEach((b) => b.addEventListener('click', () => { if (state.figure === b.dataset.fig) return; snapshot(); reshape(() => { state.figure = b.dataset.fig; }); commit(); }));
@@ -965,7 +985,7 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => toggle('#share', true));
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { cancelGesture(); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -1389,6 +1409,7 @@ function tick(now) {
 window.__ink = {
   state: () => state, ready: () => booted,
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }),
+  aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex }; }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
   pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),
