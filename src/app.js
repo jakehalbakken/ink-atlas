@@ -20,6 +20,7 @@ import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
 import { createBeforeAfter } from './before-after.js';
 import { createPoseView } from './pose-view.js';
 import { createClothes, TOPS, BOTTOMS, HAIR } from './clothes.js';
+import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
 
 const $ = (s) => document.querySelector(s);
@@ -775,9 +776,13 @@ function syncFitUI() {
 $('#fitReset').addEventListener('click', () => { snapshot(); reshape(() => { state.fit = {}; state.muscle = 0.5; state.weight = 0.5; }); commit(); toast('Body shape back to standard', 'Undo', undo); });
 // Keep browser/page zoom separate from the 3D camera. Single-finger panel
 // scrolling is allowed; pinching panels must not zoom the entire app off-screen.
+// A one-finger (or Pencil) touch that starts on a button is left alone, so the jitter of
+// a tap never turns into a cancelled click; the page itself cannot scroll anyway.
 document.addEventListener('touchmove', (e) => {
+  if (e.touches.length === 1 && controlAt(e.target)) return;
   if (e.touches.length > 1 || !(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems,#sheet,[aria-modal=true]')) e.preventDefault();
 }, { passive: false });
+installPenTap();
 for (const name of ['gesturestart', 'gesturechange']) document.addEventListener(name, (e) => e.preventDefault(), { passive: false });
 // iOS can still change its visual viewport (keyboard, accessibility/page zoom,
 // browser chrome). Fit the whole studio to that visible rectangle rather than
