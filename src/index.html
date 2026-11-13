@@ -109,6 +109,7 @@ body.panel-open #hint{visibility:hidden}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 #name{flex:1 1 160px;min-height:44px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
 #size{font-variant-numeric:tabular-nums;color:var(--text);font-size:14px;white-space:pre}
+#gap{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;flex-basis:100%;order:4}
 .sliders{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .sliders .lbl{font-size:12.5px}
 ink-slider{display:block;position:relative;height:44px;touch-action:pan-y;cursor:pointer;outline:none;-webkit-tap-highlight-color:transparent}
@@ -337,6 +338,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <label for="name" hidden>Name</label>
       <input id="name" type="text" maxlength="40" autocomplete="off" aria-label="Tattoo name">
       <span id="size"></span>
+      <span id="gap" hidden></span>
       <button class="btn primary" id="bDone" type="button">Done</button>
     </div>
     <div class="row editor-quick">

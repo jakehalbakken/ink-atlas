@@ -400,6 +400,7 @@ Direction from Jake's chat: Procreate is where art gets drawn; Ink Atlas is wher
 
 - Copy to other side (More controls): the same artwork, mirrored, at the matching spot on the other side of the body, linked to the original, named left and right, one undo. A tattoo in the middle of the body says there is no other side. Tested: t51.
 - Real size on screen (More controls): the artwork at its true size on the skin colour, to hold the iPad against the skin. Pixels per inch is guessed per device (132 for most iPads, 163 for iPad mini) and a bank-card check corrects and keeps it on this device. Tested: t51. Not yet checked on the iPad, where the guess matters most.
+- Space between tattoos (edit panel, under the size): the gap from the selected tattoo's ink to the nearest other tattoo's ink, straight across the body, in inches, or Touches. Hidden tattoos are left out. Tested: t60. Not yet checked on the iPad.
 - Draw in Procreate on a painted area (tray button, Jake's ask): a highlight brush paints the spot, the guide (2048 square of that skin, nearby ink, tinted area, its width in cm) goes to Procreate, and the drawing comes back by Copy All > Paste as a new planned tattoo on the same spot, upright and trimmed to the drawing. A guide that comes back with the drawing is refused with a hint to hide the guide layer. Tested: t52. Not yet tried in real Procreate.
 
 ## Your own skin tone and light (live 2026-11-13 07:38Z with Jake's OK)

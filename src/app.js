@@ -351,6 +351,50 @@ function decalGeometry(t) {
   out.userData.supports = supports; out.userData.tris = tris;
   return out;
 }
+// Where a tattoo actually has ink, as points on the body: each decal triangle is sampled on a
+// small grid and kept where its artwork is dark. Cached per geometry and artwork.
+const inkPointCache = new WeakMap();
+function inkPoints(t) {
+  const d = decals[t.id]; if (!d || !d.tex || !d.tex.image || !d.mesh.geometry.attributes.position) return null;
+  const geo = d.mesh.geometry, key = d.texKey + ':' + geo.attributes.position.version, hit = inkPointCache.get(geo);
+  if (hit && hit.key === key) return hit.pts;
+  const src = d.tex.image, W = 256, H = Math.max(8, Math.round(W * src.height / src.width));
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, W, H);
+  const px = g.getImageData(0, 0, W, H).data, flipped = d.tex.flipY;
+  const ink = (u, v) => { const x = Math.min(W - 1, Math.max(0, Math.floor(u * W))), y = Math.min(H - 1, Math.max(0, Math.floor((flipped ? 1 - v : v) * H))), o = (y * W + x) * 4; return 255 - Math.min(px[o], px[o + 1], px[o + 2]) > 70; };
+  const P = geo.attributes.position.array, U = geo.attributes.uv.array, pts = [], N = Math.max(4, Math.min(12, Math.round(40000 / Math.max(1, P.length / 9))));
+  for (let tri = 0; tri < P.length / 9; tri++) for (let i = 0; i <= N; i++) for (let j = 0; i + j <= N; j++) {
+    const a = i / N, b = j / N, c0 = 1 - a - b, u = c0 * U[tri * 6] + a * U[tri * 6 + 2] + b * U[tri * 6 + 4], v = c0 * U[tri * 6 + 1] + a * U[tri * 6 + 3] + b * U[tri * 6 + 5];
+    if (!ink(u, v)) continue;
+    const o = tri * 9; pts.push(c0 * P[o] + a * P[o + 3] + b * P[o + 6], c0 * P[o + 1] + a * P[o + 4] + b * P[o + 7], c0 * P[o + 2] + a * P[o + 5] + b * P[o + 8]);
+  }
+  // keep the pairwise check quick on big, dense artwork: at most about 4000 points
+  const step = Math.max(1, Math.ceil(pts.length / 3 / 4000)), keep = [];
+  for (let i = 0; i < pts.length; i += 3 * step) keep.push(pts[i], pts[i + 1], pts[i + 2]);
+  const out = new Float32Array(keep); inkPointCache.set(geo, { key, pts: out }); return out;
+}
+// The nearest other tattoo to t, by the gap between their ink: { name, inches } or null.
+function nearestGap(t) {
+  const a = inkPoints(t); if (!a || !a.length) return null;
+  let best = null;
+  for (const o of state.tattoos) {
+    if (o.id === t.id || o.hidden) continue;
+    const b = inkPoints(o); if (!b || !b.length) continue;
+    // quick reject: far apart boxes can't beat the best so far
+    let m = Infinity;
+    for (let i = 0; i < a.length; i += 3) for (let j = 0; j < b.length; j += 3) { const dx = a[i] - b[j], dy = a[i + 1] - b[j + 1], dz = a[i + 2] - b[j + 2], dd = dx * dx + dy * dy + dz * dz; if (dd < m) m = dd; }
+    const inches = Math.sqrt(m) * 100 * (state.heightCm / 175) / 2.54;
+    if (!best || inches < best.inches) best = { name: o.name || 'another tattoo', inches };
+  }
+  return best;
+}
+function gapText(t) {
+  const g = nearestGap(t); if (!g) return '';
+  if (g.inches < 0.15) return `Touches ${g.name}`;
+  return `${g.inches < 10 ? g.inches.toFixed(1) : Math.round(g.inches)} in from ${g.name}`;
+}
+let gapTimer = 0;
+function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; }, 120); }
 let agingYears = 0; // view only: how the ink looks after this many years
 function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0].join('|'); }
 function syncDecals() {
@@ -674,7 +718,7 @@ function renderSheet() {
   $('#tapPlaceBar').hidden=!tapPlaceId;$('#bTapPlace').setAttribute('aria-pressed',String(!!tapPlaceId));$('#bTapPlace').textContent=tapPlaceId?'Cancel tap to place':'Tap to place';$('#bTapPlace').disabled=!t||t.locked||t.hidden||t.status==='existing';canvas.style.cursor=tapPlaceId?'crosshair':'';
   if (!t) return;
   if (document.activeElement !== $('#name')) $('#name').value = t.name;
-  $('#size').textContent = sizeText(t);
+  $('#size').textContent = sizeText(t); renderGap();
   const linkedCount=t.artworkId?state.tattoos.filter(x=>x.artworkId===t.artworkId).length:1;
   $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=!!t.locked; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
   $('#exactWidth').value = (t.width * state.heightCm / 175 * 100 / 2.54).toFixed(2);
@@ -716,7 +760,7 @@ function toast(msg, action, fn) {
   t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 5200);
 }
 let slideSnap = false;
-function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t || t.locked) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
+function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t || t.locked) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); renderGap(); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
 slider('#rSize', (t, v) => { t.width = 0.012 * Math.pow(0.9 / 0.012, v / 1000); });
 slider('#rTurn', (t, v) => { t.rot = v * Math.PI / 180; });
 slider('#rFade', (t, v) => { t.opacity = v / 100; });
@@ -1391,6 +1435,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  gap: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', state.tattoos.filter((x) => !x.hidden).length > 1 ? 'This line says how far the tattoo is from the nearest other one.' : 'Add a second tattoo and this line says how far apart they are.']; },
   skinDetail: () => { toggle('#bodyPop', true); viewFace(); return ['#faceBtn', 'Eyebrows and fine skin texture now show on every body. Zoom in close to see them. Add my face puts your own face on.']; },
   face: () => { toggle('#bodyPop', true); return ['#faceBtn', 'Pick a clear photo of your face, looking straight at the camera.']; },
   bodyPhoto: () => { toggle('#bodyPop', true); return ['#bodyPhotoBtn', 'Pick a full-length photo of yourself, taken straight on. The body takes your shape.']; },
@@ -2207,6 +2252,7 @@ function tick(now) {
 window.__ink = {
   state: () => state, ready: () => booted,
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
+  gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null }),
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }),
   aging: () => agingYears, setAging: (y) => setAging(y),

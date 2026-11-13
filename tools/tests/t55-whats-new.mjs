@@ -22,7 +22,7 @@ export default async function(p){
  assert.equal(await p.$eval('#newList .newrow[data-feature="pan"]',e=>e.classList.contains('done')),true);
  await p.$eval('#newList .newrow[data-feature="pan"] .tick',e=>e.click());await wait(100);assert.equal(await count(),N,'unticked');
  // Show me for every feature rings the control that does it
- const expect={skinDetail:['#faceBtn','#bodyPop'],face:['#faceBtn','#bodyPop'],bodyPhoto:['#bodyPhotoBtn','#bodyPop'],definition:['#rMuscle','#bodyPop'],spots:['#bSpots','#editorAdvanced'],tryOn:['#bTryOn','#editorAdvanced'],skinTone:['#skinOwnBtn','#bodyPop'],light:['#lightBtn','#lookMenu'],drawNew:['#drawNew'],otherSide:['#bOtherSide','#editorAdvanced'],realSize:['#bRealSize','#editorAdvanced'],handles:['#hSize'],palette:['#cSwatches','#share'],editProcreate:['#bProcreate'],pan:[null]};
+ const expect={gap:['#gap','#sheet'],skinDetail:['#faceBtn','#bodyPop'],face:['#faceBtn','#bodyPop'],bodyPhoto:['#bodyPhotoBtn','#bodyPop'],definition:['#rMuscle','#bodyPop'],spots:['#bSpots','#editorAdvanced'],tryOn:['#bTryOn','#editorAdvanced'],skinTone:['#skinOwnBtn','#bodyPop'],light:['#lightBtn','#lookMenu'],drawNew:['#drawNew'],otherSide:['#bOtherSide','#editorAdvanced'],realSize:['#bRealSize','#editorAdvanced'],handles:['#hSize'],palette:['#cSwatches','#share'],editProcreate:['#bProcreate'],pan:[null]};
  for(const f of NEW_FEATURES){
   await open();
   await p.$eval(`#newList .newrow[data-feature="${f.id}"] .btn:not(.tick)`,e=>e.click());await wait(900);
