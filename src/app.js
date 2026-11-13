@@ -166,7 +166,7 @@ function freeArea() {
   const bottom = side ? b.bottom - 12 : Math.max(top + 80, Math.min(b.bottom - 12, dockTop - 14));
   const right = side ? d.left + 4 : b.right - 12;
   // a panel open at the left (Try other spots) takes that side too
-  const sp = $('#spotPop'), spr = sp.hidden ? null : sp.getBoundingClientRect();
+  const sp = !$('#spotPop').hidden ? $('#spotPop') : $('#bodyMatch'), spr = sp.hidden ? null : sp.getBoundingClientRect();
   const left = spr && spr.right < right - 240 ? spr.right + 12 : b.left + 12;
   return { top, bottom, left, right };
 }
@@ -1214,6 +1214,81 @@ $('#spotChoices').innerHTML = SPOTS.map((s) => `<button class="btn" type="button
 $('#spotChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-spot]'); if (b) spotPlace(b.dataset.spot); });
 $('#spotSide').addEventListener('click', (e) => { const b = e.target.closest('[data-side]'); if (!b) return; spotSide = b.dataset.side; renderSpots(); const s = SPOTS.find((x) => x.id === spotId); if (s && !s.mid) spotPlace(spotId); });
 $('#bSpots').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#lightPop', false); toggle('#agePop', false); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); const t = sel(); if (t) spotSide = t.pos[0] >= 0 ? 'L' : 'R'; spotId = null; toggle('#spotPop'); renderSpots(); });
+/* ---------- Match a photo of me: fit the body sliders to a full-length photo ---------- */
+// The photo is read on this device and dropped when the panel closes; only the body settings
+// it leads to are kept, and only when Keep this body is tapped. Undo puts the old body back.
+const bm = { before: null, busy: false, token: 0, result: null };
+function bmShape() { return { figure: state.figure, muscle: state.muscle ?? 0.5, weight: state.weight ?? 0.5, fit: { ...(state.fit || {}) } }; }
+function bmSetShape(p) {
+  const a = anchorsNow();
+  state.weight = p.weight; state.fit = { ...p.fit };
+  for (const k of Object.keys(state.fit)) if (!state.fit[k]) delete state.fit[k];
+  applyShape(); applyAnchors(a); syncDecals(); renderBody(); needsRender = true;
+}
+function bmText(msg) { $('#bmText').textContent = msg; }
+function bmButtons(fitted) { $('#bmKeep').hidden = !fitted; $('#bmBack').hidden = !fitted; }
+// move the body into the space beside the panel, seen from the front
+function bmFrame() {
+  fullBody(0);
+  const b = canvas.getBoundingClientRect(), r = $('#bodyMatch').getBoundingClientRect();
+  if (r.right < b.right - 200) { const wpp = 2 * goal.r * Math.tan(THREE.MathUtils.degToRad(FOV / 2)) / b.height; goal.tx = -((r.right + 12 - b.left) / 2) * wpp; }
+}
+function bmDraw(res) {
+  const c = $('#bmPic'); c.width = res.w; c.height = res.h; const g = c.getContext('2d');
+  g.drawImage(res.canvas, 0, 0);
+  // what was read: the outline lightly, then the joints and the widths measured
+  const img = g.getImageData(0, 0, res.w, res.h), d = img.data;
+  for (let i = 0; i < res.w * res.h; i++) if (res.mask[i] < 0.5) { d[i * 4] *= 0.45; d[i * 4 + 1] *= 0.45; d[i * 4 + 2] *= 0.45; }
+  g.putImageData(img, 0, 0);
+  const P = (i) => [res.lm[i].x * res.w, res.lm[i].y * res.h], lw = Math.max(2, res.w / 220);
+  g.strokeStyle = '#ffd36b'; g.fillStyle = '#ffd36b'; g.lineWidth = lw;
+  for (const [a, b] of [[11, 12], [11, 23], [12, 24], [23, 24], [23, 25], [24, 26], [25, 27], [26, 28], [11, 13], [13, 15], [12, 14], [14, 16]]) { g.beginPath(); g.moveTo(...P(a)); g.lineTo(...P(b)); g.stroke(); }
+  for (const i of [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]) { g.beginPath(); g.arc(...P(i), lw * 2, 0, Math.PI * 2); g.fill(); }
+}
+async function bmRun(file) {
+  const token = ++bm.token; bm.busy = true; bmButtons(false); bmText('Finding you in the photo...');
+  let url = null;
+  try {
+    url = URL.createObjectURL(file);
+    const img = new Image(); img.src = url; await img.decode();
+    const res = await readBodyPhotoLazy(img); if (token !== bm.token) return;
+    bmDraw(res);
+    bm.ratios = res.ratios;
+    if (res.problems.length) { bmText(res.problems.join(' ')); return; }
+    bmText('Shaping the body to match...');
+    await new Promise((r) => setTimeout(r, 30));
+    const { fitToPhoto } = await import('./body-match.js');
+    const fit = fitToPhoto(res.ratios, bm.before); if (token !== bm.token) return;
+    bmSetShape(fit.params); bm.result = fit.params; bmButtons(true); markTried('body-photo');
+    bmText('Here is your shape. Keep it, or put the old one back. You can fine-tune any part in Body.');
+  } catch (e) {
+    if (token === bm.token) bmText(e && e.message && !/^[A-Z][a-z]+Error/.test(e.message) && e.message.length < 140 ? e.message : 'That photo could not be read. Try another one.');
+  } finally { if (url) URL.revokeObjectURL(url); if (token === bm.token) bm.busy = false; }
+}
+async function readBodyPhotoLazy(img) { const { readBodyPhoto } = await import('./body-match.js'); return readBodyPhoto(img); }
+function openBodyMatch(file) {
+  cancelGesture(); closePanels(); toggle('#spotPop', false);
+  bm.before = bmShape(); bm.result = null;
+  toggle('#bodyMatch', true); bmFrame();
+  const c = $('#bmPic'); c.width = 1; c.height = 1; bmButtons(false); bmText('');
+  bmRun(file);
+}
+function closeBodyMatch(keep) {
+  if ($('#bodyMatch').hidden) return;
+  bm.token++;
+  if (bm.result && !keep) bmSetShape(bm.before);
+  if (bm.result && keep) { bmSetShape(bm.before); snapshot(); bmSetShape(bm.result); commit(); toast('Body matched to your photo. Undo puts the old one back.'); }
+  bm.result = null; bm.before = null;
+  const c = $('#bmPic'); c.width = 1; c.height = 1; $('#bodyPhotoFile').value = ''; // drop the photo
+  toggle('#bodyMatch', false); fullBody(0);
+}
+$('#bodyPhotoBtn').addEventListener('click', () => { const f = $('#bodyPhotoFile'); f.value = ''; f.click(); });
+$('#bodyPhotoFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; if ($('#bodyMatch').hidden) openBodyMatch(f); else bmRun(f); });
+$('#bmAgain').addEventListener('click', () => { if (bm.result) { bmSetShape(bm.before); bm.result = null; } const f = $('#bodyPhotoFile'); f.value = ''; f.click(); });
+$('#bmKeep').addEventListener('click', () => closeBodyMatch(true));
+$('#bmBack').addEventListener('click', () => { if (bm.result) { bmSetShape(bm.before); bm.result = null; } bmButtons(false); bmText('Put back. Try another photo, or tap Done.'); });
+$('#bmClose').addEventListener('click', () => closeBodyMatch(true)); // Done keeps what is showing
+
 /* ---------- New to try: the newest features, how to try them, and Show me ---------- */
 function markTried(id) { if (tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
 function renderNew() {
@@ -1236,6 +1311,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  bodyPhoto: () => { toggle('#bodyPop', true); return ['#bodyPhotoBtn', 'Pick a full-length photo of yourself, taken straight on. The body takes your shape.']; },
   definition: () => { toggle('#bodyPop', true); return ['#rMuscle', 'Slide Muscle up, or Weight down, to see more muscle definition.']; },
   skinTone: () => { toggle('#bodyPop', true); return ['#skinOwnBtn', 'Tap + to make your own skin tone, or match a photo of your skin.']; },
   light: () => { showLook(true); return ['#lightBtn', 'Tap Light, then pick the light you will see it in most.']; },
@@ -1601,7 +1677,7 @@ $('#openProjects').addEventListener('click', async () => {
 });
 $('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); closeBodyMatch(false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -2048,6 +2124,7 @@ function tick(now) {
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted,
+  bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null }),
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }),
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },

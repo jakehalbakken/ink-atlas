@@ -79,7 +79,7 @@ body.hands-on #top,body.hands-on #views,body.hands-on #full,body.hands-on #lookB
 #lookMenu[hidden]{display:none}
 #lookMenu .btn{justify-content:flex-start;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #lookMenu #baBtn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
-#spotPop{left:16px;right:auto;top:82px;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#spotPop .posegrid{grid-template-columns:repeat(2,1fr)}#spotPop .posegrid .btn{font-size:14px;padding:0 6px}#spotPop .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#spotSide{display:flex;gap:8px;margin:0 0 8px}#spotSide .btn{flex:1}
+#bodyMatch{left:16px;right:auto;top:82px;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#bmPic{display:block;width:auto;height:auto;max-width:100%;max-height:44vh;border-radius:12px;background:#0003;margin:4px auto 6px}#bmActions{display:flex;flex-direction:column;gap:8px}#bmText{min-height:2.6em}#spotPop{left:16px;right:auto;top:82px;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#spotPop .posegrid{grid-template-columns:repeat(2,1fr)}#spotPop .posegrid .btn{font-size:14px;padding:0 6px}#spotPop .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#spotSide{display:flex;gap:8px;margin:0 0 8px}#spotSide .btn{flex:1}
 #agePop,#lightPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
 #agePop .posegrid,#lightPop .posegrid{grid-template-columns:repeat(4,1fr)}#lightPop .posegrid .btn{padding:0 4px;font-size:13px}#lightPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#agePop .posegrid .btn{padding:0 4px;font-size:13px}#agePop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
 #clothesPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
@@ -243,6 +243,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     <button class="btn" type="button" data-fig="neutral">Neutral</button>
     <button class="btn" type="button" data-fig="female">Female</button>
   </div>
+  <button class="btn" id="bodyPhotoBtn" type="button">Match a photo of me</button>
+  <input type="file" id="bodyPhotoFile" accept="image/*" hidden>
   <div class="lbl">Muscle: less to more<ink-slider id="rMuscle" min="0" max="100" default="50" origin="50" aria-label="Muscle"></ink-slider></div>
   <div class="lbl">Weight: lighter to heavier<ink-slider id="rWeight" min="0" max="100" default="50" origin="50" aria-label="Weight"></ink-slider></div>
   <div class="lbl">Height, used for real-world sizes<ink-slider id="rHeight" min="150" max="205" step="1" aria-label="Height"></ink-slider></div>
@@ -293,6 +295,17 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <h4>Bottom</h4><div class="posegrid" id="clothesBottom"></div>
   <h4>Hair</h4><div class="posegrid" id="clothesHair"></div>
   <p id="clothesShow" aria-live="polite"></p>
+</div>
+<div id="bodyMatch" class="pop glass" hidden>
+  <div class="pophead"><h3>Match a photo of me</h3><button class="btn" type="button" id="bmClose">Done</button></div>
+  <canvas id="bmPic" aria-label="Your photo with what was measured"></canvas>
+  <p id="bmText" class="tip" aria-live="polite"></p>
+  <div id="bmActions">
+    <button class="btn primary" id="bmKeep" type="button" hidden>Keep this body</button>
+    <button class="btn" id="bmBack" type="button" hidden>Put back</button>
+    <button class="btn" id="bmAgain" type="button">Try another photo</button>
+  </div>
+  <p class="tip">Best with a full-length photo taken straight on, arms a little out from your sides, feet a little apart, in fitted clothes. The photo stays on this iPad and is not kept.</p>
 </div>
 <div id="spotPop" class="pop glass" hidden>
   <div class="pophead"><h3 id="spotTitle">Try it on</h3><button class="btn" type="button" data-close="spotPop">Done</button></div>

@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 // MediaPipe's runtime (automatic cutout) is served from this site, never a CDN.
 // It is copied out of node_modules at build time and served from there in dev.
-// The model itself, public/vision/magic_touch.tflite, is checked in (Apache-2.0).
+// The models, public/vision/magic_touch.tflite and pose_landmarker_full.task, are checked in (Apache-2.0).
 const VISION_WASM = resolve(import.meta.dirname, 'node_modules/@mediapipe/tasks-vision/wasm');
 function visionRuntime() {
   return {
@@ -73,7 +73,7 @@ export default defineConfig({
         // The cutout runtime and model are big and only needed when someone uses
         // automatic cutout: fetch them then, and keep them for offline use after.
         globIgnores: ['vision/**'],
-        runtimeCaching: [{ urlPattern: /\/vision\/[^/]+\.(?:js|wasm|tflite)$/, handler: 'CacheFirst', options: { cacheName: 'ink-atlas-vision', expiration: { maxEntries: 8 } } }],
+        runtimeCaching: [{ urlPattern: /\/vision\/[^/]+\.(?:js|wasm|tflite|task)$/, handler: 'CacheFirst', options: { cacheName: 'ink-atlas-vision', expiration: { maxEntries: 8 } } }],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
     }),
