@@ -28,12 +28,14 @@ float lump(vec4 s, float t, float ang, float sl, float sa) {
   float da = abs(mod(s.y - ang + 3.14159265, 6.2831853) - 3.14159265);
   return mg((s.x - t) * s.w, sl) * mg(da * max(s.z, 0.02), sa);
 }
+// cheap test first: is q anywhere near the segment a-b (within r of it)?
+bool nearSeg(vec3 q, vec3 a, vec3 b, float r) { vec3 m = 0.5 * (a + b); float R = 0.5 * length(b - a) + r; vec3 d = q - m; return dot(d, d) < R * R; }
 vec2 limbH(vec3 p) {
   vec3 q = vec3(abs(p.x), p.y, p.z);
   float h = 0.0, cr = 0.0;
   // upper arm, shoulder to elbow: the deltoid cap with its front and rear heads, the biceps in
   // front, the triceps behind, and the groove down the outside between them
-  vec4 a = limbSeg(q, uLimb[0], uLimb[1]);
+  vec4 a = nearSeg(q, uLimb[0], uLimb[1], 0.09) ? limbSeg(q, uLimb[0], uLimb[1]) : vec4(-1.0, 0.0, 1.0, 1.0);
   float am = smoothstep(0.085, 0.06, a.z) * smoothstep(-0.12, 0.02, a.x) * smoothstep(1.08, 0.95, a.x);
   if (am > 0.001) {
     float delt = lump(a, 0.16, 1.35, 0.05, 0.03) + 0.65 * lump(a, 0.15, 0.55, 0.045, 0.022) + 0.55 * lump(a, 0.16, 2.3, 0.045, 0.025);
@@ -44,7 +46,7 @@ vec2 limbH(vec3 p) {
   }
   // thigh, hip to knee: the outer and front quads, the teardrop above the knee on the inside,
   // the groove down the outside, and the kneecap
-  vec4 t = limbSeg(q, uLimb[2], uLimb[3]);
+  vec4 t = nearSeg(q, uLimb[2], uLimb[3], 0.16) ? limbSeg(q, uLimb[2], uLimb[3]) : vec4(-1.0, 0.0, 1.0, 1.0);
   float tm = smoothstep(0.15, 0.11, t.z) * smoothstep(0.12, 0.3, t.x) * smoothstep(1.12, 1.02, t.x);
   if (tm > 0.001) {
     float quad = 0.7 * lump(t, 0.55, 1.0, 0.12, 0.035) + 0.5 * lump(t, 0.45, 0.1, 0.12, 0.03) + lump(t, 0.84, -0.75, 0.055, 0.028);
@@ -54,7 +56,7 @@ vec2 limbH(vec3 p) {
   }
   // lower leg, knee to ankle: the two heads of the calf with the groove between them, and the
   // muscle beside the shin bone
-  vec4 c = limbSeg(q, uLimb[3], uLimb[4]);
+  vec4 c = nearSeg(q, uLimb[3], uLimb[4], 0.11) ? limbSeg(q, uLimb[3], uLimb[4]) : vec4(-1.0, 0.0, 1.0, 1.0);
   float cm = smoothstep(0.1, 0.075, c.z) * smoothstep(0.03, 0.12, c.x) * smoothstep(0.98, 0.85, c.x);
   if (cm > 0.001) {
     float calf = lump(c, 0.3, -2.55, 0.08, 0.028) + 0.8 * lump(c, 0.26, 2.55, 0.07, 0.026);
@@ -174,12 +176,13 @@ export function createSkin(geo, color) {
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
+  vec2 mhAll = muscleH(vObj); // once per pixel: shading here, the bump below
   {
     vec3 skin = diffuseColor.rgb;
     float crease = smoothstep(0.0, 1.0, vCav), ridge = smoothstep(0.0, 1.0, -vCav);
     skin *= mix(vec3(1.0), vec3(0.60, 0.47, 0.45), crease * 0.8);
     skin *= 1.0 + 0.07 * ridge;
-    vec2 mh = muscleH(vObj);
+    vec2 mh = mhAll;
     skin *= mix(vec3(1.0), vec3(0.82, 0.72, 0.70), mh.y * 0.4);
     skin = mix(skin, skin * vec3(0.88, 0.58, 0.58), smoothstep(0.55, 0.9, vLip) * 0.75);
     float dn = min(distance(vObj, uNipL), distance(vObj, uNipR));
@@ -198,7 +201,7 @@ export function createSkin(geo, color) {
   }`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
   {
-    float hb = muscleH(vObj).x;
+    float hb = mhAll.x;
     vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
     vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
     float det = dot(sx, r1) * faceDirection;
