@@ -177,7 +177,10 @@ function boxBlur(a, size, r, horiz) {
 // left alone. The pull spreads smoothly to the head's other vertices and fades out past the edge
 // of the face. Returns offsets (n * 3) to add to the positions. eyes: [[from, count], ...]: each
 // eyeball moves as one piece with the lids round it.
-export function faceMorph(positions, normals, n, lm3, photo, eyes = [], strength = 0.85) {
+// headZ: MediaPipe's own depth for each landmark on the plain 3D head (FACE_DEPTH), in face widths.
+// When the photo's landmarks carry depth too, the difference between the two is this person's
+// depth (a longer nose, a deeper brow), so the head's front moves forward or back by it as well.
+export function faceMorph(positions, normals, n, lm3, photo, eyes = [], strength = 0.85, headZ = null) {
   const out = new Float32Array(n * 3);
   const N = lm3.length;
   // similarity fit, photo (u right, v down) -> front view (x right, y up), as complex numbers
@@ -194,16 +197,27 @@ export function faceMorph(positions, normals, n, lm3, photo, eyes = [], strength
   let top = -Infinity, bottom = Infinity, left = Infinity, right = -Infinity;
   for (const [x, y] of oval) { top = Math.max(top, y); bottom = Math.min(bottom, y); left = Math.min(left, x); right = Math.max(right, x); }
   const size = top - bottom, cap = size * 0.1, sigma = size * 0.07, s2 = 2 * sigma * sigma, reach = size * 0.2;
+  // depth: both in face widths (cheek to cheek), each less its own mean; nearer the camera is
+  // smaller z in the photo and larger z on the body
+  const depth = headZ && headZ.length === N && photo.every((q) => Number.isFinite(q[2]));
+  let dz = null;
+  if (depth) {
+    const pw = Math.max(1e-6, Math.hypot(photo[454][0] - photo[234][0], photo[454][1] - photo[234][1]));
+    const bw = Math.hypot(lm3[454][0] - lm3[234][0], lm3[454][1] - lm3[234][1]);
+    let m = 0; for (let i = 0; i < N; i++) m += photo[i][2] / pw - headZ[i]; m /= N;
+    const zcap = bw * 0.06;
+    dz = photo.map((q, i) => Math.max(-zcap, Math.min(zcap, -(q[2] / pw - headZ[i] - m) * bw * strength)));
+  }
   const d = lm3.map((p, i) => {
     const ax = photo[i][0] - qx, ay = -photo[i][1] - qy;
     let dx = (re * ax - im * ay + px - p[0]) * strength, dy = (im * ax + re * ay + py - p[1]) * strength;
     const L = Math.hypot(dx, dy); if (L > cap) { dx *= cap / L; dy *= cap / L; }
-    return [dx, dy];
+    return [dx, dy, dz ? dz[i] : 0];
   });
   const at = (x, y) => {
-    let sx = 0, sy = 0, sw = 0;
-    for (let i = 0; i < N; i++) { const ex = x - lm3[i][0], ey = y - lm3[i][1], w = Math.exp(-(ex * ex + ey * ey) / s2); sx += w * d[i][0]; sy += w * d[i][1]; sw += w; }
-    return sw > 1e-9 ? [sx / sw, sy / sw] : [0, 0];
+    let sx = 0, sy = 0, sz = 0, sw = 0;
+    for (let i = 0; i < N; i++) { const ex = x - lm3[i][0], ey = y - lm3[i][1], w = Math.exp(-(ex * ex + ey * ey) / s2); sx += w * d[i][0]; sy += w * d[i][1]; sz += w * d[i][2]; sw += w; }
+    return sw > 1e-9 ? [sx / sw, sy / sw, sz / sw] : [0, 0, 0];
   };
   const eyeOf = (v) => eyes.findIndex(([s, c]) => v >= s && v < s + c);
   for (let v = 0; v < n; v++) {
@@ -213,13 +227,13 @@ export function faceMorph(positions, normals, n, lm3, photo, eyes = [], strength
     const nz = normals[v * 3 + 2]; if (nz < -0.3) continue;
     const w = smooth(-reach, 0, insideDistance(x, y, oval)) * smooth(-0.3, 0.3, nz);
     if (w < 1e-3) continue;
-    const [dx, dy] = at(x, y);
-    out[v * 3] = dx * w; out[v * 3 + 1] = dy * w;
+    const [dx, dy, ddz] = at(x, y);
+    out[v * 3] = dx * w; out[v * 3 + 1] = dy * w; out[v * 3 + 2] = ddz * w * smooth(0, 0.5, nz);
   }
   for (const [s, c] of eyes) {
     let x = 0, y = 0; for (let v = s; v < s + c; v++) { x += positions[v * 3]; y += positions[v * 3 + 1]; }
-    const [dx, dy] = at(x / c, y / c);
-    for (let v = s; v < s + c; v++) { out[v * 3] = dx; out[v * 3 + 1] = dy; }
+    const [dx, dy, ddz] = at(x / c, y / c);
+    for (let v = s; v < s + c; v++) { out[v * 3] = dx; out[v * 3 + 1] = dy; out[v * 3 + 2] = ddz; }
   }
   return out;
 }

@@ -215,8 +215,8 @@ export function setSkinFace(face) {
 const HAIR_U = { uHairCol: { value: new THREE.Color('#3b2a1f') }, uHairOn: { value: 0 }, uHairDense: { value: 0.7 } };
 const HAIR = { key: '', field: null };
 export function setSkinHair(style, colour) {
-  HAIR_U.uHairOn.value = style === 'buzz' || style === 'short' ? 1 : 0;
-  HAIR_U.uHairDense.value = style === 'short' ? 1 : 0.1;
+  HAIR_U.uHairOn.value = style === 'buzz' || style === 'short' || style === 'crop' ? 1 : 0;
+  HAIR_U.uHairDense.value = style === 'buzz' ? 0.1 : 1; // a crop is a buzz cut's scalp with a shell of hair over it
   if (colour) HAIR_U.uHairCol.value.set(colour);
 }
 export function skinFaceOn(on) { FACE_U.uFaceOn.value = on && FACE.uv ? 1 : 0; FACE.key = ''; FACE.attr = null; }

@@ -37,6 +37,23 @@ assert.ok(Math.sign(off[i234 * 3]) === Math.sign(P[i234 * 3]) && Math.abs(off[i2
 let feet = 0; for (let v = 0; v < COUNTS.body; v++) if (P[v * 3 + 1] < 1) feet = Math.max(feet, Math.abs(off[v * 3]));
 assert.equal(feet, 0, 'nothing below the head moves');
 
+// depth: a photo whose depth matches the head's own leaves it alone; a nose further forward than
+// the plain head's brings the nose tip forward and leaves the cheeks and the back of the head
+const fwB = Math.hypot(lm3[454][0] - lm3[234][0], lm3[454][1] - lm3[234][1]);
+const headZ = lm3.map((q) => -q[2] / fwB);
+const fwP = Math.hypot(photo[454][0] - photo[234][0], photo[454][1] - photo[234][1]);
+const noseNear = (i) => Math.max(0, 1 - Math.hypot(lm3[i][0] - lm3[1][0], lm3[i][1] - lm3[1][1]) / (fwB * 0.25)); // the nose and round it
+const withZ = (bump) => photo.map((q, i) => [q[0], q[1], (headZ[i] - bump * noseNear(i)) * fwP + 0.3]);
+off = faceMorph(P, N, n, lm3, withZ(0), [EYES.l, EYES.r], 0.85, headZ);
+assert.ok(Math.max(...off.map(Math.abs)) < 1e-4, 'own depth, no change ' + Math.max(...off.map(Math.abs)));
+off = faceMorph(P, N, n, lm3, withZ(0.06), [EYES.l, EYES.r], 0.85, headZ);
+const near = (p) => { let b = -1, d = Infinity; for (let v = 0; v < COUNTS.body; v++) { const e = Math.hypot(P[v * 3] - p[0], P[v * 3 + 1] - p[1], P[v * 3 + 2] - p[2]); if (e < d) { d = e; b = v; } } return b; };
+const tip = near(lm3[1]);
+assert.ok(off[tip * 3 + 2] > 0.0015, 'nose tip forward ' + off[tip * 3 + 2]);
+assert.ok(Math.abs(off[i234 * 3 + 2]) < off[tip * 3 + 2] * 0.3, 'cheek much less');
+off = faceMorph(P, N, n, lm3, photo, [EYES.l, EYES.r], 0.85, headZ);
+assert.ok(Math.max(...Array.from(off).filter((_, k) => k % 3 === 2).map(Math.abs)) === 0, 'an old saved face without depth keeps its depth');
+
 // where each vertex takes its colour: some of the face, none of the eyes or the back of the head
 const attr = faceAttribute(P, N, n, lm3, photo, (v) => v >= COUNTS.body);
 let shown = 0; for (let v = 0; v < n; v++) if (attr[v * 3 + 2] > 0.05) { shown++; assert.ok(v < COUNTS.body, 'not on the eyes'); assert.ok(P[v * 3 + 1] > ey - 0.2, 'only the head'); }

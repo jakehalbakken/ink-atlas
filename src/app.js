@@ -4,8 +4,10 @@ import { INDEX, INDEX_ALL, COUNTS, EYES, shapePositions, shapePositionsV1, legac
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
 import { createSkin, updateSkin, setSkinFace, skinFaceOn, setSkinHair, setSkinIris, skinIrisHex, skinPhotoIrisHex } from './skin.js';
 import { HAIR_STYLES, HAIR_COLOURS } from './hair.js';
+import { createHairShell } from './hair-shell.js';
 import { FACE_MAP } from './face-map.js';
 import { landmarks3D, faceMorph } from './face-fit.js';
+import { FACE_DEPTH } from './face-depth.js';
 import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
 import './slider.js';
 import {twoPointerDelta,twoFingerIntent,wrapAngle,planTapPlacement} from './view-gestures.js';
@@ -1370,7 +1372,7 @@ function faceShapeOffsets() {
   const key = face.version + ':' + h;
   if (faceMorphCache.key !== key) {
     const lm3 = landmarks3D(P, bodyGeo.index.array, FACE_MAP);
-    faceMorphCache = { key, off: faceMorph(P, bodyGeo.attributes.normal.array, COUNTS.body + COUNTS.eyes, lm3, face.uv, [EYES.l, EYES.r]) };
+    faceMorphCache = { key, off: faceMorph(P, bodyGeo.attributes.normal.array, COUNTS.body + COUNTS.eyes, lm3, face.uv, [EYES.l, EYES.r], 0.85, FACE_DEPTH) };
   }
   return faceMorphCache.off;
 }
@@ -1398,7 +1400,7 @@ async function faceRestore() {
     const { makeFaceTexture } = await import('./face.js');
     const img = new Image(); img.src = f.photo; await img.decode();
     const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext('2d').drawImage(img, 0, 0);
-    const t = makeFaceTexture(c, f.lm.map(([x, y]) => ({ x, y })), { x: 0, y: 0, s: c.width });
+    const t = makeFaceTexture(c, f.lm.map(([x, y, z]) => ({ x, y, z })), { x: 0, y: 0, s: c.width });
     face.saved = f; await faceUse(f, { canvas: t.texture, uv: t.uv, iris: t.iris });
   } catch { /* a face that can't be rebuilt just stays off; the photo is kept */ }
 }
@@ -1410,7 +1412,7 @@ async function faceFromFile(file) {
     const img = new Image(); img.src = url; await img.decode();
     const { readFacePhoto } = await import('./face.js');
     const r = await readFacePhoto(img);
-    const saved = { v: 1, photo: r.photo.toDataURL('image/jpeg', 0.9), lm: r.lm.map(([x, y]) => [+x.toFixed(5), +y.toFixed(5)]), on: true };
+    const saved = { v: 1, photo: r.photo.toDataURL('image/jpeg', 0.9), lm: r.lm.map((q) => q.map((c) => +c.toFixed(5))), on: true };
     face.saved = saved; const kept = faceWrite(saved);
     face.busy = false; await faceUse(saved, { canvas: r.texture, uv: r.uv, iris: r.iris });
     viewFace(); markTried('face');
@@ -1435,25 +1437,63 @@ faceButtons(); faceRestore();
 const HAIR_KEY = 'ia-hair';
 const HAIR_NAMES = { black: 'Black', brown: 'Dark brown', chestnut: 'Brown', blond: 'Blond', grey: 'Grey' };
 let hair = (() => {
-  try { const v = JSON.parse(localStorage.getItem(HAIR_KEY) || 'null'); if (v && HAIR_STYLES.includes(v.style) && HAIR_COLOURS[v.colour]) return { style: v.style, colour: v.colour }; } catch (_) { /* no storage */ }
+  try {
+    const v = JSON.parse(localStorage.getItem(HAIR_KEY) || 'null');
+    const hex = v && typeof v.hex === 'string' && /^#[0-9a-f]{6}$/i.test(v.hex) ? v.hex : null;
+    if (v && HAIR_STYLES.includes(v.style) && (HAIR_COLOURS[v.colour] || (v.colour === 'photo' && hex))) return { style: v.style, colour: v.colour, hex };
+  } catch (_) { /* no storage */ }
   return { style: 'none', colour: 'brown' };
 })();
 function renderHair() {
   document.querySelectorAll('#hairRow [data-hair]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hair === hair.style)));
   const row = $('#hairCols'); row.hidden = hair.style === 'none';
-  if (!row.children.length) for (const [k, c] of Object.entries(HAIR_COLOURS)) row.append(el('button', { class: 'sw', type: 'button', 'data-hair-colour': k, style: `background:${c}`, 'aria-label': 'Hair: ' + HAIR_NAMES[k], onclick: () => setHair(hair.style, k) }));
+  row.replaceChildren();
+  for (const [k, c] of Object.entries(HAIR_COLOURS)) row.append(el('button', { class: 'sw', type: 'button', 'data-hair-colour': k, style: `background:${c}`, 'aria-label': 'Hair: ' + HAIR_NAMES[k], onclick: () => setHair(hair.style, k) }));
+  // the colour read from a photo of their hair, while there is one
+  if (hair.hex) row.append(el('button', { class: 'sw photo', type: 'button', 'data-hair-colour': 'photo', style: `background:${hair.hex}`, 'aria-label': 'Hair: from your photo', onclick: () => setHair(hair.style, 'photo') }));
   for (const b of row.children) { const on = b.dataset.hairColour === hair.colour; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
 }
-function setHair(style, colour = hair.colour) {
-  hair = { style, colour }; try { localStorage.setItem(HAIR_KEY, JSON.stringify(hair)); } catch (_) { /* private mode: lasts until reload */ }
+const hairHex = (h) => (h.colour === 'photo' && h.hex) || HAIR_COLOURS[h.colour] || HAIR_COLOURS.brown;
+function setHair(style, colour = hair.colour, hex = hair.hex) {
+  hair = { style, colour, hex: hex || null }; try { localStorage.setItem(HAIR_KEY, JSON.stringify(hair)); } catch (_) { /* private mode: lasts until reload */ }
   if (style !== 'none') markTried('hair');
-  setSkinHair(style, HAIR_COLOURS[colour]); needsRender = true; renderHair();
+  setSkinHair(style, hairHex(hair)); hairShell.set(style, hairHex(hair)); needsRender = true; renderHair();
 }
+// Match my hair: read the colour and length from a photo, and put on the nearest style this app
+// can show. Undo isn't needed: it changes only how this device shows the body, and the old style
+// and colour are a tap away.
+const HAIR_STYLE_NAMES = { none: 'Bald', buzz: 'Shaved', short: 'Buzz cut', crop: 'Short' };
+function applyHairReading(r) {
+  hairLast = r;
+  if (!r.found || r.style === 'none') { setHair('none'); toast('I could not see hair in that photo, so the head is bald. If that is wrong, try a photo with your whole head in it.'); }
+  else {
+    const longer = r.style === 'long';
+    const style = longer ? 'crop' : r.style;
+    setHair(style, r.colour ? 'photo' : hair.colour, r.colour || hair.hex);
+    toast(longer ? 'Matched your hair colour. Your hair is longer than I can show yet, so it shows short in your colour.' : `Matched your hair: ${HAIR_STYLE_NAMES[style].toLowerCase()}, in your colour. The photo is not kept.`);
+  }
+  markTried('hair-photo'); viewFace();
+}
+let hairLast = null;
+async function hairFromFile(file) {
+  const btn = $('#hairPhotoBtn'); btn.disabled = true; btn.textContent = 'Reading your hair...';
+  let url = null;
+  try {
+    url = URL.createObjectURL(file);
+    const img = new Image(); img.src = url; await img.decode();
+    const { readHairPhoto } = await import('./face.js');
+    applyHairReading(await readHairPhoto(img));
+  } catch (e) { toast((e && e.message) || 'That photo could not be read.'); }
+  finally { if (url) URL.revokeObjectURL(url); btn.disabled = false; btn.textContent = 'Match my hair from a photo'; $('#hairPhotoFile').value = ''; }
+}
+$('#hairPhotoBtn').addEventListener('click', () => { const f = $('#hairPhotoFile'); f.value = ''; f.click(); });
+$('#hairPhotoFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) hairFromFile(f); });
 document.querySelectorAll('#hairRow [data-hair]').forEach((b) => b.addEventListener('click', () => {
   const was = hair.style; setHair(b.dataset.hair);
   if (was === 'none' && hair.style !== 'none') viewFace();
 }));
-setSkinHair(hair.style, HAIR_COLOURS[hair.colour]); renderHair();
+const hairShell = createHairShell({ THREE, body });
+setSkinHair(hair.style, hairHex(hair)); hairShell.set(hair.style, hairHex(hair)); renderHair();
 
 /* ---------- Eye colour (Body > Eyes): kept on this device, like hair ---------- */
 const EYES_KEY = 'ia-eyes';
@@ -1503,7 +1543,8 @@ const SHOW = {
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
   eyes: () => { toggle('#bodyPop', true); viewFace(); return ['#eyeCols', 'Tap a colour for the eyes. The view moves to the face.']; },
-  hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved or Buzz cut, then a colour.']; },
+  hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved, Buzz cut or Short, then a colour.']; },
+  hairPhoto: () => { toggle('#bodyPop', true); viewFace(); return ['#hairPhotoBtn', 'Pick a photo with your whole head in it, looking at the camera.']; },
   compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
   gap: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', state.tattoos.filter((x) => !x.hidden).length > 1 ? 'This line says how far the tattoo is from the nearest other one.' : 'Add a second tattoo and this line says how far apart they are.']; },
   skinDetail: () => { toggle('#bodyPop', true); viewFace(); return ['#faceBtn', 'Eyebrows and fine skin texture now show on every body. Zoom in close to see them. Add my face puts your own face on.']; },
@@ -2466,7 +2507,7 @@ window.__ink = {
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null }), bodyMatchLm: () => bm.lm || null,
-  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
+  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), hairReading: (r) => applyHairReading(r), hairLast: () => hairLast, eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
   hairProbe: () => {
     // brightness of a few spots on the head, looked at straight on, with this hair and with none
     const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array, lm = landmarks3D(P, bodyGeo.index.array, FACE_MAP);
@@ -2482,13 +2523,13 @@ window.__ink = {
       let sum = 0; for (let i = 0; i < 64; i++) sum += 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]; out[k] = sum / 64;
     } return out; };
     const decalsWere = decalGroup.visible; decalGroup.visible = false;
-    const withHair = read(); setSkinHair('none'); const plain = read(); setSkinHair(hair.style, HAIR_COLOURS[hair.colour]);
+    const withHair = read(); setSkinHair('none'); const plain = read(); setSkinHair(hair.style, hairHex(hair));
     decalGroup.visible = decalsWere; rt.dispose(); needsRender = true;
     const r = {}; for (const k of Object.keys(spots)) { r[k] = withHair[k]; r[k + 'Plain'] = plain[k]; } return r;
   }, compareLast: () => compareLast, agingLast: () => agingLast, posesLast: () => posesLast,
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
-  pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
+  pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y, p.z]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
   pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },

@@ -59,7 +59,8 @@ export function makeFaceTexture(full, lm, crop) {
   g.fillStyle = '#808080'; g.fillRect(0, 0, TEX, TEX);
   g.drawImage(full, crop.x, crop.y, crop.s, crop.s, 0, 0, TEX, TEX);
   const img = g.getImageData(0, 0, TEX, TEX);
-  const uv = lm.map((p) => [(p.x * w - crop.x) / crop.s, (p.y * h - crop.y) / crop.s]);
+  // depth too, when the landmarker gave it (in the same units as x, so pixels / crop size here)
+  const uv = lm.map((p) => (Number.isFinite(p.z) ? [(p.x * w - crop.x) / crop.s, (p.y * h - crop.y) / crop.s, p.z * w / crop.s] : [(p.x * w - crop.x) / crop.s, (p.y * h - crop.y) / crop.s]));
   // the face outline as a mask, for the blur that takes the photo's light out
   const m = document.createElement('canvas'); m.width = m.height = TEX;
   const mg = m.getContext('2d', { willReadFrequently: true });
@@ -96,5 +97,50 @@ export function makeFaceTexture(full, lm, crop) {
     const avg = [0, 1, 2].map((k) => mid.reduce((s, c) => s + c[k], 0) / mid.length);
     const n = nearestTone('#' + avg.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')); tone = toneColour(n.depth, n.warmth);
   }
-  return { texture: tex, uv, iris, mean, tone, photo: keep, lm: lm.map((p) => [(p.x * w - crop.x) / crop.s, (p.y * h - crop.y) / crop.s]) };
+  return { texture: tex, uv, iris, mean, tone, photo: keep, lm: uv };
+}
+
+// ---------- Hair from a photo ----------
+// MediaPipe's hair segmenter (Apache-2.0, vision/hair_segmenter.tflite) marks the hair in a photo
+// on the device; hair-photo.js reads its colour and roughly how long it is around the face.
+let hairReady = null;
+function loadHairFinder() {
+  if (!hairReady) {
+    hairReady = (async () => {
+      const { FilesetResolver, ImageSegmenter } = await import('@mediapipe/tasks-vision');
+      const files = await FilesetResolver.forVisionTasks(new URL(base() + 'vision', location.href).href);
+      return ImageSegmenter.createFromOptions(files, {
+        baseOptions: { modelAssetPath: new URL(base() + 'vision/hair_segmenter.tflite', location.href).href, delegate: 'CPU' },
+        runningMode: 'IMAGE', outputCategoryMask: false, outputConfidenceMasks: true,
+      });
+    })();
+    hairReady.catch(() => { hairReady = null; });
+  }
+  return hairReady;
+}
+
+// The hair in a picture: { found, colour, style, volume, reach, cover }. Throws a plain sentence when
+// there is no face to measure the hair against.
+export async function readHairPhoto(source) {
+  const sw = source.naturalWidth || source.videoWidth || source.width, sh = source.naturalHeight || source.videoHeight || source.height;
+  if (!sw || !sh) throw new Error('That picture could not be opened.');
+  const k = Math.min(1, 1024 / Math.max(sw, sh)), w = Math.round(sw * k), h = Math.round(sh * k);
+  const full = document.createElement('canvas'); full.width = w; full.height = h;
+  const g = full.getContext('2d', { willReadFrequently: true }); g.drawImage(source, 0, 0, w, h);
+  const lm = await findFace(full);
+  if (!lm) throw new Error('I could not find a face in that photo. Use a photo of your head, looking at the camera.');
+  const seg = await loadHairFinder();
+  const res = seg.segment(full);
+  const masks = res.confidenceMasks || [];
+  const m = masks[masks.length > 1 ? 1 : 0];
+  if (!m) throw new Error('I could not read the hair in that photo.');
+  let mask = m.getAsFloat32Array();
+  if (m.width !== w || m.height !== h) { // the mask's own size: sample it at the picture's pixels
+    const out = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out[y * w + x] = mask[Math.min(m.height - 1, Math.floor(y * m.height / h)) * m.width + Math.min(m.width - 1, Math.floor(x * m.width / w))];
+    mask = out;
+  }
+  for (const mm of masks) mm.close && mm.close();
+  const { readHair } = await import('./hair-photo.js');
+  return readHair(g.getImageData(0, 0, w, h).data, mask, w, h, lm);
 }

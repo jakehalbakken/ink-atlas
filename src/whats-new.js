@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'hair-photo', date: '2026-11-13', title: 'Match my hair from a photo', how: 'Body, then Hair, then Match my hair from a photo. Use a photo with your whole head in it. Your hair colour goes on the head, with the nearest length it can show. The photo is not kept.', show: 'hairPhoto' },
   { id: 'eyes', date: '2026-11-13', title: 'Eye colour', how: 'Body, then Eyes. Pick brown, hazel, green, blue, grey or dark brown. With your face on, the first colour is the one from your photo. Kept on this device.', show: 'eyes' },
   { id: 'body-photo-part', date: '2026-11-13', title: 'Match from any photo of you', how: 'Body, then Match a photo of me. A mirror selfie, an upper body shot or a photo of your back works now: it matches the parts it can see and leaves the rest. Add another photo to fill in more.', show: 'bodyPhoto' },
   { id: 'poses-sheet', date: '2026-11-13', title: 'As you move picture', how: 'Select a tattoo, then Share, then As you move. It shows the tattoo standing and in three poses that move that part of the body, like a flexed arm or a squat.', show: 'posesSheet' },

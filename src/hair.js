@@ -5,7 +5,7 @@
 // The hairline runs high over the forehead, down past the temples to sideburns at the middle of
 // the ear, round each ear with a small gap, and level across the nape. Only the head takes part.
 
-export const HAIR_STYLES = ['none', 'buzz', 'short'];
+export const HAIR_STYLES = ['none', 'buzz', 'short', 'crop'];
 export const HAIR_COLOURS = { black: '#1c1714', brown: '#3b2a1f', chestnut: '#6a4128', blond: '#a8834f', grey: '#8a8580' };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
