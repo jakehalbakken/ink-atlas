@@ -3,6 +3,7 @@
 // shading in creases so muscle and bone read as form instead of a smooth mannequin.
 // Detail is positioned from landmark vertices, so it follows every shape change.
 import * as THREE from 'three';
+import { hairField } from './hair.js';
 import { COUNTS, MARKS, EYES, LIPS_MASK } from './mesh.js';
 import { FACE_MAP } from './face-map.js';
 import { landmarks3D, faceAttribute } from './face-fit.js';
@@ -13,6 +14,7 @@ const MUSCLE_GLSL = `
 // how wide (uBrowOn, 0 hides them).
 uniform vec3 uBrow[10];
 uniform float uBrowOn;
+uniform vec3 uHairCol; uniform float uHairOn; uniform float uHairDense;
 float hash3(vec3 p) { p = fract(p * vec3(443.897, 441.423, 437.195)); p += dot(p, p.yzx + 19.19); return fract((p.x + p.y) * p.z); }
 float vnoise(vec3 p) {
   vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -202,6 +204,14 @@ export function setSkinFace(face) {
   FACE_U.uFace.value = tex; FACE.uv = face.uv; FACE.key = ''; FACE.attr = null;
   if (face.iris) FACE_U.uIris.value.setRGB(face.iris[0], face.iris[1], face.iris[2], THREE.SRGBColorSpace); else FACE_U.uIris.value.set('#4a3524');
 }
+// Short hair on the scalp, shared by every body material.
+const HAIR_U = { uHairCol: { value: new THREE.Color('#3b2a1f') }, uHairOn: { value: 0 }, uHairDense: { value: 0.7 } };
+const HAIR = { key: '', field: null };
+export function setSkinHair(style, colour) {
+  HAIR_U.uHairOn.value = style === 'buzz' || style === 'short' ? 1 : 0;
+  HAIR_U.uHairDense.value = style === 'short' ? 1 : 0.1;
+  if (colour) HAIR_U.uHairCol.value.set(colour);
+}
 export function skinFaceOn(on) { FACE_U.uFaceOn.value = on && FACE.uv ? 1 : 0; FACE.key = ''; FACE.attr = null; }
 const shapeKeyOf = (shape) => JSON.stringify([shape.figure, shape.muscle, shape.weight, shape.fit]);
 function faceFor(geo, shape) {
@@ -224,8 +234,9 @@ export function createSkin(geo, color) {
   geo.setAttribute('lip', new THREE.BufferAttribute(lip, 1));
   geo.setAttribute('cav', new THREE.BufferAttribute(new Float32Array(n), 1));
   if (!geo.attributes.face) geo.setAttribute('face', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  if (!geo.attributes.hair) geo.setAttribute('hair', new THREE.BufferAttribute(new Float32Array(n).fill(-0.02), 1));
   const V = () => ({ value: new THREE.Vector3() });
-  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
+  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, ...HAIR_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
   const mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.54, metalness: 0, specularIntensity: 0.45, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffd9c8') });
   // A posed body keeps its standing positions in 'rest', so painted detail stays on the same
   // skin when the body bends; a standing body paints straight from its positions.
@@ -234,12 +245,13 @@ export function createSkin(geo, color) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute float lip;\nattribute float cav;\nattribute vec3 face;\nvarying vec3 vFace;\n#ifdef USE_REST\nattribute vec3 rest;\n#endif\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = part; vLip = lip; vCav = cav; vFace = face;\n#ifdef USE_REST\nvObj = rest;\n#else\nvObj = position;\n#endif');
+      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute float lip;\nattribute float cav;\nattribute vec3 face;\nvarying vec3 vFace;\nattribute float hair;\nvarying float vHair;\n#ifdef USE_REST\nattribute vec3 rest;\n#endif\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = part; vLip = lip; vCav = cav; vFace = face; vHair = hair;\n#ifdef USE_REST\nvObj = rest;\n#else\nvObj = position;\n#endif');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nuniform sampler2D uFace;\nuniform float uFaceOn;\nvarying vec3 vFace;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nuniform sampler2D uFace;\nuniform float uFaceOn;\nvarying vec3 vFace;\nvarying float vHair;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
   vec2 mhAll = muscleH(vObj); // once per pixel: shading here, the bump below
+  float hairA = 0.0;
   {
     vec3 skin = diffuseColor.rgb, plain = skin;
     float crease = smoothstep(0.0, 1.0, vCav), ridge = smoothstep(0.0, 1.0, -vCav);
@@ -261,6 +273,15 @@ export function createSkin(geo, color) {
       vec3 detail = texture2D(uFace, vFace.xy).rgb * 2.0;
       skin = mix(skin, plain * detail * mix(vec3(1.0), vec3(0.60, 0.47, 0.45), crease * 0.35), vFace.z);
     }
+    if (uHairOn > 0.5 && vHair > -0.01) {
+      // short hair: a ragged hairline, then fine dark stubble or a fuller crop over the scalp
+      float edge = vHair + (vnoise(vObj * 380.0) - 0.5) * 0.004 + (vnoise(vObj * 1500.0) - 0.5) * 0.0016;
+      hairA = smoothstep(-0.0012 - 0.002 * (1.0 - uHairDense), 0.0028 + 0.006 * (1.0 - uHairDense), edge);
+      float strands = mix(vnoise(vObj * 7000.0), vnoise(vObj * vec3(2600.0, 900.0, 2600.0)) * 0.6 + vnoise(vObj * 5200.0) * 0.4, uHairDense);
+      float cover = mix(0.3, 0.95, uHairDense) * (mix(0.45, 0.75, uHairDense) + mix(1.1, 0.5, uHairDense) * strands) * smoothstep(-0.001, 0.009, edge * mix(1.0, 2.5, uHairDense) + 0.002);
+      vec3 col = uHairCol * (0.65 + 0.7 * strands);
+      skin = mix(skin, mix(plain * vec3(0.9, 0.84, 0.82), col, clamp(cover, 0.0, 1.0)), hairA);
+    }
     if (vPart > 0.5) {
       vec3 c = vObj.x > 0.0 ? uEyeL : uEyeR;
       float f = normalize(vObj - c).z;
@@ -276,13 +297,14 @@ export function createSkin(geo, color) {
     float hb = mhAll.x;
     float fw = length(fwidth(vObj));
     hb += (vnoise(vObj * 1400.0) - 0.5) * 0.00007 * (1.0 - smoothstep(0.0003, 0.001, fw));
+    hb += hairA * (vnoise(vObj * vec3(2600.0, 900.0, 2600.0)) - 0.5) * 0.00012 * uHairDense;
     vec3 sx = dFdx(-vViewPosition), sy = dFdy(-vViewPosition);
     vec3 r1 = cross(sy, normal), r2 = cross(normal, sx);
     float det = dot(sx, r1) * faceDirection;
     vec3 grad = sign(det) * (dFdx(hb) * r1 + dFdy(hb) * r2);
     normal = normalize(abs(det) * normal - grad);
   }`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nif (vPart > 0.5) roughnessFactor = 0.1;');
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.82, hairA * uHairDense);\nif (vPart > 0.5) roughnessFactor = 0.1;');
   };
   return { mat, uniforms };
 }
@@ -325,6 +347,13 @@ export function updateSkin(geo, uniforms, areola, shape) {
     const lm = landmarks3D(R, geo.index.array, FACE_MAP);
     BROWS.forEach(([up, low], i) => uniforms.uBrow.value[i].set((lm[up][0] + lm[low][0]) / 2, (lm[up][1] + lm[low][1]) / 2 + 0.0012, Math.max(lm[up][2], lm[low][2]) + 0.001));
     uniforms.uBrowOn.value = shape && shape.figure === 'female' ? 0.78 : shape && shape.figure === 'neutral' ? 0.9 : 1; // width
+  }
+  if (geo.attributes.hair && geo.index && geo.attributes.position.count >= COUNTS.body) {
+    const key = (shape ? shapeKeyOf(shape) : '') + ':' + geo.attributes.position.count + ':' + (geo.attributes.rest ? 'r' : 'p');
+    if (HAIR.key !== key || !HAIR.field || HAIR.field.length !== geo.attributes.position.count) {
+      HAIR.field = hairField(R, geo.attributes.position.count, landmarks3D(R, geo.index.array, FACE_MAP), COUNTS.body); HAIR.key = key;
+    }
+    if (geo.userData.hairKey !== HAIR.key) { geo.attributes.hair.array.set(HAIR.field); geo.attributes.hair.needsUpdate = true; geo.userData.hairKey = HAIR.key; }
   }
   if (FACE.uv && geo.attributes.face) { geo.attributes.face.array.set(faceFor(geo, shape)); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = true; }
   else if (geo.userData.faceSet) { geo.attributes.face.array.fill(0); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = false; }

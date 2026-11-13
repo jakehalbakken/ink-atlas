@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'hair', date: '2026-11-13', title: 'Shaved or buzz-cut hair', how: 'Body, then Hair. Pick Shaved or Buzz cut and a colour, so the head looks less like a mannequin. Kept on this device.', show: 'hair' },
   { id: 'compare-shot', date: '2026-11-13', title: 'Before and after picture', how: 'Share, then Before and after. This view now and with your planned tattoos, side by side, ready to send.', show: 'compareShot' },
   { id: 'gap', date: '2026-11-13', title: 'Space between tattoos', how: 'Select a tattoo. Under its size, the edit panel says how far it is from the nearest other tattoo, or that they touch. Handy for keeping an even gap.', show: 'gap' },
   { id: 'skin-detail', date: '2026-11-13', title: 'Eyebrows and finer skin', how: 'Zoom in on the face: every body now has eyebrows, and the skin has fine texture up close, like pores.', show: 'skinDetail' },

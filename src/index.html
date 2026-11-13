@@ -152,7 +152,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .pop{position:fixed;z-index:3;top:74px;right:16px;width:320px;max-width:calc(100% - 32px);max-height:calc(100% - 184px);overflow-x:hidden;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .pop>*{flex:none}
 .pop h3,.modal h2{margin:0;font:700 17px/1.2 var(--display)}
-#skins{display:flex;flex-wrap:wrap;gap:4px}#skins .sw{flex:none}
+#skins,#hairCols{display:flex;flex-wrap:wrap;gap:4px}#skins .sw,#hairCols .sw{flex:none}#hairCols[hidden]{display:none}
 .sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent}
 .sw.on{border-color:#fff;box-shadow:0 0 0 3px var(--stencil)}.sw.own{background:conic-gradient(#f6e2d3,#d37d5f,#6a422a,#45291a,#b99d7a,#f6e2d3);display:grid;place-items:center;color:#20232c;font-weight:700;font-size:20px;line-height:1}.sw.own.set{font-size:0}#skinOwn{display:flex;flex-direction:column;gap:8px;margin-top:6px}#skinOwn[hidden]{display:none}
 #skinPick{position:fixed;inset:0;z-index:9;background:#0d0e12;touch-action:none}#skinPick[hidden]{display:none}#spImg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}#spTop{position:absolute;top:16px;left:16px;right:16px;padding:10px 16px}#spTop p{margin:0}#spRing{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.6);pointer-events:none}#spRing[hidden]{display:none}#spBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}#spSwatch{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.7);flex:none}#spMsg{flex:1;min-width:160px}
@@ -264,6 +264,9 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     <button class="btn" id="skinPhotoBtn" type="button">Match a photo of your skin</button>
     <input type="file" id="skinPhotoFile" accept="image/*" hidden>
   </div>
+  <span class="lbl">Hair</span>
+  <div class="seg" role="group" aria-label="Hair" id="hairRow"><button class="btn" type="button" data-hair="none">Bald</button><button class="btn" type="button" data-hair="buzz">Shaved</button><button class="btn" type="button" data-hair="short">Buzz cut</button></div>
+  <div id="hairCols" hidden></div>
   <span class="lbl">Fine-tune each part</span>
   <div id="fitGroups"></div>
   <p class="tip">Double-tap a slider to put it back to standard.</p>

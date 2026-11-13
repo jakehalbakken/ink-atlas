@@ -2,7 +2,8 @@ import { visibleInkAt, rankedInkHits, cycleInkHit } from './ink-picking.js';
 import * as THREE from 'three';
 import { INDEX, INDEX_ALL, COUNTS, EYES, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
-import { createSkin, updateSkin, setSkinFace, skinFaceOn } from './skin.js';
+import { createSkin, updateSkin, setSkinFace, skinFaceOn, setSkinHair } from './skin.js';
+import { HAIR_STYLES, HAIR_COLOURS } from './hair.js';
 import { FACE_MAP } from './face-map.js';
 import { landmarks3D, faceMorph } from './face-fit.js';
 import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
@@ -1413,6 +1414,32 @@ $('#faceShow').addEventListener('click', () => { if (!face.saved) return; face.s
 $('#faceRemove').addEventListener('click', () => { face.saved = null; face.uv = null; face.version++; faceWrite(null); setSkinFace(null); faceRefresh(); faceButtons(); toast('Your face photo is removed from this device.'); });
 faceButtons(); faceRestore();
 
+// ---------- Hair ----------
+// Very short hair painted on the scalp: bald, shaved or a buzz cut, in a few colours. Kept on this
+// device like the Light (not in the project), so a shared project looks the same for everyone.
+const HAIR_KEY = 'ia-hair';
+const HAIR_NAMES = { black: 'Black', brown: 'Dark brown', chestnut: 'Brown', blond: 'Blond', grey: 'Grey' };
+let hair = (() => {
+  try { const v = JSON.parse(localStorage.getItem(HAIR_KEY) || 'null'); if (v && HAIR_STYLES.includes(v.style) && HAIR_COLOURS[v.colour]) return { style: v.style, colour: v.colour }; } catch (_) { /* no storage */ }
+  return { style: 'none', colour: 'brown' };
+})();
+function renderHair() {
+  document.querySelectorAll('#hairRow [data-hair]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hair === hair.style)));
+  const row = $('#hairCols'); row.hidden = hair.style === 'none';
+  if (!row.children.length) for (const [k, c] of Object.entries(HAIR_COLOURS)) row.append(el('button', { class: 'sw', type: 'button', 'data-hair-colour': k, style: `background:${c}`, 'aria-label': 'Hair: ' + HAIR_NAMES[k], onclick: () => setHair(hair.style, k) }));
+  for (const b of row.children) { const on = b.dataset.hairColour === hair.colour; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); }
+}
+function setHair(style, colour = hair.colour) {
+  hair = { style, colour }; try { localStorage.setItem(HAIR_KEY, JSON.stringify(hair)); } catch (_) { /* private mode: lasts until reload */ }
+  if (style !== 'none') markTried('hair');
+  setSkinHair(style, HAIR_COLOURS[colour]); needsRender = true; renderHair();
+}
+document.querySelectorAll('#hairRow [data-hair]').forEach((b) => b.addEventListener('click', () => {
+  const was = hair.style; setHair(b.dataset.hair);
+  if (was === 'none' && hair.style !== 'none') viewFace();
+}));
+setSkinHair(hair.style, HAIR_COLOURS[hair.colour]); renderHair();
+
 /* ---------- New to try: the newest features, how to try them, and Show me ---------- */
 function markTried(id) { if (tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
 function renderNew() {
@@ -1435,6 +1462,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved or Buzz cut, then a colour.']; },
   compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
   gap: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', state.tattoos.filter((x) => !x.hidden).length > 1 ? 'This line says how far the tattoo is from the nearest other one.' : 'Add a second tattoo and this line says how far apart they are.']; },
   skinDetail: () => { toggle('#bodyPop', true); viewFace(); return ['#faceBtn', 'Eyebrows and fine skin texture now show on every body. Zoom in close to see them. Add my face puts your own face on.']; },
@@ -2286,7 +2314,26 @@ window.__ink = {
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null }),
-  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), compareLast: () => compareLast,
+  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }),
+  hairProbe: () => {
+    // brightness of a few spots on the head, looked at straight on, with this hair and with none
+    const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array, lm = landmarks3D(P, bodyGeo.index.array, FACE_MAP);
+    const nearest = (q) => { let b = 0, bd = Infinity; for (let v = 0; v < 13380; v++) { const d = (P[v * 3] - q[0]) ** 2 + (P[v * 3 + 1] - q[1]) ** 2 + (P[v * 3 + 2] - q[2]) ** 2; if (d < bd) { bd = d; b = v; } } return b; };
+    let crown = 0; for (let v = 0; v < 13380; v++) if (P[v * 3 + 1] > P[crown * 3 + 1]) crown = v;
+    let ear = 0; for (let v = 0; v < 13380; v++) if (Math.abs(P[v * 3 + 1] - lm[454][1]) < 0.012 && P[v * 3] > P[ear * 3]) ear = v;
+    const spots = { crown, back: nearest([0, lm[454][1] + 0.025, -0.08]), forehead: nearest(lm[151]), cheek: nearest(lm[50]), ear, neck: nearest([0, lm[152][1] - 0.035, -0.08]) };
+    const rt = new THREE.WebGLRenderTarget(32, 32), cam = new THREE.PerspectiveCamera(20, 1, 0.01, 10), px = new Uint8Array(4 * 32 * 32);
+    const read = () => { const out = {}; for (const [k, v] of Object.entries(spots)) {
+      const p = new THREE.Vector3(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]), n = new THREE.Vector3(N[v * 3], N[v * 3 + 1], N[v * 3 + 2]).normalize();
+      cam.position.copy(p).addScaledVector(n, 0.12); cam.lookAt(p); cam.updateMatrixWorld();
+      renderer.setRenderTarget(rt); renderer.render(scene, cam); renderer.readRenderTargetPixels(rt, 12, 12, 8, 8, px); renderer.setRenderTarget(null);
+      let sum = 0; for (let i = 0; i < 64; i++) sum += 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]; out[k] = sum / 64;
+    } return out; };
+    const decalsWere = decalGroup.visible; decalGroup.visible = false;
+    const withHair = read(); setSkinHair('none'); const plain = read(); setSkinHair(hair.style, HAIR_COLOURS[hair.colour]);
+    decalGroup.visible = decalsWere; rt.dispose(); needsRender = true;
+    const r = {}; for (const k of Object.keys(spots)) { r[k] = withHair[k]; r[k + 'Plain'] = plain[k]; } return r;
+  }, compareLast: () => compareLast,
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
