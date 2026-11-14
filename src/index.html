@@ -419,13 +419,13 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <input id="procreateFile" type="file" accept="image/*" hidden>
 <input id="modelFile" type="file" accept=".glb,model/gltf-binary" hidden>
 <input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
-<input id="paintedFile" type="file" accept=".usdz,.zip,.png,.jpg,.jpeg,model/vnd.usdz+zip,application/zip" hidden>
+<input id="paintedFile" type="file" hidden>
 
 <div id="pcMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="pcmTitle"><header><h2 id="pcmTitle">Procreate</h2><button class="btn" type="button" data-close="pcMenu">Close</button></header>
 <h3 class="shHead">Paint the whole body in 3D</h3>
 <div class="cards">
 <button class="card" id="pm3dSend" type="button"><b>1. Send the 3D body</b><span>Choose Procreate. Paint on the body in 3D, with your skin, tattoos and paint already on it.</span></button>
-<button class="card" id="pm3dBack" type="button"><b>2. Bring back the painted body</b><span>In Procreate, tap Actions, Share, then USDZ, and save it to Files. Pick that file here.</span></button>
+<button class="card" id="pm3dBack" type="button"><b>2. Bring back your drawing as tattoos</b><span>In Procreate, tap Actions, Share, Procreate, and save it to Files. Pick it here: each layer comes back as its own tattoo. A USDZ works too, split by separate areas.</span></button>
 </div>
 <div id="pmPaint" class="pmPaint" hidden><p>Your paint is on the body. Send the 3D body again to keep painting.</p><div class="row"><button class="btn" id="pmPaintHide" type="button">Hide paint</button><button class="btn" id="pmPaintSplit" type="button">Make movable tattoos</button><button class="btn" id="pmPaintRemove" type="button">Remove paint</button></div></div>
 <h3 class="shHead">Draw on one spot</h3>

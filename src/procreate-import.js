@@ -102,17 +102,25 @@ const diff = (a, b, p) => Math.hypot(a[p] - b[p], a[p + 1] - b[p + 1], a[p + 2] 
 
 // New drawing, grouped by where it sits on the body. positions / normals / index: the
 // rest body. Returns groups of body points with their average normal, biggest first.
-export function findDrawings({ pixels, baseline, map, size, positions, normals, index, skin, minPixels = 24, joinGap = 0.02, maxPieces = 60 }) {
-  const painted = new Uint8Array(size * size), skinPx = skin ? [skin[0], skin[1], skin[2]] : null;
+// mask: instead of comparing with the baseline, the pixels painted on one layer (1 or 0).
+// quiet: pixels at and round ink that is already on the body here; drawing there counts
+// only when it clearly differs, so the edges of tattoos brought back before (photographed
+// back onto the skin, so never quite the same) do not come back again as slivers.
+export const isNewInk = (pixels, baseline, skin, quiet, p) => {
+  const d = diff(pixels, baseline, p * 4);
+  if (d <= (quiet && quiet[p] ? PAINT_MIN * 2.5 : PAINT_MIN)) return false;
+  // painted back to plain skin (ink rubbed out) is not new ink
+  return !(skin && Math.hypot(pixels[p * 4] - skin[0], pixels[p * 4 + 1] - skin[1], pixels[p * 4 + 2] - skin[2]) <= PAINT_MIN);
+};
+export function findDrawings({ pixels, baseline, map, size, positions, normals, index, skin, mask = null, quiet = null, minPixels = 24, joinGap = 0.02, maxPieces = 60 }) {
+  const painted = new Uint8Array(size * size);
   let count = 0, body = 0;
   for (let p = 0; p < map.length; p++) {
     if (map[p] < 0) continue; body++;
-    if (diff(pixels, baseline, p * 4) <= PAINT_MIN) continue;
-    // painted back to plain skin (ink rubbed out) is not new ink
-    if (skinPx && Math.hypot(pixels[p * 4] - skinPx[0], pixels[p * 4 + 1] - skinPx[1], pixels[p * 4 + 2] - skinPx[2]) <= PAINT_MIN) continue;
+    if (mask ? !mask[p] : !isNewInk(pixels, baseline, skin, quiet, p)) continue;
     painted[p] = 1; count++;
   }
-  if (count > body * 0.4) throw new Error('That model does not match this body. Open it in the project it was exported from.');
+  if (!mask && count > body * 0.4) throw new Error('That model does not match this body. Open it in the project it was exported from.');
   // connected pieces of drawing on the picture
   const label = new Int32Array(size * size).fill(-1), pieces = [];
   for (let s = 0; s < painted.length; s++) {
@@ -213,15 +221,14 @@ export function photographDrawing({ THREE, renderer, geometry, paint, center, no
 
 // The new drawing alone, as ink on white paper: the picture holds skin x ink, so the ink
 // is the picture divided by the skin. Everything that is not new drawing is transparent.
-export function paintLayer({ pixels, baseline, map, size, skin }) {
+export function paintLayer({ pixels, baseline, map, size, skin, quiet = null }) {
   const out = new ImageData(size, size), d = out.data;
   for (let o = 0; o < d.length; o += 4) d[o] = d[o + 1] = d[o + 2] = 255; // white paper, so soft edges fade to white
   for (let p = 0; p < map.length; p++) {
     if (map[p] < 0) continue;
     const o = p * 4;
     const a = paintAlpha(diff(pixels, baseline, o));
-    if (a <= 0) continue;
-    if (Math.hypot(pixels[o] - skin[0], pixels[o + 1] - skin[1], pixels[o + 2] - skin[2]) <= PAINT_MIN) continue;
+    if (a <= 0 || !isNewInk(pixels, baseline, skin, quiet, p)) continue;
     for (let k = 0; k < 3; k++) { const ink = Math.min(1, pixels[o + k] / Math.max(1, skin[k])); d[o + k] = Math.round(255 * ink); }
     d[o + 3] = Math.round(255 * a);
   }
@@ -241,6 +248,43 @@ export function uprightPixels(pixels, baseline, map, size) {
     if (Math.hypot(pixels[q] - baseline[p * 4], pixels[q + 1] - baseline[p * 4 + 1], pixels[q + 2] - baseline[p * 4 + 2]) > PAINT_MIN) flip++;
   }
   if (!(flip < same * 0.8)) return pixels; // the right way up, or no way to tell
+  const out = new Uint8ClampedArray(pixels.length), row = size * 4;
+  for (let y = 0; y < size; y++) out.set(pixels.subarray((size - 1 - y) * row, (size - y) * row), y * row);
+  return out;
+}
+
+// One paint layer as ink on white paper (see-through round it), for photographing back onto
+// the body as a tattoo: the layer's own colours, its soft edges fading to white.
+export function layerInk(pixels, map, size, opacity = 1) {
+  const out = new ImageData(size, size), d = out.data;
+  for (let o = 0; o < d.length; o += 4) d[o] = d[o + 1] = d[o + 2] = 255;
+  for (let p = 0; p < map.length; p++) {
+    const o = p * 4, a = (pixels[o + 3] / 255) * opacity;
+    if (map[p] < 0 || a <= 0) continue;
+    for (let k = 0; k < 3; k++) d[o + k] = Math.round(255 * (1 - a) + pixels[o + k] * a);
+    d[o + 3] = Math.round(255 * Math.min(1, a * 1.5)); // the colour already fades; keep faint strokes
+  }
+  return out;
+}
+
+// Pixels of the skin picture that hold ink already on the body here, and a few round them.
+export function inkZone(baseline, map, size, skin, grow = 3) {
+  let zone = new Uint8Array(size * size);
+  for (let p = 0; p < map.length; p++) if (map[p] >= 0 && Math.hypot(baseline[p * 4] - skin[0], baseline[p * 4 + 1] - skin[1], baseline[p * 4 + 2] - skin[2]) > PAINT_MIN) zone[p] = 1;
+  for (let g = 0; g < grow; g++) {
+    const next = zone.slice();
+    for (let p = 0; p < zone.length; p++) {
+      if (zone[p]) continue; const x = p % size;
+      if ((x > 0 && zone[p - 1]) || (x < size - 1 && zone[p + 1]) || (p >= size && zone[p - size]) || (p < zone.length - size && zone[p + size])) next[p] = 1;
+    }
+    zone = next;
+  }
+  return zone;
+}
+
+// Which way up a picture is, from the skin it should match: true when it is upside down.
+export function upsideDown(pixels, baseline, map, size) { return uprightPixels(pixels, baseline, map, size) !== pixels; }
+export function flipRows(pixels, size) {
   const out = new Uint8ClampedArray(pixels.length), row = size * 4;
   for (let y = 0; y < size; y++) out.set(pixels.subarray((size - 1 - y) * row, (size - y) * row), y * row);
   return out;

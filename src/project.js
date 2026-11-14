@@ -44,6 +44,7 @@ export function cleanState(raw, hasImage) {
     t.flip = !!t.flip; t.locked = !!t.locked; t.hidden = !!t.hidden;
     for (const [k, lo, hi] of [['wrap', 0, 1], ['bend', -1, 1], ['taper', -0.75, 0.75]]) { if (num(t[k]) && t[k]) t[k] = clamp(t[k], lo, hi); else delete t[k]; }
     if (t.status !== 'existing' && t.status !== 'planned') delete t.status;
+    if (t.fromLayer !== undefined && (typeof t.fromLayer !== 'string' || t.fromLayer.length > 100)) delete t.fromLayer;
     const len = vec3(t.normal, 2) ? Math.hypot(t.normal[0], t.normal[1], t.normal[2]) : 0;
     if (vec3(t.pos, 10) && len > 0.5) t.normal = t.normal.map((c) => c / len);
     else { t.pos = [0, 1.3, 0.12]; t.normal = [0, 0, 1]; replace.push(t.id); }
