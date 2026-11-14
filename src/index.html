@@ -29,7 +29,8 @@ body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webk
 #viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
 #handles{position:fixed;inset:0;pointer-events:none}#handles[hidden]{display:none}.hnd{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;pointer-events:auto;touch-action:none;cursor:grab}.hnd[hidden]{display:none}.hnd::after{content:"";position:absolute;left:12px;top:12px;width:20px;height:20px;box-sizing:border-box;background:#fff;border:2.5px solid var(--stencil);box-shadow:0 1px 5px rgba(0,0,0,.4)}#hSize::after{border-radius:5px}#hTurn::after{border-radius:50%}.hnd.on::after{background:var(--stencil)}body.hands-on #handles{opacity:0}
 #tryOn{position:fixed;inset:0;z-index:9;background:#0d0e12;overflow:hidden;touch-action:none}#tryOn[hidden]{display:none}#toVideo,#toPhoto{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}#toVideo.mirror{transform:scaleX(-1)}#toPhoto[hidden],#toVideo[hidden]{display:none}#toArt{position:absolute;left:0;top:0;transform-origin:50% 50%;mix-blend-mode:multiply;pointer-events:none}#toTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#toBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#toBar .row{display:flex;gap:8px;flex-wrap:wrap}#toBar .row[hidden]{display:none}#toBar .row .btn{flex:1;min-width:120px}
-#realSize{position:fixed;inset:0;z-index:9;background:var(--rs-skin,#e0b394);overflow:hidden;touch-action:none}#realSize[hidden]{display:none}#rsArt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#rsImg{display:block;width:100%;height:100%;mix-blend-mode:multiply}#rsTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#rsCal{position:absolute;left:16px;right:16px;bottom:16px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}#rsCal p{margin:0}#rsCard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px dashed #2b2f38;border-radius:12px;pointer-events:none}#rsCard[hidden]{display:none}#rsCheck{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;background:rgba(20,22,28,.7)}
+#realSize{position:fixed;inset:0;z-index:9;background:var(--rs-skin,#e0b394);overflow:hidden;touch-action:none}#realSize[hidden]{display:none}#rsArt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#rsImg{display:block;width:100%;height:100%;mix-blend-mode:multiply}#rsTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#rsCal{position:absolute;left:16px;right:16px;bottom:16px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}#rsCal p{margin:0}#rsCard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px dashed #2b2f38;border-radius:12px;pointer-events:none}#rsCard[hidden]{display:none}#stencil{position:fixed;inset:0;z-index:9;background:#f4f4f2;overflow:hidden;touch-action:none}#stencil[hidden]{display:none}#stView{position:absolute;inset:76px 16px 168px;display:flex;align-items:center;justify-content:center}#stCanvas{max-width:100%;max-height:100%;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.18)}#stTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#stBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#stBar .row{display:flex;gap:8px;flex-wrap:wrap}#stBar .row .btn{flex:1;min-width:140px}
+#rsCheck{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;background:rgba(20,22,28,.7)}
 #paintBar{position:fixed;top:82px;left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}#paintBar[hidden]{display:none}#paintBar p{margin:0}body.painting #newBtn,body.painting #dock,body.painting #lookBtn,body.painting #full{display:none}
 #stage{position:fixed;inset:0}
 #stage canvas{display:block;outline:none}
@@ -391,6 +392,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="btn" id="bDup" type="button">Duplicate</button>
       <button class="btn" id="bOtherSide" type="button">Copy to other side</button>
       <button class="btn" id="bRealSize" type="button">Real size on screen</button>
+      <button class="btn" id="bStencil" type="button">Stencil for your artist</button>
       <button class="btn" id="bTryOn" type="button">Try on with camera</button>
       <button class="btn" id="bSpots" type="button">Try other spots</button>
       <button class="btn" id="bStatus" type="button">Planned</button>
@@ -519,6 +521,14 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <div id="rsCal" class="glass" hidden><p>Hold a bank card on the outline and match its size.</p><div class="row"><button class="btn" type="button" id="rsSmaller">Smaller</button><button class="btn" type="button" id="rsBigger">Bigger</button><button class="btn primary" type="button" id="rsCalDone">It matches</button></div></div>
   <div id="rsCard" hidden></div>
   <button class="btn quiet" type="button" id="rsCheck">Check the scale with a bank card</button>
+</div>
+<div id="stencil" hidden role="dialog" aria-label="Stencil for your artist">
+  <div id="stView"><canvas id="stCanvas"></canvas></div>
+  <div id="stTop" class="glass"><span id="stText"></span><button class="btn primary" type="button" id="stClose">Done</button></div>
+  <div id="stBar" class="glass">
+    <div class="lbl">Detail: bold lines to fine shading<ink-slider id="rStDetail" min="0" max="100" default="50" origin="0" aria-label="Detail"></ink-slider></div>
+    <div class="row"><button class="btn" type="button" id="stShare" disabled>Share picture</button><button class="btn primary" type="button" id="stPrint" disabled>Print at real size</button></div>
+  </div>
 </div>
 <div id="preview" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="pvTitle">

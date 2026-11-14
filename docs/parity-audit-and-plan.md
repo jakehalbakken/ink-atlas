@@ -482,7 +482,7 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Tested: t72 (menu, USDZ checks, green paint lands on the same thigh, follows a leg pose, goes back out, a second trip with light paint brings both back, hide and show, kept after reload, a clean model clears it and Undo restores it, Make movable tattoos gives two tattoos and one Undo puts the paint back), t44 (older tattoo path), t38, t52, t55.
 - Not yet tried in real Procreate. Known limits: the paint is shown without aging; a tattoo moved after sending leaves its old ink as paint when the model comes back; paint is kept at 2048, so very fine strokes soften slightly after the first trip.
 
-## Procreate layers come back as tattoos (2026-11-14, built, not live)
+## Procreate layers come back as tattoos (2026-11-14, live)
 
 - Jake (06:50Z): "I want the paint to come in as layers for new tattoos".
 - What Procreate exports: its 3D exports (USDZ, OBJ, textures) flatten the layers into one skin picture. Its own file (Actions, Share, Procreate) keeps every layer, so that is the route that keeps them apart.
@@ -491,3 +491,11 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Sending the body again carries every visible tattoo (and any paint) in the skin picture, so the round trip keeps going.
 - Tested: procreate-file-unit (plists, archives, LZO1X and LZ4 both ways, 3D layers apart from the composite, hidden layers, cut-short edge tiles, rows the right way up, soft edges unpremultiplied, small documents scaled up with no gaps, 2D documents), t73 (four tattoos from three visible layers and the base, hidden layer out, in place within 4 cm, planned, same file adds nothing, a moved layer replaces only its tattoo, one undo, USDZ gives exactly two new tattoos with the layer tattoos already on its skin, kept after reload), t72, t55.
 - Not yet tried with a real Procreate file: the format comes from public notes and other people's readers, and the test files are made by our own writer. If a real file will not open, the USDZ route still works.
+
+## Stencil for your artist (2026-11-14, built, not live)
+
+- Jake (08:02Z): "Next feature". Fits the agreed split: art is drawn in Procreate, Ink Atlas fits it at real size and hands it to the artist.
+- Now: select a tattoo, More controls, Stencil for your artist. A full-screen sheet shows the artwork as black lines on white, at its real size on the body and turned the way it sits there (mirror and flip followed). Line work and dots up to about 4 mm wide stay as drawn, wider filled areas become their outline (0.4 mm line), and where two clearly different colours meet inside the ink a line is drawn. Specks are dropped. Detail (bold lines to fine shading) sets how light a tone still counts as ink.
+- Print at real size: a PDF from the same print builder as Share > Print at real size, with the 1 inch square and 5 cm bar to check the printer. Share picture: a PNG at about 300 dpi that carries its print size (pHYs), capped at 6 million pixels for big pieces. Both files are made as the sheet opens, so the tap goes straight to the share sheet.
+- View only: the project is unchanged. `stencil.js` is pure maths.
+- Tested: stencil-unit (ink amount, outlines, solid lines and dots, colour edges, specks, detail, size caps, PNG print size with good CRCs), t74 (button and sheet sizes, real width at its dpi, black on white, PNG with print size, PDF at true size, detail, mirrored, project unchanged), t55.

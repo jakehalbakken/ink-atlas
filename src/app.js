@@ -43,6 +43,7 @@ import { SPOTS, spotAim, turnAlong } from './spots.js';
 import { POSE_BONES, vertexBones } from './pose.js';
 import { posesFor } from './pose-pick.js';
 import { PART_NAMES } from './body-photo.js';
+import { stencilLines, stencilPixels, stencilScale, pngWithDpi } from './stencil.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -850,6 +851,53 @@ $('#rsCheck').addEventListener('click', () => { $('#rsCal').hidden = false; $('#
 $('#rsSmaller').addEventListener('click', () => { rsPpi *= 0.99; renderRealSize(); });
 $('#rsBigger').addEventListener('click', () => { rsPpi *= 1.01; renderRealSize(); });
 $('#rsCalDone').addEventListener('click', () => { try { localStorage.setItem(PPI_KEY, String(Math.round(rsPpi * 10) / 10)); } catch (_) { /* kept until closed */ } $('#rsCal').hidden = true; $('#rsCard').hidden = true; $('#rsCheck').hidden = false; toast('Scale saved for this device.'); });
+// Stencil for your artist: the selected tattoo's artwork as clean black lines on white, at its
+// real size on the body and turned the way it sits there. Fills become outlines, thin lines stay
+// whole. The files are made as the sheet opens, so a tap hands them straight to the share sheet.
+// View only: the project never changes.
+const st = { id: null, detail: 0.5, timer: 0, run: 0, png: null, pdf: null, base: '' };
+const stReady = (on) => { $('#stShare').disabled = $('#stPrint').disabled = !on; };
+async function makeStencil() {
+  const t = state.tattoos.find((x) => x.id === st.id); if (!t) { showStencil(false); return; }
+  const run = ++st.run; st.png = st.pdf = null; stReady(false);
+  const P = await import('./print-size.js'), size = P.pieceSize(t, state.heightCm);
+  $('#stText').textContent = `${t.name || 'Tattoo'}: ${P.sizeNote(size)} at real size.` + (t.flip ? ' Mirrored as on your body.' : '') + ' Getting it ready.';
+  const im = imgEls[t.img] || await loadImg(t.img);
+  await new Promise((r) => setTimeout(r, 20)); // let the sheet show before the work
+  if (run !== st.run) return;
+  if (!im) { $('#stText').textContent = 'This artwork could not be read.'; return; }
+  const S = stencilScale(size.wCm / 2.54, size.hCm / 2.54), c = document.createElement('canvas'); c.width = S.w; c.height = S.h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.fillStyle = '#fff'; g.fillRect(0, 0, S.w, S.h);
+  g.save(); g.translate(t.flip ? S.w : 0, t.imageTopDown === false ? S.h : 0); g.scale(t.flip ? -1 : 1, t.imageTopDown === false ? -1 : 1); g.drawImage(im, 0, 0, S.w, S.h); g.restore();
+  const r = stencilLines(g.getImageData(0, 0, S.w, S.h).data, S.w, S.h, { detail: st.detail, line: S.line, solid: S.solid });
+  if (run !== st.run) return;
+  g.putImageData(new ImageData(stencilPixels(r.lines, S.w, S.h), S.w, S.h), 0, 0);
+  const k = Math.min(1, 1600 / Math.max(S.w, S.h)), view = $('#stCanvas');
+  view.width = Math.round(S.w * k); view.height = Math.round(S.h * k); view.getContext('2d').drawImage(c, 0, 0, view.width, view.height);
+  const blob = (type, q) => new Promise((res) => c.toBlob(res, type, q));
+  const png = pngWithDpi(new Uint8Array(await (await blob('image/png')).arrayBuffer()), S.dpi);
+  const jpg = new Uint8Array(await (await blob('image/jpeg', 0.95)).arrayBuffer());
+  if (run !== st.run) return;
+  const name = t.name || 'Tattoo', note = P.sizeNote(size) + ', stencil' + (t.flip ? ', mirrored as on the body' : '');
+  const pdf = P.buildPrintPdf(P.layoutPrint([{ id: t.id, w: size.w, h: size.h, labelW: (name.length + note.length + 2) * 4.6 }]), { [t.id]: { name, note, jpeg: { width: S.w, height: S.h, data: jpg } } }, { title: name + ': stencil at real size' });
+  st.png = new Blob([png], { type: 'image/png' }); st.pdf = new Blob([pdf], { type: 'application/pdf' });
+  st.base = name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo';
+  window.__lastStencil = { w: S.w, h: S.h, dpi: S.dpi, line: S.line, inkPixels: r.inkPixels, linePixels: r.linePixels, png: png.length, pdf: pdf.length, wCm: size.wCm, hCm: size.hCm, detail: st.detail };
+  $('#stText').textContent = `${name}: ${P.sizeNote(size)} at real size.` + (t.flip ? ' Mirrored as on your body.' : '') + (r.linePixels ? '' : ' Nothing to trace at this detail, so slide Detail up.');
+  stReady(r.linePixels > 0);
+}
+function showStencil(on) {
+  $('#stencil').hidden = !on; st.run++; clearTimeout(st.timer);
+  if (!on) return;
+  const t = sel(); if (!t) { $('#stencil').hidden = true; toast('Select a tattoo first.'); return; }
+  markTried('stencil'); st.id = t.id; makeStencil();
+}
+$('#bStencil').addEventListener('click', () => showStencil(true));
+$('#stClose').addEventListener('click', () => showStencil(false));
+$('#rStDetail').addEventListener('input', () => { st.detail = +$('#rStDetail').value / 100; stReady(false); clearTimeout(st.timer); st.timer = setTimeout(makeStencil, 220); });
+$('#stShare').addEventListener('click', () => { if (st.png) saveFile(st.base + '-stencil.png', st.png); });
+$('#stPrint').addEventListener('click', () => { if (st.pdf) saveFile(st.base + '-stencil.pdf', st.pdf); });
 // Try it on with the camera: the selected artwork over a live camera view or a photo of your
 // own skin. One finger moves it, two size and turn it, Curve wraps it round an arm or a leg,
 // and Take photo freezes the picture to save or share. View only: the project never changes.
@@ -1718,6 +1766,7 @@ const SHOW = {
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
   spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
+  stencil: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Stencil for your artist turns this tattoo into clean lines at its real size, to print or share.']; },
   realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },
   handles: () => { if (!needTattoo()) return null; return ['#hSize', 'Drag this corner to resize. Drag the dot above the tattoo to turn it.']; },
   palette: () => { toggle('#share', true); paletteReady = buildPalette(); return ['#cSwatches', 'Saves your skin and ink colours as a palette Procreate opens.']; },
