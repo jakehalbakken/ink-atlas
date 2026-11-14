@@ -47,6 +47,7 @@ import { stencilLines, stencilPixels, stencilScale, pngWithDpi } from './stencil
 import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
 import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
 import { makeRef, approvalHtml, parseAnswers } from './approval.js';
+import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -515,7 +516,7 @@ const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 let tried = readTried(); // features from New to try that were tried on this device
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { if (id && tape.on) tapeOff(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
+function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
 function sizeText(t) {
   const k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
   return `≈ ${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in  ·  ${w.toFixed(0)} × ${h.toFixed(0)} cm`;
@@ -668,6 +669,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) cance
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
   if (tape.on) { tapeTap(x, y); return; }
+  if (pain.on) { painTap(x, y); return; }
   if(tapPlaceId){const t=sel(),h=hitBody(x,y);if(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'){tapPlaceId=null;renderSheet();return;}if(!h){toast('Tap directly on the body, or cancel tap-to-place.');return;}try{const placed=planTapPlacement(t,{pos:h.point.toArray(),normal:h.normal.toArray()});snapshot();Object.assign(t,placed);tapPlaceId=null;commit();toast('Tattoo placed.', 'Undo', undo);}catch(e){toast(e.message);}return;}
   const h = hitBody(x, y),ids=inkIdsAt(x,y,h),now=performance.now();const id=cycleInkHit(ids,lastInkTap,{x,y,time:now});
   if(id){lastInkTap={ids,id,x,y,time:now};select(id,false);requestAnimationFrame(()=>{const t=sel();if(t&&t.id===id&&!gest)keepClearOfPanels(t);});lastTap={t:0,x,y,empty:false};return;}
@@ -1812,6 +1814,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  pain: () => { showLook(true); return ['#painBtn', 'Tap Pain map, then any spot or tattoo to see how much it usually hurts there.']; },
   tape: () => { showLook(true); return ['#tapeBtn', 'Tap Tape measure, then two points on the body. Around wraps it round an arm, a leg or the waist.']; },
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
   sizesSheet: () => { toggle('#share', true); return ['#cSizes', 'Tap for your tattoo a size smaller, as it is and a size bigger, side by side on the body.']; },
@@ -2026,7 +2029,7 @@ function tapeRender() {
     if (r.len > r.straight * 1.05) text += `. Straight across: ${tapeText(r.straight, h).text.replace(/ \(.*/, '')}.`;
   } else text = along ? (tape.pts.length ? 'Now tap the second point.' : 'Tap two points on the body.') : 'Tap a spot on an arm, a leg, the neck or the body to measure round it.';
   $('#tapeText').textContent = text;
-  canvas.style.cursor = tape.on ? 'crosshair' : (tapPlaceId ? 'crosshair' : '');
+  canvas.style.cursor = tape.on || pain.on ? 'crosshair' : (tapPlaceId ? 'crosshair' : '');
   placeTape();
 }
 function tapeTap(x, y) {
@@ -2053,6 +2056,7 @@ function placeTape() {
   lab.style.left = sc.x + 'px'; lab.style.top = sc.y + 'px';
 }
 function tapeOn(mode) {
+  if (pain.on) painOff();
   cancelGesture(); closePanels(); tapPlaceId = null;
   if (selectedId) select(null);
   if (poseView.active || poseView.motion.playing) { poseView.choose('neutral'); renderPose(); toast('The tape measure works on the standing body.'); }
@@ -2062,6 +2066,82 @@ function tapeOff() { tape.on = false; tape.pts = []; tape.result = null; tapeCle
 $('#tapeBtn').addEventListener('click', () => { if (tape.on) tapeOff(); else tapeOn(); });
 $('#tapeDone').addEventListener('click', tapeOff);
 for (const [id, mode] of [['#tapeAlong', 'along'], ['#tapeAround', 'around']]) $(id).addEventListener('click', () => { if (tape.mode === mode) return; tape.mode = mode; tape.pts = mode === 'around' && tape.pts.length ? [tape.pts[tape.pts.length - 1]] : []; tapeMeasure(); tapeRender(); if (tape.result && !tape.result.fail) markTried('tape'); });
+/* ---------- pain map ---------- */
+// How much a tattoo usually hurts on each part of the body (src/pain.js), shown as a soft
+// green to red wash over the skin. Follows every shape and pose. Only for looking.
+const pain = { on: false, key: null, level: null, smooth: null, place: null, nb: null, mesh: null, text: '' };
+const PAIN_N = COUNTS.body + COUNTS.eyes + COUNTS.genital, isEye = (v) => v >= COUNTS.body && v < COUNTS.body + COUNTS.eyes;
+function painData() {
+  if (pain.key === shapeKey && pain.level) return pain;
+  const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array, J = poseView.restRig().joints;
+  const at = (name) => { const b = POSE_BONES.find((x) => x.name === name); return b ? [J[b.head * 3], J[b.head * 3 + 1], J[b.head * 3 + 2]] : [0, -9, 0]; };
+  const both = (name) => [at(name + '.L'), at(name + '.R')];
+  const joints = { knee: both('lowerleg01'), elbow: both('lowerarm01'), wrist: both('wrist'), ankle: both('foot'), shoulder: both('upperarm01') };
+  const boneOf = (v) => { if (v >= COUNTS.body + COUNTS.eyes) return 'genital'; let best = 'root', w = -1; for (const [n, x] of vertexBones(v)) if (x > w) { w = x; best = n; } return best; };
+  const r = painMap({ pos: P, nor: N, count: PAIN_N, boneOf, joints, skip: isEye });
+  if (!pain.nb) pain.nb = vertexNeighbours(INDEX_ALL, PAIN_N);
+  pain.level = r.level; pain.place = r.place; pain.smooth = smoothLevels(r.level, pain.nb, 4, isEye); pain.key = shapeKey;
+  if (pain.mesh) painColours();
+  return pain;
+}
+function painColours() {
+  const c = pain.mesh.geometry.attributes.color.array, col = new THREE.Color();
+  for (let v = 0; v < PAIN_N; v++) { const [r, g, b] = painColour(pain.smooth[v]); col.setRGB(r, g, b, THREE.SRGBColorSpace); c[v * 3] = col.r; c[v * 3 + 1] = col.g; c[v * 3 + 2] = col.b; }
+  pain.mesh.geometry.attributes.color.needsUpdate = true;
+}
+function painMesh() {
+  if (pain.mesh) return pain.mesh;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PAIN_N * 3), 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(PAIN_N * 3), 3));
+  let idxOf = null;
+  const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const m = new THREE.Mesh(g, mat); m.name = 'pain'; m.visible = false; m.frustumCulled = false; m.renderOrder = 4; m.raycast = () => {}; m.userData.notBody = true;
+  // before each draw: the body's current skin (standing, reshaped or posed) and triangles
+  const copy = () => {
+    const geo = body.geometry, I = geo.index.array;
+    if (idxOf !== I) { const keep = []; for (let i = 0; i < I.length; i += 3) { const a = I[i], b = I[i + 1], c = I[i + 2]; if (a < PAIN_N && b < PAIN_N && c < PAIN_N && !isEye(a) && !isEye(b) && !isEye(c)) keep.push(a, b, c); } g.setIndex(keep); idxOf = I; }
+    g.attributes.position.array.set(geo.attributes.position.array.subarray(0, PAIN_N * 3)); g.attributes.position.needsUpdate = true;
+  };
+  m.onBeforeRender = copy;
+  body.add(m); pain.mesh = m; copy(); painColours();
+  return m;
+}
+// one tattoo: the usual pain over its ink
+function painOfTattoo(t) {
+  const d = painData(), r = painUnder({ pos: bodyGeo.attributes.position.array, count: PAIN_N, level: d.smooth, place: d.place, centre: t.pos, radius: Math.max(0.01, Math.min(t.width, t.width / t.aspect) / 2) });
+  if (!r) return '';
+  let line = `${t.name || 'This tattoo'} on the ${r.place.toLowerCase()}: ${painWords(r.level)}, about ${Math.round(r.level)} out of 10.`;
+  if (r.max >= r.level + 1.5 && painWords(r.max) !== painWords(r.level)) line += ` Part of it reaches ${painWords(r.max)} on the ${r.maxPlace.toLowerCase()}.`;
+  return line;
+}
+function painRender() {
+  $('#painBtn').setAttribute('aria-pressed', String(pain.on)); $('#painBar').hidden = !pain.on;
+  $('#painText').textContent = pain.text;
+  if (pain.mesh) pain.mesh.visible = pain.on;
+  canvas.style.cursor = pain.on ? 'crosshair' : (tape.on || tapPlaceId ? 'crosshair' : '');
+  needsRender = true;
+}
+function painTap(x, y) {
+  const h = hitBody(x, y), ids = inkIdsAt(x, y, h);
+  const t = ids && ids.length && state.tattoos.find((q) => q.id === ids[0]);
+  if (t) { pain.text = painOfTattoo(t); painRender(); markTried('pain'); return; }
+  if (!h || !h.face || !h.barycoord) { pain.text = 'Tap on the body to read a spot.'; painRender(); return; }
+  const d = painData(), vs = [h.face.a, h.face.b, h.face.c], w = [h.barycoord.x, h.barycoord.y, h.barycoord.z];
+  let lv = 0, best = 0; for (let k = 0; k < 3; k++) { lv += d.smooth[vs[k]] * w[k]; if (w[k] > w[best]) best = k; }
+  pain.text = painLine(lv, d.place[vs[best]] || 'Here'); painRender(); markTried('pain');
+}
+function painOn() {
+  if (tape.on) tapeOff();
+  cancelGesture(); closePanels(); tapPlaceId = null;
+  painData(); painMesh(); pain.on = true;
+  const t = sel(); pain.text = t ? painOfTattoo(t) : 'Tap a spot or a tattoo to see how much it usually hurts.';
+  if (selectedId) select(null);
+  painRender();
+}
+function painOff() { pain.on = false; painRender(); }
+$('#painBtn').addEventListener('click', () => { showLook(false); if (pain.on) painOff(); else painOn(); });
+$('#painDone').addEventListener('click', painOff);
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */
 function showLook(open) { const m = $('#lookMenu'); m.hidden = open == null ? !m.hidden : !open; $('#lookBtn').setAttribute('aria-expanded', String(!m.hidden)); }
 function renderLook() {
@@ -3160,6 +3240,7 @@ function tick(now) {
 window.__ink = {
   state: () => state, ready: () => booted,
   sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
+  pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
