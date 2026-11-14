@@ -1,6 +1,6 @@
 import { visibleInkAt, rankedInkHits, cycleInkHit } from './ink-picking.js';
 import * as THREE from 'three';
-import { INDEX, INDEX_ALL, COUNTS, EYES, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
+import { INDEX, INDEX_ALL, COUNTS, EYES, MARKS, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
 import { createSkin, updateSkin, setSkinFace, skinFaceOn, setSkinHair, setSkinBeard, setSkinIris, skinIrisHex, skinPhotoIrisHex } from './skin.js';
 import { HAIR_STYLES, HAIR_COLOURS } from './hair.js';
@@ -50,6 +50,9 @@ import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
 import { makeRef, approvalHtml, parseAnswers } from './approval.js';
 import { coverByArt, coverText } from './cover.js';
 import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
+import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, roomByRegion, roomColour, roomSummary, inchWords } from './room.js';
+import { whereItSits } from './where.js';
+import { sessionHours, sessionText, planHours } from './estimate.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -538,7 +541,7 @@ const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 let tried = readTried(); // features from New to try that were tried on this device
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
+function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
 function sizeText(t) {
   const k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
   return `≈ ${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in  ·  ${w.toFixed(0)} × ${h.toFixed(0)} cm`;
@@ -692,6 +695,7 @@ canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goa
 function tap(x, y) {
   if (tape.on) { tapeTap(x, y); return; }
   if (pain.on) { painTap(x, y); return; }
+  if (room.on) { roomTap(x, y); return; }
   if(tapPlaceId){const t=sel(),h=hitBody(x,y);if(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'){tapPlaceId=null;renderSheet();return;}if(!h){toast('Tap directly on the body, or cancel tap-to-place.');return;}try{const placed=planTapPlacement(t,{pos:h.point.toArray(),normal:h.normal.toArray()});snapshot();Object.assign(t,placed);tapPlaceId=null;commit();toast('Tattoo placed.', 'Undo', undo);}catch(e){toast(e.message);}return;}
   const h = hitBody(x, y),ids=inkIdsAt(x,y,h),now=performance.now();const id=cycleInkHit(ids,lastInkTap,{x,y,time:now});
   if(id){lastInkTap={ids,id,x,y,time:now};select(id,false);requestAnimationFrame(()=>{const t=sel();if(t&&t.id===id&&!gest)keepClearOfPanels(t);});lastTap={t:0,x,y,empty:false};return;}
@@ -772,7 +776,7 @@ function renderSheet() {
   $('#tapPlaceBar').hidden=!tapPlaceId;$('#bTapPlace').setAttribute('aria-pressed',String(!!tapPlaceId));$('#bTapPlace').textContent=tapPlaceId?'Cancel tap to place':'Tap to place';$('#bTapPlace').disabled=!t||t.locked||t.hidden||t.status==='existing';canvas.style.cursor=tapPlaceId?'crosshair':'';
   if (!t) return;
   if (document.activeElement !== $('#name')) $('#name').value = t.name;
-  $('#size').textContent = sizeText(t); renderGap();
+  $('#size').textContent = sizeText(t); renderGap(); if ($('#editorAdvanced').open) renderInfo();
   const linkedCount=t.artworkId?state.tattoos.filter(x=>x.artworkId===t.artworkId).length:1;
   $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=!!t.locked; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
   $('#exactWidth').value = (t.width * state.heightCm / 175 * 100 / 2.54).toFixed(2);
@@ -805,7 +809,7 @@ function renderBody() {
   syncFitUI();
   $('#rHeight').value = state.heightCm; const inch = state.heightCm / 2.54; $('#hText').textContent = `${Math.floor(inch / 12)} ft ${Math.round(inch % 12)} in  ·  ${state.heightCm} cm`;
 }
-function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); }
+function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); }
 function toast(msg, action, fn) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   // below a bar that is showing at the top, never behind it
@@ -1835,7 +1839,12 @@ function needTattoo() {
   if (sel() !== t) select(t.id, true); else revealTattoo(t);
   return t;
 }
+var infoQuietUntil = 0;
 const SHOW = {
+  room: () => { showLook(true); return ['#roomBtn', 'Tap Open skin to see where you still have room, and how big a piece fits there.']; },
+  roomFit: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRoom', 'Find room for it shows in green everywhere this tattoo fits. Tap a green spot to move it there.']; },
+  where: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#whereLine', 'This line says where the tattoo sits the way your artist measures it, like 3 in below the elbow.']; },
+  estimate: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#estRow', 'A rough guess at how long this tattoo takes. Type your artist\'s hourly rate for a price.']; },
   pain: () => { showLook(true); return ['#painBtn', 'Tap Pain map, then any spot or tattoo to see how much it usually hurts there.']; },
   tape: () => { showLook(true); return ['#tapeBtn', 'Tap Tape measure, then two points on the body. Around wraps it round an arm, a leg or the waist.']; },
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
@@ -1876,7 +1885,7 @@ const SHOW = {
 let coachTimer = 0, coachArmed = 0;
 function showMe(f) {
   closePanels();
-  const r = SHOW[f.show]?.(); if (!r) return;
+  infoQuietUntil = performance.now() + 1000; const r = SHOW[f.show]?.(); if (!r) return;
   coach(r[0], r[1]);
 }
 function coach(target, text) {
@@ -2080,7 +2089,7 @@ function placeTape() {
   lab.style.left = sc.x + 'px'; lab.style.top = sc.y + 'px';
 }
 function tapeOn(mode) {
-  if (pain.on) painOff();
+  if (pain.on) painOff(); if (room.on) roomDone();
   cancelGesture(); closePanels(); tapPlaceId = null;
   if (selectedId) select(null);
   if (poseView.active || poseView.motion.playing) { poseView.choose('neutral'); renderPose(); toast('The tape measure works on the standing body.'); }
@@ -2113,23 +2122,28 @@ function painColours() {
   for (let v = 0; v < PAIN_N; v++) { const [r, g, b] = painColour(pain.smooth[v]); col.setRGB(r, g, b, THREE.SRGBColorSpace); c[v * 3] = col.r; c[v * 3 + 1] = col.g; c[v * 3 + 2] = col.b; }
   pain.mesh.geometry.attributes.color.needsUpdate = true;
 }
-function painMesh() {
-  if (pain.mesh) return pain.mesh;
+// A soft see-through wash over the body's skin, coloured per vertex: the pain map and open skin.
+function makeWash(name, skip = isEye) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PAIN_N * 3), 3));
   g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(PAIN_N * 3), 3));
-  let idxOf = null;
+  let idxOf = null, keyOf = null;
   const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const m = new THREE.Mesh(g, mat); m.name = 'pain'; m.visible = false; m.frustumCulled = false; m.renderOrder = 4; m.raycast = () => {}; m.userData.notBody = true;
+  const m = new THREE.Mesh(g, mat); m.name = name; m.visible = false; m.frustumCulled = false; m.renderOrder = 4; m.raycast = () => {}; m.userData.notBody = true;
   // before each draw: the body's current skin (standing, reshaped or posed) and triangles
   const copy = () => {
     const geo = body.geometry, I = geo.index.array;
-    if (idxOf !== I) { const keep = []; for (let i = 0; i < I.length; i += 3) { const a = I[i], b = I[i + 1], c = I[i + 2]; if (a < PAIN_N && b < PAIN_N && c < PAIN_N && !isEye(a) && !isEye(b) && !isEye(c)) keep.push(a, b, c); } g.setIndex(keep); idxOf = I; }
+    if (idxOf !== I || keyOf !== shapeKey) { const keep = []; for (let i = 0; i < I.length; i += 3) { const a = I[i], b = I[i + 1], c = I[i + 2]; if (a < PAIN_N && b < PAIN_N && c < PAIN_N && !skip(a) && !skip(b) && !skip(c) && !isEye(a) && !isEye(b) && !isEye(c)) keep.push(a, b, c); } g.setIndex(keep); idxOf = I; keyOf = shapeKey; }
     g.attributes.position.array.set(geo.attributes.position.array.subarray(0, PAIN_N * 3)); g.attributes.position.needsUpdate = true;
   };
   m.onBeforeRender = copy;
-  body.add(m); pain.mesh = m; copy(); painColours();
+  body.add(m); copy();
   return m;
+}
+function painMesh() {
+  if (pain.mesh) return pain.mesh;
+  pain.mesh = makeWash('pain'); painColours();
+  return pain.mesh;
 }
 // one tattoo: the usual pain over its ink
 function painOfTattoo(t) {
@@ -2156,7 +2170,7 @@ function painTap(x, y) {
   pain.text = painLine(lv, d.place[vs[best]] || 'Here'); painRender(); markTried('pain');
 }
 function painOn() {
-  if (tape.on) tapeOff();
+  if (tape.on) tapeOff(); if (room.on) roomDone();
   cancelGesture(); closePanels(); tapPlaceId = null;
   painData(); painMesh(); pain.on = true;
   const t = sel(); pain.text = t ? painOfTattoo(t) : 'Tap a spot or a tattoo to read it.';
@@ -2166,6 +2180,183 @@ function painOn() {
 function painOff() { pain.on = false; painRender(); }
 $('#painBtn').addEventListener('click', () => { showLook(false); if (pain.on) painOff(); else painOn(); });
 $('#painDone').addEventListener('click', painOff);
+/* ---------- open skin ---------- */
+// How much room is left (src/room.js): a wash from grey (no room) to deep teal (lots), and with a
+// planned tattoo picked, green where it fits with half an inch to spare. A tap on a green spot
+// moves it there, one undo step. Distances are along the skin of the standing body.
+var room = { on: false, fitId: null, inks: null, key: '', clear: null, across: null, cap: null, areaKey: null, areas: null, total: 0, mesh: null, text: '', need: 0, width: 0 };
+const cmPerUnit = () => (state.heightCm || 175) / 1.75, toInches = (u) => u * cmPerUnit() / 2.54, fromInches = (i) => i * 2.54 / cmPerUnit();
+const ROOM_MARGIN_IN = 0.5;
+function roomOff(v) { return isEye(v) || OFF_LIMITS.has(painData().place[v]); }
+// the tattoo's own reach from its centre to its furthest ink
+function inkReach(t) {
+  const pts = inkPoints(t); if (!pts || !pts.length) return Math.hypot(t.width, t.width / t.aspect) / 2;
+  let m = 0; for (let i = 0; i < pts.length; i += 3) m = Math.max(m, Math.hypot(pts[i] - t.pos[0], pts[i + 1] - t.pos[1], pts[i + 2] - t.pos[2]));
+  return m;
+}
+// how much of the artwork is ink, and how much of that ink is coloured (cached per artwork)
+const artStatCache = new Map();
+function artStats(t) {
+  const d = decals[t.id]; if (!d || !d.tex || !d.tex.image) return null;
+  const hit = artStatCache.get(d.texKey); if (hit) return hit;
+  const src = d.tex.image, W = 128, H = Math.max(8, Math.round(W * src.height / src.width));
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, W, H);
+  const px = g.getImageData(0, 0, W, H).data; let ink = 0, col = 0;
+  for (let o = 0; o < px.length; o += 4) { const mx = Math.max(px[o], px[o + 1], px[o + 2]), mn = Math.min(px[o], px[o + 1], px[o + 2]); if (255 - mn <= 70) continue; ink++; if (mx - mn > 60 && (mx - mn) / Math.max(1, mx) > 0.35) col++; }
+  const out = { fill: ink / (W * H), colour: ink ? col / ink : 0 }; artStatCache.set(d.texKey, out); return out;
+}
+function roomData() {
+  const d = painData(), list = state.tattoos.filter((t) => !t.hidden && t.id !== room.fitId), inks = list.map(inkPoints);
+  const key = shapeKey + '|' + room.fitId;
+  if (room.clear && room.key === key && room.inks && room.inks.length === inks.length && room.inks.every((p, i) => p === inks[i])) return room;
+  const P = bodyGeo.attributes.position.array;
+  room.clear = clearance(P, d.nb || pain.nb, inkSeeds(P, PAIN_N, inks, roomOff));
+  room.inks = inks; room.key = key;
+  if (room.areaKey !== shapeKey) { room.areas = vertexAreas(P, INDEX_ALL, COUNTS.body + COUNTS.eyes, isEye); room.total = room.areas.reduce((a, b) => a + b, 0); room.cap = roomCaps(P, d.nb || pain.nb); room.areaKey = shapeKey; }
+  room.across = acrossAt(room.clear, room.cap);
+  const t = room.fitId && state.tattoos.find((q) => q.id === room.fitId);
+  room.need = t ? inkReach(t) + fromInches(ROOM_MARGIN_IN) : 0;
+  room.width = t ? Math.min(t.width, t.width / t.aspect) : 0;
+  if (room.mesh) roomColours();
+  return room;
+}
+const roomFits = (v) => !roomOff(v) && room.clear[v] >= room.need && room.width <= room.cap[v];
+// half the way round at each vertex: limbs wrap round their own bone, in rings along it; the
+// torso, neck and head in rings by height round each ring's own middle
+const TORSO_BONE = /^(root|spine0[1-5]|breast|clavicle|pelvis|shoulder01|neck0[1-3]|head|jaw)/;
+let roomBones = null;
+function roomCaps(P, nb) {
+  const J = poseView.restRig().joints, jt = (i) => [J[i * 3], J[i * 3 + 1], J[i * 3 + 2]], byName = new Map(POSE_BONES.map((b) => [b.name, b]));
+  if (!roomBones) { roomBones = new Array(PAIN_N); for (let v = 0; v < COUNTS.body; v++) { let best = 'root', w = -1; for (const [n, x] of vertexBones(v)) if (x > w) { w = x; best = n; } roomBones[v] = best; } }
+  const torso = (v) => v >= COUNTS.body + COUNTS.eyes || TORSO_BONE.test(roomBones[v]), RING = 0.02;
+  // the middle of each torso ring
+  const mid = new Map();
+  for (let v = 0; v < PAIN_N; v++) { if (isEye(v) || !torso(v)) continue; const k = Math.floor(P[v * 3 + 1] / RING), e = mid.get(k) || [0, 0, 0]; e[0] += P[v * 3]; e[1] += P[v * 3 + 2]; e[2]++; mid.set(k, e); }
+  const limbAxes = new Map();
+  const limbAxis = (name) => {
+    if (limbAxes.has(name)) return limbAxes.get(name);
+    const b0 = name.replace(/\.[LR]$/, ''), side = name.slice(b0.length), use = /^toe/.test(b0) ? 'foot' + side : /^(finger|metacarpal)/.test(b0) ? 'wrist' + side : name, b = byName.get(use);
+    let a = null; if (b) { const h = jt(b.head), t = jt(b.tail), d = [t[0] - h[0], t[1] - h[1], t[2] - h[2]], L = Math.hypot(...d) || 1; a = { name: use, p: h, d: d.map((x) => x / L) }; }
+    limbAxes.set(name, a); return a;
+  };
+  const axis = (v) => {
+    if (isEye(v)) return null;
+    if (torso(v)) { const k = Math.floor(P[v * 3 + 1] / RING), e = mid.get(k); return { p: [e[0] / e[2], P[v * 3 + 1], e[1] / e[2]], d: [0, 1, 0], ring: 'T' + k, k: 0.8 }; }
+    const a = limbAxis(roomBones[v]); if (!a) return null;
+    const t = (P[v * 3] - a.p[0]) * a.d[0] + (P[v * 3 + 1] - a.p[1]) * a.d[1] + (P[v * 3 + 2] - a.p[2]) * a.d[2];
+    return { p: a.p, d: a.d, ring: a.name + ':' + Math.floor(t / RING) };
+  };
+  return halfGirth({ pos: P, count: PAIN_N, nb, axis });
+}
+function roomColours() {
+  const c = room.mesh.geometry.attributes.color.array, col = new THREE.Color();
+  for (let v = 0; v < PAIN_N; v++) {
+    let rgb;
+    if (roomOff(v)) rgb = [0.62, 0.6, 0.62];
+    else if (room.fitId) rgb = roomFits(v) ? [0.16, 0.74, 0.44] : [0.6, 0.58, 0.6];
+    else rgb = roomColour(toInches(room.across[v]));
+    col.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace); c[v * 3] = col.r; c[v * 3 + 1] = col.g; c[v * 3 + 2] = col.b;
+  }
+  room.mesh.geometry.attributes.color.needsUpdate = true;
+}
+// the share of the skin under ink: each tattoo's box times how much of its artwork is ink
+function inkShares() {
+  const r = roomData(); let ink = 0, plan = 0;
+  for (const t of state.tattoos) { if (t.hidden) continue; const st = artStats(t); if (!st) continue; const a = t.width * (t.width / t.aspect) * st.fill; if (t.status === 'existing') ink += a; else plan += a; }
+  return { inkShare: Math.min(1, ink / r.total), planShare: Math.min(1, plan / r.total) };
+}
+function roomSummaryText() {
+  const r = roomData(), d = painData();
+  return roomSummary({ ...inkShares(), regions: roomByRegion(r.across, d.place, (v) => !roomOff(v)), toInches });
+}
+function roomFitText(t) { return `Green is where ${t.name || 'it'} fits with half an inch to spare. Tap a green spot to move it there.`; }
+function roomRender() {
+  $('#roomBtn').setAttribute('aria-pressed', String(room.on)); $('#roomBar').hidden = !room.on;
+  $('#roomText').textContent = room.text;
+  $('#roomKeyAll').hidden = !!room.fitId; $('#roomKeyFit').hidden = !room.fitId; $('#roomAll').hidden = !room.fitId;
+  if (room.mesh) room.mesh.visible = room.on;
+  canvas.style.cursor = room.on || pain.on || tape.on || tapPlaceId ? 'crosshair' : '';
+  needsRender = true;
+}
+function roomPick(t) {
+  if (t.status === 'existing') { room.text = `${t.name || 'That tattoo'} is already on you, so it stays where it is.`; roomRender(); return; }
+  if (t.locked) { room.text = `${t.name || 'That tattoo'} is locked. Unlock it to move it.`; roomRender(); return; }
+  room.fitId = t.id; roomData(); room.text = roomFitText(t); roomRender();
+}
+function roomTap(x, y) {
+  const h = hitBody(x, y), ids = inkIdsAt(x, y, h), hitT = ids && ids.length && state.tattoos.find((q) => q.id === ids[0]);
+  const fit = room.fitId && state.tattoos.find((q) => q.id === room.fitId);
+  if (hitT && hitT.id !== room.fitId) { roomPick(hitT); markTried('room'); return; }
+  if (!h || !h.face || !h.barycoord) { room.text = 'Tap on the body to read a spot.'; roomRender(); return; }
+  const r = roomData(), vs = [h.face.a, h.face.b, h.face.c], w = [h.barycoord.x, h.barycoord.y, h.barycoord.z];
+  let best = 0; for (let k = 1; k < 3; k++) if (w[k] > w[best]) best = k;
+  const v = vs[best], place = painData().place[v] || 'Here';
+  if (!fit) {
+    room.text = roomOff(v) ? `${place}: left out of the room count.` : `${place}: room for a piece about ${inchWords(toInches(r.across[v]))} across.`;
+    roomRender(); markTried('room'); return;
+  }
+  if (poseView.active) { room.text = 'Turn off the pose first, then tap to move it.'; roomRender(); return; }
+  if (!roomFits(v)) {
+    room.text = roomOff(v) ? `${place} is left out of the room count. Pick a green spot.` : `Too tight here: room for about ${inchWords(toInches(r.across[v]))} across, and ${fit.name || 'it'} needs about ${inchWords(toInches(Math.max(r.need * 2, r.width)))}.`;
+    roomRender(); return;
+  }
+  try {
+    const placed = planTapPlacement(fit, { pos: h.point.toArray(), normal: h.normal.toArray() });
+    snapshot(); Object.assign(fit, placed); commit();
+    room.text = `Moved ${fit.name || 'it'} to the ${place.toLowerCase()}.`; roomRender(); markTried('roomFit');
+    toast(`Moved ${fit.name || 'it'}.`, 'Undo', undo);
+  } catch (e) { room.text = e.message; roomRender(); }
+}
+let roomTimer = 0;
+function roomRefresh() { if (!room.on) return; clearTimeout(roomTimer); roomTimer = setTimeout(() => { if (!room.on) return; const fit = room.fitId && state.tattoos.find((q) => q.id === room.fitId); if (room.fitId && !fit) room.fitId = null; roomData(); roomRender(); }, 60); }
+function roomOn(fitId = null) {
+  if (tape.on) tapeOff(); if (pain.on) painOff();
+  cancelGesture(); closePanels(); tapPlaceId = null;
+  if (selectedId) select(null);
+  room.fitId = fitId; room.on = true;
+  if (!room.mesh) room.mesh = makeWash('room', roomOff);
+  roomData(); roomColours();
+  const t = fitId && state.tattoos.find((q) => q.id === fitId);
+  room.text = t ? roomFitText(t) : roomSummaryText() + ' Tap a planned tattoo to see where it fits.';
+  if (t) markTried('roomFit');
+  roomRender();
+}
+function roomDone() { room.on = false; room.fitId = null; roomRender(); }
+$('#roomBtn').addEventListener('click', () => { showLook(false); if (room.on) roomDone(); else roomOn(); });
+$('#roomDone').addEventListener('click', roomDone);
+$('#roomAll').addEventListener('click', () => { room.fitId = null; roomData(); room.text = roomSummaryText() + ' Tap a planned tattoo to see where it fits.'; roomRender(); });
+$('#bRoom').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.status === 'existing') { toast('Already on you, so it stays where it is.'); return; } if (t.locked) { toast('Unlock this tattoo first.'); return; } roomOn(t.id); });
+/* ---------- where it sits and time to tattoo, in More controls ---------- */
+function whereOf(t) {
+  const d = painData(), P = bodyGeo.attributes.position.array, J = poseView.restRig().joints;
+  let nv = -1, nd = Infinity;
+  for (let v = 0; v < PAIN_N; v++) { if (!d.place[v]) continue; const o = v * 3, dd = (P[o] - t.pos[0]) ** 2 + (P[o + 1] - t.pos[1]) ** 2 + (P[o + 2] - t.pos[2]) ** 2; if (dd < nd) { nd = dd; nv = v; } }
+  if (nv < 0) return null;
+  const side = t.pos[0] >= 0 ? 'left' : 'right', S = side === 'left' ? '.L' : '.R';
+  const at = (name) => { const b = POSE_BONES.find((x) => x.name === name); return b ? [J[b.head * 3], J[b.head * 3 + 1], J[b.head * 3 + 2]] : null; };
+  const j = { shoulder: at('upperarm01' + S), elbow: at('lowerarm01' + S), wrist: at('wrist' + S), hip: at('upperleg01' + S), knee: at('lowerleg01' + S), ankle: at('foot' + S), neck: at('neck01'), navel: [P[MARKS.navel * 3], P[MARKS.navel * 3 + 1], P[MARKS.navel * 3 + 2]] };
+  return whereItSits({ p: t.pos, place: d.place[nv], side, j, toCm: cmPerUnit() });
+}
+function hoursOf(t) {
+  const st = artStats(t); if (!st) return null;
+  const w = toInches(t.width), h = w / t.aspect;
+  return sessionHours({ widthIn: w, heightIn: h, fill: st.fill, colour: st.colour });
+}
+const readRate = () => { try { const n = +localStorage.getItem('ia-rate'); return n > 0 && n < 5000 ? n : 0; } catch { return 0; } };
+const writeRate = (n) => { try { if (n > 0) localStorage.setItem('ia-rate', String(n)); else localStorage.removeItem('ia-rate'); } catch {} };
+let infoTimer = 0;
+function renderInfo() {
+  clearTimeout(infoTimer);
+  infoTimer = setTimeout(() => {
+    const t = sel(); if (!t) return;
+    const w = whereOf(t); $('#whereLine').textContent = w ? w.line : ''; $('#whereLine').hidden = !w;
+    const hrs = hoursOf(t); $('#estLine').textContent = hrs ? sessionText(hrs, readRate()) : '';
+    if (document.activeElement !== $('#estRate')) $('#estRate').value = readRate() || '';
+  }, 150);
+}
+$('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRate').value); writeRate(n > 0 ? n : 0); const t = sel(), hrs = t && hoursOf(t); if (hrs) $('#estLine').textContent = sessionText(hrs, readRate()); markTried('estimate'); });
+// opened by a Show me, it is only being pointed at, not tried yet
+$('#editorAdvanced').addEventListener('toggle', () => { if ($('#editorAdvanced').open && sel()) { renderInfo(); if (performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); } } });
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */
 function showLook(open) { const m = $('#lookMenu'); m.hidden = open == null ? !m.hidden : !open; $('#lookBtn').setAttribute('aria-expanded', String(!m.hidden)); }
 function renderLook() {
@@ -3301,6 +3492,9 @@ window.__ink = {
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   cover: () => { const t = sel(); return t ? coverOf(t) : null; },
+  room: () => ({ on: room.on, fitId: room.fitId, text: $('#roomText').textContent, shown: !!(room.mesh && room.mesh.visible), need: room.need ? toInches(room.need * 2) : 0, at: (v) => { roomData(); return { across: toInches(room.across[v]), clear: toInches(room.clear[v]), cap: toInches(room.cap[v]), off: roomOff(v), fits: room.fitId ? roomFits(v) : null, place: painData().place[v] }; }, shares: () => inkShares(), summary: () => roomSummaryText(), regions: () => roomByRegion(roomData().across, painData().place, (v) => !roomOff(v)).map((r) => ({ region: r.region, across: toInches(r.across) })), fitsCount: () => { roomData(); let n = 0; for (let v = 0; v < PAIN_N; v++) if (room.fitId && roomFits(v)) n++; return n; }, pick: (id) => roomPick(state.tattoos.find((t) => t.id === id)), under: (x, y) => { const h = hitBody(x, y); if (!h || !h.face) return null; roomData(); const P = bodyGeo.attributes.position.array, vs = [h.face.a, h.face.b, h.face.c]; let v = vs[0], bd = Infinity; for (const u of vs) { const d = (P[u * 3] - h.point.x) ** 2 + (P[u * 3 + 1] - h.point.y) ** 2 + (P[u * 3 + 2] - h.point.z) ** 2; if (d < bd) { bd = d; v = u; } } return { v, off: roomOff(v), fits: room.fitId ? roomFits(v) : null, across: toInches(room.across[v]), place: painData().place[v], point: h.point.toArray() }; }, drawnAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null, colourAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.color.array.slice(v * 3, v * 3 + 3)) : null }),
+  where: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? whereOf(t) : null; },
+  estimate: (id) => { const t = state.tattoos.find((q) => q.id === id); const h = t && hoursOf(t); return h ? { ...h, text: sessionText(h, readRate()), stats: artStats(t) } : null; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null, tone: bm.tone || null, skin: skinColor(), ink: bm.ink ? { pieces: bm.ink.pieces.map((p) => [p.x0, p.y0, p.x1, p.y1]), stats: bm.ink.pieces.map((p) => [+p.sharp.toFixed(3), +p.dark.toFixed(3), +p.mid.toFixed(3), +p.fill.toFixed(2), +p.cloth.toFixed(3), +p.out.toFixed(3), Math.round(p.area), Math.round(bm.ink.sw)]), on: [...bm.ink.on], view: bm.ink.view, mirror: bm.ink.mirror } : null }), bodyMatchLm: () => bm.lm || null,
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), beard: () => beard, setBeard: (s) => setBeard(s), beardStrands: () => ({ visible: beardStrands.mesh.visible, tucked: beardStrands.tucked, strands: beardStrands.mesh.userData.strands || 0, probe: beardStrands.probe(poseView.active ? poseView.geometry : null) }), beardCovers: (p) => beardStrands.covers(p), beardField: () => bodyGeo.attributes.beard && bodyGeo.attributes.beard.array, bringBackPainted, bringBack, paintToTattoos, paintShown: () => !!(paintSkin && paintSkin.mesh.visible), paintAt: () => paintSkin ? { v: paintSkin.from[0], drawn: Array.from(paintSkin.mesh.geometry.attributes.position.array.slice(0, 3)) } : null, hairStrands: () => ({ visible: hairStrands.mesh.visible, tucked: hairStrands.tucked, strands: hairStrands.mesh.userData.strands || 0, probe: hairStrands.probe(poseView.active ? poseView.geometry : null) }), hairReading: (r) => applyHairReading(r), hairLast: () => hairLast, eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
