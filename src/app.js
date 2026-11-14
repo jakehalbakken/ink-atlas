@@ -2,10 +2,11 @@ import { visibleInkAt, rankedInkHits, cycleInkHit } from './ink-picking.js';
 import * as THREE from 'three';
 import { INDEX, INDEX_ALL, COUNTS, EYES, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
-import { createSkin, updateSkin, setSkinFace, skinFaceOn, setSkinHair, setSkinIris, skinIrisHex, skinPhotoIrisHex } from './skin.js';
+import { createSkin, updateSkin, setSkinFace, skinFaceOn, setSkinHair, setSkinBeard, setSkinIris, skinIrisHex, skinPhotoIrisHex } from './skin.js';
 import { HAIR_STYLES, HAIR_COLOURS } from './hair.js';
+import { BEARD_STYLES } from './beard.js';
 import { createHairShell, createHairStrands } from './hair-shell.js';
-import { buildStrands, skullMove } from './hair-strands.js';
+import { buildStrands, buildBeard, skullMove } from './hair-strands.js';
 import { FACE_MAP } from './face-map.js';
 import { landmarks3D, faceMorph } from './face-fit.js';
 import { FACE_DEPTH } from './face-depth.js';
@@ -1546,7 +1547,8 @@ let hair = (() => {
 })();
 function renderHair() {
   document.querySelectorAll('#hairRow [data-hair]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hair === hair.style)));
-  const row = $('#hairCols'); row.hidden = hair.style === 'none';
+  document.querySelectorAll('#beardRow [data-beard]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.beard === beard)));
+  const row = $('#hairCols'); row.hidden = hair.style === 'none' && beard === 'none';
   row.replaceChildren();
   for (const [k, c] of Object.entries(HAIR_COLOURS)) row.append(el('button', { class: 'sw', type: 'button', 'data-hair-colour': k, style: `background:${c}`, 'aria-label': 'Hair: ' + HAIR_NAMES[k], onclick: () => setHair(hair.style, k) }));
   // the colour read from a photo of their hair, while there is one
@@ -1559,7 +1561,16 @@ function setHair(style, colour = hair.colour, hex = hair.hex) {
   if (style !== 'none') markTried('hair');
   if (style === 'medium') markTried('hair-medium');
   if (style === 'long') markTried('hair-long');
-  setSkinHair(style, hairHex(hair)); hairShell.set(style, hairHex(hair)); hairStrands.set(style, hairHex(hair)); needsRender = true; renderHair(); tuckHair();
+  setSkinHair(style, hairHex(hair)); hairShell.set(style, hairHex(hair)); hairStrands.set(style, hairHex(hair)); setSkinBeard(beard, hairHex(hair)); beardStrands.set(beard, hairHex(hair)); needsRender = true; renderHair(); tuckHair();
+}
+// A beard (Body > Hair): in the hair's colour, kept on this device like the hair.
+const BEARD_KEY = 'ia-beard';
+var beard = (() => { try { const v = localStorage.getItem(BEARD_KEY); if (BEARD_STYLES.includes(v)) return v; } catch (_) { /* no storage */ } return 'none'; })();
+function setBeard(style) {
+  beard = BEARD_STYLES.includes(style) ? style : 'none';
+  try { localStorage.setItem(BEARD_KEY, beard); } catch (_) { /* private mode: lasts until reload */ }
+  if (beard !== 'none') markTried('beard');
+  setSkinBeard(beard, hairHex(hair)); beardStrands.set(beard, hairHex(hair)); needsRender = true; renderHair(); tuckHair();
 }
 // Match my hair: read the colour and length from a photo, and put on the nearest style this app
 // can show. Undo isn't needed: it changes only how this device shows the body, and the old style
@@ -1589,22 +1600,30 @@ async function hairFromFile(file) {
 }
 $('#hairPhotoBtn').addEventListener('click', () => { const f = $('#hairPhotoFile'); f.value = ''; f.click(); });
 $('#hairPhotoFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (f) hairFromFile(f); });
+document.querySelectorAll('#beardRow [data-beard]').forEach((b) => b.addEventListener('click', () => {
+  const was = beard; setBeard(b.dataset.beard);
+  if (was === 'none' && beard !== 'none') viewFace();
+}));
 document.querySelectorAll('#hairRow [data-hair]').forEach((b) => b.addEventListener('click', () => {
   const was = hair.style; setHair(b.dataset.hair);
   if (was === 'none' && hair.style !== 'none') viewFace();
 }));
 const hairShell = createHairShell({ THREE, body });
 const hairStrands = createHairStrands({ THREE, body, skullMove, build: (R, N, I, H, style) => buildStrands(R, N, I, H, COUNTS.body, style), onChange: () => { needsRender = true; } });
-setSkinHair(hair.style, hairHex(hair)); hairShell.set(hair.style, hairHex(hair)); hairStrands.set(hair.style, hairHex(hair)); renderHair();
-afterShape = () => hairStrands.update();
+const beardStrands = createHairStrands({ THREE, body, skullMove, field: 'beard', styles: ['full'], build: (R, N, I, B) => buildBeard(R, N, I, B, COUNTS.body), onChange: () => { needsRender = true; } });
+setSkinHair(hair.style, hairHex(hair)); hairShell.set(hair.style, hairHex(hair)); hairStrands.set(hair.style, hairHex(hair)); setSkinBeard(beard, hairHex(hair)); beardStrands.set(beard, hairHex(hair)); renderHair();
+afterShape = () => { hairStrands.update(); beardStrands.update(); };
 // Hair that hangs over the selected tattoo is moved aside while it is selected, so it can be seen
 // and placed. Said once the first time.
 // (var, not let: renderUI can run before this part of the module has)
 var tuckSaid = false, hairReady = true;
 function tuckHair() {
   if (!hairReady) return;
-  const t = sel(), on = !!(t && !t.hidden && hairStrands.covers(t.pos));
-  if (hairStrands.tuck(on) && on && !tuckSaid) { tuckSaid = true; toast('Your hair is moved aside while this tattoo is selected.'); }
+  const t = sel(), live = !!(t && !t.hidden), on = live && hairStrands.covers(t.pos), onB = live && beardStrands.covers(t.pos);
+  const moved = hairStrands.tuck(on), movedB = beardStrands.tuck(onB);
+  if ((moved && on) || (movedB && onB)) {
+    if (!tuckSaid) { tuckSaid = true; toast(on ? 'Your hair is moved aside while this tattoo is selected.' : 'Your beard is trimmed back while this tattoo is selected.'); }
+  }
 }
 
 /* ---------- Eye colour (Body > Eyes): kept on this device, like hair ---------- */
@@ -1657,6 +1676,7 @@ const SHOW = {
   eyes: () => { toggle('#bodyPop', true); viewFace(); return ['#eyeCols', 'Tap a colour for the eyes. The view moves to the face.']; },
   hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved, Buzz cut, Short, Medium or Long, then a colour.']; },
   hairMedium: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow [data-hair="medium"]', 'Tap Medium, then pick a colour.']; },
+  beard: () => { toggle('#bodyPop', true); viewFace(); return ['#beardRow', 'Pick Stubble, Short beard or Full beard. It takes the hair colour below.']; },
   hairLong: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow [data-hair="long"]', 'Tap Long, then pick a colour.']; },
   hairPhoto: () => { toggle('#bodyPop', true); viewFace(); return ['#hairPhotoBtn', 'Pick a photo with your whole head in it, looking at the camera.']; },
   compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
@@ -2622,7 +2642,7 @@ window.__ink = {
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null, tone: bm.tone || null, skin: skinColor(), ink: bm.ink ? { pieces: bm.ink.pieces.map((p) => [p.x0, p.y0, p.x1, p.y1]), stats: bm.ink.pieces.map((p) => [+p.sharp.toFixed(3), +p.dark.toFixed(3), +p.mid.toFixed(3), +p.fill.toFixed(2), +p.cloth.toFixed(3), +p.out.toFixed(3), Math.round(p.area), Math.round(bm.ink.sw)]), on: [...bm.ink.on], view: bm.ink.view, mirror: bm.ink.mirror } : null }), bodyMatchLm: () => bm.lm || null,
-  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), hairStrands: () => ({ visible: hairStrands.mesh.visible, tucked: hairStrands.tucked, strands: hairStrands.mesh.userData.strands || 0, probe: hairStrands.probe(poseView.active ? poseView.geometry : null) }), hairReading: (r) => applyHairReading(r), hairLast: () => hairLast, eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
+  beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), beard: () => beard, setBeard: (s) => setBeard(s), beardStrands: () => ({ visible: beardStrands.mesh.visible, tucked: beardStrands.tucked, strands: beardStrands.mesh.userData.strands || 0, probe: beardStrands.probe(poseView.active ? poseView.geometry : null) }), beardCovers: (p) => beardStrands.covers(p), beardField: () => bodyGeo.attributes.beard && bodyGeo.attributes.beard.array, hairStrands: () => ({ visible: hairStrands.mesh.visible, tucked: hairStrands.tucked, strands: hairStrands.mesh.userData.strands || 0, probe: hairStrands.probe(poseView.active ? poseView.geometry : null) }), hairReading: (r) => applyHairReading(r), hairLast: () => hairLast, eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
   hairProbe: () => {
     // brightness of a few spots on the head, looked at straight on, with this hair and with none
     const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array, lm = landmarks3D(P, bodyGeo.index.array, FACE_MAP);

@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'beard', date: '2026-11-14', title: 'Beard', how: 'Body, then Hair, then Stubble, Short beard or Full beard. It joins the sideburns, keeps the lips bare and ends on the neck under the jaw, in your hair colour. A full beard has real strands and stays on the face in every pose. Kept on this device.', show: 'beard' },
   { id: 'hair-long', date: '2026-11-13', title: 'Long hair', how: 'Body, then Hair, then Long. Parted in the middle, falling round your face to just below the shoulders, in any colour. Match my hair from a photo picks it for longer hair too. In a pose the top moves with your head and the ends with your shoulders, and it moves aside while you work on a tattoo under it. Kept on this device.', show: 'hairLong' },
   { id: 'hair-medium', date: '2026-11-13', title: 'Medium hair', how: 'Body, then Hair, then Medium. Real strands, swept back with some height at the front, in any colour. It stays on the head in every pose. Kept on this device.', show: 'hairMedium' },
   { id: 'photo-ink', date: '2026-11-13', title: 'Your tattoos from a photo', how: 'Body, then Match a photo of me, with a photo of your back, arm or chest that shows your tattoos. Each tattoo it finds gets a box: tap one to leave it out, then Add to the body. They go on as already on me, in the same spot, and undo takes them off.', show: 'photoInk' },

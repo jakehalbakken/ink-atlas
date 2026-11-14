@@ -281,6 +281,87 @@ function buildLong(R, N, index, hair, bodyCount, S, F, seed) {
 
 // The rigid move of the skull from rest to now, from the four anchor vertices: a 4x4 matrix
 // (column-major, as three.js keeps it). Rest and now are position arrays.
+// A full beard: short, slightly curly strands from inside the beard (the body's 'beard' field from
+// beard.js), longer on the chin and under it, short on the cheeks and over the lip. Each grows out
+// from the skin and falls downwards, and never back into the skin it grew from. Moves with the
+// skull in a pose, read from four vertices high on the head.
+export function buildBeard(R, N, index, beard, bodyCount, seed = 11, count = 16000) {
+  const I = index, tris = [], cum = [];
+  let total = 0, topY = -Infinity, minY = Infinity;
+  for (let v = 0; v < bodyCount; v++) if (beard[v] > 0.001) { topY = Math.max(topY, R[v * 3 + 1]); minY = Math.min(minY, R[v * 3 + 1]); }
+  if (!(topY > minY)) return null;
+  for (let t = 0; t < I.length / 3; t++) {
+    const a = I[t * 3], b = I[t * 3 + 1], d = I[t * 3 + 2];
+    if (a >= bodyCount || b >= bodyCount || d >= bodyCount) continue;
+    if (!(beard[a] > 0.0005 && beard[b] > 0.0005 && beard[d] > 0.0005)) continue;
+    const A = [R[a * 3], R[a * 3 + 1], R[a * 3 + 2]], B = [R[b * 3], R[b * 3 + 1], R[b * 3 + 2]], D = [R[d * 3], R[d * 3 + 1], R[d * 3 + 2]];
+    const ar = Math.hypot(...cross([B[0] - A[0], B[1] - A[1], B[2] - A[2]], [D[0] - A[0], D[1] - A[1], D[2] - A[2]])) / 2;
+    total += ar; tris.push(t); cum.push(total);
+  }
+  if (tris.length < 20) return null;
+  // four vertices high on the head, which carry the beard through a pose
+  const above = topY + 0.03;
+  let top = -1, left = -1, right = -1, back = -1;
+  for (let v = 0; v < bodyCount; v++) {
+    if (R[v * 3 + 1] < above) continue;
+    if (top < 0 || R[v * 3 + 1] > R[top * 3 + 1]) top = v;
+    if (left < 0 || R[v * 3] > R[left * 3]) left = v;
+    if (right < 0 || R[v * 3] < R[right * 3]) right = v;
+    if (back < 0 || R[v * 3 + 2] < R[back * 3 + 2]) back = v;
+  }
+  if (top < 0) return null;
+  const rand = rng(seed), K = 5, per = (K + 1) * 2, width = 0.0011;
+  const position = new Float32Array(count * per * 3), normal = new Float32Array(count * per * 3), shade = new Float32Array(count * per);
+  const idx = new Uint32Array(count * K * 6);
+  let vi = 0, ii = 0;
+  const midY = (topY + minY) / 2;
+  for (let s = 0; s < count; s++) {
+    const pick = rand() * total; let lo = 0, hi = cum.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (cum[m] < pick) lo = m + 1; else hi = m; }
+    const t = tris[lo];
+    let u = rand(), w = rand(); if (u + w > 1) { u = 1 - u; w = 1 - w; }
+    const ids = [I[t * 3], I[t * 3 + 1], I[t * 3 + 2]], bw = [1 - u - w, u, w];
+    const p = [0, 0, 0], n = [0, 0, 0]; let depth = 0;
+    for (let k = 0; k < 3; k++) { for (let a = 0; a < 3; a++) { p[a] += R[ids[k] * 3 + a] * bw[k]; n[a] += N[ids[k] * 3 + a] * bw[k]; } depth += beard[ids[k]] * bw[k]; }
+    const nn = norm(n);
+    // where on the beard: the chin and under it grow longest; over the lip and high on the cheek, short
+    const facing = nn[2], under = smooth(0.1, 0.6, -nn[1]), low = smooth(midY + 0.01, minY + 0.01, p[1]);
+    const chin = smooth(0.04, 0.0, Math.abs(p[0])) * Math.max(under, smooth(0.4, 0.9, facing) * low);
+    const edge = smooth(0, 0.008, depth);
+    const len = (0.008 + 0.012 * chin + 0.004 * under + 0.003 * low) * (0.7 + 0.6 * rand()) * (0.4 + 0.6 * edge);
+    const step = len / K;
+    // out of the skin, then down; a slight random lean and curl
+    const down = [0, -1, 0.15 * facing], phase = rand() * 6.283, curl = 0.5 + 0.6 * rand();
+    let d = norm([nn[0] * 0.8 + down[0] * 0.5 + (rand() - 0.5) * 0.4, nn[1] * 0.8 + down[1] * 0.5, nn[2] * 0.8 + down[2] * 0.5 + (rand() - 0.5) * 0.3]);
+    const side = norm(cross(nn, [0, 1, 0])), pts = [p.slice()], dirs = [d];
+    let q = p.slice();
+    for (let k = 1; k <= K; k++) {
+      const f = k / K, wob = Math.sin(phase + f * 5) * curl * 0.35;
+      d = norm([d[0] + down[0] * 0.35 + side[0] * wob, d[1] + down[1] * 0.35 + side[1] * wob, d[2] + down[2] * 0.35 + side[2] * wob]);
+      q = [q[0] + d[0] * step, q[1] + d[1] * step, q[2] + d[2] * step];
+      // never back into the skin: at least a little off it, further along the strand
+      const off = dot([q[0] - p[0], q[1] - p[1], q[2] - p[2]], nn), want = 0.0012 + 0.0025 * f;
+      if (off < want) q = [q[0] + nn[0] * (want - off), q[1] + nn[1] * (want - off), q[2] + nn[2] * (want - off)];
+      d = norm([q[0] - pts[k - 1][0], q[1] - pts[k - 1][1], q[2] - pts[k - 1][2]]);
+      pts.push(q.slice()); dirs.push(d);
+    }
+    const tone = 0.8 + 0.35 * rand();
+    for (let k = 0; k <= K; k++) {
+      const f = k / K, q2 = pts[k];
+      const across = norm(cross(dirs[k], nn)), hw = width * (1 - 0.7 * f) / 2;
+      const ribbon = norm(cross(across, dirs[k]));
+      const nrm = norm([ribbon[0] * 0.5 + nn[0] * 0.5, ribbon[1] * 0.5 + nn[1] * 0.5, ribbon[2] * 0.5 + nn[2] * 0.5]);
+      for (const sgn of [-1, 1]) {
+        for (let a = 0; a < 3; a++) { position[vi * 3 + a] = q2[a] + across[a] * hw * sgn; normal[vi * 3 + a] = nrm[a]; }
+        shade[vi] = tone * (0.5 + 0.5 * smooth(0, 0.5, f)); vi++;
+      }
+    }
+    const base = s * per;
+    for (let k = 0; k < K; k++) { const a = base + k * 2; idx[ii++] = a; idx[ii++] = a + 1; idx[ii++] = a + 2; idx[ii++] = a + 1; idx[ii++] = a + 3; idx[ii++] = a + 2; }
+  }
+  return { position, normal, shade, index: idx, anchors: [top, left, right, back], strands: count, segs: K };
+}
+
 export function skullMove(rest, now, anchors) {
   const frame = (A) => {
     const p = anchors.map((v) => [A[v * 3], A[v * 3 + 1], A[v * 3 + 2]]);

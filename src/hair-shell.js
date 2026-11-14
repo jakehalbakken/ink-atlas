@@ -72,7 +72,8 @@ float hsField(vec3 p, vec3 n) {
 // the style is first shown or the head's shape changes; in a pose it follows the skull as one
 // piece (the head barely bends), read from four skull vertices each time it draws. Long hair's
 // ends follow the upper chest instead, blended by each vertex's follow weight.
-export function createHairStrands({ THREE, body, build, skullMove, onChange = () => {} }) {
+export function createHairStrands({ THREE, body, build, skullMove, onChange = () => {}, field = 'hair', styles = ['medium', 'long'] }) {
+  const fkey = field + 'Key';
   const mat = new THREE.MeshPhysicalMaterial({ color: 0x3b2a1f, roughness: 0.55, metalness: 0, sheen: 0.3, sheenRoughness: 0.4, sheenColor: new THREE.Color('#5a4535'), side: THREE.DoubleSide, vertexColors: true });
   // both sides of a ribbon light as the outside of the hair (three.js would light the back side
   // as if it faced into the head, which shows as dark spikes)
@@ -111,12 +112,12 @@ if ( follow > 0.0 ) {
   const mS = new THREE.Matrix4(), mC = new THREE.Matrix4();
   let timer = 0, tucked = false, near = null;
   const NEAR = 0.025, nkey = (x, y, z) => Math.floor(x / NEAR) + ',' + Math.floor(y / NEAR) + ',' + Math.floor(z / NEAR);
-  const keyFor = () => body.geometry.userData.hairKey + '|' + want;
+  const keyFor = () => body.geometry.userData[fkey] + '|' + want;
   function rebuild() {
-    const geo = body.geometry, key = geo.userData.hairKey;
-    if (!want || !key || keyFor() === builtFor || !geo.attributes.hair) return;
+    const geo = body.geometry, key = geo.userData[fkey];
+    if (!want || !key || keyFor() === builtFor || !geo.attributes[field]) return;
     const R = geo.attributes.rest ? geo.attributes.rest.array : geo.attributes.position.array;
-    const s = build(R, geo.attributes.normal.array, geo.index.array, geo.attributes.hair.array, want);
+    const s = build(R, geo.attributes.normal.array, geo.index.array, geo.attributes[field].array, want);
     builtFor = keyFor(); if (!s) { mesh.visible = false; return; }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(s.position, 3));
@@ -150,7 +151,7 @@ if ( follow > 0.0 ) {
   return {
     mesh,
     set(style, colour) {
-      want = style === 'medium' || style === 'long' ? style : null; mesh.visible = !!want && !!anchors && builtFor === keyFor() && !tucked;
+      want = styles.includes(style) ? style : null; mesh.visible = !!want && !!anchors && builtFor === keyFor() && !tucked;
       if (colour) { mat.color.set(colour); mat.sheenColor.set(colour).lerp(new THREE.Color('#ffffff'), 0.15); }
       if (want) rebuild();
     },

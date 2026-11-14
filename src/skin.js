@@ -4,6 +4,7 @@
 // Detail is positioned from landmark vertices, so it follows every shape change.
 import * as THREE from 'three';
 import { hairField } from './hair.js';
+import { beardField } from './beard.js';
 import { COUNTS, MARKS, EYES, LIPS_MASK } from './mesh.js';
 import { FACE_MAP } from './face-map.js';
 import { landmarks3D, faceAttribute } from './face-fit.js';
@@ -15,6 +16,7 @@ const MUSCLE_GLSL = `
 uniform vec3 uBrow[10];
 uniform float uBrowOn;
 uniform vec3 uHairCol; uniform float uHairOn; uniform float uHairDense;
+uniform vec3 uBeardCol; uniform float uBeardOn; uniform float uBeardDense;
 float hash3(vec3 p) { p = fract(p * vec3(443.897, 441.423, 437.195)); p += dot(p, p.yzx + 19.19); return fract((p.x + p.y) * p.z); }
 float vnoise(vec3 p) {
   vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -219,6 +221,15 @@ export function setSkinHair(style, colour) {
   HAIR_U.uHairDense.value = style === 'buzz' ? 0.1 : 1; // a crop is a buzz cut's scalp with a shell of hair over it
   if (colour) HAIR_U.uHairCol.value.set(colour);
 }
+// A beard on the face and neck, shared by every body material: stubble (a shadow of fine dots),
+// short (a full cover painted on) or full (the same under strands). Its colour is the hair's.
+const BEARD_U = { uBeardCol: { value: new THREE.Color('#3b2a1f') }, uBeardOn: { value: 0 }, uBeardDense: { value: 1 } };
+const BEARD = { key: '', field: null };
+export function setSkinBeard(style, colour) {
+  BEARD_U.uBeardOn.value = style === 'stubble' || style === 'short' || style === 'full' ? 1 : 0;
+  BEARD_U.uBeardDense.value = style === 'stubble' ? 0 : 1;
+  if (colour) BEARD_U.uBeardCol.value.set(colour);
+}
 export function skinFaceOn(on) { FACE_U.uFaceOn.value = on && FACE.uv ? 1 : 0; FACE.key = ''; FACE.attr = null; }
 const shapeKeyOf = (shape) => JSON.stringify([shape.figure, shape.muscle, shape.weight, shape.fit]);
 function faceFor(geo, shape) {
@@ -242,8 +253,9 @@ export function createSkin(geo, color) {
   geo.setAttribute('cav', new THREE.BufferAttribute(new Float32Array(n), 1));
   if (!geo.attributes.face) geo.setAttribute('face', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   if (!geo.attributes.hair) geo.setAttribute('hair', new THREE.BufferAttribute(new Float32Array(n).fill(-0.02), 1));
+  if (!geo.attributes.beard) geo.setAttribute('beard', new THREE.BufferAttribute(new Float32Array(n).fill(-0.02), 1));
   const V = () => ({ value: new THREE.Vector3() });
-  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, ...HAIR_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
+  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, ...HAIR_U, ...BEARD_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
   const mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.54, metalness: 0, specularIntensity: 0.45, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffd9c8') });
   // A posed body keeps its standing positions in 'rest', so painted detail stays on the same
   // skin when the body bends; a standing body paints straight from its positions.
@@ -252,10 +264,10 @@ export function createSkin(geo, color) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute float lip;\nattribute float cav;\nattribute vec3 face;\nvarying vec3 vFace;\nattribute float hair;\nvarying float vHair;\n#ifdef USE_REST\nattribute vec3 rest;\n#endif\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = part; vLip = lip; vCav = cav; vFace = face; vHair = hair;\n#ifdef USE_REST\nvObj = rest;\n#else\nvObj = position;\n#endif');
+      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute float lip;\nattribute float cav;\nattribute vec3 face;\nvarying vec3 vFace;\nattribute float hair;\nvarying float vHair;\nattribute float beard;\nvarying float vBeard;\n#ifdef USE_REST\nattribute vec3 rest;\n#endif\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = part; vLip = lip; vCav = cav; vFace = face; vHair = hair; vBeard = beard;\n#ifdef USE_REST\nvObj = rest;\n#else\nvObj = position;\n#endif');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nuniform sampler2D uFace;\nuniform float uFaceOn;\nvarying vec3 vFace;\nvarying float vHair;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nuniform sampler2D uFace;\nuniform float uFaceOn;\nvarying vec3 vFace;\nvarying float vHair;\nvarying float vBeard;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
   vec2 mhAll = muscleH(vObj); // once per pixel: shading here, the bump below
   float hairA = 0.0;
@@ -288,6 +300,18 @@ export function createSkin(geo, color) {
       float cover = mix(0.3, 0.95, uHairDense) * (mix(0.45, 0.75, uHairDense) + mix(1.1, 0.5, uHairDense) * strands) * smoothstep(-0.001, 0.009, edge * mix(1.0, 2.5, uHairDense) + 0.002);
       vec3 col = uHairCol * (0.65 + 0.7 * strands);
       skin = mix(skin, mix(plain * vec3(0.9, 0.84, 0.82), col, clamp(cover, 0.0, 1.0)), hairA);
+    }
+    if (uBeardOn > 0.5 && vBeard > -0.012) {
+      // a beard: stubble is a shadow of fine dark dots; short and full are a cover of fine hair
+      float edge = vBeard + (vnoise(vObj * 300.0) - 0.5) * 0.005 + (vnoise(vObj * 1300.0) - 0.5) * 0.002;
+      float bA = smoothstep(-0.004 + 0.002 * uBeardDense, 0.006 - 0.001 * uBeardDense, edge);
+      float dots = vnoise(vObj * 6500.0) * 0.6 + vnoise(vObj * 3100.0) * 0.4, fur = vnoise(vObj * vec3(2400.0, 700.0, 2400.0)) * 0.6 + vnoise(vObj * 5600.0) * 0.4;
+      vec3 bcol = uBeardCol * (0.6 + 0.75 * mix(dots, fur, uBeardDense));
+      float cover = mix(0.05 + 0.42 * smoothstep(0.55, 0.8, dots), 0.6 + 0.4 * fur, uBeardDense);
+      // stubble darkens and greys the skin under it, the way shaved skin looks
+      vec3 shadow = mix(skin, mix(skin * vec3(0.8, 0.78, 0.82), uBeardCol, 0.12), 1.0 - uBeardDense);
+      skin = mix(skin, mix(shadow, bcol, clamp(cover, 0.0, 1.0)), bA);
+      hairA = max(hairA, bA * uBeardDense);
     }
     if (vPart > 0.5) {
       vec3 c = vObj.x > 0.0 ? uEyeL : uEyeR;
@@ -361,6 +385,12 @@ export function updateSkin(geo, uniforms, areola, shape) {
       HAIR.field = hairField(R, geo.attributes.position.count, landmarks3D(R, geo.index.array, FACE_MAP), COUNTS.body); HAIR.key = key;
     }
     if (geo.userData.hairKey !== HAIR.key) { geo.attributes.hair.array.set(HAIR.field); geo.attributes.hair.needsUpdate = true; geo.userData.hairKey = HAIR.key; }
+    if (geo.attributes.beard) {
+      if (BEARD.key !== key || !BEARD.field || BEARD.field.length !== geo.attributes.position.count) {
+        BEARD.field = beardField(R, geo.attributes.position.count, landmarks3D(R, geo.index.array, FACE_MAP), COUNTS.body); BEARD.key = key;
+      }
+      if (geo.userData.beardKey !== BEARD.key) { geo.attributes.beard.array.set(BEARD.field); geo.attributes.beard.needsUpdate = true; geo.userData.beardKey = BEARD.key; }
+    }
   }
   if (FACE.uv && geo.attributes.face) { geo.attributes.face.array.set(faceFor(geo, shape)); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = true; }
   else if (geo.userData.faceSet) { geo.attributes.face.array.fill(0); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = false; }
