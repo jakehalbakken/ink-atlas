@@ -436,7 +436,7 @@ Direction from Jake's chat: Procreate is where art gets drawn; Ink Atlas is wher
 - Kept per device in localStorage ia-face (the photo cut to the face at 512px and its points). Hide my face and Remove. Not in the project or backups.
 - Tested: face-fit-unit (own photo changes nothing, a wider face widens, colour only on the face), t59 (a photo of the 3D head lines up with itself within 4mm, project unchanged, reload, Hide, Remove, no-face photo). Looked at with a real portrait photo in headless Chrome: clearly that person's features on the body's head. Not yet tried with Jake's own selfie or on the iPad. No hair, so it reads as the person with a shaved head; a smiling photo gives a smiling mouth without teeth.
 
-## Photos of any part of you, eye colour, hair from a photo, face depth (2026-11-13, built, not deployed)
+## Photos of any part of you, eye colour, hair from a photo, face depth (2026-11-13, live 2026-11-13)
 
 Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies and back photos, a better face match, hair matching and eye colour.
 
@@ -466,13 +466,13 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Tested: hair-strands-unit (male and female: every strand made, none over the face or inside the head, none sinking into the skin, ends just below the shoulders, roots fixed to the head), t70 (shows, colour, stays on the head in a turned and bowed pose, Medium and Long each their own, grows again on a new shape, kept after reload, project unchanged), t62 (six choices), t67 (a long reading gives Long), t55 (Show me rings Long). Checked by eye on male and female bodies from four sides and in a turned, bowed head pose.
 - Known limits: straight hair only (no waves or curls); no movement of its own in motion loops; with the head turned hard to one side the front hair can bunch under the chin.
 
-## Beard (2026-11-14, built, not deployed)
+## Beard (2026-11-14, live 2026-11-14)
 
 - Body > Hair: No beard, Stubble, Short beard, Full beard, in the hair colour (the colour row shows for a beard even when bald). beard.js (pure maths) works out from the stored face points how far each head vertex sits inside the beard: it joins the sideburns at mid-ear, runs down the cheek to just above the corners of the mouth, takes in the moustache and the chin, keeps the lips bare and ends on the neck a few centimetres under the jaw, lowest in the middle. The skin shader paints stubble (sparse dots and a grey shadow) and a short beard (dense fur) with a ragged edge; Full adds about 16,000 short, slightly curled strands that grow downward from inside the beard, stay on the skin and move with the skull in a pose. Over a selected tattoo on the face it trims back while the tattoo is selected. Kept on this device, never in the project.
 - Tested: beard-unit (male, female, heavy with a thick neck, lean with a long neck: chin, jaw, moustache and under the chin covered; lips, nose, upper cheeks, back of the neck and throat bare; both sides the same; strands from the beard only, none into the skin, under 4.5 cm, built under 0.8 s, follow the skull), t71 (four buttons at 44 px or more in the panel, stubble and short painted with no strands, full with strands, colour row, covers the chin not the nape, stays on the face in a turned and bowed pose, grows again on a new shape, project unchanged, kept after reload), t55. Checked by eye front, three-quarter, side and posed, and with Medium and Long hair and the female body.
 - Known limits: the colour follows the hair; Full is rigid with the skull, so its neck part does not bend with the neck; one beard shape (no goatee or moustache only); with Medium hair there is a small gap between the hair and the beard at the sideburn.
 
-## Paint the 3D body in Procreate, back and forth (2026-11-14, built, not deployed)
+## Paint the 3D body in Procreate, back and forth (2026-11-14, live 2026-11-14)
 
 - Jake (05:24Z): wants to export the avatar, paint it in Procreate, bring it back and keep moving it back and forth; he could not find it. The pieces existed (Share > 3D model with your tattoos, Share > Bring back from Procreate) but were buried in Share, missing from New to try, and turned paint into separate tattoos rather than keeping the paint.
 - Now: the tray button is Procreate and opens a menu: 1. Send the 3D body, 2. Bring back the painted body (with where to tap in Procreate), the paint's own row when there is paint (Hide paint, Make movable tattoos, Remove paint), and Draw on a spot you paint (the older guide flow). The same two steps stay in Share.
