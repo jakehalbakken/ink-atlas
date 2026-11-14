@@ -45,6 +45,7 @@ import { posesFor } from './pose-pick.js';
 import { PART_NAMES } from './body-photo.js';
 import { stencilLines, stencilPixels, stencilScale, pngWithDpi } from './stencil.js';
 import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
+import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -901,6 +902,68 @@ $('#stClose').addEventListener('click', () => showStencil(false));
 $('#rStDetail').addEventListener('input', () => { st.detail = +$('#rStDetail').value / 100; stReady(false); clearTimeout(st.timer); st.timer = setTimeout(makeStencil, 220); });
 $('#stShare').addEventListener('click', () => { if (st.png) saveFile(st.base + '-stencil.png', st.png); });
 $('#stPrint').addEventListener('click', () => { if (st.pdf) saveFile(st.base + '-stencil.pdf', st.pdf); });
+// Ink check: how the selected design reads on this skin at this size. Colours that barely show
+// on the skin tone, lines too fine for the size and gaps so tight they fill in, marked on the
+// artwork, with the width that would make the lines wide enough. Only a look: Make it bigger is
+// the one change, and it is one undo step.
+const ic = { id: null, run: 0, wantIn: null, last: null };
+const hexRgb = (h) => { const n = parseInt(String(h).replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+async function runInkCheck() {
+  const t = state.tattoos.find((x) => x.id === ic.id); if (!t) { showInkCheck(false); return; }
+  const run = ++ic.run, k = state.heightCm / 175, wMm = t.width * 1000 * k, hMm = wMm / t.aspect, wIn = wMm / 25.4;
+  const inTxt = (v) => (v < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toString());
+  const name = t.name || 'This tattoo';
+  $('#icText').textContent = `${name} at ${inTxt(wIn)} in wide, on your skin. Checking.`; $('#icList').replaceChildren(); $('#icResize').hidden = true;
+  const im = imgEls[t.img] || await loadImg(t.img);
+  await new Promise((r) => setTimeout(r, 20));
+  if (run !== ic.run) return;
+  if (!im) { $('#icText').textContent = 'This artwork could not be read.'; return; }
+  const pxMm = Math.max(wMm, hMm) / 1400, w = Math.max(8, Math.round(wMm / pxMm)), h = Math.max(8, Math.round(hMm / pxMm));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.save(); g.translate(t.flip ? w : 0, t.imageTopDown === false ? h : 0); g.scale(t.flip ? -1 : 1, t.imageTopDown === false ? -1 : 1); g.drawImage(im, 0, 0, w, h); g.restore();
+  const px = g.getImageData(0, 0, w, h).data, skin = hexRgb(skinColor()), op = t.opacity ?? 0.92;
+  const r = inkCheck(px, w, h, { pxMm, skin, opacity: op });
+  if (run !== ic.run) return;
+  const view = $('#icCanvas'); view.width = w; view.height = h;
+  view.getContext('2d').putImageData(new ImageData(inkCheckPixels(px, w, h, r, skin, op), w, h), 0, 0);
+  const items = [], weak = r.colours.filter((x) => x.level !== 'ok');
+  if (!r.inkPixels) items.push(['', 'No ink to check in this artwork.']);
+  else {
+    if (weak.length) for (const x of weak) items.push(['#d628a0', `The ${x.name} ${x.level === 'barely' ? 'barely shows' : 'shows only faintly'} on your skin (striped pink). A deeper shade, or a dark outline round it, would stand out more.`]);
+    else items.push(['#5fd39a', r.colours.length > 1 ? 'Every colour shows well on your skin.' : 'The ink shows well on your skin.']);
+    const fine = r.thinShare > 0.02;
+    if (fine) items.push(['#ff6a00', `Some lines are under 0.5 mm at this size (orange). Fine lines soften as the ink spreads over the years.`]);
+    else items.push(['#5fd39a', 'Every line is at least 0.5 mm wide at this size.']);
+    if (r.tightMm2 > 1) items.push(['#0096ff', 'Some gaps between lines are under 0.7 mm (blue) and may fill in over time.']);
+    ic.wantIn = null;
+    const need = fine ? widthForLines(wIn, r.lineP10Mm) : null;
+    if (need && need <= wIn * 4 && need * 2.54 / 100 / k <= 0.9) {
+      ic.wantIn = Math.ceil(need * 2) / 2;
+      items.push(['', `At about ${inTxt(ic.wantIn)} in wide, nearly every line is 0.5 mm or more.`]);
+    } else if (need) items.push(['', 'This is fine line work: pick an artist who does fine line, and expect it to soften with time.']);
+  }
+  const list = $('#icList');
+  for (const [col, text] of items) { const li = document.createElement('li'), key = document.createElement('span'); key.className = 'key'; if (col) key.style.background = col; else key.style.visibility = 'hidden'; const tx = document.createElement('span'); tx.textContent = text; li.append(key, tx); list.append(li); }
+  $('#icResize').hidden = !ic.wantIn; if (ic.wantIn) $('#icResize').textContent = `Make it ${inTxt(ic.wantIn)} in wide`;
+  $('#icText').textContent = `${name} at ${inTxt(wIn)} in wide, on your skin.`;
+  ic.last = { id: t.id, w, h, pxMm, thinShare: r.thinShare, tightMm2: r.tightMm2, lineP10Mm: r.lineP10Mm, colours: r.colours, wantIn: ic.wantIn, items: items.map((i) => i[1]) };
+}
+function showInkCheck(on) {
+  $('#inkCheck').hidden = !on; ic.run++;
+  if (!on) return;
+  const t = sel(); if (!t) { $('#inkCheck').hidden = true; toast('Select a tattoo first.'); return; }
+  markTried('ink-check'); ic.id = t.id; runInkCheck();
+}
+$('#bInkCheck').addEventListener('click', () => showInkCheck(true));
+$('#icClose').addEventListener('click', () => showInkCheck(false));
+$('#icResize').addEventListener('click', () => {
+  const t = state.tattoos.find((x) => x.id === ic.id); if (!t || !ic.wantIn) return;
+  if (t.locked || t.status === 'existing') { toast(t.locked ? 'Unlock it first to change its size.' : 'Ink already on you keeps its size.'); return; }
+  snapshot(); t.width = Math.max(0.012, Math.min(0.9, ic.wantIn * 2.54 / 100 * 175 / state.heightCm)); commit();
+  toast('Made bigger.', 'Undo', () => { undo(); if (!$('#inkCheck').hidden) runInkCheck(); });
+  runInkCheck();
+});
 // Try it on with the camera: the selected artwork over a live camera view or a photo of your
 // own skin. One finger moves it, two size and turn it, Curve wraps it round an arm or a leg,
 // and Take photo freezes the picture to save or share. View only: the project never changes.
@@ -1771,6 +1834,7 @@ const SHOW = {
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
   spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
+  inkCheck: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check shows colours that barely show on your skin, and lines too fine for this size.']; },
   stencil: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Stencil for your artist turns this tattoo into clean lines at its real size, to print or share.']; },
   realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },
   handles: () => { if (!needTattoo()) return null; return ['#hSize', 'Drag this corner to resize. Drag the dot above the tattoo to turn it.']; },
@@ -3010,7 +3074,7 @@ function tick(now) {
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted,
-  sizes: () => sizesLast, sizeSteps,
+  sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last,
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
