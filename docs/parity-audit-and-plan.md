@@ -102,7 +102,7 @@ Status words: **Built+tested** (code exists and an automated test exercises it),
 | Write v47-compatible backups | **Missing** | | None | No | One-way today. |
 | Several projects, shelf, archive | **Missing** | One `project` key | None | No | |
 | Installable, works offline | Built | Vite PWA plugin | Build output checked; offline not tested | Unknown | |
-| Accounts, cloud sync, share links | **Built, not live** (2026-11-14) | Supabase: email + password sign-in, projects kept in the account and synced, second device picks up changes, both-changed keeps both, Send to someone link that saves into the other person's account | t81 (real PostgreSQL through tools/fake-supabase.mjs), accounts-rls-unit | No | Needs Jake's Supabase project and two GitHub secrets (docs/accounts-setup.md). Private review and comments are still missing; the approval page still works with no backend. |
+| Accounts, cloud sync, share links | **Live** (2026-11-14; working together built, not live) | Supabase: email + password sign-in, projects kept in the account and synced, second device picks up changes, both-changed keeps both, Send to someone link that saves into the other person's account | t81 (real PostgreSQL through tools/fake-supabase.mjs), accounts-rls-unit | No | Needs Jake's Supabase project and two GitHub secrets (docs/accounts-setup.md). Private review and comments are still missing; the approval page still works with no backend. |
 | AI art, photo-to-3D body | **Missing** | | None | No | Deferred. Needs consent, a provider, and a cost decision. |
 
 ### 3D interoperability, honestly
@@ -517,6 +517,14 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Built: `src/cloud.js` (all server calls), `src/account.js` (screens and syncing), `supabase/setup.sql` (tables, row-level security, storage buckets), Sign in button in the top bar, Share > Send to someone, New to try entry. The project on screen is still saved on the device first; the account keeps a second copy in step, with a revision check so two devices never overwrite each other (both versions are kept).
 - Tested: `accounts-rls-unit` (each person only their own rows and files, links open only by id, signed out writes nothing) and t81 end to end in three browser sessions against a real PostgreSQL. Not tested: a real Supabase project (none exists yet), a real iPad, Safari's handling of the session in the home-screen app.
 - Not built: emailed-code sign-in is ready but hidden until the project has its own email sender; no password reset without it; approval answers still travel as pasted text, not through the account.
+- Live: Jake ran the setup and confirmed it works on his devices (2026-11-14).
+
+### Working on a project together (2026-11-14, built, not live)
+
+- Jake asked for: shared projects (invite Liv or an artist, both see the same tattoos), approval in the app, comments pinned to the body, forgot password by emailed code.
+- Built: Sign in > Work on it together > Invite someone gives a one-person link (`?join=`, 14 days). Who joins can edit but not rename, remove or share; the owner can take them off; they can leave. Open projects check the account every 4 seconds and merge both people's changes item by item (`src/merge.js`), so nobody's work is lost. Looks good / Ask for a change with a comment on a tattoo, saved to `t.review` with who and when. Preview > Comments pins a comment to a spot on the skin (`state.notes` with `pin`), follows shape and pose, hidden behind the body. Forgot your password? Email me a code, behind the `SUPABASE_EMAIL_CODES` switch.
+- Server: new section at the end of `supabase/setup.sql` (members, invites, `accept_invite`, shared artwork folder `artwork/p/<project>/`, owner-only guard). Safe to rerun; Jake must run it before this deploys.
+- Tested: `accounts-rls-unit` (invited people see only that project, cannot change owner, archive, rename, share or delete, invite links one person, take-off stops the link), `merge-unit`, t83 two people in two browsers against real PostgreSQL. Not tested: the new SQL on the real Supabase project, a real email sender, two real iPads.
 
 ## Next round: open skin, find room, where it sits, time to tattoo (2026-11-14, built, not live)
 

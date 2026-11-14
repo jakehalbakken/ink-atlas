@@ -91,7 +91,7 @@ export async function startFakeSupabase({ port = 0, db = 'ink_fake_' + randomByt
         if (g === 'refresh_token') { const id = refresh.get(b.refresh_token); if (!id) return send(400, { error: 'invalid_grant', error_description: 'Invalid Refresh Token' }); refresh.delete(b.refresh_token); return send(200, session(await userBy('id', id))); }
         return send(400, { error: 'unsupported_grant_type' });
       }
-      if (path === '/auth/v1/otp') { const b = json(), email = String(b.email || '').toLowerCase(); let r = await userBy('email', email); if (!r && b.create_user !== false) await pool.query(`insert into auth.users (email) values ($1)`, [email]); const code = String(100000 + Math.floor(Math.random() * 900000)); codes.set(email, code); return send(200, {}); }
+      if (path === '/auth/v1/otp') { const b = json(), email = String(b.email || '').toLowerCase(); let r = await userBy('email', email); if (!r && b.create_user === false) return send(422, { code: 'otp_disabled', msg: 'Signups not allowed for otp' }); if (!r) await pool.query(`insert into auth.users (email) values ($1)`, [email]); const code = String(100000 + Math.floor(Math.random() * 900000)); codes.set(email, code); return send(200, {}); }
       if (path === '/auth/v1/verify') { const b = json(), email = String(b.email || '').toLowerCase(); if (!codes.get(email) || codes.get(email) !== b.token) return send(403, { code: 'otp_expired', msg: 'Token has expired or is invalid' }); codes.delete(email); return send(200, session(await userBy('email', email))); }
       if (path === '/auth/v1/user') {
         if (!uid) return send(401, { code: 'bad_jwt', msg: 'invalid JWT' });
@@ -101,8 +101,13 @@ export async function startFakeSupabase({ port = 0, db = 'ink_fake_' + randomByt
       if (path === '/auth/v1/logout') return send(204);
 
       /* ---------- REST (only the shapes the app uses) ---------- */
-      if (path === '/rest/v1/rpc/get_share') { const b = json(); const rows = await as(uid, (c) => c.query('select * from public.get_share($1)', [b.share_id])).then((r) => r.rows); return send(200, rows); }
-      const m = /^\/rest\/v1\/(projects|shares)$/.exec(path);
+      const fn = /^\/rest\/v1\/rpc\/(get_share|accept_invite)$/.exec(path);
+      if (fn) {
+        const b = json(), names = Object.keys(b).filter((k) => /^[a-z_]+$/.test(k));
+        try { const rows = await as(uid, (c) => c.query(`select * from public.${fn[1]}(${names.map((k, i) => `${k} => $${i + 1}`).join(', ')})`, names.map((k) => b[k]))).then((r) => r.rows); return send(200, rows); }
+        catch (e) { return send(e.code === '42501' ? 403 : 400, { code: e.code, message: e.message, details: null, hint: null }); }
+      }
+      const m = /^\/rest\/v1\/(projects|shares|project_members|invites)$/.exec(path);
       if (m) {
         const table = 'public.' + m[1], cols = (u.searchParams.get('select') || '*').split(',').filter((c) => /^[a-z_*]+$/.test(c)).join(', ') || '*';
         const where = [], args = [];

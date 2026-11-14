@@ -14,14 +14,31 @@ Ink Atlas accounts run on a free Supabase project that you own. Until the two Gi
 
 The anon or publishable key is meant to be public: it ends up in the site's code, and the row-level security rules in `setup.sql` are what keep each person's projects private.
 
-## Optional later: emailed codes
+## Update: working on a project together (2026-11-14)
 
-To offer "Email me a code" (sign in without a password, or when someone forgets theirs), connect your own email sender in **Authentication**, **Emails**, **SMTP Settings** (Resend has a free tier). Then in **Email Templates** add `{{ .Token }}` to the **Magic Link** and **Confirm signup** templates so the email carries the 6-digit code, and add a repository *variable* (not a secret) named `SUPABASE_EMAIL_CODES` with the value `1`.
+The invite links, live shared projects, answers on the tattoo and pinned comments need four more things on the server. One step:
 
-Until then nobody can reset a forgotten password by themselves. You can do it for them in Supabase under **Authentication**, **Users**.
+1. In Supabase open **SQL Editor**, then **New query**. Paste the whole of `supabase/setup.sql` from this repo (the newest version) and press **Run**. It should end with "Success".
+
+That is all. It keeps everything already in the account and only adds what is new: who has joined which project, the invite links, and a shared artwork folder per project. Running it again is safe. Until it has been run, Invite someone says it could not reach the account and nothing else changes.
+
+## Optional: forgot password and emailed codes
+
+To let people reset a forgotten password themselves ("Forgot your password? Email me a code"), Supabase needs your own email sender, because its built-in one only delivers to your own address. The free way that needs no website of your own is your Gmail:
+
+1. In your Google account, turn on **2-Step Verification** if it is not on, then search the account settings for **App passwords** and make one called `Ink Atlas`. Google shows a 16-letter password once. Keep it in your password manager; you only paste it into Supabase.
+2. In Supabase open **Authentication**, then **Emails**, then **SMTP Settings**, and switch on **Enable custom SMTP**. Sender email: your Gmail address. Sender name: `Ink Atlas`. Host: `smtp.gmail.com`. Port: `465`. Username: your Gmail address. Password: the app password. Save.
+3. Still in **Emails**, open **Templates**. In **Magic Link** and in **Confirm signup**, add a line such as `Your Ink Atlas code: {{ .Token }}` to the message and save each. That puts the 6-digit code in the email.
+4. In GitHub, open the repo, **Settings**, **Secrets and variables**, **Actions**, the **Variables** tab, **New repository variable**: name `SUPABASE_EMAIL_CODES`, value `1`.
+5. The next deploy shows "Forgot your password?" and "Sign up with an emailed code instead".
+
+The emails come from your Gmail address. If you own a website domain, Resend (free tier) can send from it instead: verify the domain there, then use host `smtp.resend.com`, port `465`, username `resend` and a Resend API key as the password in step 2.
+
+Until this is set up, you can reset someone's password for them in Supabase under **Authentication**, **Users**.
 
 ## Things to know
 
-- Anyone who finds the site can make an account on your project. Each account only ever sees its own projects. The free plan holds 500 MB of data and 1 GB of artwork, plenty for this.
+- Anyone who finds the site can make an account on your project. Each account only ever sees its own projects, plus projects someone invited it into.
+- An invite link is for one person and works for 14 days. Whoever opens it first while signed in joins that one project; nobody else can use it after that. People who join can change the tattoos but cannot rename, remove or share the project, and they never see the owner's other projects. Taking someone off (or them leaving) also stops their old link working. The free plan holds 500 MB of data and 1 GB of artwork, plenty for this.
 - Supabase pauses a free project after a week with no use. Opening the dashboard and pressing **Restore** brings it back; nothing is lost.
 - Shared links ("Send to someone") are a frozen copy. Anyone with the link can open that copy. The link id is long and random, and copies cannot be listed.

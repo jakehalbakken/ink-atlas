@@ -56,5 +56,68 @@ try {
   assert.equal((await q(B, `select name from storage.objects where bucket_id = 'shared-artwork'`)).length, 0, 'B cannot list shared artwork');
   const buckets = (await fake.pool.query('select id, public from storage.buckets order by id')).rows;
   assert.deepEqual(buckets, [{ id: 'artwork', public: false }, { id: 'shared-artwork', public: true }]);
+
+  // working on a project together
+  const C = await mk('c@example.com');
+  const [ps] = await q(A, `insert into public.projects (name, state, image_keys, tattoos) values ('Back piece', '{"tattoos":[]}', '{k1}', 0) returning id`);
+  const inv = 'invite_aaaaaaaaaaaaaaaaaaaaa';
+  await fails(B, `insert into public.invites (id, project_id) values ($1, $2)`, ['invite_bbbbbbbbbbbbbbbbbbbbb', ps.id], 'B inviting people into A\'s project');
+  await fails(A, `insert into public.invites (id, project_id) values ('short', $1)`, [ps.id], 'a guessable invite id');
+  await fails(A, `insert into public.invites (id, project_id, used_by) values ($1, $2, $3)`, ['invite_ccccccccccccccccccccc', ps.id, B], 'an invite already marked as used');
+  await q(A, `update public.projects set shared = true, owner_name = 'Jake' where id = $1`, [ps.id]);
+  await q(A, `insert into public.invites (id, project_id) values ($1, $2)`, [inv, ps.id]);
+  assert.equal((await q(B, 'select id from public.invites')).length, 0, 'B cannot see invites');
+  assert.equal((await q(B, 'select id from public.projects where id = $1', [ps.id])).length, 0, 'B cannot see it before joining');
+  await fails(null, `select * from public.accept_invite($1, 'x')`, [inv], 'joining signed out');
+  await fails(B, `select * from public.accept_invite($1, 'Liv')`, ['invite_zzzzzzzzzzzzzzzzzzzzz'], 'a wrong invite');
+  await fails(B, `insert into public.project_members (project_id, user_id) values ($1, $2)`, [ps.id, B], 'B adding themselves without an invite');
+  const acc = await q(B, `select * from public.accept_invite($1, 'Liv')`, [inv]);
+  assert.equal(acc[0].project_id, ps.id); assert.equal(acc[0].owner_name, 'Jake');
+  assert.equal((await q(B, `select * from public.accept_invite($1, 'Liv')`, [inv])).length, 1, 'the same person can open the invite again');
+  await fails(C, `select * from public.accept_invite($1, 'Stranger')`, [inv], 'a forwarded invite someone already used');
+  assert.equal((await q(B, 'select id from public.projects')).length, 1, 'B now sees that one project and nothing else of A\'s');
+  assert.equal((await q(C, 'select id from public.projects')).length, 0, 'C still sees nothing');
+  const members = await q(A, 'select user_id, name from public.project_members where project_id = $1', [ps.id]);
+  assert.deepEqual(members, [{ user_id: B, name: 'Liv' }], 'A sees who joined');
+  assert.equal((await q(C, 'select user_id from public.project_members')).length, 0, 'C cannot see who is on it');
+  // B can save it (rev check as usual) but not take it, rename, remove or unshare it
+  assert.equal((await q(B, `update public.projects set state = '{"tattoos":[1]}', rev = rev + 1 where id = $1 and rev = 1 returning rev`, [ps.id]))[0].rev, 2, 'B saves a change');
+  await fails(B, `update public.projects set owner = $2 where id = $1`, [ps.id, B], 'B taking the project');
+  await fails(B, `update public.projects set archived = true where id = $1`, [ps.id], 'B removing the project');
+  await fails(B, `update public.projects set name = 'mine' where id = $1`, [ps.id], 'B renaming the project');
+  await fails(B, `update public.projects set shared = false where id = $1`, [ps.id], 'B switching sharing off');
+  await fails(A, `update public.projects set owner = $2 where id = $1`, [ps.id, B], 'A handing the project to B');
+  assert.equal((await q(B, `delete from public.projects where id = $1 returning id`, [ps.id])).length, 0, 'B cannot delete it');
+  assert.equal((await q(B, `update public.projects set name = 'x' where id = $1 returning id`, [pa.id])).length, 0, 'B still cannot touch A\'s other project');
+  // shared artwork folder
+  await q(A, `insert into storage.objects (bucket_id, name) values ('artwork', $1)`, ['p/' + ps.id + '/k1']);
+  await q(B, `insert into storage.objects (bucket_id, name) values ('artwork', $1)`, ['p/' + ps.id + '/k2']);
+  assert.equal((await q(B, `select name from storage.objects where bucket_id = 'artwork' and name like 'p/%'`)).length, 2, 'B reads the project\'s artwork');
+  assert.equal((await q(B, `select name from storage.objects where bucket_id = 'artwork' and name = $1`, [A + '/k1'])).length, 0, 'but not A\'s own folder');
+  await fails(C, `insert into storage.objects (bucket_id, name) values ('artwork', $1)`, ['p/' + ps.id + '/k3'], 'C writing into the project\'s artwork');
+  await fails(B, `insert into storage.objects (bucket_id, name) values ('artwork', $1)`, ['p/' + pa.id + '/k3'], 'B writing into A\'s unshared project folder');
+  await fails(B, `insert into storage.objects (bucket_id, name) values ('artwork', 'p/not-a-uuid/k3')`, [], 'a folder that is not a project');
+  await fails(B, `insert into storage.objects (bucket_id, name) values ('artwork', $1)`, ['p/' + ps.id + '/deeper/k3'], 'a deeper folder');
+  assert.equal((await q(C, `select name from storage.objects where bucket_id = 'artwork'`)).length, 0, 'C sees no artwork');
+  // removing a project takes it away from people who joined; the owner taking someone off or them leaving does too
+  await q(A, `update public.projects set archived = true where id = $1`, [ps.id]);
+  assert.equal((await q(B, 'select id from public.projects where id = $1', [ps.id])).length, 0, 'removed: B no longer sees it');
+  assert.equal((await q(B, `select name from storage.objects where name like 'p/%'`)).length, 0, 'removed: nor its artwork');
+  await q(A, `update public.projects set archived = false where id = $1`, [ps.id]);
+  assert.equal((await q(B, 'select id from public.projects where id = $1', [ps.id])).length, 1);
+  assert.equal((await q(C, `delete from public.project_members where project_id = $1 returning user_id`, [ps.id])).length, 0, 'C cannot take B off');
+  assert.equal((await q(A, `delete from public.project_members where project_id = $1 and user_id = $2 returning user_id`, [ps.id, B])).length, 1, 'A takes B off');
+  assert.equal((await q(B, 'select id from public.projects where id = $1', [ps.id])).length, 0, 'taken off: B no longer sees it');
+  await fails(B, `select * from public.accept_invite($1, 'Liv')`, [inv], 'rejoining with the old invite after being taken off');
+  // leaving
+  const inv2 = 'invite_ddddddddddddddddddddd';
+  await q(A, `insert into public.invites (id, project_id) values ($1, $2)`, [inv2, ps.id]);
+  await q(B, `select * from public.accept_invite($1, 'Liv')`, [inv2]);
+  assert.equal((await q(B, `delete from public.project_members where project_id = $1 and user_id = $2 returning user_id`, [ps.id, B])).length, 1, 'B leaves');
+  assert.equal((await q(B, 'select id from public.projects where id = $1', [ps.id])).length, 0, 'left: B no longer sees it');
+  const expired = 'invite_eeeeeeeeeeeeeeeeeeeee';
+  await q(A, `insert into public.invites (id, project_id, expires_at) values ($1, $2, now() - interval '1 minute')`, [expired, ps.id]);
+  await fails(C, `select * from public.accept_invite($1, 'x')`, [expired], 'an invite that ran out');
+  await fails(A, `insert into public.invites (id, project_id, expires_at) values ('invite_fffffffffffffffffffff', $1, now() + interval '1 year')`, [ps.id], 'an invite that never runs out');
   console.log('accounts-rls-unit: ok');
 } finally { await fake.stop(); }

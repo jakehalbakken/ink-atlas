@@ -9,6 +9,9 @@
 // table `shares` (frozen copies opened by link through get_share()), bucket `artwork`
 // (<user id>/<image key>, private) and bucket `shared-artwork` (<user id>/<share id>/<key>).
 // Artwork keys never change their picture, so a file that is already up is never sent again.
+// A project someone else has joined keeps its artwork in artwork/p/<project id>/ instead,
+// which everyone on the project can read and add to; invites, members and accept_invite()
+// are the rest of working on a project together.
 
 const URL_ = (import.meta.env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, '');
 const KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
@@ -38,6 +41,9 @@ const plain = (e) => {
   if (/error sending|smtp|sending.*email/i.test(m)) return 'The email could not be sent. Use a password instead.';
   if (/failed to fetch|network|load failed/i.test(m)) return 'No connection to your account right now. Your work is still saved on this device.';
   if (/unable to validate email|invalid email/i.test(m)) return 'That email address does not look right.';
+  if (/signups not allowed for otp|user not found/i.test(m)) return 'There is no account with that email yet. Make one with New here.';
+  if (/invite no longer works/i.test(m)) return 'That invite no longer works. Ask for a new one.';
+  if (/only the owner can do that/i.test(m)) return 'Only the person who owns this project can do that.';
   return m;
 };
 export const plainError = plain;
@@ -105,42 +111,79 @@ export async function openCloud() {
       return { needsConfirm: !d.session };
     },
     async signIn(email, password) { check(await sb.auth.signInWithPassword({ email, password })); },
-    async sendCode(email) { check(await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: homeUrl() } })); },
+    // create false: only for an account that already exists (forgot password)
+    async sendCode(email, create = true) { check(await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: !!create, emailRedirectTo: homeUrl() } })); },
     async verifyCode(email, token) { check(await sb.auth.verifyOtp({ email, token: String(token).replace(/\s+/g, ''), type: 'email' })); },
     async setPassword(password) { check(await sb.auth.updateUser({ password })); },
     async setName(name) { check(await sb.auth.updateUser({ data: { name: String(name).slice(0, 60) } })); },
     async signOut() { const { error } = await sb.auth.signOut({ scope: 'local' }); if (error) throw new Error(plain(error)); user = null; },
 
     // Projects -------------------------------------------------------------
+    // Each row says whether it is mine (I own it) or one I joined (shared by owner_name).
     async list() {
-      return check(await sb.from('projects').select('id,name,tattoos,rev,updated_at').eq('archived', false).order('updated_at', { ascending: false }).limit(200));
+      const me = uid();
+      const d = check(await sb.from('projects').select('id,name,tattoos,rev,updated_at,owner,shared,owner_name,edited_by').eq('archived', false).order('updated_at', { ascending: false }).limit(200));
+      return d.map((r) => ({ ...r, mine: r.owner === me }));
     },
     async meta(id) {
-      const d = check(await sb.from('projects').select('id,name,rev,archived,updated_at').eq('id', id).limit(1));
-      return d && d[0] && !d[0].archived ? d[0] : null;
+      const me = uid();
+      const d = check(await sb.from('projects').select('id,name,rev,archived,updated_at,owner,shared,owner_name,edited_by').eq('id', id).limit(1));
+      return d && d[0] && !d[0].archived ? { ...d[0], mine: d[0].owner === me } : null;
     },
-    // done: the set of artwork keys known to be up already (kept by the caller per user).
+    folderFor(id, shared) { return shared ? 'p/' + id : uid(); },
+    // done: the set of artwork keys known to be up already (kept by the caller per folder).
     async create(state, images, name, done) {
       const me = uid(), r = row(state, images, name);
       await uploadArtwork('artwork', me, images, r.image_keys, done);
-      return check(await sb.from('projects').insert(r).select('id,name,rev,updated_at').single());
+      return check(await sb.from('projects').insert({ ...r, edited_by: this.displayName() || null }).select('id,name,rev,updated_at').single());
     },
     // Saves only if nobody else saved since `rev`. Returns the new row, or { conflict: true }.
-    async save(id, rev, state, images, name, done) {
-      const me = uid(), r = row(state, images, name);
-      await uploadArtwork('artwork', me, images, r.image_keys, done);
-      const d = check(await sb.from('projects').update({ ...r, rev: rev + 1 }).eq('id', id).eq('rev', rev).select('id,name,rev,updated_at'));
+    // opts.shared: the artwork goes to the project's shared folder. opts.mine false: someone
+    // who joined the project, who cannot rename it, so the name is left as it is.
+    async save(id, rev, state, images, name, done, opts = {}) {
+      const r = row(state, images, name);
+      await uploadArtwork('artwork', this.folderFor(id, opts.shared), images, r.image_keys, done);
+      if (opts.mine === false) delete r.name;
+      const d = check(await sb.from('projects').update({ ...r, rev: rev + 1, edited_by: this.displayName() || null }).eq('id', id).eq('rev', rev).select('id,name,rev,updated_at,shared'));
       return d && d[0] ? d[0] : { conflict: true };
     },
     async load(id) {
       const me = uid();
-      const p = check(await sb.from('projects').select('id,name,state,image_keys,rev,updated_at').eq('id', id).single());
+      const p = check(await sb.from('projects').select('id,name,state,image_keys,rev,updated_at,owner,shared,owner_name,edited_by').eq('id', id).single());
       const keys = Array.isArray(p.image_keys) ? p.image_keys.filter((k) => typeof k === 'string') : [];
-      const { images, missing } = await downloadArtwork(async (path) => check(await sb.storage.from('artwork').download(me + '/' + path)), keys);
-      return { id: p.id, name: p.name, rev: p.rev, state: p.state, images, missing, keys };
+      const mine = p.owner === me;
+      const from = (folder) => async (path) => check(await sb.storage.from('artwork').download(folder + '/' + path));
+      let { images, missing } = await downloadArtwork(from(p.shared ? 'p/' + p.id : me), keys);
+      // the owner's own folder still has anything that was saved before sharing was switched on
+      if (p.shared && mine && missing.length) { const more = await downloadArtwork(from(me), missing); Object.assign(images, more.images); missing = more.missing; }
+      return { id: p.id, name: p.name, rev: p.rev, state: p.state, images, missing, keys, shared: !!p.shared, mine, ownerName: p.owner_name || '', editedBy: p.edited_by || '' };
     },
     async rename(id, name) { check(await sb.from('projects').update({ name: String(name).trim().slice(0, 80) || 'My tattoos' }).eq('id', id).select('id')); },
     async remove(id) { check(await sb.from('projects').update({ archived: true }).eq('id', id).select('id')); },
+
+    // Working on a project together -----------------------------------------
+    // Switching sharing on: the project's artwork is copied into its shared folder first.
+    async startSharing(id, images, done) {
+      const keys = Object.keys(images).filter((k) => typeof images[k] === 'string');
+      await uploadArtwork('artwork', 'p/' + id, images, keys, done);
+      check(await sb.from('projects').update({ shared: true, owner_name: this.displayName() || null }).eq('id', id).select('id'));
+    },
+    // One link for one person, good for 14 days.
+    async invite(id) {
+      const token = linkId();
+      check(await sb.from('invites').insert({ id: token, project_id: id }));
+      return token;
+    },
+    async acceptInvite(token) {
+      if (!/^[A-Za-z0-9_-]{22,64}$/.test(token || '')) throw new Error('That invite link is not complete.');
+      const d = check(await sb.rpc('accept_invite', { invite_id: token, my_name: this.displayName() || null }));
+      const r = Array.isArray(d) ? d[0] : d;
+      if (!r) throw new Error('That invite no longer works. Ask for a new one.');
+      return { id: r.project_id, name: r.name, ownerName: r.owner_name || '' };
+    },
+    async members(id) { return check(await sb.from('project_members').select('user_id,name,added_at').eq('project_id', id).order('added_at', { ascending: true })); },
+    async removeMember(id, userId) { check(await sb.from('project_members').delete().eq('project_id', id).eq('user_id', userId)); },
+    async leave(id) { check(await sb.from('project_members').delete().eq('project_id', id).eq('user_id', uid())); },
 
     // Sending a copy to someone ---------------------------------------------
     async share(state, images, name) {

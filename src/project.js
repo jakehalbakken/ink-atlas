@@ -58,7 +58,21 @@ export function cleanState(raw, hasImage) {
   else delete s.paint;
   // approval pages sent (optional): which tattoos each one asked about, for reading answers back
   if (s.asks !== undefined) { const a = cleanAsks(s.asks); if (a) s.asks = a; else delete s.asks; }
+  // comments pinned to a spot on the body (optional, in the artist notes): a bad spot is dropped, the words kept
+  if (Array.isArray(s.notes)) for (const n of s.notes) {
+    if (!n || typeof n !== 'object' || Array.isArray(n)) continue;
+    if (n.pin !== undefined) { const p = cleanPin(n.pin); if (p) n.pin = p; else delete n.pin; }
+    if (n.by !== undefined) { if (typeof n.by === 'string') n.by = n.by.slice(0, 60); else delete n.by; }
+    if (n.at !== undefined && !(typeof n.at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(n.at))) delete n.at;
+  }
   return { state: s, dropped, replace };
+}
+
+// A spot on the body: a triangle of the body mesh and three weights inside it.
+export function cleanPin(p) {
+  if (!p || typeof p !== 'object' || !Number.isInteger(p.tri) || p.tri < 0 || p.tri > 2e6 || !Array.isArray(p.w) || p.w.length !== 3 || !p.w.every((x) => num(x) && x > -0.01 && x < 1.01)) return null;
+  const sum = p.w[0] + p.w[1] + p.w[2]; if (!(sum > 0.5 && sum < 1.5)) return null;
+  return { tri: p.tri, w: p.w.map((x) => Math.min(1, Math.max(0, x)) / sum) };
 }
 
 // Shared asset traversal for current state, named layouts, checkpoints and backups.

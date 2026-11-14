@@ -11,10 +11,14 @@
 // - Opening a different project keeps the one on screen (in Projects on this device, unless it
 //   is already safe in the account), and work from this device goes into an account only when
 //   its owner says so.
+// - A project worked on together (shared) is checked every few seconds while it is open, and
+//   someone else's changes come in by themselves when this device has nothing unsent. When
+//   both changed it, the two are put together (src/merge.js) instead of making a copy.
 // - Signed out, or with accounts not set up, nothing here runs and the app is as it was.
 import { cloudConfigured, emailCodes, openCloud, openShare, plainError } from './cloud.js';
+import { mergeStates } from './merge.js';
 
-const BIND = 'ia-cloud-bind';
+const BIND = 'ia-cloud-bind', BASE = 'ia-cloud-base', LIVE_MS = 4000;
 const ls = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
   set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage off */ } },
@@ -42,10 +46,16 @@ export function createAccount(api) {
 
   let cloud = null, cloudReady = null, bind = ls.get(BIND), pushing = false, again = false, timer = 0, retry = 0, lastStatus = '';
   const user = () => cloud && cloud.user;
-  const upKey = () => 'ia-cloud-up:' + user().id;
-  const doneSet = () => { const s = new Set(ls.get(upKey()) || []); return { has: (k) => s.has(k), add: (k) => { s.add(k); ls.set(upKey(), [...s].slice(-5000)); } }; };
+  // artwork known to be up already, per folder: this person's own, or a shared project's
+  const upKey = (folder) => 'ia-cloud-up:' + user().id + (folder ? ':' + folder : '');
+  const doneSet = (folder) => { const s = new Set(ls.get(upKey(folder)) || []); return { has: (k) => s.has(k), add: (k) => { s.add(k); ls.set(upKey(folder), [...s].slice(-5000)); } }; };
+  const doneFor = (b) => doneSet(b && b.shared ? 'p/' + b.id : '');
   // artwork that came down from the account is already up there
-  const markUp = (p) => { const s = new Set(ls.get(upKey()) || []); for (const k of p.keys) if (p.images[k]) s.add(k); ls.set(upKey(), [...s].slice(-5000)); };
+  const markUp = (p) => { const f = p.shared ? 'p/' + p.id : '', s = new Set(ls.get(upKey(f)) || []); for (const k of p.keys) if (p.images[k]) s.add(k); ls.set(upKey(f), [...s].slice(-5000)); };
+  // the project as it was when this device last matched the account, for putting changes together
+  const setBase = (id, json) => { try { localStorage.setItem(BASE, JSON.stringify({ id, json })); } catch (e) { ls.set(BASE, null); } };
+  const baseFor = (id) => { const b = ls.get(BASE); try { return b && b.id === id ? JSON.parse(b.json) : null; } catch (e) { return null; } };
+  const stateJson = () => JSON.stringify(api.snapshot().state);
   // Whether new work on this device goes into this person's account, and whether they were
   // asked yet. Both are cleared on sign out, so the next person to sign in here is asked again.
   const FOLLOW = 'ia-cloud-follow', ASKED = 'ia-cloud-asked';
@@ -85,52 +95,94 @@ export function createAccount(api) {
     clearTimeout(timer); timer = 0;
     if (!user()) return;
     if (pushing) { again = true; return; }
-    const snap = api.snapshot(), json = JSON.stringify(snap.state), sig = sigOf(json);
-    let b = myBind();
-    if (b && b.sig === sig) { status('Saved to your account'); return; }
-    if (!b && !following()) return;
+    if (!myBind() && !following()) return;
+    if (myBind() && myBind().sig === currentSig()) { status('Saved to your account'); return; }
     pushing = true; status('Saving to your account');
     try {
-      const state = JSON.parse(json), name = api.projectName();
-      if (!b) {
-        const r = await cloud.create(state, snap.images, name, doneSet());
-        setBind({ uid: user().id, id: r.id, rev: r.rev, sig, name: r.name });
-      } else {
-        const r = await cloud.save(b.id, b.rev, state, snap.images, name, doneSet());
-        if (r.conflict) {
-          // changed on another device as well: keep both, this one as its own project
+      for (let tries = 0; ; tries++) {
+        const snap = api.snapshot(), json = JSON.stringify(snap.state), sig = sigOf(json), b = myBind();
+        if (b && b.sig === sig) break;
+        const state = JSON.parse(json), name = api.projectName();
+        if (!b) {
+          const r = await cloud.create(state, snap.images, name, doneSet());
+          setBind({ uid: user().id, id: r.id, rev: r.rev, sig, name: r.name, shared: false, mine: true }); setBase(r.id, json);
+          break;
+        }
+        const r = await cloud.save(b.id, b.rev, state, snap.images, name, doneFor(b), { shared: !!b.shared, mine: b.mine !== false });
+        if (!r.conflict) {
+          setBind({ ...b, rev: r.rev, sig, name: r.name || b.name, shared: !!(b.shared || r.shared) }); setBase(b.id, json);
+          // sharing was switched on from another device: the artwork goes where everyone can see it
+          if (r.shared && !b.shared && b.mine !== false) await cloud.startSharing(b.id, snap.images, doneSet('p/' + b.id));
+          break;
+        }
+        // someone saved it elsewhere since this device last did
+        const p = await cloud.load(b.id);
+        markUp(p);
+        if (!p.shared) {
+          // changed on another of this person's devices as well: keep both, this one as its own project
           const copyName = (name + ' (' + deviceName() + ')').slice(0, 80);
           const c = await cloud.create(state, snap.images, copyName, doneSet());
-          setBind({ uid: user().id, id: c.id, rev: c.rev, sig, name: c.name });
+          setBind({ uid: user().id, id: c.id, rev: c.rev, sig, name: c.name, shared: false, mine: true }); setBase(c.id, json);
           api.toast(`This project was also changed on another device. Both are in your account: this one is "${c.name}".`);
-        } else setBind({ ...b, rev: r.rev, sig, name: r.name });
+          break;
+        }
+        // worked on together: put both people's changes together and save that
+        if (tries >= 3) throw new Error('Still changing elsewhere');
+        if (api.busy && api.busy()) { pushing = false; clearTimeout(retry); retry = setTimeout(push, 1500); return; }
+        if (myBind() !== b || currentSig() !== sig) continue; // changed while loading: start again
+        const merged = mergeStates(baseFor(b.id), state, p.state);
+        const said = await api.open(merged, { ...p.images, ...snap.images }, p.name, { live: true });
+        setBind({ ...b, rev: p.rev, sig: '', name: p.name, shared: true, mine: p.mine }); setBase(b.id, JSON.stringify(p.state));
+        if (!(said && said.toasted)) liveNote(`Your changes and ${p.editedBy || 'the other person'}'s are both in "${p.name}".`, true);
       }
       retry = 0;
       status(myBind() && myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account');
     } catch (e) {
       status('Saved on this device. Not in your account yet', true);
       clearTimeout(retry); retry = setTimeout(push, 30000);
-    } finally { pushing = false; if (again) { again = false; push(); } }
+    } finally { if (pushing) { pushing = false; if (again) { again = false; push(); } } }
   }
-  // Coming back to the app: a newer version saved on another device opens here.
+  // a short note when someone else's changes come in, at most once a minute unless it matters
+  let lastNote = 0;
+  function liveNote(text, always) { const now = Date.now(); if (!always && now - lastNote < 60000) return; lastNote = now; api.toast(text); }
+  // Coming back to the app, and every few seconds while a shared project is open: a newer
+  // version saved on another device, or by someone else on the project, opens here.
+  let pulling = false;
   async function pull() {
-    const b = myBind(); if (!b || pushing) return;
-    let meta; try { meta = await cloud.meta(b.id); } catch (e) { return; }
-    if (bind !== b) return;
-    if (!meta) { setBind(null); follow(false); status('Removed from your account. Still saved on this device'); return; } // removed from the account on another device
-    if (meta.rev <= b.rev) return;
-    if (currentSig() !== b.sig) { push(); return; } // both changed: push keeps both
+    const b = myBind(); if (!b || pushing || pulling) return;
+    pulling = true;
     try {
-      const p = await cloud.load(b.id);
+      let meta; try { meta = await cloud.meta(b.id); } catch (e) { return; }
+      if (bind !== b) return;
+      if (!meta) { // removed from the account on another device, or this person was taken off it
+        setBind(null); follow(false);
+        if (b.mine === false) { status('Saved on this device'); api.toast(`You are no longer on "${b.name}". It stays on this device.`); }
+        else status('Removed from your account. Still saved on this device');
+        return;
+      }
+      if (!!meta.shared !== !!b.shared || meta.mine !== (b.mine !== false)) setBind({ ...b, shared: !!meta.shared, mine: meta.mine });
+      const now = myBind();
+      if (meta.rev <= now.rev) return;
+      if (currentSig() !== now.sig) { pulling = false; push(); return; } // both changed: push keeps both, or puts them together
+      if (now.shared && api.busy && api.busy()) return; // in the middle of something: the next check brings it in
+      const p = await cloud.load(now.id);
       markUp(p);
-      if (bind !== b || currentSig() !== b.sig) return;
+      if (bind !== now || currentSig() !== now.sig) return;
+      if (p.shared) {
+        const said = await api.open(p.state, p.images, p.name, { live: true });
+        setBind({ ...now, rev: p.rev, sig: currentSig(), name: p.name, shared: true, mine: p.mine }); setBase(now.id, stateJson());
+        api.saveNow(); status('Saved to your account');
+        if (!(said && said.toasted)) liveNote(`${p.editedBy || 'Someone'} changed "${p.name}".` + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} still on the way.` : ''));
+        return;
+      }
       await api.open(p.state, p.images, p.name, { keepCopy: false, reason: 'Before the newer version from your account' });
-      setBind({ ...b, rev: p.rev, sig: currentSig(), name: p.name });
+      setBind({ ...now, rev: p.rev, sig: currentSig(), name: p.name }); setBase(now.id, stateJson());
       api.saveNow(); status('Saved to your account');
       api.toast('Opened the newest version from your account.' + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} still missing.` : ''));
-    } catch (e) { /* stay as we are; next return to the app tries again */ }
+    } catch (e) { /* stay as we are; the next check tries again */ } finally { pulling = false; }
   }
   document.addEventListener('visibilitychange', () => { if (!document.hidden && user()) pull(); });
+  setInterval(() => { const b = myBind(); if (b && b.shared && !document.hidden && navigator.onLine !== false) pull(); }, LIVE_MS);
   window.addEventListener('online', () => { if (user()) { if (myBind() || following()) push(); } });
 
   // Replacing the project on screen another way (Projects on this device, a backup file,
@@ -141,19 +193,44 @@ export function createAccount(api) {
     if (following()) { clearTimeout(timer); timer = setTimeout(push, 1500); }
   }
 
-  async function openFromAccount(id) {
+  async function openFromAccount(id, said) {
     const b = myBind();
-    if (b && b.id === id) { close(); return; }
+    if (b && b.id === id) { close(); if (said) api.toast(said); return; }
     if (b) await push(); // make sure what is on screen is safe in the account first
     const safe = myBind() && myBind().sig === currentSig();
     const p = await cloud.load(id);
     markUp(p);
     await api.open(p.state, p.images, p.name, { keepCopy: !safe, reason: 'Before opening a project from your account' });
-    setBind({ uid: user().id, id: p.id, rev: p.rev, sig: currentSig(), name: p.name });
+    setBind({ uid: user().id, id: p.id, rev: p.rev, sig: currentSig(), name: p.name, shared: p.shared, mine: p.mine, ownerName: p.ownerName }); setBase(p.id, stateJson());
     follow(true);
     api.saveNow(); status('Saved to your account');
     close();
-    api.toast(`Opened "${p.name}" from your account.` + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} missing.` : '') + (safe ? '' : ' What was on screen is kept in Projects on this device.'));
+    api.toast((said || `Opened "${p.name}" from your account.`) + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} missing.` : '') + (safe ? '' : ' What was on screen is kept in Projects on this device.'));
+  }
+
+  /* ---------- working on a project together ---------- */
+  async function joinWith(token) {
+    open(); view = 'busy'; panel.replaceChildren(header('Join a project'), h('p', { text: 'Joining…' }));
+    try {
+      const j = await cloud.acceptInvite(token);
+      if (api.tried) api.tried('together');
+      await openFromAccount(j.id, `You joined "${j.name}"${j.ownerName ? ' with ' + j.ownerName : ''}. You both see changes as they happen.`);
+    } catch (e) { show('home'); msg(plainError(e)); }
+  }
+  async function makeInvite() {
+    if (!myBind()) { follow(true); ls.set(ASKED, user().id); await push(); }
+    let b = myBind();
+    if (!b) throw new Error('Could not reach your account. Try again in a moment.');
+    if (b.mine === false) throw new Error('Only the person who owns this project can invite people.');
+    if (!b.shared) {
+      await push();
+      b = myBind();
+      await cloud.startSharing(b.id, api.snapshot().images, doneSet('p/' + b.id));
+      setBind({ ...myBind(), shared: true });
+    }
+    const token = await cloud.invite(b.id);
+    if (api.tried) api.tried('together');
+    show('invite', location.origin + location.pathname + '?join=' + token);
   }
 
   /* ---------- after signing in ---------- */
@@ -161,10 +238,11 @@ export function createAccount(api) {
     const u = user();
     if (api.tried) api.tried();
     if (bind && bind.uid !== u.id) setBind(null);
+    if (pendingJoin) { const t = pendingJoin; pendingJoin = null; await joinWith(t); return; }
     if (myBind()) { pull(); status(myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account'); if (myBind().sig !== currentSig()) push(); if (!root.hidden && view === 'signin') show('home'); return; }
     if (following()) { push(); if (!root.hidden && view === 'signin') show('home'); return; }
     if (pendingShare) { const s = pendingShare; pendingShare = null; follow(true); ls.set(ASKED, u.id); await push(); close(); api.toast(myBind() ? `"${s}" is saved to your account.` : 'Signed in. Your account could not be reached just now; it will try again.'); return; }
-    if (!asked()) { open(); show('move'); return; }
+    if (!asked()) { if (!resetting) { open(); show('move'); } return; }
     status('Saved on this device only');
     if (!root.hidden && view === 'signin') show('home');
   }
@@ -176,7 +254,7 @@ export function createAccount(api) {
   (document.getElementById('viewport') || document.body).append(root);
   root.addEventListener('click', (e) => { if (e.target === root && !busy) close(); });
   root.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape' && !busy) close(); });
-  let view = 'home', busy = false, mode = 'create', msgEl = null, codeEmail = '', pendingShare = null;
+  let view = 'home', busy = false, mode = 'create', msgEl = null, codeEmail = '', codeMode = 'signup', resetting = false, pendingShare = null, pendingJoin = null;
   // focus the first field, unless the person is already typing in one
   const focusSoon = (el) => setTimeout(() => { const a = document.activeElement; if (!(a && a.tagName === 'INPUT' && panel.contains(a))) el.focus(); }, 60);
   const put = (...kids) => panel.append(...kids.flat().filter((k) => k != null && k !== false));
@@ -199,6 +277,7 @@ export function createAccount(api) {
     else if (v === 'home') homeView();
     else if (v === 'link') linkView(extra);
     else if (v === 'shared') sharedView(extra);
+    else if (v === 'invite') inviteView(extra);
     panel.scrollTop = 0;
   }
 
@@ -225,9 +304,9 @@ export function createAccount(api) {
     put(header(mode === 'create' ? 'Make your account' : 'Sign in'),
       h('p', { class: 'muted', text: note || 'Keep your projects in your account and open them on any device. Ink Atlas still works without one, on this device only.' }),
       tabs, form, msgEl,
-      !emailCodes ? null : h('button', { class: 'btn quiet', type: 'button', text: mode === 'create' ? 'Sign up with an emailed code instead' : 'Forgot your password? Email me a code', onclick: () => {
+      !emailCodes ? null : h('button', { class: 'btn quiet', type: 'button', id: mode === 'create' ? 'acctCodeSignup' : 'acctForgot', text: mode === 'create' ? 'Sign up with an emailed code instead' : 'Forgot your password? Email me a code', onclick: () => {
         const em = email.value.trim(); if (!/^\S+@\S+\.\S+$/.test(em)) { msg('Type your email address first.'); email.focus(); return; }
-        run(async () => { await cloud.sendCode(em); codeEmail = em; show('code'); });
+        run(async () => { codeMode = mode === 'create' ? 'signup' : 'reset'; await cloud.sendCode(em, mode === 'create'); codeEmail = em; show('code'); });
       } }));
     focusSoon(mode === 'create' ? name : email);
   }
@@ -236,9 +315,13 @@ export function createAccount(api) {
     const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '6-digit code', 'aria-label': 'Code from the email', maxlength: '10' });
     put(header('Check your email'),
       h('p', { text: `We sent a code to ${codeEmail}. Type it here. It can take a minute to arrive.` }),
-      h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); const c = code.value.replace(/\D/g, ''); if (c.length < 6) { msg('Type the code from the email.'); return; } run(() => cloud.verifyCode(codeEmail, c)); } }, code, h('button', { class: 'btn primary', type: 'submit', text: 'Sign in' })),
+      h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); const c = code.value.replace(/\D/g, ''); if (c.length < 6) { msg('Type the code from the email.'); return; } run(async () => {
+        if (codeMode === 'reset') resetting = true;
+        try { await cloud.verifyCode(codeEmail, c); } catch (err) { resetting = false; throw err; }
+        if (codeMode === 'reset') passwordView(true);
+      }); } }, code, h('button', { class: 'btn primary', type: 'submit', text: codeMode === 'reset' ? 'Next' : 'Sign in' })),
       msgEl,
-      h('div', { class: 'acct-row' }, h('button', { class: 'btn quiet', type: 'button', text: 'Send a new code', onclick: () => run(async () => { await cloud.sendCode(codeEmail); msg('A new code is on its way.', true); }) }), h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('signin') })));
+      h('div', { class: 'acct-row' }, h('button', { class: 'btn quiet', type: 'button', text: 'Send a new code', onclick: () => run(async () => { await cloud.sendCode(codeEmail, codeMode !== 'reset'); msg('A new code is on its way.', true); }) }), h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('signin') })));
     focusSoon(code);
   }
 
@@ -272,9 +355,21 @@ export function createAccount(api) {
     const here = b
       ? h('p', { class: 'acct-here good', text: safe ? `"${b.name}" is saved to your account.` : `"${b.name}" is saving to your account.` })
       : h('div', { class: 'acct-here' }, h('p', { text: `"${api.projectName()}" is only on this device.` }), h('button', { class: 'btn primary', type: 'button', text: 'Save it to my account', onclick: () => run(async () => { follow(true); ls.set(ASKED, u.id); await push(); if (!myBind()) throw new Error('Could not reach your account. Try again in a moment.'); show('home'); msg('Saved to your account.', true); }) }));
+    // working on the project on screen together with someone
+    const people = h('div', { class: 'acct-list' });
+    const together = b && b.mine === false
+      ? h('div', { class: 'acct-together', id: 'acctTogether' },
+          h('h3', { class: 'shHead', text: 'Working on it together' }),
+          h('p', { class: 'muted', text: 'You see each other\'s changes as they happen.' }), people,
+          h('div', { class: 'acct-row' }, h('button', { class: 'btn quiet danger', type: 'button', text: 'Leave this project', onclick: () => leaveRow(people, b) })))
+      : h('div', { class: 'acct-together', id: 'acctTogether' },
+          h('h3', { class: 'shHead', text: 'Work on it together' }),
+          h('p', { class: 'muted', text: b && b.shared ? 'Everyone here sees the same tattoos, and each other\'s changes as they happen.' : 'Invite Liv or your artist into this project. You both see the same tattoos and each other\'s changes as they happen.' }),
+          people,
+          h('div', { class: 'acct-row' }, h('button', { class: 'btn primary', type: 'button', id: 'acctInvite', text: 'Invite someone', onclick: () => run(makeInvite) })));
     put(header('Your account'),
       h('p', { class: 'muted', text: `Signed in as ${cloud.displayName(u)}${u.email ? ' (' + u.email + ')' : ''}` }),
-      here, h('h3', { class: 'shHead', text: 'Your projects' }), list,
+      here, together, h('h3', { class: 'shHead', text: 'Your projects' }), list,
       h('div', { class: 'acct-row' }, h('button', { class: 'btn', type: 'button', text: 'New project', onclick: () => run(async () => {
         if (b) await push();
         const keep = !(myBind() && myBind().sig === currentSig());
@@ -295,15 +390,57 @@ export function createAccount(api) {
       if (!rows.length) list.append(h('p', { class: 'muted', text: 'Nothing in your account yet.' }));
       for (const r of rows) {
         const isHere = b && b.id === r.id;
+        const who = !r.mine ? ` · shared by ${r.owner_name || 'someone'}` : r.shared ? ' · shared' : '';
         const item = h('div', { class: 'acct-item' + (isHere ? ' here' : '') },
-          h('div', { class: 'acct-name' }, h('b', { text: r.name }), h('small', { text: `${r.tattoos} tattoo${r.tattoos === 1 ? '' : 's'} · ${when(r.updated_at)}${isHere ? ' · open now' : ''}` })),
+          h('div', { class: 'acct-name' }, h('b', { text: r.name }), h('small', { text: `${r.tattoos} tattoo${r.tattoos === 1 ? '' : 's'} · ${when(r.updated_at)}${who}${isHere ? ' · open now' : ''}` })),
           h('div', { class: 'acct-actions' },
             isHere ? null : h('button', { class: 'btn primary', type: 'button', text: 'Open', onclick: () => run(() => openFromAccount(r.id)) }),
-            h('button', { class: 'btn', type: 'button', text: 'Rename', onclick: () => renameRow(item, r) }),
-            isHere ? null : h('button', { class: 'btn quiet danger', type: 'button', text: 'Remove', onclick: () => removeRow(item, r) })));
+            r.mine ? h('button', { class: 'btn', type: 'button', text: 'Rename', onclick: () => renameRow(item, r) }) : null,
+            isHere ? null : r.mine ? h('button', { class: 'btn quiet danger', type: 'button', text: 'Remove', onclick: () => removeRow(item, r) })
+              : h('button', { class: 'btn quiet danger', type: 'button', text: 'Leave', onclick: () => leaveRow(item, r) })));
         list.append(item);
       }
     } catch (e) { if (view === 'home') list.replaceChildren(h('p', { class: 'acct-msg', text: plainError(e) })); }
+    if (b && (b.shared || b.mine === false)) {
+      try {
+        const ms = await cloud.members(b.id);
+        if (view !== 'home') return;
+        people.replaceChildren();
+        if (b.mine === false) people.append(h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: b.ownerName || 'The owner' }), h('small', { text: 'owns this project' }))));
+        for (const m of ms) {
+          const me = m.user_id === u.id;
+          const item = h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: me ? 'You' : (m.name || 'Someone') }), h('small', { text: 'joined ' + when(m.added_at) })),
+            b.mine !== false ? h('div', { class: 'acct-actions' }, h('button', { class: 'btn quiet danger', type: 'button', text: 'Take off', onclick: () => takeOffRow(item, b, m) })) : null);
+          people.append(item);
+        }
+        if (!ms.length && b.mine !== false) people.append(h('p', { class: 'muted', text: 'Nobody has joined yet. Each invite link is for one person.' }));
+      } catch (e) { /* the list of people is a nicety */ }
+    }
+  }
+  function takeOffRow(item, b, m) {
+    item.replaceChildren(h('p', { text: `Take ${m.name || 'this person'} off "${b.name}"? They stop seeing it and their old link stops working.` }),
+      h('div', { class: 'acct-actions' }, h('button', { class: 'btn danger', type: 'button', text: 'Take off', onclick: () => run(async () => { await cloud.removeMember(b.id, m.user_id); show('home'); msg(`${m.name || 'They'} can no longer see "${b.name}".`, true); }) }), h('button', { class: 'btn', type: 'button', text: 'Cancel', onclick: () => show('home') })));
+  }
+  function leaveRow(item, r) {
+    item.replaceChildren(h('p', { text: `Leave "${r.name}"? You stop seeing it in your account.${myBind() && myBind().id === r.id ? ' What is on screen stays on this device.' : ''}` }),
+      h('div', { class: 'acct-actions' }, h('button', { class: 'btn danger', type: 'button', text: 'Leave', onclick: () => run(async () => {
+        await cloud.leave(r.id);
+        if (myBind() && myBind().id === r.id) { setBind(null); follow(false); status('Saved on this device'); }
+        show('home'); msg(`You left "${r.name}".`, true);
+      }) }), h('button', { class: 'btn', type: 'button', text: 'Stay', onclick: () => show('home') })));
+  }
+  function inviteView(url) {
+    const box = h('input', { type: 'text', readonly: true, value: url, 'aria-label': 'Invite link', class: 'acct-link' });
+    const canShare = !!navigator.share;
+    put(header('Invite someone'),
+      h('p', { text: `Send this link to one person, like Liv or your artist. When they open it and sign in, they join "${api.projectName()}". You both see the same tattoos and each other's changes as they happen.` }),
+      box,
+      h('div', { class: 'acct-row' },
+        canShare ? h('button', { class: 'btn primary', type: 'button', text: 'Share link', onclick: () => navigator.share({ title: 'Join my Ink Atlas project', url }).catch(() => {}) }) : null,
+        h('button', { class: canShare ? 'btn' : 'btn primary', type: 'button', text: 'Copy link', onclick: async () => { try { await navigator.clipboard.writeText(url); msg('Link copied.', true); } catch (e) { box.select(); msg('Select the link and copy it.'); } } })),
+      msgEl,
+      h('p', { class: 'muted', text: 'Each link is for one person and works for 14 days. They can change the tattoos; only you can rename or remove the project. You can take them off any time.' }),
+      h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
   }
   function renameRow(item, r) {
     const input = h('input', { type: 'text', value: r.name, maxlength: '80', 'aria-label': 'New name' });
@@ -318,12 +455,14 @@ export function createAccount(api) {
     item.replaceChildren(h('p', { text: `Remove "${r.name}" from your account? It goes from every device.` }),
       h('div', { class: 'acct-actions' }, h('button', { class: 'btn danger', type: 'button', text: 'Remove', onclick: () => run(async () => { await cloud.remove(r.id); show('home'); msg(`Removed "${r.name}".`, true); }) }), h('button', { class: 'btn', type: 'button', text: 'Keep it', onclick: () => show('home') })));
   }
-  function passwordView() {
-    view = 'password'; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status' });
+  // reset: straight after signing in with an emailed code because the password was forgotten
+  function passwordView(reset) {
+    view = reset ? 'reset' : 'password'; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status' });
     const pass = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'New password (6 or more characters)', 'aria-label': 'New password' });
-    put(header('Set a password'), h('p', { class: 'muted', text: 'Sign in with it on any device, no email needed.' }),
-      h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); if (pass.value.length < 6) { msg('Use at least 6 characters.'); return; } run(async () => { await cloud.setPassword(pass.value); show('home'); msg('Password saved.', true); }); } }, pass, h('button', { class: 'btn primary', type: 'submit', text: 'Save password' })),
-      msgEl, h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+    const after = () => { resetting = false; if (reset && !asked() && !myBind() && !following()) { show('move'); msg('New password saved.', true); } else { show('home'); msg(reset ? 'New password saved. You are signed in.' : 'Password saved.', true); } };
+    put(header(reset ? 'Set a new password' : 'Set a password'), h('p', { class: 'muted', text: reset ? 'You are signed in. Choose a new password to use from now on, on any device.' : 'Sign in with it on any device, no email needed.' }),
+      h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); if (pass.value.length < 6) { msg('Use at least 6 characters.'); return; } run(async () => { await cloud.setPassword(pass.value); after(); }); } }, pass, h('button', { class: 'btn primary', type: 'submit', text: 'Save password' })),
+      msgEl, h('button', { class: 'btn quiet', type: 'button', text: reset ? 'Not now' : 'Back', onclick: () => { resetting = false; show('home'); } }));
     focusSoon(pass);
   }
   function nameView() {
@@ -401,14 +540,16 @@ export function createAccount(api) {
 
   async function start() {
     btn.addEventListener('click', async () => { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'home' : 'signin'); });
-    const q = new URLSearchParams(location.search), shareId = q.get('share');
-    if (shareId) { q.delete('share'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
+    const q = new URLSearchParams(location.search), shareId = q.get('share'), joinId = q.get('join');
+    if (shareId || joinId) { q.delete('share'); q.delete('join'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
     // a session saved on this device (or arriving from an email link) loads the client at once;
     // otherwise it waits until it is needed, so signed-out use stays as fast as before
     let hasSession = false; try { hasSession = !!localStorage.getItem('ia-auth') || /access_token=|token_hash=|type=(signup|magiclink|recovery)/.test(location.hash + location.search); } catch (e) { /* no storage */ }
-    if (hasSession || shareId) {
-      try { await ready(); } catch (e) { if (shareId) api.toast(plainError(e)); return; }
+    if (joinId && !shareId) pendingJoin = joinId;
+    if (hasSession || shareId || joinId) {
+      try { await ready(); } catch (e) { if (shareId || joinId) api.toast(plainError(e)); return; }
       if (user()) afterSignIn('INITIAL');
+      else if (pendingJoin) { open(); mode = 'create'; show('signin', 'Someone invited you to work on their tattoo project with them. Make a free account, or sign in, to join it.'); }
     }
     if (shareId) {
       open(); view = 'busy'; panel.replaceChildren(header('Someone sent you a project'), h('p', { text: 'Opening the link…' }));
@@ -420,6 +561,9 @@ export function createAccount(api) {
   return {
     configured: true, saved, start, unbind, sendLink,
     status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing }),
-    push, pull,
+    push, pull, displayName: () => (user() && cloud ? cloud.displayName() : ''),
+    // opens the panel at "Work on it together" (New to try's Show me)
+    async showForgot() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); if (user()) { show('home'); return; } mode = 'signin'; show('signin'); },
+    async showTogether() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'home' : 'signin'); return document.getElementById(user() ? 'acctTogether' : 'accountBtn'); },
   };
 }

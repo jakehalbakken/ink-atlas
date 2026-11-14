@@ -3,7 +3,9 @@
 // this device, a feature ticks itself when it is used, and the button goes away once
 // everything is tried (the Plan menu still opens the list).
 import assert from 'node:assert/strict';
-import { NEW_FEATURES } from '../../src/whats-new.js';
+import { NEW_FEATURES as ALL } from '../../src/whats-new.js';
+// the test build has no email sender, so features that need it are not listed
+const NEW_FEATURES = ALL.filter((f) => !f.needs);
 export default async function(p){
  const wait=(n=300)=>new Promise(r=>setTimeout(r,n));
  const ready=async()=>{await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1000);};
@@ -23,7 +25,7 @@ export default async function(p){
  await p.$eval('#newList .newrow[data-feature="pan"] .tick',e=>e.click());await wait(100);assert.equal(await count(),N,'unticked');
  // Show me for every feature rings the control that does it
  const accountOn=await p.$eval('#accountBtn',e=>!e.hidden);
- const expect={room:['#roomBtn','#lookMenu'],roomFit:['#bRoom','#editorAdvanced'],where:['#whereLine','#editorAdvanced'],estimate:['#estRow','#editorAdvanced'],account:accountOn?['#accountBtn']:[null],cover:['#gap','#sheet'],pain:['#painBtn','#lookMenu'],approval:['#cApprove','#share'],inkCheck:['#bInkCheck','#editorAdvanced'],sizesSheet:['#cSizes','#share'],tape:['#tapeBtn','#lookMenu'],stencil:['#bStencil','#editorAdvanced'],paintLayers:['#pm3dBack','#pcMenu'],beard:['#beardRow','#bodyPop'],hairLong:['#hairRow [data-hair="long"]','#bodyPop'],hairMedium:['#hairRow [data-hair="medium"]','#bodyPop'],photoInk:['#bodyPhotoBtn','#bodyPop'],hairPhoto:['#hairPhotoBtn','#bodyPop'],eyes:['#eyeCols','#bodyPop'],posesSheet:['#cPoses','#share'],agingSheet:['#cAging','#share'],hair:['#hairRow','#bodyPop'],compareShot:['#cCompare','#share'],gap:['#gap','#sheet'],skinDetail:['#faceBtn','#bodyPop'],face:['#faceBtn','#bodyPop'],bodyPhoto:['#bodyPhotoBtn','#bodyPop'],definition:['#rMuscle','#bodyPop'],spots:['#bSpots','#editorAdvanced'],tryOn:['#bTryOn','#editorAdvanced'],skinTone:['#skinOwnBtn','#bodyPop'],light:['#lightBtn','#lookMenu'],drawNew:['#drawNew'],otherSide:['#bOtherSide','#editorAdvanced'],realSize:['#bRealSize','#editorAdvanced'],handles:['#hSize'],palette:['#cSwatches','#share'],editProcreate:['#bProcreate'],pan:[null]};
+ const expect={room:['#roomBtn','#lookMenu'],roomFit:['#bRoom','#editorAdvanced'],where:['#whereLine','#editorAdvanced'],estimate:['#estRow','#editorAdvanced'],account:accountOn?['#accountBtn']:[null],together:accountOn?['#acctInvite']:[null],answer:accountOn?['#accountBtn']:[null],pins:['#pinsBtn','#lookMenu'],cover:['#gap','#sheet'],pain:['#painBtn','#lookMenu'],approval:['#cApprove','#share'],inkCheck:['#bInkCheck','#editorAdvanced'],sizesSheet:['#cSizes','#share'],tape:['#tapeBtn','#lookMenu'],stencil:['#bStencil','#editorAdvanced'],paintLayers:['#pm3dBack','#pcMenu'],beard:['#beardRow','#bodyPop'],hairLong:['#hairRow [data-hair="long"]','#bodyPop'],hairMedium:['#hairRow [data-hair="medium"]','#bodyPop'],photoInk:['#bodyPhotoBtn','#bodyPop'],hairPhoto:['#hairPhotoBtn','#bodyPop'],eyes:['#eyeCols','#bodyPop'],posesSheet:['#cPoses','#share'],agingSheet:['#cAging','#share'],hair:['#hairRow','#bodyPop'],compareShot:['#cCompare','#share'],gap:['#gap','#sheet'],skinDetail:['#faceBtn','#bodyPop'],face:['#faceBtn','#bodyPop'],bodyPhoto:['#bodyPhotoBtn','#bodyPop'],definition:['#rMuscle','#bodyPop'],spots:['#bSpots','#editorAdvanced'],tryOn:['#bTryOn','#editorAdvanced'],skinTone:['#skinOwnBtn','#bodyPop'],light:['#lightBtn','#lookMenu'],drawNew:['#drawNew'],otherSide:['#bOtherSide','#editorAdvanced'],realSize:['#bRealSize','#editorAdvanced'],handles:['#hSize'],palette:['#cSwatches','#share'],editProcreate:['#bProcreate'],pan:[null]};
  for(const f of NEW_FEATURES){
   await open();
   await p.$eval(`#newList .newrow[data-feature="${f.id}"] .btn:not(.tick)`,e=>e.click());await wait(900);
