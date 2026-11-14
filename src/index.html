@@ -167,6 +167,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .card span{color:var(--muted);font-size:14px}
 .shHead{margin:4px 0 -4px;font:650 13px/1.2 var(--body);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
 #shMore summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--muted)}#shMore[open] summary{margin-bottom:12px}
+.pmPaint{padding:12px 16px;border-radius:16px;border:1px solid var(--stencil);background:var(--stencil-soft)}.pmPaint p{margin:0 0 10px}.pmPaint .row{display:flex;flex-wrap:wrap;gap:8px}
 .card.slim{min-height:64px;padding:12px 16px;gap:2px;width:100%}
 .card.slim b{font-size:16px}
 #rcList{display:flex;flex-direction:column;gap:8px}
@@ -405,7 +406,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   </div>
   <div id="tray" class="glass">
     <button class="btn primary" id="add" type="button">+ Upload tattoo</button>
-    <button class="btn" id="drawNew" type="button">Draw in Procreate</button>
+    <button class="btn" id="drawNew" type="button" aria-haspopup="dialog">Procreate</button>
     <div id="trayItems"></div>
     <span id="count"></span>
   </div>
@@ -420,6 +421,16 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
 <input id="paintedFile" type="file" accept=".usdz,.zip,.png,.jpg,.jpeg,model/vnd.usdz+zip,application/zip" hidden>
 
+<div id="pcMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="pcmTitle"><header><h2 id="pcmTitle">Procreate</h2><button class="btn" type="button" data-close="pcMenu">Close</button></header>
+<h3 class="shHead">Paint the whole body in 3D</h3>
+<div class="cards">
+<button class="card" id="pm3dSend" type="button"><b>1. Send the 3D body</b><span>Choose Procreate. Paint on the body in 3D, with your skin, tattoos and paint already on it.</span></button>
+<button class="card" id="pm3dBack" type="button"><b>2. Bring back the painted body</b><span>In Procreate, tap Actions, Share, then USDZ, and save it to Files. Pick that file here.</span></button>
+</div>
+<div id="pmPaint" class="pmPaint" hidden><p>Your paint is on the body. Send the 3D body again to keep painting.</p><div class="row"><button class="btn" id="pmPaintHide" type="button">Hide paint</button><button class="btn" id="pmPaintSplit" type="button">Make movable tattoos</button><button class="btn" id="pmPaintRemove" type="button">Remove paint</button></div></div>
+<h3 class="shHead">Draw on one spot</h3>
+<div class="cards"><button class="card" id="pmSpot" type="button"><b>Draw on a spot you paint</b><span>Paint a spot on the body, draw on a flat guide in Procreate, then Copy All and Paste here.</span></button></div>
+</div></div>
 <div id="planMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="planTitle"><header><h2 id="planTitle">Plan your tattoos</h2><button class="btn" data-close="planMenu">Close</button></header><div class="cards">
 <button class="card" id="openNew"><b>New to try</b><span>The newest features, how to try each one and where it is.</span></button>
 <button class="card" id="openProjects"><b>Projects</b><span>Keep separate projects and recoverable copies on this device.</span></button>
@@ -454,9 +465,9 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="card" id="cSketch" type="button"><b>Sketch on a body patch</b><span>A flat square of skin to draw on. Send back the PNG and it lands on the same spot.</span></button>
       <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>
       <button class="card" id="cPsd" type="button"><b>Layered file</b><span>This view with the body and each tattoo on its own layer, ready to draw over.</span></button>
-      <button class="card" id="cUsdz" type="button"><b>3D model with your tattoos</b><span>Paint on the body in Procreate's 3D view. Also opens in Files and AR.</span></button>
+      <button class="card" id="cUsdz" type="button"><b>3D body for Procreate</b><span>Paint on the body in Procreate's 3D view, with your tattoos and paint on it. Also opens in Files and AR.</span></button>
       <button class="card" id="cSwatches" type="button"><b>Colour palette</b><span>Your skin tone and the ink colours in your tattoos, as a Procreate palette.</span></button>
-      <button class="card" id="cPainted" type="button"><b>Bring back from Procreate</b><span>Open the 3D model you drew on. What you drew becomes new tattoos you can move and size.</span></button>
+      <button class="card" id="cPainted" type="button"><b>Bring back the painted body</b><span>Open the 3D body you painted in Procreate. Your paint lands on the same skin here.</span></button>
     </div>
     <h3 class="shHead">Keep it safe</h3>
     <div class="cards">

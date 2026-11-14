@@ -138,21 +138,23 @@ export function objText(geometry) {
   return out.join('\n') + '\n';
 }
 
-async function pngOf(pixels, size) {
+async function pngOf(pixels, size, paint) {
   const c = document.createElement('canvas'); c.width = c.height = size;
-  c.getContext('2d').putImageData(new ImageData(pixels, size, size), 0, 0);
+  const g = c.getContext('2d'); g.putImageData(new ImageData(pixels, size, size), 0, 0);
+  // paint from Procreate (paint-layer.js), in the same layout, painted over skin and ink
+  if (paint) { g.imageSmoothingQuality = 'high'; g.drawImage(paint, 0, 0, size, size); }
   const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
   if (!blob) throw new Error('Could not make the skin picture');
   return { blob, canvas: c };
 }
 
 // kind: 'usdz' (one file: Procreate, Files, AR Quick Look) or 'obj' (ZIP: model.obj, model.mtl, skin.png).
-export async function exportPaintedModel({ THREE, renderer, bodyGeometry, skinColor, decals, state, kind = 'usdz', size }) {
+export async function exportPaintedModel({ THREE, renderer, bodyGeometry, skinColor, decals, state, kind = 'usdz', size, paint = null }) {
   const height = state.heightCm ?? 175;
   if (!Number.isFinite(height) || height < 50 || height > 300) throw new Error('Invalid body height');
   const baked = bakeSkin({ THREE, renderer, bodyGeometry, skinColor, decals, size });
   const geometry = texturedBody({ THREE, bodyGeometry, scale: height / 175 });
-  const { blob: png, canvas } = await pngOf(baked.pixels, baked.size);
+  const { blob: png, canvas } = await pngOf(baked.pixels, baked.size, paint);
   try {
     if (kind === 'usdz') {
       const { USDZExporter } = await import('three/examples/jsm/exporters/USDZExporter.js');

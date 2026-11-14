@@ -11,8 +11,8 @@ export default async function(p){
  await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(b){if(b.name)window.saved[b.name]=b;return old.call(this,b);};});
  await p.click('#views [data-view="0"]');await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});await wait(300);
  const n0=await p.evaluate(()=>window.__ink.state().tattoos.length);
- const btn=await p.$eval('#drawNew',e=>{const r=e.getBoundingClientRect();return [r.width,r.height,e.textContent];});assert.ok(btn[1]>=44,'tray button big enough');assert.equal(btn[2],'Draw in Procreate');
- await p.click('#drawNew');await wait(200);
+ const btn=await p.$eval('#drawNew',e=>{const r=e.getBoundingClientRect();return [r.width,r.height,e.textContent];});assert.ok(btn[1]>=44,'tray button big enough');assert.equal(btn[2],'Procreate');
+ await p.click('#drawNew');await wait(200);await p.click('#pmSpot');await wait(200);
  assert.equal(await p.$eval('#paintBar',e=>e.hidden),false,'paint bar shows');assert.equal(await p.$eval('#paintGo',e=>e.disabled),true,'nothing painted yet');
  assert.equal(await p.$eval('#dock',e=>getComputedStyle(e).display),'none','tray out of the way while painting');
  const send=(list)=>p.evaluate(list=>{const c=document.querySelector('#stage canvas');for(const [type,id,x,y] of list)c.dispatchEvent(new PointerEvent(type,{pointerId:id,pointerType:type==='pen'?'pen':'touch',clientX:x,clientY:y,bubbles:true,button:0,buttons:type==='pointerup'?0:1}));},list);

@@ -50,6 +50,9 @@ export function cleanState(raw, hasImage) {
     out.push(t);
   }
   s.tattoos = out;
+  // paint on the body from Procreate's 3D painting: one picture in the body's texture layout
+  if (s.paint && typeof s.paint === 'object' && !Array.isArray(s.paint) && typeof s.paint.img === 'string' && hasImage(s.paint.img)) s.paint = { img: s.paint.img, hidden: !!s.paint.hidden };
+  else delete s.paint;
   return { state: s, dropped, replace };
 }
 
@@ -58,6 +61,7 @@ export function imageKeysFor(state) {
   const keys = new Set();
   const scan = (s) => {
     for (const t of [...(s?.tattoos || []),...(s?.unplacedTattoos || [])]) if (typeof t?.img === 'string') keys.add(t.img);
+    if (typeof s?.paint?.img === 'string') keys.add(s.paint.img);
     for(const board of Array.isArray(s?.artworkBoards)?s.artworkBoards:[])for(const entry of Object.values(board?.entries||{}))for(const k of [entry?.sourceKey,entry?.outputKey])if(typeof k==='string')keys.add(k);
     for (const a of Object.values(s?.artworks || {})) {
       for (const k of [a?.source, a?.output, a?.mask]) if (typeof k === 'string') keys.add(k);
