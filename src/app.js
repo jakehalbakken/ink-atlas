@@ -2157,7 +2157,7 @@ function painOn() {
   if (tape.on) tapeOff();
   cancelGesture(); closePanels(); tapPlaceId = null;
   painData(); painMesh(); pain.on = true;
-  const t = sel(); pain.text = t ? painOfTattoo(t) : 'Tap a spot or a tattoo to see how much it usually hurts.';
+  const t = sel(); pain.text = t ? painOfTattoo(t) : 'Tap a spot or a tattoo to read it.';
   if (selectedId) select(null);
   painRender();
 }

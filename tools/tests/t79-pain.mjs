@@ -15,7 +15,7 @@ export default async function(p){
  let pn=await p.evaluate(()=>window.__ink.pain());
  assert.ok(pn.on&&pn.shown,'on and shown');assert.equal(await p.$eval('#lookMenu',e=>e.hidden),true,'the menu gets out of the way');
  assert.equal(await p.$eval('#painBar',e=>e.hidden),false);assert.ok(await p.$eval('#painDone',e=>e.getBoundingClientRect().height>=44),'Done big enough');
- assert.match(pn.text,/Tap a spot or a tattoo/);
+ assert.match(pn.text,/Tap a spot or a tattoo to read it/);
  // the real body rates the way the charts do
  const s=await p.evaluate(()=>window.__ink.pain().stats());
  for(const k of ['Ribs','Sternum','Spine','Knee','Elbow','Armpit','Calf','Upper arm, outside','Thigh, outside','Shin','Foot','Groin'])assert.ok(s[k]&&s[k].n>=5,'has '+k+': '+JSON.stringify(Object.keys(s)));
