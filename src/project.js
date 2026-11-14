@@ -3,6 +3,7 @@
 // Throws if the data is not a project at all; never changes its input. Anything it has
 // to leave out or fix is counted, so the caller can say so instead of failing silently.
 import { FIT_GROUPS } from './fit.js';
+import { cleanReview, cleanAsks } from './approval.js';
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -45,6 +46,7 @@ export function cleanState(raw, hasImage) {
     for (const [k, lo, hi] of [['wrap', 0, 1], ['bend', -1, 1], ['taper', -0.75, 0.75]]) { if (num(t[k]) && t[k]) t[k] = clamp(t[k], lo, hi); else delete t[k]; }
     if (t.status !== 'existing' && t.status !== 'planned') delete t.status;
     if (t.fromLayer !== undefined && (typeof t.fromLayer !== 'string' || t.fromLayer.length > 100)) delete t.fromLayer;
+    if (t.review !== undefined) { const r = cleanReview(t.review); if (r) t.review = r; else delete t.review; } // an answer from Ask for approval (optional)
     const len = vec3(t.normal, 2) ? Math.hypot(t.normal[0], t.normal[1], t.normal[2]) : 0;
     if (vec3(t.pos, 10) && len > 0.5) t.normal = t.normal.map((c) => c / len);
     else { t.pos = [0, 1.3, 0.12]; t.normal = [0, 0, 1]; replace.push(t.id); }
@@ -54,6 +56,8 @@ export function cleanState(raw, hasImage) {
   // paint on the body from Procreate's 3D painting: one picture in the body's texture layout
   if (s.paint && typeof s.paint === 'object' && !Array.isArray(s.paint) && typeof s.paint.img === 'string' && hasImage(s.paint.img)) s.paint = { img: s.paint.img, hidden: !!s.paint.hidden };
   else delete s.paint;
+  // approval pages sent (optional): which tattoos each one asked about, for reading answers back
+  if (s.asks !== undefined) { const a = cleanAsks(s.asks); if (a) s.asks = a; else delete s.asks; }
   return { state: s, dropped, replace };
 }
 

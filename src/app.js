@@ -46,6 +46,7 @@ import { PART_NAMES } from './body-photo.js';
 import { stencilLines, stencilPixels, stencilScale, pngWithDpi } from './stencil.js';
 import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
 import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
+import { makeRef, approvalHtml, parseAnswers } from './approval.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -502,7 +503,8 @@ function whenText(at) {
 
 /* ---------- history ---------- */
 function snapshot() { undoStack.push(JSON.stringify(state)); if (undoStack.length > 40) undoStack.shift(); redoStack.length = 0; refreshUndo(); }
-function restore(json) { state = JSON.parse(json); if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); }
+// The record of approval pages sent is not undone, so replies still match.
+function restore(json) { const asks = state.asks; state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); }
 function undo() { if (!undoStack.length) return; redoStack.push(JSON.stringify(state)); restore(undoStack.pop()); refreshUndo(); }
 function redo() { if (!redoStack.length) return; undoStack.push(JSON.stringify(state)); restore(redoStack.pop()); refreshUndo(); }
 function refreshUndo() { $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
@@ -734,12 +736,13 @@ function renderTray() {
     const b = el('button', { class: 'chip' + (t.id === selectedId ? ' on' : '') + (t.hidden ? ' off' : ''), type: 'button', 'aria-label': 'Select ' + t.name, 'aria-pressed': t.id === selectedId ? 'true' : 'false', onclick: () => { if (t.id === selectedId) focusTattoo(t); else select(t.id, true); } },
       el('img', { src: images[t.img], alt: '' }), el('span', { text: t.name }));
     if (t.status === 'existing') b.append(el('i', { class: 'lock', text: 'On me' })); else if (t.locked) b.append(el('i', { class: 'lock', text: 'Locked' }));
+    else if (t.review) b.append(el('i', { class: 'lock ' + (t.review.verdict === 'approved' ? 'rv-ok' : 'rv-chg'), text: t.review.verdict === 'approved' ? 'Approved' : 'Change asked' }));
     tray.append(b);
   }
   $('#count').textContent = state.tattoos.length ? `${state.tattoos.length} on the body` : 'Nothing placed yet';
 }
 function renderSheet() {
-  const t = sel(); const sh = $('#sheet'); sh.hidden = !t; $('#hint').hidden = !!t || state.tattoos.length === 0;
+  const t = sel(); const sh = $('#sheet'); sh.hidden = !t; renderReview(t); $('#hint').hidden = !!t || state.tattoos.length === 0;
   $('#empty').hidden = state.tattoos.length > 0;
   if(tapPlaceId&&(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'))tapPlaceId=null;
   $('#tapPlaceBar').hidden=!tapPlaceId;$('#bTapPlace').setAttribute('aria-pressed',String(!!tapPlaceId));$('#bTapPlace').textContent=tapPlaceId?'Cancel tap to place':'Tap to place';$('#bTapPlace').disabled=!t||t.locked||t.hidden||t.status==='existing';canvas.style.cursor=tapPlaceId?'crosshair':'';
@@ -1834,6 +1837,7 @@ const SHOW = {
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
   spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
+  approval: () => { toggle('#share', true); return ['#cApprove', 'Tap to make a page for your artist or client. They tap Yes or Change for each tattoo and send it back.']; },
   inkCheck: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check shows colours that barely show on your skin, and lines too fine for this size.']; },
   stencil: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Stencil for your artist turns this tattoo into clean lines at its real size, to print or share.']; },
   realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },
@@ -1881,6 +1885,87 @@ $('#baBtn').addEventListener('click', () => {
   if (!plannedShown().length) { toast('Nothing planned to compare yet. Mark a tattoo as Planned to see it here.'); return; }
   beforeAfter.set(true); toast('Left: your skin now. Right: with your planned tattoos. Drag the line to compare.');
 });
+/* ---------- ask for approval ---------- */
+// A page for your artist or client: each planned tattoo on the body, its artwork and real size,
+// Yes or Change and a note. Their reply comes back as plain text you paste into Bring in answers,
+// and each tattoo then shows who said yes or what they would change. No server: the page is one
+// file, and its answers travel in whatever app they reply with.
+function fmtDay(iso) { if (!iso) return ''; const d = new Date(iso + 'T12:00:00'); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }); }
+function renderReview(t) {
+  const el = $('#review'); if (!el) return;
+  const r = t && t.review; el.hidden = !r; if (!r) return;
+  const who = r.by || 'They', day = r.at ? ' on ' + fmtDay(r.at) : '';
+  el.className = r.verdict === 'approved' ? 'ok' : 'chg';
+  el.textContent = r.verdict === 'approved' ? `${who} said yes${day}.` + (r.note ? ` "${r.note}"` : '') : `${who} asked for a change${day}` + (r.note ? `: "${r.note}"` : '.');
+}
+// The tattoo close up on the body, as a square JPEG for the page.
+function closeUpShot(t, size = 720) {
+  const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, inset = curInset;
+  const W = canvas.width, H = canvas.height, side = Math.min(W, H), sx = Math.round((W - side) / 2), sy = Math.round((H - side) / 2);
+  const out = document.createElement('canvas'); out.width = out.height = size;
+  try {
+    curInset = 0; applyInset();
+    focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
+    goal.r = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 3 + 0.12) / (2 * tn * Math.min(1, camera.aspect)), 0.35, 3.4);
+    Object.assign(cur, goal); glide = false; applyCam();
+    exporting = true; syncDecals();
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+    out.getContext('2d').drawImage(canvas, sx, sy, side, side, 0, 0, size, size);
+  } finally {
+    exporting = false; syncDecals();
+    Object.assign(cur, oldCur); Object.assign(goal, oldGoal); glide = oldGlide; curInset = inset; applyInset(); applyCam(); needsRender = true;
+  }
+  return out.toDataURL('image/jpeg', 0.82);
+}
+function artThumb(t, size = 360) {
+  const im = imgEls[t.img]; if (!im) return null;
+  const k = Math.min(1, size / Math.max(im.naturalWidth || im.width, im.naturalHeight || im.height)), w = Math.max(1, Math.round((im.naturalWidth || im.width) * k)), h = Math.max(1, Math.round((im.naturalHeight || im.height) * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+  g.save(); g.translate(t.flip ? w : 0, t.imageTopDown === false ? h : 0); g.scale(t.flip ? -1 : 1, t.imageTopDown === false ? -1 : 1); g.drawImage(im, 0, 0, w, h); g.restore();
+  return c.toDataURL('image/jpeg', 0.86);
+}
+let approvalLast = null;
+async function askApproval() {
+  const list = state.tattoos.filter((t) => t.status !== 'existing' && !t.hidden);
+  if (!list.length) { toast('Mark a tattoo as planned first, then ask about it.'); return; }
+  const shown = list.slice(0, 20), k = state.heightCm / 175;
+  const ref = makeRef(), title = state.projectName || 'My tattoo plan';
+  const items = shown.map((t, i) => {
+    const wIn = t.width * 100 * k / 2.54, hIn = wIn / t.aspect, f = (v) => (v < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toString());
+    return { n: i + 1, name: t.name || 'Tattoo', size: `${f(wIn)} x ${f(hIn)} in (${Math.round(wIn * 2.54 * 10) / 10} x ${Math.round(hIn * 2.54 * 10) / 10} cm)`, status: 'planned', closeUp: closeUpShot(t), art: artThumb(t) };
+  });
+  const html = approvalHtml({ title, ref, items, date: new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) });
+  state.asks = [...(Array.isArray(state.asks) ? state.asks : []), { ref, ids: shown.map((t) => t.id), at: Date.now() }].slice(-10);
+  save(); markTried('approval');
+  const base = title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo-plan';
+  approvalLast = { ref, ids: shown.map((t) => t.id), bytes: html.length, html };
+  await saveFile(base + '-approval.html', new Blob([html], { type: 'text/html' }));
+  toast(`Send it to your artist or client. When they reply, copy it and tap Bring in answers in Share.${list.length > 20 ? ' The first 20 planned tattoos are on it.' : ''}`);
+}
+let answersLast = null;
+function bringInAnswers(text) {
+  const r = parseAnswers(text, state.asks || [], state.tattoos);
+  answersLast = r;
+  const hits = r.answers.filter((a) => state.tattoos.some((t) => t.id === a.id));
+  if (!hits.length) { $('#ansNote').textContent = 'No answers found in that. A reply looks like: 1 yes, 2 change: a little smaller.'; return false; }
+  snapshot();
+  const day = new Date(), at = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+  for (const a of hits) { const t = state.tattoos.find((x) => x.id === a.id); t.review = { verdict: a.verdict, note: a.note, by: r.by, at }; }
+  const ask = (state.asks || []).find((x) => x.ref === r.ask); if (ask && (r.by || r.note)) ask.reply = { by: r.by, note: r.note, at };
+  commit(); markTried('approval');
+  const yes = hits.filter((a) => a.verdict === 'approved').length, chg = hits.length - yes, who = r.by || 'They';
+  const parts = []; if (yes) parts.push(`said yes to ${yes}`); if (chg) parts.push(`asked for changes to ${chg}`);
+  toggle('#answers', false); $('#ansText').value = ''; $('#ansNote').textContent = '';
+  const first = hits.find((a) => a.verdict === 'changes') || hits[0];
+  toast(`${who} ${parts.join(' and ')}.${r.note ? ` "${r.note}"` : ''}`, 'Show', () => { const t = state.tattoos.find((x) => x.id === first.id); if (t) { select(t.id, true); focusTattoo(t); } });
+  return true;
+}
+$('#cApprove').addEventListener('click', () => { toggle('#share', false); askApproval(); });
+$('#cAnswers').addEventListener('click', () => { toggle('#share', false); $('#ansNote').textContent = ''; toggle('#answers', true); });
+$('#ansPaste').addEventListener('click', async () => { try { const t = await navigator.clipboard.readText(); if (t) $('#ansText').value = t; else $('#ansNote').textContent = 'Nothing to paste. Copy their reply first.'; } catch (e) { $('#ansNote').textContent = 'Press and hold in the box, then Paste.'; } });
+$('#ansRead').addEventListener('click', () => bringInAnswers($('#ansText').value));
 /* ---------- tape measure ---------- */
 // Measure the body like a tailor's tape: tap two points for the length along the skin between
 // them, or one point for the way round an arm, leg, neck or the body there. Works on the
@@ -3074,7 +3159,7 @@ function tick(now) {
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted,
-  sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last,
+  sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
