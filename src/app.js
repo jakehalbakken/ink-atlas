@@ -47,6 +47,7 @@ import { stencilLines, stencilPixels, stencilScale, pngWithDpi } from './stencil
 import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
 import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
 import { makeRef, approvalHtml, parseAnswers } from './approval.js';
+import { coverByArt, coverText } from './cover.js';
 import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
 
 const $ = (s) => document.querySelector(s);
@@ -365,6 +366,13 @@ function decalGeometry(t) {
   out.userData.supports = supports; out.userData.tris = tris;
   return out;
 }
+// Whether a decal's artwork has ink at (u, v): a 256-wide copy, dark enough to show.
+function artInk(d, W = 256) {
+  const src = d.tex.image, H = Math.max(8, Math.round(W * src.height / src.width));
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, W, H);
+  const px = g.getImageData(0, 0, W, H).data, flipped = d.tex.flipY;
+  return (u, v) => { const x = Math.min(W - 1, Math.max(0, Math.floor(u * W))), y = Math.min(H - 1, Math.max(0, Math.floor((flipped ? 1 - v : v) * H))), o = (y * W + x) * 4; return 255 - Math.min(px[o], px[o + 1], px[o + 2]) > 70; };
+}
 // Where a tattoo actually has ink, as points on the body: each decal triangle is sampled on a
 // small grid and kept where its artwork is dark. Cached per geometry and artwork.
 const inkPointCache = new WeakMap();
@@ -372,10 +380,7 @@ function inkPoints(t) {
   const d = decals[t.id]; if (!d || !d.tex || !d.tex.image || !d.mesh.geometry.attributes.position) return null;
   const geo = d.mesh.geometry, key = d.texKey + ':' + geo.attributes.position.version, hit = inkPointCache.get(geo);
   if (hit && hit.key === key) return hit.pts;
-  const src = d.tex.image, W = 256, H = Math.max(8, Math.round(W * src.height / src.width));
-  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, W, H);
-  const px = g.getImageData(0, 0, W, H).data, flipped = d.tex.flipY;
-  const ink = (u, v) => { const x = Math.min(W - 1, Math.max(0, Math.floor(u * W))), y = Math.min(H - 1, Math.max(0, Math.floor((flipped ? 1 - v : v) * H))), o = (y * W + x) * 4; return 255 - Math.min(px[o], px[o + 1], px[o + 2]) > 70; };
+  const ink = artInk(d);
   const P = geo.attributes.position.array, U = geo.attributes.uv.array, pts = [], N = Math.max(4, Math.min(12, Math.round(40000 / Math.max(1, P.length / 9))));
   for (let tri = 0; tri < P.length / 9; tri++) for (let i = 0; i <= N; i++) for (let j = 0; i + j <= N; j++) {
     const a = i / N, b = j / N, c0 = 1 - a - b, u = c0 * U[tri * 6] + a * U[tri * 6 + 2] + b * U[tri * 6 + 4], v = c0 * U[tri * 6 + 1] + a * U[tri * 6 + 3] + b * U[tri * 6 + 5];
@@ -402,7 +407,23 @@ function nearestGap(t) {
   }
   return best;
 }
+// A planned tattoo over ones already on you: how much of the old ink its own ink lays over.
+function coverOf(t) {
+  if (t.status === 'existing') return null;
+  const d = decals[t.id]; if (!d || !d.tex || !d.tex.image || !d.mesh.geometry.attributes.position) return null;
+  let best = null, ink = null;
+  for (const o of state.tattoos) {
+    if (o.id === t.id || o.hidden || o.status !== 'existing') continue;
+    const b = inkPoints(o); if (!b || !b.length) continue;
+    if (!ink) ink = artInk(d);
+    const geo = d.mesh.geometry, share = coverByArt({ tris: geo.attributes.position.array, uvs: geo.attributes.uv.array, oldPts: b, ink, reach: 0.6 / (state.heightCm || 175) });
+    if (share > 0 && (!best || share > best.share)) best = { name: o.name || 'the tattoo under it', share };
+  }
+  return best;
+}
 function gapText(t) {
+  const cv = coverOf(t), ct = cv ? coverText(cv.share, cv.name) : '';
+  if (ct) { if (cv.share >= 0.02) markTried('cover'); return ct; }
   const g = nearestGap(t); if (!g) return '';
   if (g.inches < 0.15) return `Touches ${g.name}`;
   return `${g.inches < 10 ? g.inches.toFixed(1) : Math.round(g.inches)} in from ${g.name}`;
@@ -1826,6 +1847,7 @@ const SHOW = {
   hairLong: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow [data-hair="long"]', 'Tap Long, then pick a colour.']; },
   hairPhoto: () => { toggle('#bodyPop', true); viewFace(); return ['#hairPhotoBtn', 'Pick a photo with your whole head in it, looking at the camera.']; },
   compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
+  cover: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', 'Put a planned tattoo over one marked already on me, and this line says how much of the old ink it covers.']; },
   gap: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', state.tattoos.filter((x) => !x.hidden).length > 1 ? 'This line says how far the tattoo is from the nearest other one.' : 'Add a second tattoo and this line says how far apart they are.']; },
   skinDetail: () => { toggle('#bodyPop', true); viewFace(); return ['#faceBtn', 'Eyebrows and fine skin texture now show on every body. Zoom in close to see them. Add my face puts your own face on.']; },
   face: () => { toggle('#bodyPop', true); return ['#faceBtn', 'Pick a clear photo of your face, looking straight at the camera.']; },
@@ -3243,6 +3265,7 @@ window.__ink = {
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
+  cover: () => { const t = sel(); return t ? coverOf(t) : null; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null, tone: bm.tone || null, skin: skinColor(), ink: bm.ink ? { pieces: bm.ink.pieces.map((p) => [p.x0, p.y0, p.x1, p.y1]), stats: bm.ink.pieces.map((p) => [+p.sharp.toFixed(3), +p.dark.toFixed(3), +p.mid.toFixed(3), +p.fill.toFixed(2), +p.cloth.toFixed(3), +p.out.toFixed(3), Math.round(p.area), Math.round(bm.ink.sw)]), on: [...bm.ink.on], view: bm.ink.view, mirror: bm.ink.mirror } : null }), bodyMatchLm: () => bm.lm || null,
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), beard: () => beard, setBeard: (s) => setBeard(s), beardStrands: () => ({ visible: beardStrands.mesh.visible, tucked: beardStrands.tucked, strands: beardStrands.mesh.userData.strands || 0, probe: beardStrands.probe(poseView.active ? poseView.geometry : null) }), beardCovers: (p) => beardStrands.covers(p), beardField: () => bodyGeo.attributes.beard && bodyGeo.attributes.beard.array, bringBackPainted, bringBack, paintToTattoos, paintShown: () => !!(paintSkin && paintSkin.mesh.visible), paintAt: () => paintSkin ? { v: paintSkin.from[0], drawn: Array.from(paintSkin.mesh.geometry.attributes.position.array.slice(0, 3)) } : null, hairStrands: () => ({ visible: hairStrands.mesh.visible, tucked: hairStrands.tucked, strands: hairStrands.mesh.userData.strands || 0, probe: hairStrands.probe(poseView.active ? poseView.geometry : null) }), hairReading: (r) => applyHairReading(r), hairLast: () => hairLast, eyes: () => ({ pick: eyes, hex: skinIrisHex() }),
