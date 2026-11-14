@@ -1,0 +1,425 @@
+// Your account: sign in, the projects kept in it, keeping the project on screen saved there,
+// opening it on another device, and sending a copy to someone by link.
+//
+// The project on screen always lives on this device first (src/store.js); the account is a
+// second copy kept in step with it. Rules that keep work safe:
+// - A project is tied to one project in the account ("bound"). After every save on this device
+//   the change goes up, but only if nobody changed that project elsewhere since: otherwise
+//   this device's version goes up as a separate project and both are kept.
+// - Coming back to the app, a newer version from another device opens by itself, but only
+//   when this device has nothing unsent. The version it replaces is kept as a recovery copy.
+// - Opening a different project keeps the one on screen (in Projects on this device, unless it
+//   is already safe in the account), and work from this device goes into an account only when
+//   its owner says so.
+// - Signed out, or with accounts not set up, nothing here runs and the app is as it was.
+import { cloudConfigured, emailCodes, openCloud, openShare, plainError } from './cloud.js';
+
+const BIND = 'ia-cloud-bind';
+const ls = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
+  set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage off */ } },
+};
+const sigOf = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36) + ':' + s.length; };
+function h(tag, props, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'text') n.textContent = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else if (k === 'class') n.className = v; else n.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) n.append(c);
+  return n;
+}
+const when = (iso) => { const d = new Date(iso); if (isNaN(d)) return ''; const now = new Date(); const t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); return (d.toDateString() === now.toDateString() ? 'Today' : d.toLocaleDateString([], { month: 'short', day: 'numeric' })) + ', ' + t; };
+const deviceName = () => { const u = navigator.userAgent || ''; if (/iPad|Macintosh/.test(u) && navigator.maxTouchPoints > 1) return 'iPad'; if (/iPhone/.test(u)) return 'iPhone'; if (/Android/.test(u)) return 'phone'; if (/Mac/.test(u)) return 'Mac'; return 'this device'; };
+
+// api: { snapshot() -> {state, images}, open(state, images, name, {keepCopy, reason}) -> {dropped}, newProject(name),
+//        projectName(), setSaved(text, bad), toast(msg, action, fn), saveNow() }
+export function createAccount(api) {
+  const btn = document.getElementById('accountBtn');
+  const shareCard = document.getElementById('cLink');
+  if (!cloudConfigured) { if (btn) btn.hidden = true; if (shareCard) shareCard.hidden = true; return { configured: false, saved() {}, start() {}, unbind() {}, open() {}, sendLink() {}, status: () => ({ configured: false }) }; }
+  btn.hidden = false; shareCard.hidden = false;
+
+  let cloud = null, cloudReady = null, bind = ls.get(BIND), pushing = false, again = false, timer = 0, retry = 0, lastStatus = '';
+  const user = () => cloud && cloud.user;
+  const upKey = () => 'ia-cloud-up:' + user().id;
+  const doneSet = () => { const s = new Set(ls.get(upKey()) || []); return { has: (k) => s.has(k), add: (k) => { s.add(k); ls.set(upKey(), [...s].slice(-5000)); } }; };
+  // artwork that came down from the account is already up there
+  const markUp = (p) => { const s = new Set(ls.get(upKey()) || []); for (const k of p.keys) if (p.images[k]) s.add(k); ls.set(upKey(), [...s].slice(-5000)); };
+  // Whether new work on this device goes into this person's account, and whether they were
+  // asked yet. Both are cleared on sign out, so the next person to sign in here is asked again.
+  const FOLLOW = 'ia-cloud-follow', ASKED = 'ia-cloud-asked';
+  const following = () => !!(user() && ls.get(FOLLOW) === user().id);
+  const follow = (on) => ls.set(FOLLOW, on && user() ? user().id : null);
+  const asked = () => !!(user() && ls.get(ASKED) === user().id);
+  const setBind = (b) => { bind = b; ls.set(BIND, b); renderBtn(); };
+  const myBind = () => (bind && user() && bind.uid === user().id ? bind : null);
+  const currentSig = () => sigOf(JSON.stringify(api.snapshot().state));
+  const status = (text, bad) => { lastStatus = text; api.setSaved(text, bad); };
+
+  function ready() {
+    if (!cloudReady) cloudReady = openCloud().then((c) => {
+      cloud = c;
+      c.onChange((u, event) => { renderBtn(); if (event === 'USER_UPDATED') return; if (u) afterSignIn(event); else { setBind(null); ls.set(FOLLOW, null); ls.set(ASKED, null); if (!root.hidden) show('signin'); } });
+      renderBtn(); return c;
+    }).catch((e) => { cloudReady = null; throw e; });
+    return cloudReady;
+  }
+
+  function renderBtn() {
+    const u = user();
+    btn.classList.toggle('signed', !!u);
+    const label = btn.querySelector('span');
+    if (u) { const n = cloud.displayName(u) || '?'; label.textContent = n.slice(0, 1).toUpperCase(); btn.setAttribute('aria-label', 'Your account: ' + n); btn.title = 'Signed in as ' + (u.email || n); }
+    else { label.textContent = 'Sign in'; btn.setAttribute('aria-label', 'Sign in'); btn.title = 'Sign in'; }
+  }
+
+  /* ---------- keeping the account copy in step ---------- */
+  // Called after every successful save on this device.
+  function saved() {
+    if (!user()) return;
+    if (!myBind() && !following()) { status('Saved on this device only'); return; }
+    clearTimeout(timer); timer = setTimeout(push, 1500);
+  }
+  async function push() {
+    clearTimeout(timer); timer = 0;
+    if (!user()) return;
+    if (pushing) { again = true; return; }
+    const snap = api.snapshot(), json = JSON.stringify(snap.state), sig = sigOf(json);
+    let b = myBind();
+    if (b && b.sig === sig) { status('Saved to your account'); return; }
+    if (!b && !following()) return;
+    pushing = true; status('Saving to your account');
+    try {
+      const state = JSON.parse(json), name = api.projectName();
+      if (!b) {
+        const r = await cloud.create(state, snap.images, name, doneSet());
+        setBind({ uid: user().id, id: r.id, rev: r.rev, sig, name: r.name });
+      } else {
+        const r = await cloud.save(b.id, b.rev, state, snap.images, name, doneSet());
+        if (r.conflict) {
+          // changed on another device as well: keep both, this one as its own project
+          const copyName = (name + ' (' + deviceName() + ')').slice(0, 80);
+          const c = await cloud.create(state, snap.images, copyName, doneSet());
+          setBind({ uid: user().id, id: c.id, rev: c.rev, sig, name: c.name });
+          api.toast(`This project was also changed on another device. Both are in your account: this one is "${c.name}".`);
+        } else setBind({ ...b, rev: r.rev, sig, name: r.name });
+      }
+      retry = 0;
+      status(myBind() && myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account');
+    } catch (e) {
+      status('Saved on this device. Not in your account yet', true);
+      clearTimeout(retry); retry = setTimeout(push, 30000);
+    } finally { pushing = false; if (again) { again = false; push(); } }
+  }
+  // Coming back to the app: a newer version saved on another device opens here.
+  async function pull() {
+    const b = myBind(); if (!b || pushing) return;
+    let meta; try { meta = await cloud.meta(b.id); } catch (e) { return; }
+    if (bind !== b) return;
+    if (!meta) { setBind(null); follow(false); status('Removed from your account. Still saved on this device'); return; } // removed from the account on another device
+    if (meta.rev <= b.rev) return;
+    if (currentSig() !== b.sig) { push(); return; } // both changed: push keeps both
+    try {
+      const p = await cloud.load(b.id);
+      markUp(p);
+      if (bind !== b || currentSig() !== b.sig) return;
+      await api.open(p.state, p.images, p.name, { keepCopy: false, reason: 'Before the newer version from your account' });
+      setBind({ ...b, rev: p.rev, sig: currentSig(), name: p.name });
+      api.saveNow(); status('Saved to your account');
+      api.toast('Opened the newest version from your account.' + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} still missing.` : ''));
+    } catch (e) { /* stay as we are; next return to the app tries again */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && user()) pull(); });
+  window.addEventListener('online', () => { if (user()) { if (myBind() || following()) push(); } });
+
+  // Replacing the project on screen another way (Projects on this device, a backup file,
+  // a new project): it is no longer the one in the account.
+  function unbind() {
+    if (!myBind()) return;
+    setBind(null);
+    if (following()) { clearTimeout(timer); timer = setTimeout(push, 1500); }
+  }
+
+  async function openFromAccount(id) {
+    const b = myBind();
+    if (b && b.id === id) { close(); return; }
+    if (b) await push(); // make sure what is on screen is safe in the account first
+    const safe = myBind() && myBind().sig === currentSig();
+    const p = await cloud.load(id);
+    markUp(p);
+    await api.open(p.state, p.images, p.name, { keepCopy: !safe, reason: 'Before opening a project from your account' });
+    setBind({ uid: user().id, id: p.id, rev: p.rev, sig: currentSig(), name: p.name });
+    follow(true);
+    api.saveNow(); status('Saved to your account');
+    close();
+    api.toast(`Opened "${p.name}" from your account.` + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} missing.` : '') + (safe ? '' : ' What was on screen is kept in Projects on this device.'));
+  }
+
+  /* ---------- after signing in ---------- */
+  async function afterSignIn() {
+    const u = user();
+    if (api.tried) api.tried();
+    if (bind && bind.uid !== u.id) setBind(null);
+    if (myBind()) { pull(); status(myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account'); if (myBind().sig !== currentSig()) push(); if (!root.hidden && view === 'signin') show('home'); return; }
+    if (following()) { push(); if (!root.hidden && view === 'signin') show('home'); return; }
+    if (pendingShare) { const s = pendingShare; pendingShare = null; follow(true); ls.set(ASKED, u.id); await push(); close(); api.toast(myBind() ? `"${s}" is saved to your account.` : 'Signed in. Your account could not be reached just now; it will try again.'); return; }
+    if (!asked()) { open(); show('move'); return; }
+    status('Saved on this device only');
+    if (!root.hidden && view === 'signin') show('home');
+  }
+
+  /* ---------- the panel ---------- */
+  const root = h('div', { id: 'account', class: 'scrim', hidden: true });
+  const panel = h('div', { class: 'modal glass acct', role: 'dialog', 'aria-labelledby': 'acctTitle' });
+  root.append(panel);
+  (document.getElementById('viewport') || document.body).append(root);
+  root.addEventListener('click', (e) => { if (e.target === root && !busy) close(); });
+  root.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape' && !busy) close(); });
+  let view = 'home', busy = false, mode = 'create', msgEl = null, codeEmail = '', pendingShare = null;
+  // focus the first field, unless the person is already typing in one
+  const focusSoon = (el) => setTimeout(() => { const a = document.activeElement; if (!(a && a.tagName === 'INPUT' && panel.contains(a))) el.focus(); }, 60);
+  const put = (...kids) => panel.append(...kids.flat().filter((k) => k != null && k !== false));
+  const header = (title) => h('header', {}, h('h2', { id: 'acctTitle', text: title }), h('button', { class: 'btn', type: 'button', text: 'Close', onclick: () => { if (!busy) close(); } }));
+  const msg = (text, good) => { if (msgEl) { msgEl.textContent = text || ''; msgEl.classList.toggle('good', !!good); } };
+  const run = async (fn, buttons) => {
+    if (busy) return; busy = true; msg('');
+    panel.querySelectorAll('button,input').forEach((b) => { b.disabled = true; });
+    try { await fn(); } catch (e) { msg(plainError(e)); }
+    finally { busy = false; panel.querySelectorAll('button,input').forEach((b) => { b.disabled = false; }); }
+  };
+  function open() { root.hidden = false; }
+  function close() { root.hidden = true; }
+
+  function show(v, extra) {
+    view = v; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status', 'aria-live': 'polite' });
+    if (v === 'signin') signInView(extra);
+    else if (v === 'code') codeView();
+    else if (v === 'move') moveView();
+    else if (v === 'home') homeView();
+    else if (v === 'link') linkView(extra);
+    else if (v === 'shared') sharedView(extra);
+    panel.scrollTop = 0;
+  }
+
+  function signInView(note) {
+    const name = h('input', { type: 'text', autocomplete: 'name', placeholder: 'Your name', maxlength: '60', 'aria-label': 'Your name' });
+    const email = h('input', { type: 'email', autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'Email', 'aria-label': 'Email', inputmode: 'email' });
+    const pass = h('input', { type: 'password', autocomplete: mode === 'create' ? 'new-password' : 'current-password', placeholder: mode === 'create' ? 'Make a password (6 or more characters)' : 'Password', 'aria-label': 'Password', minlength: '6' });
+    const go = h('button', { class: 'btn primary', type: 'submit', text: mode === 'create' ? 'Create account' : 'Sign in' });
+    const tabs = h('div', { class: 'acct-tabs', role: 'group' },
+      h('button', { class: 'btn', type: 'button', 'aria-pressed': mode === 'create' ? 'true' : 'false', text: 'New here', onclick: () => { mode = 'create'; show('signin', note); } }),
+      h('button', { class: 'btn', type: 'button', 'aria-pressed': mode === 'signin' ? 'true' : 'false', text: 'I have an account', onclick: () => { mode = 'signin'; show('signin', note); } }));
+    const form = h('form', { class: 'acct-form', onsubmit: (e) => {
+      e.preventDefault();
+      const em = email.value.trim(), pw = pass.value;
+      if (!/^\S+@\S+\.\S+$/.test(em)) { msg('Type your email address.'); email.focus(); return; }
+      if (pw.length < 6) { msg(mode === 'create' ? 'Make a password of at least 6 characters.' : 'Type your password.'); pass.focus(); return; }
+      run(async () => {
+        if (mode === 'create') {
+          const r = await cloud.signUp(em, pw, name.value.trim());
+          if (r.needsConfirm) { mode = 'signin'; show('signin'); msg('Account made. Open the link in the email we sent to ' + em + ', then sign in here.', true); }
+        } else await cloud.signIn(em, pw);
+      });
+    } }, mode === 'create' ? name : null, email, pass, go);
+    put(header(mode === 'create' ? 'Make your account' : 'Sign in'),
+      h('p', { class: 'muted', text: note || 'Keep your projects in your account and open them on any device. Ink Atlas still works without one, on this device only.' }),
+      tabs, form, msgEl,
+      !emailCodes ? null : h('button', { class: 'btn quiet', type: 'button', text: mode === 'create' ? 'Sign up with an emailed code instead' : 'Forgot your password? Email me a code', onclick: () => {
+        const em = email.value.trim(); if (!/^\S+@\S+\.\S+$/.test(em)) { msg('Type your email address first.'); email.focus(); return; }
+        run(async () => { await cloud.sendCode(em); codeEmail = em; show('code'); });
+      } }));
+    focusSoon(mode === 'create' ? name : email);
+  }
+
+  function codeView() {
+    const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', placeholder: '6-digit code', 'aria-label': 'Code from the email', maxlength: '10' });
+    put(header('Check your email'),
+      h('p', { text: `We sent a code to ${codeEmail}. Type it here. It can take a minute to arrive.` }),
+      h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); const c = code.value.replace(/\D/g, ''); if (c.length < 6) { msg('Type the code from the email.'); return; } run(() => cloud.verifyCode(codeEmail, c)); } }, code, h('button', { class: 'btn primary', type: 'submit', text: 'Sign in' })),
+      msgEl,
+      h('div', { class: 'acct-row' }, h('button', { class: 'btn quiet', type: 'button', text: 'Send a new code', onclick: () => run(async () => { await cloud.sendCode(codeEmail); msg('A new code is on its way.', true); }) }), h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('signin') })));
+    focusSoon(code);
+  }
+
+  function moveView() {
+    const snap = api.snapshot(), n = snap.state.tattoos.length, name = api.projectName();
+    const shelfBox = h('input', { type: 'checkbox', id: 'acctShelf' });
+    const shelfRow = h('label', { class: 'acct-check', for: 'acctShelf', hidden: true }, shelfBox, h('span', { text: '' }));
+    import('./shelf.js').then(async ({ openProjectShelf }) => { try { const s = await openProjectShelf(); const rows = await s.list(); s.close(); if (rows.length) { shelfRow.hidden = false; shelfRow.querySelector('span').textContent = `Also add the ${rows.length} project${rows.length === 1 ? '' : 's'} saved in Projects on this device`; shelfRow.dataset.n = rows.length; } } catch (e) { /* no shelf */ } });
+    const done = () => { ls.set(ASKED, user().id); };
+    put(header('Signed in'),
+      h('p', { text: `Add what is on this device to your account? "${name}" has ${n} tattoo${n === 1 ? '' : 's'}.` }),
+      h('p', { class: 'muted', text: 'If this is someone else\'s iPad, choose Not now. Their work stays here and nothing goes into your account.' }),
+      shelfRow, msgEl,
+      h('div', { class: 'acct-row' },
+        h('button', { class: 'btn primary', type: 'button', text: 'Add to my account', onclick: () => run(async () => {
+          follow(true);
+          await push();
+          if (!myBind()) throw new Error('Could not reach your account. Your work is still saved on this device. Try again in a moment.');
+          if (shelfBox.checked) {
+            const { openProjectShelf } = await import('./shelf.js'); const s = await openProjectShelf();
+            try { for (const r of await s.list()) { const row = await s.get(r.id); if (row) await cloud.create(row.state, row.images, row.name, doneSet()); } } finally { s.close(); }
+          }
+          done(); show('home'); msg('Added to your account.', true);
+        }) }),
+        h('button', { class: 'btn', type: 'button', text: 'Not now', onclick: () => { done(); status('Saved on this device only'); show('home'); } })));
+  }
+
+  async function homeView() {
+    const u = user(), b = myBind(), safe = b && b.sig === currentSig();
+    const list = h('div', { class: 'acct-list' }, h('p', { class: 'muted', text: 'Loading your projects…' }));
+    const here = b
+      ? h('p', { class: 'acct-here good', text: safe ? `"${b.name}" is saved to your account.` : `"${b.name}" is saving to your account.` })
+      : h('div', { class: 'acct-here' }, h('p', { text: `"${api.projectName()}" is only on this device.` }), h('button', { class: 'btn primary', type: 'button', text: 'Save it to my account', onclick: () => run(async () => { follow(true); ls.set(ASKED, u.id); await push(); if (!myBind()) throw new Error('Could not reach your account. Try again in a moment.'); show('home'); msg('Saved to your account.', true); }) }));
+    put(header('Your account'),
+      h('p', { class: 'muted', text: `Signed in as ${cloud.displayName(u)}${u.email ? ' (' + u.email + ')' : ''}` }),
+      here, h('h3', { class: 'shHead', text: 'Your projects' }), list,
+      h('div', { class: 'acct-row' }, h('button', { class: 'btn', type: 'button', text: 'New project', onclick: () => run(async () => {
+        if (b) await push();
+        const keep = !(myBind() && myBind().sig === currentSig());
+        await api.newProject('New project', { keepCopy: keep });
+        setBind(null); follow(true); await push(); close();
+        api.toast('New project started in your account.' + (keep ? ' What was on screen is kept in Projects on this device.' : ''));
+      }) })),
+      msgEl,
+      h('details', { class: 'acct-more' }, h('summary', { text: 'Account settings' }),
+        h('div', { class: 'acct-row' },
+          h('button', { class: 'btn', type: 'button', text: 'Set a password', onclick: () => passwordView() }),
+          h('button', { class: 'btn', type: 'button', text: 'Change my name', onclick: () => nameView() }))),
+      h('div', { class: 'acct-row' }, h('button', { class: 'btn danger', type: 'button', text: 'Sign out', onclick: () => signOutView() })));
+    try {
+      const rows = await cloud.list();
+      if (view !== 'home') return;
+      list.replaceChildren();
+      if (!rows.length) list.append(h('p', { class: 'muted', text: 'Nothing in your account yet.' }));
+      for (const r of rows) {
+        const isHere = b && b.id === r.id;
+        const item = h('div', { class: 'acct-item' + (isHere ? ' here' : '') },
+          h('div', { class: 'acct-name' }, h('b', { text: r.name }), h('small', { text: `${r.tattoos} tattoo${r.tattoos === 1 ? '' : 's'} · ${when(r.updated_at)}${isHere ? ' · open now' : ''}` })),
+          h('div', { class: 'acct-actions' },
+            isHere ? null : h('button', { class: 'btn primary', type: 'button', text: 'Open', onclick: () => run(() => openFromAccount(r.id)) }),
+            h('button', { class: 'btn', type: 'button', text: 'Rename', onclick: () => renameRow(item, r) }),
+            isHere ? null : h('button', { class: 'btn quiet danger', type: 'button', text: 'Remove', onclick: () => removeRow(item, r) })));
+        list.append(item);
+      }
+    } catch (e) { if (view === 'home') list.replaceChildren(h('p', { class: 'acct-msg', text: plainError(e) })); }
+  }
+  function renameRow(item, r) {
+    const input = h('input', { type: 'text', value: r.name, maxlength: '80', 'aria-label': 'New name' });
+    item.replaceChildren(h('form', { class: 'acct-form inline', onsubmit: (e) => { e.preventDefault(); const name = input.value.trim(); if (!name) return; run(async () => {
+      await cloud.rename(r.id, name);
+      const b = myBind(); if (b && b.id === r.id) api.rename(name);
+      show('home');
+    }); } }, input, h('button', { class: 'btn primary', type: 'submit', text: 'Save' }), h('button', { class: 'btn', type: 'button', text: 'Cancel', onclick: () => show('home') })));
+    input.focus(); input.select();
+  }
+  function removeRow(item, r) {
+    item.replaceChildren(h('p', { text: `Remove "${r.name}" from your account? It goes from every device.` }),
+      h('div', { class: 'acct-actions' }, h('button', { class: 'btn danger', type: 'button', text: 'Remove', onclick: () => run(async () => { await cloud.remove(r.id); show('home'); msg(`Removed "${r.name}".`, true); }) }), h('button', { class: 'btn', type: 'button', text: 'Keep it', onclick: () => show('home') })));
+  }
+  function passwordView() {
+    view = 'password'; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status' });
+    const pass = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'New password (6 or more characters)', 'aria-label': 'New password' });
+    put(header('Set a password'), h('p', { class: 'muted', text: 'Sign in with it on any device, no email needed.' }),
+      h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); if (pass.value.length < 6) { msg('Use at least 6 characters.'); return; } run(async () => { await cloud.setPassword(pass.value); show('home'); msg('Password saved.', true); }); } }, pass, h('button', { class: 'btn primary', type: 'submit', text: 'Save password' })),
+      msgEl, h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+    focusSoon(pass);
+  }
+  function nameView() {
+    view = 'name'; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status' });
+    const name = h('input', { type: 'text', autocomplete: 'name', value: cloud.displayName(), maxlength: '60', 'aria-label': 'Your name' });
+    put(header('Your name'), h('p', { class: 'muted', text: 'Shown to people you send a link to.' }),
+      h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); const v = name.value.trim(); if (!v) return; run(async () => { await cloud.setName(v); renderBtn(); show('home'); msg('Name saved.', true); }); } }, name, h('button', { class: 'btn primary', type: 'submit', text: 'Save' })),
+      msgEl, h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+  }
+  function signOutView() {
+    view = 'signout'; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status' });
+    const b = myBind();
+    const out = (clear) => run(async () => {
+      if (b) { await push(); if (!(myBind() && myBind().sig === currentSig())) throw new Error('Your latest changes have not reached your account yet. Check your connection and try again.'); }
+      await cloud.signOut(); setBind(null); ls.set(FOLLOW, null); ls.set(ASKED, null);
+      if (clear) await api.newProject('My tattoos', { keepCopy: !b, blank: true });
+      status('Saved on this device'); close();
+      api.toast(clear ? 'Signed out. Your projects are in your account; this screen is clear.' : 'Signed out. The project on screen stays on this device.');
+    });
+    put(header('Sign out'),
+      h('p', { text: b ? 'Your projects stay in your account. Sign in again on any device to open them.' : 'The project on screen is only on this device. It stays here after you sign out.' }),
+      msgEl,
+      h('div', { class: 'acct-col' },
+        h('button', { class: 'btn danger', type: 'button', text: 'Sign out', onclick: () => out(false) }),
+        b ? h('button', { class: 'btn', type: 'button', text: 'Sign out and clear this screen', onclick: () => out(true) }) : null,
+        h('button', { class: 'btn quiet', type: 'button', text: 'Cancel', onclick: () => show('home') })));
+  }
+
+  /* ---------- sending a copy by link ---------- */
+  function linkView(url) {
+    const box = h('input', { type: 'text', readonly: true, value: url, 'aria-label': 'Link', class: 'acct-link' });
+    const canShare = !!navigator.share;
+    put(header('Send to someone'),
+      h('p', { text: 'Send this link. They open it, see your project and can save their own copy in their own account.' }),
+      box,
+      h('div', { class: 'acct-row' },
+        canShare ? h('button', { class: 'btn primary', type: 'button', text: 'Share link', onclick: () => navigator.share({ title: 'Ink Atlas: ' + api.projectName(), url }).catch(() => {}) }) : null,
+        h('button', { class: canShare ? 'btn' : 'btn primary', type: 'button', text: 'Copy link', onclick: async () => { try { await navigator.clipboard.writeText(url); msg('Link copied.', true); } catch (e) { box.select(); msg('Select the link and copy it.'); } } })),
+      msgEl,
+      h('p', { class: 'muted', text: 'It sends a copy of the project as it is now. Your later changes do not change their copy, and they cannot change yours.' }));
+  }
+  async function sendLink() {
+    await ready().catch((e) => { api.toast(plainError(e)); throw e; });
+    open();
+    if (!user()) { mode = 'signin'; show('signin', 'Sign in to send a link. It keeps the copy in your account so the link keeps working.'); return; }
+    view = 'busy'; panel.replaceChildren(header('Send to someone'), h('p', { text: 'Making the link…' }));
+    try {
+      const snap = api.snapshot();
+      if (!snap.state.tattoos.length) throw new Error('Add a tattoo first: there is nothing to send yet.');
+      const id = await cloud.share(JSON.parse(JSON.stringify(snap.state)), snap.images, api.projectName());
+      const url = location.origin + location.pathname + '?share=' + id;
+      show('link', url);
+    } catch (e) { show('home'); msg(plainError(e)); }
+  }
+
+  function sharedView(s) {
+    const n = s.state.tattoos.length;
+    put(header('Someone sent you a project'),
+      h('p', { text: `${s.fromName || 'Someone'} sent you "${s.name}", ${n} tattoo${n === 1 ? '' : 's'}.` }),
+      s.missing.length ? h('p', { class: 'muted', text: `${s.missing.length} artwork file${s.missing.length === 1 ? '' : 's'} could not be fetched and will be left out.` }) : null,
+      h('p', { class: 'muted', text: 'Opening it keeps what is on screen now in Projects on this device.' }),
+      msgEl,
+      h('div', { class: 'acct-row' },
+        h('button', { class: 'btn primary', type: 'button', text: 'Open it', onclick: () => run(async () => {
+          if (myBind()) await push();
+          const safe = myBind() && myBind().sig === currentSig();
+          await api.open(s.state, s.images, s.name, { keepCopy: !safe, reason: 'Before opening a project someone sent' });
+          setBind(null);
+          if (user()) { follow(true); ls.set(ASKED, user().id); await push(); close(); api.toast(`Opened "${s.name}" and saved it to your account.`); }
+          else { pendingShare = s.name; mode = 'create'; show('signin', `"${s.name}" is open on this device. Make a free account to keep it and open it on your other devices.`); }
+          api.saveNow();
+        }) }),
+        h('button', { class: 'btn', type: 'button', text: 'Not now', onclick: () => close() })));
+  }
+
+  async function start() {
+    btn.addEventListener('click', async () => { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'home' : 'signin'); });
+    const q = new URLSearchParams(location.search), shareId = q.get('share');
+    if (shareId) { q.delete('share'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
+    // a session saved on this device (or arriving from an email link) loads the client at once;
+    // otherwise it waits until it is needed, so signed-out use stays as fast as before
+    let hasSession = false; try { hasSession = !!localStorage.getItem('ia-auth') || /access_token=|token_hash=|type=(signup|magiclink|recovery)/.test(location.hash + location.search); } catch (e) { /* no storage */ }
+    if (hasSession || shareId) {
+      try { await ready(); } catch (e) { if (shareId) api.toast(plainError(e)); return; }
+      if (user()) afterSignIn('INITIAL');
+    }
+    if (shareId) {
+      open(); view = 'busy'; panel.replaceChildren(header('Someone sent you a project'), h('p', { text: 'Opening the link…' }));
+      try { const s = await openShare(shareId); if (!s.state || !Array.isArray(s.state.tattoos)) throw new Error('That link does not hold an Ink Atlas project.'); show('shared', s); }
+      catch (e) { show(user() ? 'home' : 'signin'); msg(plainError(e)); }
+    }
+  }
+
+  return {
+    configured: true, saved, start, unbind, sendLink,
+    status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing }),
+    push, pull,
+  };
+}

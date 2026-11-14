@@ -160,6 +160,25 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent}
 .sw.on{border-color:#fff;box-shadow:0 0 0 3px var(--stencil)}.sw.own{background:conic-gradient(#f6e2d3,#d37d5f,#6a422a,#45291a,#b99d7a,#f6e2d3);display:grid;place-items:center;color:#20232c;font-weight:700;font-size:20px;line-height:1}.sw.own.set{font-size:0}#skinOwn{display:flex;flex-direction:column;gap:8px;margin-top:6px}#skinOwn[hidden]{display:none}
 #skinPick{position:fixed;inset:0;z-index:9;background:#0d0e12;touch-action:none}#skinPick[hidden]{display:none}#spImg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}#spTop{position:absolute;top:16px;left:16px;right:16px;padding:10px 16px}#spTop p{margin:0}#spRing{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.6);pointer-events:none}#spRing[hidden]{display:none}#spBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}#spSwatch{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.7);flex:none}#spMsg{flex:1;min-width:160px}
+.acct-btn svg{flex:none}.acct-btn.signed{padding:0;width:44px;border-radius:22px;background:var(--stencil);border-color:transparent;color:#fff}.acct-btn.signed svg{display:none}.acct-btn.signed span{font:700 18px/1 var(--display)}
+@media (max-width:720px){.acct-btn:not(.signed) span{display:none}.acct-btn:not(.signed){padding:0}}
+/* phones: the whole top bar fits, Share and the account button included */
+@media (max-width:520px){#top{padding:10px 8px}#top .brand{display:none}#top .cluster{gap:4px;padding:4px;max-width:100%}#top .cluster .btn{padding:0 9px;font-size:15px}}
+#linkCards:has(#cLink[hidden]){display:none}
+.acct{width:min(560px,100%)}.acct p{margin:0;line-height:1.45}.acct .muted{color:var(--muted);font-size:14px}
+.acct-form{display:flex;flex-direction:column;gap:10px}.acct-form.inline{flex-direction:row;flex-wrap:wrap;width:100%}.acct-form.inline input{flex:1;min-width:160px}
+.acct input[type=text],.acct input[type=email],.acct input[type=password]{min-height:48px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:inherit;width:100%;box-sizing:border-box}
+.acct input:focus{outline:2px solid var(--stencil);outline-offset:1px}
+.acct-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.acct-row{display:flex;flex-wrap:wrap;gap:8px}.acct-col{display:flex;flex-direction:column;gap:8px}
+.acct-msg{min-height:1.2em;color:var(--danger);font-weight:600}.acct-msg:empty{min-height:0}.acct-msg.good{color:#5fcf8f}
+.acct-here{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:14px}.acct-here.good,p.acct-here{color:#5fcf8f;font-weight:600}
+.acct-list{display:flex;flex-direction:column}.acct-item{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 0;border-top:1px solid var(--line)}.acct-item.here .acct-name b::after{content:"";}
+.acct-name{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 180px}.acct-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acct-name small{color:var(--muted)}
+.acct-actions{display:flex;gap:6px;flex-wrap:wrap}
+.acct-check{display:flex;gap:10px;align-items:center;min-height:44px}.acct-check input{width:22px;height:22px}.acct-check[hidden]{display:none}
+.acct-more summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--muted)}.acct-more .acct-row{padding-top:6px}
+.acct-link{font-size:15px!important}
 .scrim{position:fixed;inset:0;background:rgba(8,9,12,.62);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
 .modal{width:min(720px,100%);max-height:100%;overflow-x:hidden;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;background:var(--panel-solid);touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .modal header{display:flex;justify-content:space-between;align-items:center;gap:12px}
@@ -235,6 +254,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     <button class="btn" id="projectsBtn" type="button">Plan</button>
     <button class="btn" id="bodyBtn" type="button">Body</button>
     <button class="btn primary" id="shareBtn" type="button">Share</button>
+    <button class="btn acct-btn" id="accountBtn" type="button" aria-label="Sign in" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Sign in</span></button>
   </div>
 </div>
 
@@ -461,6 +481,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <div id="share" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="shTitle">
     <header><h2 id="shTitle">Share</h2><button class="btn" type="button" data-close="share">Close</button></header>
+    <div class="cards" id="linkCards"><button class="card" id="cLink" type="button" hidden><b>Send to someone</b><span>A link to a copy of this project. They open it and can save it in their own account.</span></button></div>
     <h3 class="shHead">For your artist</h3>
     <div class="cards">
       <button class="card" id="cView" type="button"><b>Picture of this view</b><span>Exactly what is on screen now, tattoos included.</span></button>

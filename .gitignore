@@ -4,3 +4,4 @@ shots
 .DS_Store
 # private strategy and business notes: never publish
 docs/private/
+dist-accounts

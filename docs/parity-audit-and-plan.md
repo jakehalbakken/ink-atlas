@@ -102,7 +102,7 @@ Status words: **Built+tested** (code exists and an automated test exercises it),
 | Write v47-compatible backups | **Missing** | | None | No | One-way today. |
 | Several projects, shelf, archive | **Missing** | One `project` key | None | No | |
 | Installable, works offline | Built | Vite PWA plugin | Build output checked; offline not tested | Unknown | |
-| Accounts, cloud sync, share links, private review, comments | **Missing** | | None | No | Needs a backend choice and consent wording from Jake first. |
+| Accounts, cloud sync, share links | **Built, not live** (2026-11-14) | Supabase: email + password sign-in, projects kept in the account and synced, second device picks up changes, both-changed keeps both, Send to someone link that saves into the other person's account | t81 (real PostgreSQL through tools/fake-supabase.mjs), accounts-rls-unit | No | Needs Jake's Supabase project and two GitHub secrets (docs/accounts-setup.md). Private review and comments are still missing; the approval page still works with no backend. |
 | AI art, photo-to-3D body | **Missing** | | None | No | Deferred. Needs consent, a provider, and a cost decision. |
 
 ### 3D interoperability, honestly
@@ -152,7 +152,7 @@ Each stage ends with: `npm run build`, all scripts in `tools/tests/`, new tests 
 ### Stage 4: private review and cross-device
 
 - [ ] 4a Local foundations that need no server: several projects with a shelf, restore as a copy, a single-file review packet
-- [ ] 4b Backend choice with Jake, then accounts and sync
+- [x] 4b Backend choice with Jake, then accounts and sync (Supabase, built 2026-11-14; live once his project exists)
 - [ ] 4c Private review room: invite-only, comments pinned to a version and a body spot
 - [ ] 4d Any photo upload or AI step: consent wording, provider, cost shown first
 
@@ -510,3 +510,10 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Pain map (Preview > Pain map): a green to red wash over the skin for how much a tattoo usually hurts there, from what common tattoo pain charts agree on (ribs, sternum, spine, knees, elbows, hands, feet, armpits, groin high; outer arm, outer thigh, calf, buttock low). Each vertex takes its place from the rig bone that moves it most, which way its skin faces and how near a knee, elbow, wrist, ankle or shoulder it is, so it follows every shape; the wash is copied onto the shown skin before each draw, so it follows poses. Tap a spot for its reading, or a tattoo for its usual level over its whole area and its worst part. The bar says everyone feels it differently. View only, nothing stored. `pain.js` is pure maths. Tested: pain-unit, t79.
 - Cover-up check: select a planned tattoo placed over one marked already on me, and the line under its size reads "Covers 72% of Old rose's ink" (or all of it) in place of the space between them. Each old ink point is found on the new tattoo's decal and counts only where the new artwork itself is dark there, so line work honestly covers little and solid fill covers what it sits on (`cover.js`, `coverByArt`). View only. Tested: cover-unit, t80.
 - Not live and not tried on the iPad. The approval page opened as a file on an iPhone has not been tried in Files, Mail or Messages previews.
+
+## Accounts (2026-11-14)
+
+- Jake (19:46Z): Liv is coming over and needs her own account: make one, log in, save her work, open it on another device. Backend: Supabase (he was told; he can redirect).
+- Built: `src/cloud.js` (all server calls), `src/account.js` (screens and syncing), `supabase/setup.sql` (tables, row-level security, storage buckets), Sign in button in the top bar, Share > Send to someone, New to try entry. The project on screen is still saved on the device first; the account keeps a second copy in step, with a revision check so two devices never overwrite each other (both versions are kept).
+- Tested: `accounts-rls-unit` (each person only their own rows and files, links open only by id, signed out writes nothing) and t81 end to end in three browser sessions against a real PostgreSQL. Not tested: a real Supabase project (none exists yet), a real iPad, Safari's handling of the session in the home-screen app.
+- Not built: emailed-code sign-in is ready but hidden until the project has its own email sender; no password reset without it; approval answers still travel as pasted text, not through the account.

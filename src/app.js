@@ -18,6 +18,7 @@ import { editArtwork } from './cleanup.js';
 import { applyArtworkRevision } from './cleanup-links.js';
 import { readPending, writePending, editFileName, artworkAsSeen, clipboardImage, normalisePicture } from './procreate-edit.js';
 import { openShelf, openProjectShelf } from './shelf.js';
+import { createAccount } from './account.js';
 import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
 import { makeArtistPacket } from './artist-packet.js';
@@ -471,7 +472,7 @@ let exporting = false;
 /* ---------- persistence ---------- */
 // store.js does the writing. Here: when to save, telling the truth about whether it
 // worked, and keeping copies to go back to.
-let store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
+let account = null, store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
 function usedImages() { const o = {}; for (const k of imageKeysFor(state)) if (images[k]) o[k] = images[k]; return o; }
 function setSaved(text, bad) { const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad); }
 function save() {
@@ -486,7 +487,7 @@ async function flushSave() {
   saving = true; dirty = false;
   try {
     await store.save(state, usedImages());
-    if (!dirty) setSaved('Saved on this device');
+    if (!dirty) { setSaved('Saved on this device'); if (account) account.saved(); }
     warnedSave = false;
     if (!askedPersist) { askedPersist = true; store.persist(); }
     if (Date.now() - lastAuto > 5 * 60000) { lastAuto = Date.now(); keepRecovery('While you were working'); }
@@ -1857,6 +1858,7 @@ const SHOW = {
   skinTone: () => { toggle('#bodyPop', true); return ['#skinOwnBtn', 'Tap + to make your own skin tone, or match a photo of your skin.']; },
   light: () => { showLook(true); return ['#lightBtn', 'Tap Light, then pick the light you will see it in most.']; },
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
+  account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
@@ -2349,7 +2351,7 @@ $('#openPhotoFit').addEventListener('click',async()=>{
   const proposed=cleanState({...state,figure:params.figure,muscle:params.muscle,weight:params.weight,heightCm:params.heightCm,fit:params.fit},k=>!!images[k]).state;
   const shelf=await openProjectShelf();try{await shelf.create((state.projectName||'My tattoos')+' · before fitting',{state,images:usedImages()});}finally{shelf.close();}
   if(JSON.stringify(state)!==before)throw new Error('The project changed. Its earlier copy is safely kept, but fitting was not applied.');
-  snapshot();reshape(()=>{for(const k of ['figure','muscle','weight','heightCm','fit'])state[k]=proposed[k];});state.projectName=(state.projectName||'My tattoos')+' · fitted copy';commit();fullBody();toast('Fitted copy opened. The original is kept in Projects.');
+  snapshot();reshape(()=>{for(const k of ['figure','muscle','weight','heightCm','fit'])state[k]=proposed[k];});state.projectName=(state.projectName||'My tattoos')+' · fitted copy';if(account)account.unbind();commit();fullBody();toast('Fitted copy opened. The original is kept in Projects.');
  }});}catch(e){toast('Could not open photo fitting: '+e.message);}
 });
 $('#openClothing').addEventListener('click',()=>{
@@ -2472,6 +2474,7 @@ $('#openProjects').addEventListener('click', async () => {
   snapshot();
   if (result.action === 'new') { state = freshState(); state.projectName='New project'; selectedId=null; }
   else { await openProject(result.project.state,result.project.images); state.projectName=result.project.name; }
+  if (account) account.unbind();
   commit();fullBody();toast('Project opened. Your previous work is saved in Projects.','Undo',undo);
  } catch(e) { toast('Could not open Projects: '+e.message); }
 });
@@ -3160,6 +3163,7 @@ async function importBackup(text) {
     await keepRecovery('Before opening a backup');
     try {
       const r = await openProject(data.state, data.images);
+      if (account) account.unbind();
       commit(); fullBody();
       toast(r.dropped ? `Project opened. ${r.dropped} piece${r.dropped === 1 ? ' had no usable artwork and was' : 's had no usable artwork and were'} left out.` : 'Project opened', 'Undo', undo);
     } catch (e) { state = JSON.parse(before); skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); toast('That backup is damaged, so nothing was changed.'); }
@@ -3197,7 +3201,7 @@ async function importInkJson(proj, assets) {
 }
 async function readInkJson(proj, assets) {
  const {importV47Project}=await import('./v47-import.js');const result=importV47Project({project:proj,assets});
- await openProject(result.state,result.images);commit();fullBody();
+ await openProject(result.state,result.images);if(account)account.unbind();commit();fullBody();
  toast(`Opened ${state.projectName||'v47 project'}: ${state.tattoos.length} placed, ${result.report.unplaced||0} saved to place. Original source kept; some metadata is archive-only.`, 'Undo',undo);
 }
 // Bring a loaded project up to the current body model without moving any ink:
@@ -3257,7 +3261,38 @@ function tick(now) {
   $('#coachOk').addEventListener('click', () => { $('#coach').hidden = true; try { localStorage.setItem('ia-coach', '1'); } catch (e) { /* no storage */ } });
   booted = true;
   requestAnimationFrame(tick);
+  startAccount();
 })();
+/* ---------- your account (src/account.js, src/cloud.js) ---------- */
+// The project on screen stays on this device first; the account keeps a second copy in step.
+function startAccount() {
+  const keepOnShelf = async (reason) => { const shelf = await openProjectShelf(); try { await shelf.create(reason + ' · ' + new Date().toLocaleString(), { state, images: usedImages() }); } finally { shelf.close(); } };
+  const clearHistory = () => { undoStack.length = 0; redoStack.length = 0; refreshUndo(); };
+  account = createAccount({
+    snapshot: () => ({ state, images: usedImages() }),
+    projectName: () => state.projectName || 'My tattoos',
+    async open(next, imgs, name, opts = {}) {
+      cancelGesture();
+      if (opts.keepCopy) await keepOnShelf(opts.reason || 'Before switching');
+      await keepRecovery(opts.reason || 'Before switching');
+      const r = await openProject(next, imgs);
+      state.projectName = name || state.projectName || 'My tattoos';
+      clearHistory(); commit(); fullBody();
+      return r;
+    },
+    async newProject(name, opts = {}) {
+      cancelGesture();
+      if (opts.keepCopy) await keepOnShelf('Before starting a new project');
+      await keepRecovery('Before starting a new project');
+      state = freshState(); state.projectName = name; selectedId = null; skinMat.color.set(skinColor()); applyShape();
+      clearHistory(); commit(); fullBody();
+    },
+    rename(name) { state.projectName = name; commit(); },
+    setSaved, toast, saveNow: () => save(), tried: () => markTried('accounts'),
+  });
+  account.start();
+}
+$('#cLink').addEventListener('click', () => { toggle('#share', false); if (account) account.sendLink().catch(() => {}); });
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted,
@@ -3295,7 +3330,7 @@ window.__ink = {
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
-  store: () => store, flush: flushSave, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
+  store: () => store, flush: flushSave, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
   surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, imageOf: (k) => images[k],
   decalReach: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry, P = g && g.attributes.position ? g.attributes.position.array : []; let max = 0; for (let i = 0; i < P.length; i += 3) { const dist = Math.hypot(P[i] - t.pos[0], P[i + 1] - t.pos[1], P[i + 2] - t.pos[2]); if (dist > max) max = dist; } return { name: t.name, tris: P.length / 9, max, w: t.width, h: t.width / t.aspect }; }),
 };

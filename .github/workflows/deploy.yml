@@ -24,6 +24,13 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run build
+        env:
+          # Accounts (Supabase). Set both in the repository's Settings > Secrets and variables > Actions.
+          # Without them the site builds as before and the account button stays hidden.
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Optional repository variable: 1 once the Supabase project has its own email sender (see docs/accounts-setup.md).
+          VITE_SUPABASE_EMAIL_CODES: ${{ vars.SUPABASE_EMAIL_CODES }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
