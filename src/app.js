@@ -44,6 +44,7 @@ import { POSE_BONES, vertexBones } from './pose.js';
 import { posesFor } from './pose-pick.js';
 import { PART_NAMES } from './body-photo.js';
 import { stencilLines, stencilPixels, stencilScale, pngWithDpi } from './stencil.js';
+import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
 
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -59,6 +60,7 @@ let images = {}; // key -> dataURL
 const imgEls = {}; // key -> HTMLImageElement
 let selectedId = null;
 let tapPlaceId = null;
+const tape = { on: false, mode: 'along', pts: [], result: null, key: -1, group: null, nb: null, nbOf: null }; // the tape measure (only for looking, never saved)
 let soloIds = null;
 const undoStack = [];
 const redoStack = [];
@@ -510,7 +512,7 @@ const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 let tried = readTried(); // features from New to try that were tried on this device
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
+function select(id, focus) { if (id && tape.on) tapeOff(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
 function sizeText(t) {
   const k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
   return `≈ ${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in  ·  ${w.toFixed(0)} × ${h.toFixed(0)} cm`;
@@ -662,6 +664,7 @@ window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
+  if (tape.on) { tapeTap(x, y); return; }
   if(tapPlaceId){const t=sel(),h=hitBody(x,y);if(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'){tapPlaceId=null;renderSheet();return;}if(!h){toast('Tap directly on the body, or cancel tap-to-place.');return;}try{const placed=planTapPlacement(t,{pos:h.point.toArray(),normal:h.normal.toArray()});snapshot();Object.assign(t,placed);tapPlaceId=null;commit();toast('Tattoo placed.', 'Undo', undo);}catch(e){toast(e.message);}return;}
   const h = hitBody(x, y),ids=inkIdsAt(x,y,h),now=performance.now();const id=cycleInkHit(ids,lastInkTap,{x,y,time:now});
   if(id){lastInkTap={ids,id,x,y,time:now};select(id,false);requestAnimationFrame(()=>{const t=sel();if(t&&t.id===id&&!gest)keepClearOfPanels(t);});lastTap={t:0,x,y,empty:false};return;}
@@ -1743,6 +1746,7 @@ function needTattoo() {
   return t;
 }
 const SHOW = {
+  tape: () => { showLook(true); return ['#tapeBtn', 'Tap Tape measure, then two points on the body. Around wraps it round an arm, a leg or the waist.']; },
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
   eyes: () => { toggle('#bodyPop', true); viewFace(); return ['#eyeCols', 'Tap a colour for the eyes. The view moves to the face.']; },
@@ -1812,6 +1816,102 @@ $('#baBtn').addEventListener('click', () => {
   if (!plannedShown().length) { toast('Nothing planned to compare yet. Mark a tattoo as Planned to see it here.'); return; }
   beforeAfter.set(true); toast('Left: your skin now. Right: with your planned tattoos. Drag the line to compare.');
 });
+/* ---------- tape measure ---------- */
+// Measure the body like a tailor's tape: tap two points for the length along the skin between
+// them, or one point for the way round an arm, leg, neck or the body there. Works on the
+// standing body; the points stay on the same skin when the shape changes. Only for looking.
+tape.group = new THREE.Group(); tape.group.renderOrder = 5; scene.add(tape.group);
+const tapeMat = new THREE.MeshBasicMaterial({ color: 0xffc83d }), tapeEnd = new THREE.MeshBasicMaterial({ color: 0x1b1b1f });
+function tapeNb() { const I = bodyGeo.index.array; if (tape.nbOf !== I) { tape.nb = meshNeighbours(I); tape.nbOf = I; } return tape.nb; }
+// a stored point (triangle + barycentric weights) on the body as it is now
+function tapeSpot(p) {
+  const P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array, I = bodyGeo.index.array, pos = [0, 0, 0], n = [0, 0, 0];
+  for (let k = 0; k < 3; k++) { const v = I[p.tri * 3 + k]; for (let d = 0; d < 3; d++) { pos[d] += P[v * 3 + d] * p.w[k]; n[d] += N[v * 3 + d] * p.w[k]; } }
+  const l = Math.hypot(...n) || 1; return { pos, n: n.map((x) => x / l) };
+}
+function tapeClear() { for (const c of [...tape.group.children]) { tape.group.remove(c); c.geometry.dispose(); } needsRender = true; }
+function tapeDraw(pts, closed, ends) {
+  tapeClear();
+  const v = []; for (const p of pts) { const q = new V3(...p); if (!v.length || q.distanceTo(v[v.length - 1]) > 1e-4) v.push(q); }
+  if (closed && v.length > 2 && v[0].distanceTo(v[v.length - 1]) < 1e-3) v.pop();
+  if (v.length > 1) {
+    const curve = new THREE.CatmullRomCurve3(v, closed, 'centripetal');
+    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(1200, v.length * 3), 0.0028, 6, closed), tapeMat); tube.renderOrder = 5; tape.group.add(tube);
+  }
+  for (const e of ends) { const m = new THREE.Mesh(new THREE.SphereGeometry(0.0065, 16, 12), tapeEnd); m.position.set(...e); tape.group.add(m); }
+}
+function tapeMeasure() {
+  tape.key = shapeKey; tape.result = null; tapeClear();
+  const P = bodyGeo.attributes.position.array, I = bodyGeo.index.array, s = tape.pts.map(tapeSpot);
+  if (tape.mode === 'along') {
+    if (s.length < 2) { if (s.length) tapeDraw([], false, [s[0].pos]); return; }
+    const r = alongSkin(P, I, tapeNb(), s[0].pos, tape.pts[0].tri, s[0].n, s[1].pos, tape.pts[1].tri, s[1].n);
+    if (!r) { tapeDraw([], false, [s[0].pos, s[1].pos]); tape.result = { fail: true }; return; }
+    const straight = Math.hypot(s[0].pos[0] - s[1].pos[0], s[0].pos[1] - s[1].pos[1], s[0].pos[2] - s[1].pos[2]);
+    tape.result = { len: r.len, straight, mid: r.pts[Math.floor(r.pts.length / 2)] };
+    tapeDraw(r.pts, false, [s[0].pos, s[1].pos]);
+  } else {
+    if (!s.length) return;
+    const r = aroundAt(P, I, tapeNb(), s[0].pos, tape.pts[0].tri, s[0].n);
+    if (!r) { tapeDraw([], false, [s[0].pos]); tape.result = { fail: true }; return; }
+    // the tattoo here, if any: how much of the way round it takes
+    let ink = null, bd = Infinity;
+    for (const t of state.tattoos) { if (t.hidden) continue; const d = Math.hypot(t.pos[0] - s[0].pos[0], t.pos[1] - s[0].pos[1], t.pos[2] - s[0].pos[2]); if (d < Math.max(t.width / 2, 0.02) && d < bd) { bd = d; ink = t; } }
+    tape.result = { len: r.len, around: true, ink: ink && { name: ink.name || 'This tattoo', share: ink.width / r.len, width: ink.width }, mid: s[0].pos };
+    tapeDraw(r.pts, true, [s[0].pos]);
+  }
+}
+function tapeRender() {
+  const along = tape.mode === 'along';
+  $('#tapeAlong').setAttribute('aria-pressed', String(along)); $('#tapeAround').setAttribute('aria-pressed', String(!along));
+  $('#tapeBtn').setAttribute('aria-pressed', String(tape.on)); $('#tapeBar').hidden = !tape.on;
+  const r = tape.result, h = state.heightCm || 175;
+  let text;
+  if (r && r.fail) text = along ? 'Can’t lay the tape between those two points. Try two points closer together.' : 'Can’t wrap the tape round here. Try an arm, a leg, the neck or the waist.';
+  else if (r && r.around) {
+    text = 'Around: ' + tapeText(r.len, h).text;
+    if (r.ink) { const pc = Math.round(r.ink.share * 100), w = tapeText(r.ink.width, h); text += `. ${r.ink.name} is ${w.inch < 10 ? w.inch.toFixed(1) : Math.round(w.inch)} in wide, ${pc >= 100 ? 'all' : 'about ' + pc + '%'} of the way round.`; }
+  } else if (r) {
+    text = 'Along the skin: ' + tapeText(r.len, h).text;
+    if (r.len > r.straight * 1.05) text += `. Straight across: ${tapeText(r.straight, h).text.replace(/ \(.*/, '')}.`;
+  } else text = along ? (tape.pts.length ? 'Now tap the second point.' : 'Tap two points on the body.') : 'Tap a spot on an arm, a leg, the neck or the body to measure round it.';
+  $('#tapeText').textContent = text;
+  canvas.style.cursor = tape.on ? 'crosshair' : (tapPlaceId ? 'crosshair' : '');
+  placeTape();
+}
+function tapeTap(x, y) {
+  const h = hitBody(x, y);
+  if (!h || h.faceIndex == null || !h.barycoord) { toast('Tap directly on the body to measure.'); return; }
+  if (h.faceIndex * 3 >= bodyGeo.index.count) return;
+  const p = { tri: h.faceIndex, w: [h.barycoord.x, h.barycoord.y, h.barycoord.z] };
+  if (tape.mode === 'around' || tape.pts.length >= 2) tape.pts = [p]; else tape.pts.push(p);
+  tapeMeasure(); tapeRender();
+  if (tape.result && !tape.result.fail) markTried('tape');
+}
+function placeTape() {
+  const lab = $('#tapeLabel'), r = tape.result;
+  if (tape.on && tape.key !== shapeKey && tape.pts.length) { tapeMeasure(); requestAnimationFrame(tapeRender); }
+  tape.group.visible = tape.on && !poseView.active;
+  if (!tape.on || !r || r.fail || poseView.active) { lab.hidden = true; return; }
+  const m = new V3(...r.mid), sc = screenOf(m), rc = canvas.getBoundingClientRect();
+  // hide the label when that bit of the tape is behind the body
+  ray.set(camera.position, m.clone().sub(camera.position).normalize());
+  const hit = ray.intersectObject(body, false)[0], hidden = hit && hit.distance < camera.position.distanceTo(m) - 0.012;
+  const inView = sc.x > rc.left + 30 && sc.x < rc.right - 30 && sc.y > rc.top + 40 && sc.y < rc.bottom - 10;
+  lab.hidden = !!hidden || !inView; if (lab.hidden) return;
+  lab.textContent = tapeText(r.len, state.heightCm || 175).text;
+  lab.style.left = sc.x + 'px'; lab.style.top = sc.y + 'px';
+}
+function tapeOn(mode) {
+  cancelGesture(); closePanels(); tapPlaceId = null;
+  if (selectedId) select(null);
+  if (poseView.active || poseView.motion.playing) { poseView.choose('neutral'); renderPose(); toast('The tape measure works on the standing body.'); }
+  tape.on = true; tape.pts = []; tape.result = null; if (mode) tape.mode = mode; tapeClear(); tapeRender();
+}
+function tapeOff() { tape.on = false; tape.pts = []; tape.result = null; tapeClear(); tapeRender(); }
+$('#tapeBtn').addEventListener('click', () => { if (tape.on) tapeOff(); else tapeOn(); });
+$('#tapeDone').addEventListener('click', tapeOff);
+for (const [id, mode] of [['#tapeAlong', 'along'], ['#tapeAround', 'around']]) $(id).addEventListener('click', () => { if (tape.mode === mode) return; tape.mode = mode; tape.pts = mode === 'around' && tape.pts.length ? [tape.pts[tape.pts.length - 1]] : []; tapeMeasure(); tapeRender(); if (tape.result && !tape.result.fail) markTried('tape'); });
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */
 function showLook(open) { const m = $('#lookMenu'); m.hidden = open == null ? !m.hidden : !open; $('#lookBtn').setAttribute('aria-expanded', String(!m.hidden)); }
 function renderLook() {
@@ -1823,7 +1923,7 @@ function renderLook() {
 }
 $('#lookBtn').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#posePop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); showLook(); });
 // picking one of them closes the little menu: its own panel (or the wipe) takes over
-for (const id of ['#baBtn', '#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn']) $(id).addEventListener('click', () => showLook(false));
+for (const id of ['#baBtn', '#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn', '#tapeBtn']) $(id).addEventListener('click', () => showLook(false));
 new MutationObserver(renderLook).observe($('#lookMenu'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-pressed'] });
 renderLook();
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => fullBody(+b.dataset.view * Math.PI / 2)));
@@ -2815,7 +2915,7 @@ function tick(now) {
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) $('#size').textContent = sizeText(t); }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
-  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); }
+  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (tape.on) placeTape(); }
   requestAnimationFrame(tick);
 }
 
@@ -2855,6 +2955,7 @@ function tick(now) {
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted,
+  tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null, tone: bm.tone || null, skin: skinColor(), ink: bm.ink ? { pieces: bm.ink.pieces.map((p) => [p.x0, p.y0, p.x1, p.y1]), stats: bm.ink.pieces.map((p) => [+p.sharp.toFixed(3), +p.dark.toFixed(3), +p.mid.toFixed(3), +p.fill.toFixed(2), +p.cloth.toFixed(3), +p.out.toFixed(3), Math.round(p.area), Math.round(bm.ink.sw)]), on: [...bm.ink.on], view: bm.ink.view, mirror: bm.ink.mirror } : null }), bodyMatchLm: () => bm.lm || null,
