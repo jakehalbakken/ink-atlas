@@ -237,6 +237,12 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   #hint{align-self:center;text-align:center}
   #procreateBar{left:136px;transform:none;width:min(520px,calc(100% - 572px))}#paintBar{width:min(560px,calc(100% - 160px))}
 }
+/* Phones: the pain map and open skin bars take the tattoo list's place at the bottom while they
+   are on, so the head, neck and chest stay in view. */
+@media (max-width:600px),(max-height:500px){
+  body.wash-on #painBar,body.wash-on #roomBar{top:auto!important;bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom,0px))}
+  body.wash-on #dock{display:none}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>

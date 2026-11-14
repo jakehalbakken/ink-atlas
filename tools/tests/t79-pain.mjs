@@ -54,6 +54,15 @@ export default async function(p){
  await p.click('#lookBtn');await p.click('#painBtn');await wait(300);
  await p.click('#lookBtn');await p.click('#tapeBtn');await wait(300);
  assert.ok(!(await p.evaluate(()=>window.__ink.pain().on))&&(await p.evaluate(()=>window.__ink.tape().on)),'tape takes over');
- await p.click('#tapeDone');
- console.log('PASS t79 pain map: chart places on the real body, taps read a spot and a tattoo, follows pose and shape, Done and tape put it away, project unchanged; '+pn.text+' | '+tl);
+ await p.click('#tapeDone');await wait(200);
+ // on a phone the bar sits at the bottom in the tray's place, so the head and chest stay in view
+ await p.setViewport({width:390,height:844,deviceScaleFactor:1});await wait(500);
+ await p.click('#lookBtn');await p.click('#painBtn');await wait(400);
+ const ph=await p.evaluate(()=>{const r=document.querySelector('#painBar').getBoundingClientRect(),d=getComputedStyle(document.querySelector('#dock')).display;return{top:r.top,bottom:r.bottom,h:innerHeight,dock:d};});
+ assert.ok(ph.top>ph.h*0.6&&ph.bottom<=ph.h,'phone: pain bar at the bottom '+JSON.stringify(ph));assert.equal(ph.dock,'none','phone: the tray steps aside while the bar is up');
+ await p.screenshot({path:'shots/t79-pain-phone.png'});
+ await p.click('#painDone');await wait(300);
+ assert.notEqual(await p.$eval('#dock',e=>getComputedStyle(e).display),'none','phone: the tray comes back after Done');
+ await p.setViewport({width:1180,height:820,deviceScaleFactor:1});await wait(300);
+ console.log('PASS t79 pain map: chart places on the real body, taps read a spot and a tattoo, follows pose and shape, Done and tape put it away, bar at the bottom on a phone, project unchanged; '+pn.text+' | '+tl);
 }

@@ -1,7 +1,7 @@
 // Tape measure: Preview > Tape measure, tap two points on the body for the length along the
 // skin, Around for the way round the waist or a thigh; sensible real-world lengths, the tape
 // drawn on the body with a label, a tattoo's share of the way round, points follow a shape
-// change, a pose goes back to standing, Done clears it, and nothing is saved.
+// change, it stays and follows the skin in a pose, Done clears it, and nothing is saved.
 // Saves shots/t75-tape-along.png and shots/t75-tape-around.png.
 import assert from 'node:assert/strict';
 export default async function(p){
@@ -63,11 +63,30 @@ export default async function(p){
  await p.click('#tapeDone');await wait(300);
  s=await p.evaluate(()=>window.__ink.tape());assert.ok(!s.on&&s.meshes===0,'Done clears the tape');
  assert.equal(await p.$eval('#tapeBar',e=>e.hidden),true);assert.equal(await p.$eval('#tapeLabel',e=>e.hidden),true);
- // a pose goes back to standing
- await p.evaluate(()=>{document.querySelector('#poseBtn').click();});await wait(200);
- const pb=await p.$('#poseList [data-pose]:not([data-pose="neutral"])');if(pb){await pb.click();await wait(600);await p.evaluate(()=>{for(const id of ['#posePop'])document.querySelector(id).hidden=true;});
-  await p.click('#lookBtn');await wait(150);await p.click('#tapeBtn');await wait(600);
-  s=await p.evaluate(()=>window.__ink.tape());assert.ok(s.on);assert.equal(await p.evaluate(()=>document.querySelector('#poseBtn').textContent),'Pose','back to standing');
-  await p.click('#tapeDone');}
- console.log('PASS t75 tape: along the skin, around the waist and a thigh, follows the shape, tattoo share, Done, standing only, project untouched');
+ // in a pose: the tape stays, the length is the same (a pose does not change your size), and
+ // it is drawn on the posed skin, following each new pose
+ await p.click('#lookBtn');await wait(150);await p.click('#tapeBtn');await wait(300);
+ await p.mouse.click(a.x,a.y);await wait(250);await p.mouse.click(b.x,b.y);await wait(400);
+ const standing=await p.evaluate(()=>window.__ink.tape());assert.ok(standing.result&&standing.result.len>0);
+ const near=(u,v,lim)=>Math.hypot(u[0]-v[0],u[1]-v[1],u[2]-v[2])<lim;
+ assert.ok(near(standing.ring0,standing.start,0.01)&&near(standing.dot,standing.start,0.002),'standing: tape starts at the first point');
+ await p.evaluate(()=>window.__ink.setPose('twist'));await p.waitForFunction(()=>window.__ink.pose().settled,{timeout:20000});await wait(500);
+ s=await p.evaluate(()=>window.__ink.tape());
+ assert.ok(s.on&&s.visible,'tape stays on in a pose');assert.equal(await p.evaluate(()=>window.__ink.pose().active),true,'the pose stays');
+ assert.ok(Math.abs(s.result.len-standing.result.len)<1e-6,'same length in a pose');
+ assert.ok(!near(s.start,standing.start,0.01),'the pose moved that skin: '+JSON.stringify([s.start,standing.start]));
+ assert.ok(near(s.ring0,s.start,0.01)&&near(s.dot,s.start,0.002),'drawn on the posed skin: '+JSON.stringify([s.ring0,s.dot,s.start]));
+ assert.equal(s.label,standing.label,'same label');
+ await p.screenshot({path:'shots/t75-tape-pose.png'});
+ // tapping in a pose measures the skin under the finger
+ const pa=await p.evaluate(()=>{const r=document.querySelector('canvas').getBoundingClientRect();for(let f=0.3;f<0.6;f+=0.02){const x=r.left+r.width/2+30,y=r.top+r.height*f;if(window.__ink.hitBody(x,y))return {x,y};}return null;});
+ assert.ok(pa,'posed body on screen');
+ await p.click('#tapeAround');await wait(200);await p.mouse.click(pa.x,pa.y);await wait(500);
+ s=await p.evaluate(()=>window.__ink.tape());
+ assert.ok(s.result&&s.result.around&&s.result.len>0,'measured round in a pose: '+s.text);
+ const sp2=await p.evaluate(q=>window.__ink.projectPoint(q),s.start);assert.ok(near(s.dot,s.start,0.002)&&Math.hypot(sp2.x-pa.x,sp2.y-pa.y)<4,'dot on the tapped skin: '+JSON.stringify([sp2,pa]));
+ await p.evaluate(()=>window.__ink.setPose('neutral'));await wait(800);
+ s=await p.evaluate(()=>window.__ink.tape());assert.ok(near(s.dot,s.start,0.002),'back on the standing skin');
+ await p.click('#tapeDone');
+ console.log('PASS t75 tape: along the skin, around the waist and a thigh, follows the shape, tattoo share, Done, in a pose, project untouched');
 }

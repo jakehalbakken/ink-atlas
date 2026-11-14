@@ -526,7 +526,7 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Server: new section at the end of `supabase/setup.sql` (members, invites, `accept_invite`, shared artwork folder `artwork/p/<project>/`, owner-only guard). Safe to rerun; Jake must run it before this deploys.
 - Tested: `accounts-rls-unit` (invited people see only that project, cannot change owner, archive, rename, share or delete, invite links one person, take-off stops the link), `merge-unit`, t83 two people in two browsers against real PostgreSQL. Not tested: the new SQL on the real Supabase project, a real email sender, two real iPads.
 
-## Next round: open skin, find room, where it sits, time to tattoo (2026-11-14, built, not live)
+## Next round: open skin, find room, where it sits, time to tattoo (2026-11-14, live)
 
 - Started while the large batch waits on Jake's go. Committed separately on top of it, so the large batch can still ship alone.
 - Open skin (Preview > Open skin): the skin shaded by how big a piece still fits there, grey for no room through mint to deep teal for the biggest open areas, with a line for how much of the skin has ink, how much the plans add, and the three parts with the most room ("back (up to 13 in across), ribs, chest"). Room is measured along the skin (shortest paths over the mesh, so the arm never borrows room from the ribs) from every tattoo's ink and from the face, scalp, fingers and groin, which are left out. A piece is also capped at half the way round the body there, so a forearm tops out near 5 in and the back near 13 in. Tap a spot for its reading. Follows every shape and pose. View only. `room.js` is pure maths.
@@ -535,3 +535,11 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Time to tattoo (More controls): a rough range of hours and sessions from the real size, how much of the artwork is ink and how much is colour ("About 1 to 2 hours, one session"). Type the artist's hourly rate for a price range; the rate is kept per device in localStorage `ia-rate`, never in the project. Shop rules of thumb, not a quote (`estimate.js`).
 - Storage: none. Tested: room-unit (skin distances, seeds, reach on a large mesh, areas, regions, summary, half girth, where lines, hour guesses), t82 (button sizes, summary, real sizes per region, tap reads, fit mode, tap to move and undo, too tight, pose, Done, tape takes over, More controls lines, rate kept outside the project, Find room for it), t55.
 - Known limits: the bar covers the head and top of the chest at the top of the view, like the pain bar; room counts each tattoo's square, not just its inked shape, and ignores how the piece is turned; hours are a guess from size and fill, not style.
+
+## Fixes: tape in a pose, long hair that hangs, bars on phones (2026-11-14, built, not live)
+
+- Tape measure in a pose: starting the tape no longer resets the pose. Points are still picked and measured on the standing skin (so the length is the artist's length), and the tape, its end dots and its label are drawn on the posed body, each vertex following its spot on the skin. Tested: t75 (pose kept, same length, tape and dots on the posed skin, Around in a pose lands under the finger, back to standing).
+- Long hair that hangs (`src/bend.js`): in a still pose that moves the head against the chest, each long strand is laid again from its root keeping every segment's length, toward where the old blend put it, clear of the neck and jaw; spare length falls down. No more bunch under the chin on a tilt or stretched strands down the back. While a motion plays the old blend in the shader keeps up. Tested: bend-unit (length kept with slack and stretch, falls down, no move changes nothing), t69 to t71; checked by eye bowed and tilted.
+- Phones: the Pain map and Open skin bars sit at the bottom in the tray's place while they are on (the tray comes back after Done), so the head, neck and chest stay in view. Tested: t79 and t82 at 390 x 844.
+- New to try: Tape measure in a pose, Long hair that hangs.
+

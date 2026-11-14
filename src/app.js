@@ -1785,7 +1785,7 @@ document.querySelectorAll('#hairRow [data-hair]').forEach((b) => b.addEventListe
   if (was === 'none' && hair.style !== 'none') viewFace();
 }));
 const hairShell = createHairShell({ THREE, body });
-const hairStrands = createHairStrands({ THREE, body, skullMove, build: (R, N, I, H, style) => buildStrands(R, N, I, H, COUNTS.body, style), onChange: () => { needsRender = true; } });
+const hairStrands = createHairStrands({ THREE, body, skullMove, moving: () => poseView.motion.playing, build: (R, N, I, H, style) => buildStrands(R, N, I, H, COUNTS.body, style), onChange: () => { needsRender = true; } });
 const beardStrands = createHairStrands({ THREE, body, skullMove, field: 'beard', styles: ['full'], build: (R, N, I, B) => buildBeard(R, N, I, B, COUNTS.body), onChange: () => { needsRender = true; } });
 setSkinHair(hair.style, hairHex(hair)); hairShell.set(hair.style, hairHex(hair)); hairStrands.set(hair.style, hairHex(hair)); setSkinBeard(beard, hairHex(hair)); beardStrands.set(beard, hairHex(hair)); renderHair();
 afterShape = () => { hairStrands.update(); beardStrands.update(); };
@@ -2155,7 +2155,8 @@ $('#ansRead').addEventListener('click', () => bringInAnswers($('#ansText').value
 /* ---------- tape measure ---------- */
 // Measure the body like a tailor's tape: tap two points for the length along the skin between
 // them, or one point for the way round an arm, leg, neck or the body there. Works on the
-// standing body; the points stay on the same skin when the shape changes. Only for looking.
+// rest body (a pose does not change your size) and drawn on the skin as it is shown, standing
+// or posed; the points stay on the same skin when the shape changes. Only for looking.
 tape.group = new THREE.Group(); tape.group.renderOrder = 5; scene.add(tape.group);
 const tapeMat = new THREE.MeshBasicMaterial({ color: 0xffc83d }), tapeEnd = new THREE.MeshBasicMaterial({ color: 0x1b1b1f });
 function tapeNb() { const I = bodyGeo.index.array; if (tape.nbOf !== I) { tape.nb = meshNeighbours(I); tape.nbOf = I; } return tape.nb; }
@@ -2166,15 +2167,62 @@ function tapeSpot(p) {
   const l = Math.hypot(...n) || 1; return { pos, n: n.map((x) => x / l) };
 }
 function tapeClear() { for (const c of [...tape.group.children]) { tape.group.remove(c); c.geometry.dispose(); } needsRender = true; }
+// Where each piece of the tape sits on the rest skin (triangle + weights), so in a pose it can
+// be laid on the same skin as shown: nearest vertex, then the closest of its triangles.
+function tapeTris() {
+  const I = bodyGeo.index.array;
+  if (tape.trisOf !== I) { const n = bodyGeo.attributes.position.count, of = Array.from({ length: n }, () => []); for (let t = 0; t * 3 < I.length; t++) for (let k = 0; k < 3; k++) of[I[t * 3 + k]].push(t); tape.trisOf = I; tape.vTris = of; }
+  if (tape.gridKey !== shapeKey) {
+    const P = bodyGeo.attributes.position.array, g = new Map(), c = 0.03;
+    for (let v = 0; v < PAIN_N; v++) { const k = `${Math.floor(P[v * 3] / c)},${Math.floor(P[v * 3 + 1] / c)},${Math.floor(P[v * 3 + 2] / c)}`; let a = g.get(k); if (!a) g.set(k, (a = [])); a.push(v); }
+    tape.grid = g; tape.gridKey = shapeKey;
+  }
+  return tape;
+}
+const tapeTri = new THREE.Triangle(), tapeQ = new V3(), tapeW = new V3();
+function tapeAnchor(p) {
+  const { grid, vTris } = tapeTris(), P = bodyGeo.attributes.position.array, I = bodyGeo.index.array, c = 0.03;
+  const cx = Math.floor(p[0] / c), cy = Math.floor(p[1] / c), cz = Math.floor(p[2] / c);
+  let best = -1, bd = Infinity;
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) for (const v of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) || []) { const d = (P[v * 3] - p[0]) ** 2 + (P[v * 3 + 1] - p[1]) ** 2 + (P[v * 3 + 2] - p[2]) ** 2; if (d < bd) { bd = d; best = v; } }
+  if (best < 0) return null;
+  const at = new V3(...p); let tri = -1, td = Infinity, w = null;
+  for (const t of vTris[best]) {
+    tapeTri.set(new V3().fromArray(P, I[t * 3] * 3), new V3().fromArray(P, I[t * 3 + 1] * 3), new V3().fromArray(P, I[t * 3 + 2] * 3));
+    tapeTri.closestPointToPoint(at, tapeQ); const d = tapeQ.distanceToSquared(at);
+    if (d < td) { td = d; tri = t; tapeTri.getBarycoord(tapeQ, tapeW); w = [tapeW.x, tapeW.y, tapeW.z]; }
+  }
+  return tri < 0 ? null : { tri, w };
+}
+function pointAt(P, I, tri, w) { const out = [0, 0, 0]; for (let k = 0; k < 3; k++) for (let d = 0; d < 3; d++) out[d] += P[I[tri * 3 + k] * 3 + d] * w[k]; return out; }
+// Before each draw, move the tape's vertices with the skin under them: the same offset from
+// the same point on the shown skin (standing or posed).
+function tapeFollow(mesh, centreOf) {
+  const pa = mesh.geometry.attributes.position, rest = Float32Array.from(pa.array), anchors = [];
+  const n = pa.count, own = new Int32Array(n);
+  const byKey = new Map();
+  for (let i = 0; i < n; i++) { const c = centreOf(i); let k = byKey.get(c.key); if (k === undefined) { k = anchors.length; byKey.set(c.key, k); anchors.push({ a: tapeAnchor(c.p) }); } own[i] = k; }
+  let shownOf = '';
+  mesh.onBeforeRender = () => {
+    const geo = body.geometry, now = (geo === bodyGeo ? 'rest' : 'pose' + poseView.version) + '|' + shapeKey; if (now === shownOf) return;
+    const P = geo.attributes.position.array, I = bodyGeo.index.array, RP = bodyGeo.attributes.position.array;
+    const shift = anchors.map(({ a }) => { if (!a || geo === bodyGeo) return [0, 0, 0]; const q = pointAt(P, I, a.tri, a.w), r = pointAt(RP, I, a.tri, a.w); return [q[0] - r[0], q[1] - r[1], q[2] - r[2]]; });
+    for (let i = 0; i < n; i++) { const d = shift[own[i]]; pa.array[i * 3] = rest[i * 3] + d[0]; pa.array[i * 3 + 1] = rest[i * 3 + 1] + d[1]; pa.array[i * 3 + 2] = rest[i * 3 + 2] + d[2]; }
+    pa.needsUpdate = true; shownOf = now;
+  };
+  mesh.frustumCulled = false;
+}
 function tapeDraw(pts, closed, ends) {
   tapeClear();
   const v = []; for (const p of pts) { const q = new V3(...p); if (!v.length || q.distanceTo(v[v.length - 1]) > 1e-4) v.push(q); }
   if (closed && v.length > 2 && v[0].distanceTo(v[v.length - 1]) < 1e-3) v.pop();
   if (v.length > 1) {
     const curve = new THREE.CatmullRomCurve3(v, closed, 'centripetal');
-    const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.min(1200, v.length * 3), 0.0028, 6, closed), tapeMat); tube.renderOrder = 5; tape.group.add(tube);
+    const segs = Math.min(1200, v.length * 3), tube = new THREE.Mesh(new THREE.TubeGeometry(curve, segs, 0.0028, 6, closed), tapeMat); tube.renderOrder = 5; tape.group.add(tube);
+    const centres = []; for (let i = 0; i <= segs; i++) centres.push(curve.getPointAt(closed ? (i % segs) / segs : i / segs).toArray());
+    tapeFollow(tube, (k) => { const i = Math.floor(k / 7); return { key: i, p: centres[i] }; });
   }
-  for (const e of ends) { const m = new THREE.Mesh(new THREE.SphereGeometry(0.0065, 16, 12), tapeEnd); m.position.set(...e); tape.group.add(m); }
+  for (const e of ends) { const g = new THREE.SphereGeometry(0.0065, 16, 12); g.translate(...e); const m = new THREE.Mesh(g, tapeEnd); tape.group.add(m); tapeFollow(m, () => ({ key: 0, p: e })); }
 }
 function tapeMeasure() {
   tape.key = shapeKey; tape.result = null; tapeClear();
@@ -2222,17 +2270,19 @@ function tapeTap(x, y) {
   const p = { tri: h.faceIndex, w: [h.barycoord.x, h.barycoord.y, h.barycoord.z] };
   if (tape.mode === 'around' || tape.pts.length >= 2) tape.pts = [p]; else tape.pts.push(p);
   tapeMeasure(); tapeRender();
-  if (tape.result && !tape.result.fail) markTried('tape');
+  if (tape.result && !tape.result.fail) { markTried('tape'); if (poseView.active) markTried('tapePose'); }
 }
 function placeTape() {
   const lab = $('#tapeLabel'), r = tape.result;
   if (tape.on && tape.key !== shapeKey && tape.pts.length) { tapeMeasure(); requestAnimationFrame(tapeRender); }
-  tape.group.visible = tape.on && !poseView.active;
-  if (!tape.on || !r || r.fail || poseView.active) { lab.hidden = true; return; }
-  const m = new V3(...r.mid), sc = screenOf(m), rc = canvas.getBoundingClientRect();
+  tape.group.visible = tape.on;
+  if (!tape.on || !r || r.fail) { lab.hidden = true; return; }
+  // the middle of the tape on the skin as it is shown (standing or posed)
+  if (!r.midAt || r.midKey !== shapeKey) { r.midAt = tapeAnchor(r.mid); r.midKey = shapeKey; }
+  const m = new V3(...(poseView.active && r.midAt ? poseView.pointOn(r.midAt.tri, r.midAt.w).pos : r.mid)), sc = screenOf(m), rc = canvas.getBoundingClientRect();
   // hide the label when that bit of the tape is behind the body
   ray.set(camera.position, m.clone().sub(camera.position).normalize());
-  const hit = ray.intersectObject(body, false)[0], hidden = hit && hit.distance < camera.position.distanceTo(m) - 0.012;
+  const hit = poseView.withPosed(() => ray.intersectObject(body, false)[0]), hidden = hit && hit.distance < camera.position.distanceTo(m) - 0.012;
   const inView = sc.x > rc.left + 30 && sc.x < rc.right - 30 && sc.y > rc.top + 40 && sc.y < rc.bottom - 10;
   lab.hidden = !!hidden || !inView; if (lab.hidden) return;
   lab.textContent = tapeText(r.len, state.heightCm || 175).text;
@@ -2243,7 +2293,6 @@ function tapeOn(mode) {
   if (pins.on) pinsOff();
   cancelGesture(); closePanels(); tapPlaceId = null;
   if (selectedId) select(null);
-  if (poseView.active || poseView.motion.playing) { poseView.choose('neutral'); renderPose(); toast('The tape measure works on the standing body.'); }
   tape.on = true; tape.pts = []; tape.result = null; if (mode) tape.mode = mode; tapeClear(); tapeRender();
 }
 function tapeOff() { tape.on = false; tape.pts = []; tape.result = null; tapeClear(); tapeRender(); }
@@ -2306,6 +2355,7 @@ function painOfTattoo(t) {
 }
 function painRender() {
   $('#painBtn').setAttribute('aria-pressed', String(pain.on)); $('#painBar').hidden = !pain.on;
+  document.body.classList.toggle('wash-on', pain.on || room.on);
   $('#painText').textContent = pain.text;
   if (pain.mesh) pain.mesh.visible = pain.on;
   canvas.style.cursor = pain.on ? 'crosshair' : (tape.on || tapPlaceId ? 'crosshair' : '');
@@ -2424,6 +2474,7 @@ function roomSummaryText() {
 function roomFitText(t) { return `Green is where ${t.name || 'it'} fits with half an inch to spare. Tap a green spot to move it there.`; }
 function roomRender() {
   $('#roomBtn').setAttribute('aria-pressed', String(room.on)); $('#roomBar').hidden = !room.on;
+  document.body.classList.toggle('wash-on', pain.on || room.on);
   $('#roomText').textContent = room.text;
   $('#roomKeyAll').hidden = !!room.fitId; $('#roomKeyFit').hidden = !room.fitId; $('#roomAll').hidden = !room.fitId;
   if (room.mesh) room.mesh.visible = room.on;
@@ -3653,7 +3704,7 @@ window.__ink = {
   state: () => state, ready: () => booted,
   sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
-  tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),
+  tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   cover: () => { const t = sel(); return t ? coverOf(t) : null; },
   room: () => ({ on: room.on, fitId: room.fitId, text: $('#roomText').textContent, shown: !!(room.mesh && room.mesh.visible), need: room.need ? toInches(room.need * 2) : 0, at: (v) => { roomData(); return { across: toInches(room.across[v]), clear: toInches(room.clear[v]), cap: toInches(room.cap[v]), off: roomOff(v), fits: room.fitId ? roomFits(v) : null, place: painData().place[v] }; }, shares: () => inkShares(), summary: () => roomSummaryText(), regions: () => roomByRegion(roomData().across, painData().place, (v) => !roomOff(v)).map((r) => ({ region: r.region, across: toInches(r.across) })), fitsCount: () => { roomData(); let n = 0; for (let v = 0; v < PAIN_N; v++) if (room.fitId && roomFits(v)) n++; return n; }, pick: (id) => roomPick(state.tattoos.find((t) => t.id === id)), under: (x, y) => { const h = hitBody(x, y); if (!h || !h.face) return null; roomData(); const P = bodyGeo.attributes.position.array, vs = [h.face.a, h.face.b, h.face.c]; let v = vs[0], bd = Infinity; for (const u of vs) { const d = (P[u * 3] - h.point.x) ** 2 + (P[u * 3 + 1] - h.point.y) ** 2 + (P[u * 3 + 2] - h.point.z) ** 2; if (d < bd) { bd = d; v = u; } } return { v, off: roomOff(v), fits: room.fitId ? roomFits(v) : null, across: toInches(room.across[v]), place: painData().place[v], point: h.point.toArray() }; }, drawnAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null, colourAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.color.array.slice(v * 3, v * 3 + 3)) : null }),

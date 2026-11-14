@@ -83,5 +83,13 @@ export default async function(p){
  assert.equal(await p.evaluate(()=>window.__ink.selected()),null,'the editor gets out of the way');
  await (await p.$$('#trayItems .chip'))[0].click();await wait(400);assert.ok(!(await p.evaluate(()=>window.__ink.room().on)),'selecting puts it away');
  await p.evaluate(()=>localStorage.removeItem('ia-rate'));
+ // on a phone the bar sits at the bottom in the tray's place
+ await p.setViewport({width:390,height:844,deviceScaleFactor:1});await wait(500);
+ await p.click('#lookBtn');await p.click('#roomBtn');await wait(600);
+ const ph=await p.evaluate(()=>{const r=document.querySelector('#roomBar').getBoundingClientRect();return{top:r.top,bottom:r.bottom,h:innerHeight,dock:getComputedStyle(document.querySelector('#dock')).display};});
+ assert.ok(ph.top>ph.h*0.55&&ph.bottom<=ph.h&&ph.dock==='none','phone: open skin bar at the bottom '+JSON.stringify(ph));
+ await p.click('#roomDone');await wait(300);
+ assert.notEqual(await p.$eval('#dock',e=>getComputedStyle(e).display),'none','phone: the tray comes back');
+ await p.setViewport({width:1180,height:820,deviceScaleFactor:1});await wait(300);
  console.log('PASS t82 open skin: '+reg.Back.toFixed(1)+' in on the back, '+reg.Forearms.toFixed(1)+' on a forearm; tap reads, green fits, tap moves and undo puts back, too tight says so, pose, Done, tape | '+where+' | '+priced);
 }

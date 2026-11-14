@@ -3,6 +3,7 @@
 // attribute, from hair.js), so the shell grows from nothing at the hairline to its full depth on
 // top. It always draws whatever geometry the body has (standing or posed), so it follows every
 // shape and pose without a mesh of its own. Strands are shaded in the fragment shader.
+import { hangStrands } from './bend.js';
 export function createHairShell({ THREE, body }) {
   const U = { uThick: { value: 0.012 }, uHairCol: { value: new THREE.Color('#3b2a1f') } };
   const mat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.62, metalness: 0, sheen: 0.35, sheenRoughness: 0.5, sheenColor: new THREE.Color('#3b2a1f'), polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
@@ -71,20 +72,24 @@ float hsField(vec3 p, vec3 n) {
 // Medium and Long hair: strands from hair-strands.js over a thin base. Built on the rest body when
 // the style is first shown or the head's shape changes; in a pose it follows the skull as one
 // piece (the head barely bends), read from four skull vertices each time it draws. Long hair's
-// ends follow the upper chest instead, blended by each vertex's follow weight.
-export function createHairStrands({ THREE, body, build, skullMove, onChange = () => {}, field = 'hair', styles = ['medium', 'long'] }) {
+// ends follow the upper chest instead, blended by each vertex's follow weight. When the head
+// moves against the chest (a bow, a tilt, a turn), that blend alone would squash the hair
+// between the chin and the chest or stretch it thin down the back, so in a still pose each
+// strand is laid again from its root keeping every segment's length (hangs, see bend.js).
+export function createHairStrands({ THREE, body, build, skullMove, onChange = () => {}, field = 'hair', styles = ['medium', 'long'], moving = () => false }) {
+  // moving(): a motion is playing, so the quick blend in the shader keeps up frame by frame
   const fkey = field + 'Key';
   const mat = new THREE.MeshPhysicalMaterial({ color: 0x3b2a1f, roughness: 0.55, metalness: 0, sheen: 0.3, sheenRoughness: 0.4, sheenColor: new THREE.Color('#5a4535'), side: THREE.DoubleSide, vertexColors: true });
   // both sides of a ribbon light as the outside of the hair (three.js would light the back side
   // as if it faced into the head, which shows as dark spikes)
-  const uRel = { value: new THREE.Matrix4() }, uCol = { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] };
+  const uRel = { value: new THREE.Matrix4() }, uBent = { value: 0 }, uCol = { value: [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()] };
   mat.onBeforeCompile = (sh) => {
-    sh.uniforms.uRel = uRel; sh.uniforms.uCol = uCol;
+    sh.uniforms.uRel = uRel; sh.uniforms.uCol = uCol; sh.uniforms.uBent = uBent;
     // follow: 0 moves with the skull, 1 with the chest (uRel takes the skull's move to the chest's).
     // uCol: the neck's base and top, the head's middle, and the two radii (neck, jaw). Where a pose
     // brings a strand further into the neck or jaw than it sat at rest, it is pushed back out.
-    sh.vertexShader = `attribute float follow;
-uniform mat4 uRel; uniform vec3 uCol[4];
+    sh.vertexShader = `attribute float follow; attribute vec3 bent;
+uniform mat4 uRel; uniform vec3 uCol[4]; uniform float uBent;
 vec4 capsule( vec3 p, vec3 a, vec3 b, float r ) {
   vec3 ab = b - a; float t = clamp( dot( p - a, ab ) / max( dot( ab, ab ), 1e-8 ), 0.0, 1.0 );
   vec3 d = p - ( a + ab * t ); float l = length( d );
@@ -97,7 +102,8 @@ vec4 inside( vec3 p, vec3 nb ) {
 ` + sh.vertexShader
       .replace('#include <beginnormal_vertex>', 'vec3 objectNormal = normalize( mix( vec3( normal ), mat3( uRel ) * vec3( normal ), follow ) );')
       .replace('#include <begin_vertex>', `vec3 transformed = mix( vec3( position ), ( uRel * vec4( position, 1.0 ) ).xyz, follow );
-if ( follow > 0.0 ) {
+if ( uBent > 0.5 ) transformed = bent;
+else if ( follow > 0.0 ) {
   float was = max( inside( position, uCol[0] ).w, 0.0 );
   vec4 now = inside( transformed, ( uRel * vec4( uCol[0], 1.0 ) ).xyz );
   transformed += now.xyz * max( now.w - was, 0.0 );
@@ -108,7 +114,7 @@ if ( follow > 0.0 ) {
   mesh.raycast = () => {}; mesh.visible = false; mesh.renderOrder = 2; mesh.userData.notBody = true; mesh.frustumCulled = false;
   mesh.matrixAutoUpdate = false;
   body.add(mesh);
-  let builtFor = null, anchors = null, restCopy = null, chest = null, chestRest = null, want = null;
+  let builtFor = null, anchors = null, restCopy = null, chest = null, chestRest = null, want = null, hang = null, bentFor = '';
   const mS = new THREE.Matrix4(), mC = new THREE.Matrix4();
   let timer = 0, tucked = false, near = null;
   const NEAR = 0.025, nkey = (x, y, z) => Math.floor(x / NEAR) + ',' + Math.floor(y / NEAR) + ',' + Math.floor(z / NEAR);
@@ -126,6 +132,9 @@ if ( follow > 0.0 ) {
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     g.setAttribute('follow', new THREE.BufferAttribute(s.follow || new Float32Array(s.shade.length), 1));
     g.setIndex(new THREE.BufferAttribute(s.index, 1));
+    hang = s.follow && s.segs && s.collide ? { per: (s.segs + 1) * 2, strands: s.strands, rest: s.position, follow: s.follow, collide: s.collide } : null;
+    if (hang) g.setAttribute('bent', new THREE.BufferAttribute(new Float32Array(s.position.length), 3));
+    uBent.value = 0; bentFor = '';
     mesh.geometry.dispose(); mesh.geometry = g; mesh.userData.strands = s.strands;
     const grab = (list) => Float32Array.from(list.flatMap((v) => [R[v * 3], R[v * 3 + 1], R[v * 3 + 2]]));
     anchors = s.anchors; restCopy = grab(anchors);
@@ -145,6 +154,14 @@ if ( follow > 0.0 ) {
       const P = geo.attributes.position.array, grab = (list) => Float32Array.from(list.flatMap((v) => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]));
       mesh.matrix.fromArray(skullMove(restCopy, grab(anchors), [0, 1, 2, 3]));
       if (chest) { mC.fromArray(skullMove(chestRest, grab(chest), [0, 1, 2, 3])); uRel.value.copy(mS.copy(mesh.matrix).invert()).multiply(mC); }
+    }
+    // a still pose that moves the head against the chest: lay each strand again from its root
+    const e = uRel.value.elements, moved = hang && e.some((x, i) => Math.abs(x - (i % 5 === 0 ? 1 : 0)) > 2e-3);
+    if (!moved || moving()) { uBent.value = 0; bentFor = ''; }
+    else {
+      const k = e.map((x) => x.toFixed(5)).join(',');
+      if (k !== bentFor) { const a = mesh.geometry.attributes.bent; hangStrands(hang, e, a.array); a.needsUpdate = true; bentFor = k; }
+      uBent.value = 1;
     }
     mesh.matrixWorld.multiplyMatrices(body.matrixWorld, mesh.matrix);
   };
