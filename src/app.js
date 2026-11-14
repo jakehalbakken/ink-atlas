@@ -1748,6 +1748,7 @@ function needTattoo() {
 const SHOW = {
   tape: () => { showLook(true); return ['#tapeBtn', 'Tap Tape measure, then two points on the body. Around wraps it round an arm, a leg or the waist.']; },
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
+  sizesSheet: () => { toggle('#share', true); return ['#cSizes', 'Tap for your tattoo a size smaller, as it is and a size bigger, side by side on the body.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
   eyes: () => { toggle('#bodyPop', true); viewFace(); return ['#eyeCols', 'Tap a colour for the eyes. The view moves to the face.']; },
   hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved, Buzz cut, Short, Medium or Long, then a colour.']; },
@@ -2303,6 +2304,59 @@ function agingSheet() {
   return out.toDataURL('image/png');
 }
 let agingLast = null;
+// The selected tattoo at three sizes on the body, side by side: a size smaller, as it is now and
+// a size bigger, each labelled with its real width, to choose between or send to the artist.
+// The tattoo itself never changes.
+function sizeSteps(wIn) {
+  const half = (v) => Math.max(0.5, Math.round(v * 2) / 2);
+  let a = half(wIn * 0.72), b = half(wIn * 1.35);
+  if (a >= wIn - 0.2) a = Math.max(0.5, half(wIn - 0.5)); if (b <= wIn + 0.2) b = half(wIn + 0.5);
+  return a < wIn - 0.2 ? [a, wIn, b] : [wIn, b, half(b * 1.3)];
+}
+function sizesSheet() {
+  const t = sel() && !sel().hidden ? sel() : state.tattoos.find((x) => !x.hidden);
+  if (!t) return null;
+  const k = state.heightCm / 175, toIn = (w) => w * 100 * k / 2.54, fromIn = (i) => i * 2.54 / 100 / k;
+  const nowIn = toIn(t.width), sizes = sizeSteps(nowIn), w0 = t.width;
+  const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, inset = curInset;
+  const W = canvas.width, H = canvas.height, side = Math.min(W, H), sx = Math.round((W - side) / 2), sy = Math.round((H - side) / 2);
+  const tile = Math.min(side, 900), pad = Math.round(tile * 0.03), lab = Math.round(tile * 0.13), head = Math.round(tile * 0.15);
+  const out = document.createElement('canvas'); out.width = tile * 3 + pad * 4; out.height = head + tile + lab + pad;
+  const g = out.getContext('2d'); g.fillStyle = '#16171c'; g.fillRect(0, 0, out.width, out.height);
+  g.textBaseline = 'middle'; g.textAlign = 'center';
+  try {
+    curInset = 0; applyInset();
+    // the same view for all three, framed round the biggest
+    focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2)), big = fromIn(Math.max(...sizes));
+    goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
+    goal.r = THREE.MathUtils.clamp((Math.max(big, big / t.aspect) * 1.6 + 0.08) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.4);
+    Object.assign(cur, goal); glide = false; applyCam();
+    exporting = true;
+    sizes.forEach((inch, i) => {
+      t.width = Math.abs(inch - nowIn) < 0.01 ? w0 : fromIn(inch); syncDecals();
+      poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+      const x = pad + i * (tile + pad), y = head, now = Math.abs(inch - nowIn) < 0.01;
+      g.drawImage(canvas, sx, sy, side, side, x, y, tile, tile);
+      if (now) { g.strokeStyle = '#8b7bff'; g.lineWidth = Math.max(4, tile * 0.008); g.strokeRect(x + g.lineWidth / 2, y + g.lineWidth / 2, tile - g.lineWidth, tile - g.lineWidth); }
+      const inTxt = inch < 10 ? (Math.round(inch * 10) / 10).toString() : Math.round(inch).toString(), cm = inch * 2.54;
+      g.fillStyle = '#f2f2f5'; g.font = `600 ${Math.round(lab * 0.36)}px -apple-system, system-ui, sans-serif`;
+      g.fillText(`${inTxt} in wide (${cm < 10 ? cm.toFixed(1) : Math.round(cm)} cm)`, x + tile / 2, y + tile + lab * 0.36);
+      g.fillStyle = now ? '#b3a9ff' : '#9a9cab'; g.font = `${Math.round(lab * 0.26)}px -apple-system, system-ui, sans-serif`;
+      g.fillText(now ? 'As it is now' : inch < nowIn ? 'Smaller' : 'Bigger', x + tile / 2, y + tile + lab * 0.74);
+    });
+  } finally {
+    t.width = w0; exporting = false; syncDecals();
+    Object.assign(cur, oldCur); Object.assign(goal, oldGoal); glide = oldGlide; curInset = inset; applyInset(); applyCam(); needsRender = true;
+  }
+  g.fillStyle = '#f2f2f5'; g.font = `600 ${Math.round(head * 0.3)}px -apple-system, system-ui, sans-serif`;
+  g.fillText(`${t.name || 'This tattoo'} at three sizes`, out.width / 2, head * 0.42);
+  g.fillStyle = '#9a9cab'; g.font = `${Math.round(head * 0.19)}px -apple-system, system-ui, sans-serif`;
+  const hInch = state.heightCm / 2.54;
+  g.fillText(`On a body ${Math.floor(hInch / 12)} ft ${Math.round(hInch % 12)} in tall. Widths are across the skin.`, out.width / 2, head * 0.78);
+  sizesLast = { tile, pad, head, lab, id: t.id, sizes };
+  return out.toDataURL('image/png');
+}
+let sizesLast = null;
 // The tattoo in four poses, as one picture: standing, then three poses that move the skin under
 // it (an arm tattoo gets that arm flexed, overhead and forward; a leg tattoo a knee lift, a
 // squat and a stride; a torso tattoo arms overhead, a turn and a stretch). The live pose, view
@@ -2434,6 +2488,7 @@ async function saveFile(filename, data) {
 $('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(previewFile.filename, dataUrlBlob(previewFile.url)); });
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
 $('#cPoses').addEventListener('click', () => { const url = posesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('poses-sheet'); showPreview(url, 'ink-atlas-poses.png', 'As you move'); });
+$('#cSizes').addEventListener('click', () => { const url = sizesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('sizes-sheet'); showPreview(url, 'ink-atlas-sizes.png', 'Three sizes'); });
 $('#cAging').addEventListener('click', () => { const url = agingSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('aging-sheet'); showPreview(url, 'ink-atlas-aging.png', 'How it may age'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
@@ -2955,6 +3010,7 @@ function tick(now) {
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted,
+  sizes: () => sizesLast, sizeSteps,
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
