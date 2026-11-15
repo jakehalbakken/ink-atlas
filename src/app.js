@@ -23,7 +23,7 @@ import { emailCodes } from './cloud.js';
 import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
 import { makeArtistPacket } from './artist-packet.js';
-import { cleanState, imageKeysFor } from './project.js';
+import { cleanState, imageKeysFor, REACTIONS } from './project.js';
 import { openStore } from './store.js';
 import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
@@ -2439,6 +2439,7 @@ function renderPins() {
     const t = open.tattooId && state.tattoos.find((x) => x.id === open.tattooId);
     $('#pinWho').textContent = [open.by || 'You', open.at ? fmtDay(open.at) : '', t ? 'on ' + (t.name || 'a tattoo') : ''].filter(Boolean).join(' · ') + (open.done ? `. Resolved by ${open.done.by || 'someone'}${open.done.at ? ' ' + fmtDay(open.done.at) : ''}.` : '');
     $('#pinReplies').replaceChildren(...(Array.isArray(open.replies) ? open.replies : []).map((r) => { const li = el('li'); li.append(...mentionNodes(r.text), el('small', { text: [r.by || 'Someone', r.at ? fmtDay(r.at) : ''].filter(Boolean).join(' · ') })); return li; }));
+    renderReacts(open);
     $('#pinRead').classList.toggle('done', !!open.done);
     $('#pinResolve').textContent = open.done ? 'Reopen' : 'Resolve';
     $('#pinDelete').hidden = commentOnly && !(open.by && open.by === myName());
@@ -2532,6 +2533,19 @@ function renderTyping() {
   $('#pinTyping').hidden = !who.length;
   if (who.length) markTried('typing');
   $('#pinTyping').textContent = who.length ? `${who.join(' and ')} ${who.length === 1 ? 'is' : 'are'} typing a reply…` : '';
+}
+// quick reactions to the open comment, on a project worked on together: one tap, no typing
+function renderReacts(n) {
+  const list = Array.isArray(n.reacts) ? n.reacts : [], me = myName() || 'You';
+  $('#pinReacts').hidden = !workingTogether() && !list.length;
+  $('#pinReacts').replaceChildren(...REACTIONS.map(([e, label]) => {
+    const who = list.filter((r) => r.e === e).map((r) => r.by), mine = who.includes(me);
+    const b = el('button', { class: 'btn react', type: 'button', 'aria-pressed': String(mine), 'data-e': e,
+      'aria-label': `${label}${who.length ? ': ' + who.map((w) => (w === me ? 'you' : w)).join(', ') : ''}`, title: who.join(', ') || label,
+      onclick: () => { if (changePin(n.id, (x) => { const rs = Array.isArray(x.reacts) ? x.reacts.filter((r) => r.id !== e + '|' + me) : []; if (!mine) rs.push({ id: e + '|' + me, e, by: me }); if (rs.length) x.reacts = rs; else delete x.reacts; })) markTried('reacts'); } });
+    b.append(el('span', { text: e, 'aria-hidden': 'true' })); if (who.length) b.append(el('small', { text: String(who.length) }));
+    return b;
+  }));
 }
 // @mentions: a mention of this person stands out, and typing @ offers the names on the project
 function mentionNodes(text) { return mentionPieces(text, myName()).map((p) => (p.me ? el('mark', { class: 'at-me', text: p.text }) : document.createTextNode(p.text))); }

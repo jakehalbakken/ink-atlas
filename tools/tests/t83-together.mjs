@@ -22,6 +22,7 @@ export default async function (p) {
   const db = async (sql, args) => (await fake.pool.query(sql, args)).rows;
   const clickText = async (pg, text) => { const ok = await pg.evaluate((t) => { const b = [...document.querySelectorAll('#account button')].find((x) => x.textContent.trim() === t && !x.disabled && x.offsetParent); if (b) b.click(); return !!b; }, text); assert.ok(ok, 'button ' + text); };
   const hasText = (pg, text) => pg.evaluate((t) => [...document.querySelectorAll('#account button')].some((x) => x.textContent.trim() === t && x.offsetParent), text);
+  const shown = (pg, sel) => pg.$eval(sel, (e) => !!(e.getClientRects().length && getComputedStyle(e).display !== 'none' && !e.hidden)).catch(() => false);
   const type = async (pg, sel, text) => { await wait(150); await pg.$eval(sel, (e) => { e.value = ''; }); await pg.type(sel, text); assert.equal(await pg.$eval(sel, (e) => e.value), text, 'typed into ' + sel); };
   const toastText = (pg) => pg.$eval('#toast', (e) => (e.hidden ? '' : e.textContent));
   const openPage = async () => {
@@ -223,6 +224,20 @@ export default async function (p) {
     await p.evaluate((id) => { window.__ink.openPin(null); window.__ink.openPin(id); }, note.id); await wait(200);
     await until(p, () => [...document.querySelectorAll('#pinReplies mark.at-me')].some((m) => m.textContent === '@Jake'), null, 'it stands out for Jake');
     await p.screenshot({ path: 'shots/t83-mention.png' });
+    // a quick reaction: Jake taps thumbs up, Liv sees it is his; tapping again takes it back
+    assert.equal(await shown(p, '#pinReacts'), true, 'reactions offered on a shared project');
+    assert.ok(await p.$eval('#pinReacts .react', (e) => e.getBoundingClientRect().height >= 44));
+    await p.click('#pinReacts .react[data-e="👍"]');
+    assert.equal(await p.$eval('#pinReacts .react[data-e="👍"]', (e) => e.getAttribute('aria-pressed')), 'true');
+    await q.evaluate((id) => { window.__ink.openPin(null); window.__ink.openPin(id); }, note.id);
+    await until(q, () => { const b = document.querySelector('#pinReacts .react[data-e="👍"]'); return b && /Jake/.test(b.getAttribute('aria-label')) && b.textContent.includes('1'); }, null, 'Liv sees his thumbs up', 15000);
+    await q.click('#pinReacts .react[data-e="🔥"]');
+    await until(p, () => { const b = document.querySelector('#pinReacts .react[data-e="🔥"]'); return b && /Liv/.test(b.getAttribute('aria-label')); }, null, 'Jake sees her fire', 15000);
+    await p.screenshot({ path: 'shots/t83-reacts.png' });
+    assert.equal(await p.$eval('#pinReacts .react[data-e="❤️"]', (e) => e.textContent), '❤️', 'no count when nobody reacted');
+    await p.click('#pinReacts .react[data-e="👍"]');
+    assert.equal(await p.$eval('#pinReacts .react[data-e="👍"]', (e) => e.getAttribute('aria-pressed')), 'false', 'taken back');
+    await until(q, () => !/Jake/.test(document.querySelector('#pinReacts .react[data-e="👍"]').getAttribute('aria-label')), null, 'gone for Liv too', 15000);
     await q.click('#pinsDone'); await p.click('#pinsDone'); await wait(200);
 
     // both change at once: both changes kept, still one project

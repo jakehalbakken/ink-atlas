@@ -61,6 +61,11 @@ export function changesBetween(before, after, opts = {}) {
       const at = mentionsMe(r.text, me);
       out.push({ kind: 'reply', text: at ? `${r.by || 'Someone'} mentioned you on "${quote(n.text, 30)}": "${quote(r.text)}"` : `${r.by || 'Someone'} replied to "${quote(n.text, 30)}": "${quote(r.text)}"`, noteId: n.id, pinned: !!n.pin, ...(at ? { mention: true } : {}) });
     }
+    const hadR = new Set((Array.isArray(o.reacts) ? o.reacts : []).map((r) => r && r.id));
+    for (const r of Array.isArray(n.reacts) ? n.reacts : []) {
+      if (!r || hadR.has(r.id) || (r.by || '') === me) continue;
+      out.push({ kind: 'react', text: `${r.by || 'Someone'} reacted ${r.e} to "${quote(n.text, 40)}"`, noteId: n.id, pinned: !!n.pin });
+    }
     if (!!n.done !== !!o.done) {
       const who = n.done ? n.done.by : '';
       if (!n.done || who !== me) out.push({ kind: 'resolved', text: n.done ? `${who || 'Someone'} marked "${quote(n.text, 40)}" resolved` : `Reopened "${quote(n.text, 40)}"`, noteId: n.id, pinned: !!n.pin });
