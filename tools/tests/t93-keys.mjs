@@ -20,16 +20,17 @@ export default async function (p) {
   // three quick presses to the right: it moves right on screen, one undo step
   for (let i = 0; i < 3; i++) { await p.keyboard.press('ArrowRight'); await wait(60); }
   await wait(300);
-  const t1 = await get(), s1 = await screen(t1);
-  assert.ok(s1.x > s0.x + 0.5 && Math.abs(s1.y - s0.y) < (s1.x - s0.x), 'moved right on screen: ' + JSON.stringify([s0, s1]));
+  // both points seen with the same view, in case the view is still settling
+  const t1 = await get(), s1 = await screen(t1), s0r = await screen(t0);
+  assert.ok(s1.x > s0r.x + 0.5 && Math.abs(s1.y - s0r.y) < (s1.x - s0r.x), 'moved right on screen: ' + JSON.stringify([s0r, s1]));
   const tried = await p.evaluate(() => { try { return JSON.parse(localStorage.getItem('ia-tried') || '[]'); } catch { return []; } });
   assert.ok(tried.includes('keys'), 'using it ticks it');
   await p.click('#undo'); await wait(400);
   assert.deepEqual((await get()).pos, t0.pos, 'one undo puts all three back');
   // up moves it up on screen; Shift moves further
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-  await p.keyboard.press('ArrowUp'); await wait(300); const u1 = await get(), sUp = await screen(u1);
-  assert.ok(sUp.y < s0.y - 1, 'up is up: ' + JSON.stringify([s0, sUp]));
+  await p.keyboard.press('ArrowUp'); await wait(300); const u1 = await get(), sUp = await screen(u1), s0u = await screen(t0);
+  assert.ok(sUp.y < s0u.y - 1, 'up is up: ' + JSON.stringify([s0u, sUp]));
   await wait(900); await p.keyboard.down('Shift'); await p.keyboard.press('ArrowUp'); await p.keyboard.up('Shift'); await wait(300);
   const u2 = await get();
   assert.ok(dist(u2.pos, u1.pos) > 3 * dist(u1.pos, t0.pos), 'Shift steps further: ' + [dist(u1.pos, t0.pos), dist(u2.pos, u1.pos)].join(' '));
