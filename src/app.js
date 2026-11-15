@@ -2315,6 +2315,15 @@ function artThumb(t, size = 360) {
   return c.toDataURL('image/jpeg', 0.86);
 }
 let approvalLast = null;
+// a small JPEG of a reference picture for a page that is sent on
+async function refThumb(key, size = 480) {
+  const src = images[key]; if (typeof src !== 'string') return null;
+  const im = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; }); if (!im) return null;
+  const k = Math.min(1, size / Math.max(im.naturalWidth, im.naturalHeight)), c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
+  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.8);
+}
 async function askApproval() {
   const list = state.tattoos.filter((t) => t.status !== 'existing' && !t.hidden);
   if (!list.length) { toast('Mark a tattoo as planned first, then ask about it.'); return; }
@@ -2324,7 +2333,17 @@ async function askApproval() {
     const wIn = t.width * 100 * k / 2.54, hIn = wIn / t.aspect, f = (v) => (v < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toString());
     return { n: i + 1, name: t.name || 'Tattoo', size: `${f(wIn)} x ${f(hIn)} in (${Math.round(wIn * 2.54 * 10) / 10} x ${Math.round(hIn * 2.54 * 10) / 10} cm)`, status: 'planned', closeUp: closeUpShot(t), art: artThumb(t) };
   });
-  const html = approvalHtml({ title, ref, items, date: new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) });
+  // each tattoo's reference pictures and open comments go with it on the page, so the artist sees the whole brief
+  const openNotes = pinNotes().filter((n) => !n.done), noteOut = (n) => ({ text: n.text, by: n.by, replies: (n.replies || []).map((r) => ({ text: r.text, by: r.by })) });
+  for (const it of items) {
+    const t = shown[it.n - 1];
+    it.refs = []; for (const r of refList().filter((x) => x.tattooId === t.id).slice(0, 6)) { const src = await refThumb(r.img); if (src) it.refs.push({ src, note: r.note }); }
+    it.comments = openNotes.filter((n) => n.tattooId === t.id).map(noteOut);
+  }
+  const ids = new Set(state.tattoos.map((t) => t.id)), planRefs = [];
+  for (const r of refList().filter((x) => !x.tattooId || !ids.has(x.tattooId)).slice(0, 8)) { const src = await refThumb(r.img); if (src) planRefs.push({ src, note: r.note }); }
+  const planComments = openNotes.filter((n) => !n.tattooId || !shown.some((t) => t.id === n.tattooId)).map(noteOut);
+  const html = approvalHtml({ title, ref, items, refs: planRefs, comments: planComments, date: new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) });
   state.asks = [...(Array.isArray(state.asks) ? state.asks : []), { ref, ids: shown.map((t) => t.id), at: Date.now() }].slice(-10);
   save(); markTried('approval');
   const base = title.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo-plan';

@@ -237,6 +237,12 @@ export default async function (p) {
     assert.equal(nt.status, 'planned'); assert.equal(nt.name, 'This line weight'); assert.notEqual(nt.img, ref.img, 'its own copy of the artwork');
     assert.equal((await p.evaluate(() => window.__ink.refs())).open, false, 'the board closes');
     assert.equal((st2.refs || []).length, 1, 'the board keeps its picture');
+    // the page for the artist carries each tattoo's reference pictures and open comments
+    await p.evaluate(() => document.querySelector('#cApprove').click());
+    await until(p, () => window.__ink.approval() && window.__ink.approval().html, null, 'the approval page');
+    const page = await p.evaluate(() => window.__ink.approval().html);
+    assert.ok(page.includes('<figure>') && page.includes('This line weight'), 'her reference picture is on the page');
+    assert.ok(!page.includes('Shade the petals darker'), 'a resolved comment is left off');
     console.log('t84 comment only: ok');
   } finally { await fake.stop(); fs.rmSync(tmp, { recursive: true, force: true }); }
 }
