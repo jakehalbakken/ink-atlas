@@ -577,6 +577,7 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Go back several steps: press and hold Undo for the last 15 steps in plain words; a tap goes back to just before one, and Redo brings them back. Nothing stored. Tested: `undo-words-unit.mjs` and t109. Not yet checked on iPad (long press on a button).
 - Arms and legs, unrolled (Share): each limb's skin laid flat at real size with the tattoos on it, a 5 cm grid and the elbow and knee marked, for planning a sleeve, each tattoo named with its size. View only. Tested: `limb-map-unit.mjs` and t110. Not yet checked on iPad.
 - If your body changes (Share): the selected tattoo on a slimmer, heavier and more muscular body, grown or shrunk with the skin under it, with the size in cm and one line on how much. View only. Tested: `body-change-unit.mjs` and t111. Not yet checked on iPad.
+- In a mirror (Share): this view beside the same view flipped, the way it looks when you check it in a mirror. View only. Tested: t112. Not yet checked on iPad.
 - Storage: optional fields cleaned in `cleanState`; older saves have none, so no migration. Not yet checked: whether the account sync carries these fields (asked the accounts side), and the .ics opening in the iPad's Calendar.
 
 ## What it shows in, how it holds up, even placement (2026-11-15, built, not live)

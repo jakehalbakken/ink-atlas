@@ -2260,6 +2260,7 @@ const SHOW = {
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
   sizesSheet: () => { toggle('#share', true); return ['#cSizes', 'Tap for your tattoo a size smaller, as it is and a size bigger, side by side on the body.']; },
   sleeve: () => { toggle('#share', true); return ['#cSleeve', 'Tap for each arm and leg’s skin laid flat with your tattoos on it, the way artists plan a sleeve.']; },
+  mirror: () => { toggle('#share', true); return ['#cMirror', 'Tap for this view beside how it looks in a mirror, where lettering reads backwards.']; },
   bodyChange: () => { toggle('#share', true); return ['#cBodyChange', 'Tap for your tattoo on a slimmer, a heavier and a more muscular body, grown or shrunk with the skin under it.']; },
   distance: () => { toggle('#share', true); return ['#cDistance', 'Tap for your tattoo close up, across a table, a room and a street, with the detail an eye can’t make out at each distance run together.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
@@ -3853,6 +3854,34 @@ function compareShot() {
   return out.toDataURL('image/png');
 }
 let compareLast = null;
+// In the mirror: this view as others see it beside the same view flipped, the way it looks when
+// you check it in a mirror (lettering reads backwards there). Nothing changes on the body.
+function mirrorShot() {
+  if (!state.tattoos.some((t) => !t.hidden)) return null;
+  const inset = curInset; curInset = 0; applyInset();
+  exporting = true; syncDecals();
+  const H = canvas.height, pad = Math.round(H * 0.02), head = Math.round(H * 0.075);
+  const geo = (poseView.active && poseView.geometry) || bodyGeo, P = geo.attributes.position.array, v = new THREE.Vector3();
+  let lo = 1, hi = -1;
+  camera.updateMatrixWorld(); for (let i = 0; i < P.length; i += 21) { v.set(P[i], P[i + 1], P[i + 2]).project(camera); if (v.z < 1 && v.y > -1.1 && v.y < 1.1) { lo = Math.min(lo, v.x); hi = Math.max(hi, v.x); } }
+  let x0 = 0, W = canvas.width;
+  if (hi > lo) { const m = (hi - lo) * 0.12 + 0.04; const a = Math.max(-1, lo - m), b = Math.min(1, hi + m); x0 = Math.round((a + 1) / 2 * canvas.width); W = Math.max(Math.round(H * 0.45), Math.round((b - a) / 2 * canvas.width)); x0 = Math.max(0, Math.min(canvas.width - W, x0)); }
+  const out = document.createElement('canvas'); out.width = W * 2 + pad * 3; out.height = H + head + pad;
+  const g = out.getContext('2d');
+  g.fillStyle = '#16171c'; g.fillRect(0, 0, out.width, out.height);
+  try {
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+    g.drawImage(canvas, x0, 0, W, H, pad, head, W, H);
+    g.save(); g.translate(W * 2 + pad * 2, 0); g.scale(-1, 1); g.drawImage(canvas, x0, 0, W, H, 0, head, W, H); g.restore();
+  } finally { exporting = false; syncDecals(); curInset = inset; applyInset(); needsRender = true; }
+  g.fillStyle = '#f2f2f5'; g.textBaseline = 'middle'; g.textAlign = 'center';
+  g.font = `600 ${Math.round(head * 0.42)}px -apple-system, system-ui, sans-serif`;
+  g.fillText('As others see it', pad + W / 2, head / 2 + pad / 2);
+  g.fillText('In a mirror', W + pad * 2 + W / 2, head / 2 + pad / 2);
+  mirrorLast = { W, H, pad, head };
+  return out.toDataURL('image/png');
+}
+let mirrorLast = null;
 // Picture with sizes: this view, with each tattoo that faces the camera labelled with its name
 // and size just under it (or over it), the labels kept apart. Returns null with no tattoo shown,
 // and '' when none faces the camera.
@@ -4423,6 +4452,7 @@ $('#cBodyChange').addEventListener('click', async () => { const url = await body
 $('#cDistance').addEventListener('click', async () => { const url = await distanceSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('distance'); showPreview(url, 'ink-atlas-distance.png', 'From a distance'); });
 $('#cAging').addEventListener('click', () => { const url = agingSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('aging-sheet'); showPreview(url, 'ink-atlas-aging.png', 'How it may age'); });
 $('#cLabels').addEventListener('click', () => { const url = labelsShot(); if (url === null) { toast('Add a tattoo first, then try this.'); return; } if (!url) { toast('Turn the body so a tattoo faces you, then try this.'); return; } markTried('labels'); showPreview(url, 'ink-atlas-sizes-labelled.png', 'Picture with sizes'); });
+$('#cMirror').addEventListener('click', () => { const url = mirrorShot(); if (!url) { toast('Add a tattoo first.'); return; } markTried('mirror'); showPreview(url, 'ink-atlas-mirror.png', 'In a mirror'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
 // Procreate colour palette: skin tone, its shade and highlight, then the project's ink colours.
@@ -4997,7 +5027,7 @@ $('#cLink').addEventListener('click', () => { toggle('#share', false); if (accou
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
-  sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, bodyChange: () => bodyChangeLast, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
+  sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, bodyChange: () => bodyChangeLast, mirror: () => mirrorLast, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
