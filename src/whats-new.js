@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'message', date: '2026-11-15', title: 'Plan as a message', how: 'Share > Plan as a message puts every planned tattoo into a few lines: its size, where it sits the way an artist measures, the time it takes, the first sitting and your note. Send it, or paste it into a text to your artist.', show: 'message' },
   { id: 'keys', date: '2026-11-15', title: 'Keyboard shortcuts', how: 'With a keyboard on the iPad, select a tattoo: the arrows move it the way they point (hold Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates it and Delete removes it. Undo puts any of it back.', show: 'keys' },
   { id: 'like', date: '2026-11-15', title: 'Size as an everyday thing', how: 'Select a tattoo and open More controls. The first line says its size as something you know, like about the size of a credit card or a bit smaller than a phone, and follows as you resize it.', show: 'like' },
   { id: 'sitWear', date: '2026-11-15', title: 'What to wear, and how to sleep after', how: 'Select a planned tattoo and open More controls. Under the sittings, a line says what to wear so the spot is open, like a T-shirt for a forearm or shorts for a calf, and another which way to sleep for the first nights. Both go in the calendar entries too. With your artist’s hourly rate set, each sitting shows its cost.', show: 'sitWear' },

@@ -32,6 +32,7 @@ import { createPoseView } from './pose-view.js';
 import { createClothes, TOPS, BOTTOMS, HAIR, coverage as clothesCoverage } from './clothes.js';
 import { OUTFITS, visibilityText, sittingWear } from './visibility.js';
 import { sizeLikeText } from './size-like.js';
+import { planMessage } from './plan-text.js';
 import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
@@ -1992,6 +1993,7 @@ const SHOW = {
   shows: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv; return [sv ? '#showsLine' : '#estRow', 'Under where it sits, a line says which everyday clothes hide this tattoo and which show it.']; },
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
+  message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   keys: () => { if (!needTattoo()) return null; return [null, 'With a keyboard: the arrows move the selected tattoo (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Undo puts any of it back.']; },
   like: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#likeLine', 'This line says the size as an everyday thing, like about the size of a credit card, so the numbers are easy to picture.']; },
   sitWear: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls says what to wear to the sitting.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return [$('#sitWear').hidden ? '#sitBox' : '#sitWear', 'Under the sittings, a line says what to wear so the spot is open without undressing more than you need to.']; },
@@ -3663,6 +3665,26 @@ async function saveFile(filename, data) {
 $('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(previewFile.filename, dataUrlBlob(previewFile.url)); });
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
 $('#cPoses').addEventListener('click', () => { const url = posesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('poses-sheet'); showPreview(url, 'ink-atlas-poses.png', 'As you move'); });
+// the plan as a message: every planned tattoo in a few lines, for a text to the artist
+function planMessageText() {
+  const k = (state.heightCm || 175) / 175, size = (t) => { const w = t.width * 100 * k, h = w / t.aspect; return `${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in (${w.toFixed(0)} × ${h.toFixed(0)} cm)`; };
+  const shown = state.tattoos.filter((t) => !t.hidden);
+  const planned = shown.filter((t) => t.status !== 'existing').map((t) => {
+    const w = whereOf(t), hrs = hoursOf(t), plan = t.sittings && t.sittings.start ? sitPlan(t) : null;
+    return { name: t.name, size: size(t), where: w ? w.line : '', time: hrs ? sessionText(hrs, 0) : '', first: plan && plan.sittings[0].date ? dayWords(plan.sittings[0].date) : '', note: t.note || '' };
+  });
+  const onMe = shown.filter((t) => t.status === 'existing').map((t) => { const w = whereOf(t); return { name: t.name, where: w ? w.where : '' }; });
+  return planMessage(planned, onMe);
+}
+$('#cMessage').addEventListener('click', async () => {
+  const text = planMessageText(); if (!text) { toast('Mark a tattoo as planned first, then try this.'); return; }
+  markTried('message');
+  if (navigator.share && (!navigator.canShare || navigator.canShare({ text }))) {
+    try { await navigator.share({ text }); return; } catch (err) { if (err && err.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(text); toast('Copied. Paste it into a message to your artist.'); return; } catch {}
+  await shareOrDownload('tattoo-plan.txt', new Blob([text], { type: 'text/plain' })); toast('Saved as a text file.');
+});
 $('#cSizes').addEventListener('click', () => { const url = sizesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('sizes-sheet'); showPreview(url, 'ink-atlas-sizes.png', 'Three sizes'); });
 $('#cAging').addEventListener('click', () => { const url = agingSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('aging-sheet'); showPreview(url, 'ink-atlas-aging.png', 'How it may age'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
@@ -4248,6 +4270,7 @@ window.__ink = {
   line: () => $('#lineRow').hidden ? '' : $('#lineText').textContent + ($('#lineFix').hidden ? '' : ' | Straighten'),
   reads: () => $('#readRow').hidden ? '' : $('#readText').textContent + ($('#readFix').hidden ? '' : ' | ' + $('#readFix').textContent),
   wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
+  planMessage: () => planMessageText(),
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
   shows: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: showsOf(t), shares: showsShares(t) } : null; },
