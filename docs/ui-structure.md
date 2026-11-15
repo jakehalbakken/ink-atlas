@@ -36,6 +36,14 @@ More controls opens sections, each with a small heading:
 5. **Copy and arrange:** Mirror, Flip vertical, Duplicate, Copy to other side, Split into designs, Clean up linked copies, Stencil for your artist.
 6. **This tattoo:** Planned or already on me, Hide, Remove.
 
+## The Body panel
+
+Figure (Male, Neutral, Female) and Reset to plain body stay at the top. Then sections: **Shape** (muscle, weight, height), **From your photos** (match a photo of me, add my face), **Skin**, **Hair** (style and colour, then Beard and Body hair under their own small labels, then match my hair from a photo), **Eyes**, **Fine-tune each part** (with Reset body shape).
+
+## The older Plan panels
+
+Layers and groups shows its group and selection buttons only once a tattoo is ticked or a group exists. Layouts and saved views shows Compare only with two saved, and Show archived only when something is archived. Words are plain everywhere (no "tangent frame", "chord", "identity"). The full-screen pins and photo tools take the backdrop colour from `--stage-b`, so they follow light and dark.
+
 ## Removed duplicates
 
 - Plan > Poses, Plan > Clothes and Plan > Try exact numbers: the same panels are under Preview > Pose, Preview > Clothes and More controls > Precise placement.

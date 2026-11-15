@@ -28,7 +28,7 @@ export default async function (p) {
   assert.equal((await p.evaluate(() => window.__ink.beardStrands())).visible, false, 'no strands to start with');
   await p.click('#bodyBtn'); await wait(200);
   const btns = await p.$$eval('#beardRow [data-beard]', (es) => es.map((e) => { const r = e.getBoundingClientRect(), pr = e.closest('#bodyPop').getBoundingClientRect(); return [e.textContent, r.height, r.left >= pr.left - 1 && r.right <= pr.right + 1]; }));
-  assert.deepEqual(btns.map((b) => b[0]), ['No beard', 'Stubble', 'Short beard', 'Full beard']);
+  assert.deepEqual(btns.map((b) => b[0]), ['None', 'Stubble', 'Short', 'Full']);
   for (const [t, hgt, fits] of btns) assert.ok(hgt >= 44 && fits, `${t}: big enough and inside the panel (${hgt})`);
   // bald, so the colour row is hidden until there is a beard
   await p.click('#hairRow [data-hair="none"]'); await wait(200);

@@ -10,7 +10,7 @@ export default async function (p) {
   assert.equal(await p.evaluate(() => window.__ink.bodyHair()), 'none', 'none to start with');
   await p.click('#bodyBtn'); await wait(200);
   const btns = await p.$$eval('#bodyHairRow [data-bhair]', (es) => es.map((e) => { const r = e.getBoundingClientRect(), pr = e.closest('#bodyPop').getBoundingClientRect(); return [e.textContent, r.height, r.left >= pr.left - 1 && r.right <= pr.right + 1]; }));
-  assert.deepEqual(btns.map((b) => b[0]), ['No body hair', 'Light', 'Full']);
+  assert.deepEqual(btns.map((b) => b[0]), ['None', 'Light', 'Full']);
   for (const [t, h, fits] of btns) assert.ok(h >= 44 && fits, `${t}: big enough and inside the panel (${h})`);
   assert.equal(await p.$eval('#bodyHairRow [data-bhair="none"]', (e) => e.getAttribute('aria-pressed')), 'true');
   // bald and no beard: no colours until there is body hair
