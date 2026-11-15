@@ -56,6 +56,7 @@ import { stencilLines, stencilPixels, stencilScale, pngWithDpi, artSharpness } f
 import { findDesigns, inDesign } from './flash.js';
 import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
 import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
+import { DISTANCES, shrinkFor, distanceText, softenRGBA } from './distance.js';
 import { makeRef, approvalHtml, parseAnswers } from './approval.js';
 import { coverByArt, coverText } from './cover.js';
 import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
@@ -1206,6 +1207,7 @@ async function runInkCheck() {
       ic.wantIn = Math.ceil(need * 2) / 2;
       items.push(['', `At about ${inTxt(ic.wantIn)} in wide, nearly every line is 0.5 mm or more.`]);
     } else if (need) items.push(['', 'This is fine line work: pick an artist who does fine line, and expect it to soften with time.']);
+    const far = distanceText(r.lineP10Mm, r.gapP10Mm); if (far) items.push(['', far.text]);
     const soft = artSharpness(im.naturalWidth, im.naturalHeight, wIn);
     if (soft) { items.push(['', `The artwork file is ${im.naturalWidth} px wide, about ${soft.dpi} dots per inch at this size, so a print or stencil will look soft. A file at least ${soft.wantPx} px wide prints sharp.`]); markTried('sharp'); }
   }
@@ -1213,7 +1215,7 @@ async function runInkCheck() {
   for (const [col, text] of items) { const li = document.createElement('li'), key = document.createElement('span'); key.className = 'key'; if (col) key.style.background = col; else key.style.visibility = 'hidden'; const tx = document.createElement('span'); tx.textContent = text; li.append(key, tx); list.append(li); }
   $('#icResize').hidden = !ic.wantIn; if (ic.wantIn) $('#icResize').textContent = `Make it ${inTxt(ic.wantIn)} in wide`;
   $('#icText').textContent = `${name} at ${inTxt(wIn)} in wide, on your skin.`;
-  ic.last = { id: t.id, w, h, pxMm, thinShare: r.thinShare, tightMm2: r.tightMm2, lineP10Mm: r.lineP10Mm, colours: r.colours, wantIn: ic.wantIn, items: items.map((i) => i[1]) };
+  ic.last = { id: t.id, w, h, pxMm, thinShare: r.thinShare, tightMm2: r.tightMm2, lineP10Mm: r.lineP10Mm, gapP10Mm: r.gapP10Mm, colours: r.colours, wantIn: ic.wantIn, items: items.map((i) => i[1]) };
 }
 function showInkCheck(on) {
   $('#inkCheck').hidden = !on; ic.run++;
@@ -2201,6 +2203,7 @@ const SHOW = {
   tape: () => { showLook(true); return ['#tapeBtn', 'Tap Tape measure, then two points on the body. Around wraps it round an arm, a leg or the waist.']; },
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
   sizesSheet: () => { toggle('#share', true); return ['#cSizes', 'Tap for your tattoo a size smaller, as it is and a size bigger, side by side on the body.']; },
+  distance: () => { toggle('#share', true); return ['#cDistance', 'Tap for your tattoo close up, across a table, a room and a street, with the detail an eye can’t make out at each distance run together.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
   eyes: () => { toggle('#bodyPop', true); viewFace(); return ['#eyeCols', 'Tap a colour for the eyes. The view moves to the face.']; },
   hair: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow', 'Pick Shaved, Buzz cut, Short, Medium or Long, then a colour.']; },
@@ -3872,6 +3875,78 @@ function agingSheet() {
   return out.toDataURL('image/png');
 }
 let agingLast = null;
+// The finest lines and gaps of a tattoo's artwork at its real size, in mm (ink check's measure).
+async function finestOf(t) {
+  const im = imgEls[t.img] || await loadImg(t.img); if (!im) return null;
+  const k = state.heightCm / 175, wMm = t.width * 1000 * k, hMm = wMm / t.aspect;
+  const pxMm = Math.max(wMm, hMm) / 900, w = Math.max(8, Math.round(wMm / pxMm)), h = Math.max(8, Math.round(hMm / pxMm));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, w, h);
+  const r = inkCheck(g.getImageData(0, 0, w, h).data, w, h, { pxMm, skin: hexRgb(skinColor()) });
+  return { lineMm: r.lineP10Mm, gapMm: r.gapP10Mm };
+}
+// What an eye sees of a picture from further off: detail smaller than 1/f of a pixel runs together.
+function softenTo(src, f) {
+  if (f >= 0.999) return src;
+  const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0);
+  const im = g.getImageData(0, 0, c.width, c.height); softenRGBA(im.data, c.width, c.height, 1 / f); g.putImageData(im, 0, 0);
+  return c;
+}
+// The selected tattoo as an eye sees it close up, across a table, a room and a street: the same
+// view each time, with the detail an eye can't make out at that distance run together. The
+// project never changes.
+async function distanceSheet() {
+  const t = sel() && !sel().hidden ? sel() : state.tattoos.find((x) => !x.hidden);
+  if (!t) return null;
+  const finest = await finestOf(t).catch(() => null), line = finest && distanceText(finest.lineMm, finest.gapMm);
+  const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, inset = curInset;
+  const W = canvas.width, H = canvas.height, side = Math.min(W, H), sx = Math.round((W - side) / 2), sy = Math.round((H - side) / 2);
+  const tile = Math.min(side, 1100), pad = Math.round(tile * 0.03), lab = Math.round(tile * 0.085), head = Math.round(tile * 0.14);
+  const out = document.createElement('canvas'); out.width = tile * 2 + pad * 3; out.height = head + (tile + lab) * 2 + pad * 2;
+  const g = out.getContext('2d'); g.fillStyle = '#16171c'; g.fillRect(0, 0, out.width, out.height);
+  g.fillStyle = '#f2f2f5'; g.textBaseline = 'middle'; g.textAlign = 'center';
+  const shot = document.createElement('canvas'); shot.width = shot.height = tile;
+  const shrinks = [];
+  try {
+    curInset = 0; applyInset();
+    // straight at the tattoo, a little wider than for aging so the limb round it shows
+    focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
+    goal.r = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 2.6 + 0.08) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.2);
+    Object.assign(cur, goal); glide = false; applyCam();
+    exporting = true; syncDecals();
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+    shot.getContext('2d').drawImage(canvas, sx, sy, side, side, 0, 0, tile, tile);
+    // the real size of one pixel of the tile, on the skin at the tattoo
+    const pxMm = (2 * tn * goal.r * Math.min(1, camera.aspect)) * (state.heightCm / 175) * 1000 / tile;
+    DISTANCES.forEach((d, i) => {
+      const f = shrinkFor(pxMm, d.m); shrinks.push(f);
+      const x = pad + (i % 2) * (tile + pad), y = head + Math.floor(i / 2) * (tile + lab + pad);
+      g.drawImage(softenTo(shot, f), x, y, tile, tile);
+      g.fillStyle = '#f2f2f5'; g.font = `600 ${Math.round(lab * 0.42)}px -apple-system, system-ui, sans-serif`;
+      g.fillText(`${d.label}, ${d.ft} (${d.m < 1 ? Math.round(d.m * 100) + ' cm' : d.m + ' m'})`, x + tile / 2, y + tile + lab / 2);
+    });
+  } finally {
+    exporting = false; syncDecals();
+    Object.assign(cur, oldCur); Object.assign(goal, oldGoal); glide = oldGlide; curInset = inset; applyInset(); applyCam(); needsRender = true;
+  }
+  g.fillStyle = '#f2f2f5'; g.font = `600 ${Math.round(head * 0.26)}px -apple-system, system-ui, sans-serif`;
+  g.fillText(`How ${t.name || 'this tattoo'} reads from a distance`, out.width / 2, head * 0.32);
+  g.fillStyle = '#9a9cab'; g.font = `${Math.round(head * 0.16)}px -apple-system, system-ui, sans-serif`;
+  const sub = line ? line.text : 'Detail an eye can’t make out at each distance is run together.';
+  wrapCentre(g, sub, out.width / 2, head * 0.66, out.width - pad * 4, head * 0.2);
+  distanceLast = { id: t.id, tile, head, lab, pad, shrinks, line: line ? line.text : null, upTo: line ? line.upTo : null };
+  return out.toDataURL('image/png');
+}
+// centred text on at most two lines
+function wrapCentre(g, text, x, y, maxW, lh) {
+  if (g.measureText(text).width <= maxW) { g.fillText(text, x, y); return; }
+  const words = text.split(' '); let a = '';
+  for (let i = 0; i < words.length; i++) { const tryA = a ? a + ' ' + words[i] : words[i]; if (g.measureText(tryA).width > maxW && a) { g.fillText(a, x, y - lh / 2); g.fillText(words.slice(i).join(' '), x, y + lh / 2); return; } a = tryA; }
+  g.fillText(a, x, y);
+}
+let distanceLast = null;
 // The selected tattoo at three sizes on the body, side by side: a size smaller, as it is now and
 // a size bigger, each labelled with its real width, to choose between or send to the artist.
 // The tattoo itself never changes.
@@ -4079,6 +4154,7 @@ $('#cMessage').addEventListener('click', async () => {
   await shareOrDownload('tattoo-plan.txt', new Blob([text], { type: 'text/plain' })); toast('Saved as a text file.');
 });
 $('#cSizes').addEventListener('click', () => { const url = sizesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('sizes-sheet'); showPreview(url, 'ink-atlas-sizes.png', 'Three sizes'); });
+$('#cDistance').addEventListener('click', async () => { const url = await distanceSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('distance'); showPreview(url, 'ink-atlas-distance.png', 'From a distance'); });
 $('#cAging').addEventListener('click', () => { const url = agingSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('aging-sheet'); showPreview(url, 'ink-atlas-aging.png', 'How it may age'); });
 $('#cLabels').addEventListener('click', () => { const url = labelsShot(); if (url === null) { toast('Add a tattoo first, then try this.'); return; } if (!url) { toast('Turn the body so a tattoo faces you, then try this.'); return; } markTried('labels'); showPreview(url, 'ink-atlas-sizes-labelled.png', 'Picture with sizes'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
@@ -4655,7 +4731,7 @@ $('#cLink').addEventListener('click', () => { toggle('#share', false); if (accou
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
-  sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
+  sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },

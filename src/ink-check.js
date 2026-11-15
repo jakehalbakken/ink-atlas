@@ -69,7 +69,7 @@ export function inkCheck(rgba, w, h, { pxMm, skin, opacity = 0.92, line = 0.5, g
     const a = ((255 - Math.min(rgba[o], rgba[o + 1], rgba[o + 2])) / 255) * (rgba[o + 3] / 255);
     if (a > 0.45) { ink[p] = 1; inkPixels++; }
   }
-  const out = { inkPixels, thin: new Uint8Array(n), tight: new Uint8Array(n), faint: new Uint8Array(n), colours: [], thinShare: 0, tightMm2: 0, lineP10Mm: null, pxMm };
+  const out = { inkPixels, thin: new Uint8Array(n), tight: new Uint8Array(n), faint: new Uint8Array(n), colours: [], thinShare: 0, tightMm2: 0, lineP10Mm: null, gapP10Mm: null, pxMm };
   if (!inkPixels) return out;
   const d = distance(ink, w, h, false);
   // lines thinner than `line` mm: no wider stroke within reach
@@ -90,6 +90,13 @@ export function inkCheck(rgba, w, h, { pxMm, skin, opacity = 0.92, line = 0.5, g
   let tight = 0;
   for (let p = 0; p < n; p++) if (paper[p] && 2 * mG[p] - 1 < gapPx) { out.tight[p] = 1; tight++; }
   out.tightMm2 = tight * pxMm * pxMm;
+  // how wide the gaps between bits of ink are, the same way (open paper round the outside left out)
+  const gaps = [], openPx = 10 / pxMm;
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const p = y * w + x; if (ink[p]) continue; const v = e[p]; if (2 * v - 1 > openPx) continue;
+    if (v >= e[p - 1] && v >= e[p + 1] && v >= e[p - w] && v >= e[p + w] && v >= e[p - w - 1] && v >= e[p - w + 1] && v >= e[p + w - 1] && v >= e[p + w + 1]) gaps.push((2 * v - 1) * pxMm);
+  }
+  if (gaps.length) { gaps.sort((a, b) => a - b); out.gapP10Mm = gaps[Math.floor(gaps.length * 0.1)]; }
   // colours: the solid inside of the ink, grouped, each against the skin
   const bins = new Map(); let solid = 0;
   for (let p = 0; p < n; p++) {
