@@ -63,7 +63,7 @@ export function createAccount(api) {
   const following = () => !!(user() && ls.get(FOLLOW) === user().id);
   const follow = (on) => ls.set(FOLLOW, on && user() ? user().id : null);
   const asked = () => !!(user() && ls.get(ASKED) === user().id);
-  const setBind = (b) => { bind = b; ls.set(BIND, b); renderBtn(); tellRole(); };
+  const setBind = (b) => { bind = b; ls.set(BIND, b); renderBtn(); tellRole(); if (typeof liveTrack === 'function') { if (!b || !b.shared) liveLeave(); else liveTrack(); } };
   // someone who joined with a comment-only invite: the app hides moving and changing tattoos
   let roleShown = null;
   const tellRole = () => { const c = !!(myBind() && myBind().role === 'comment'); if (c !== roleShown) { roleShown = c; if (api.setCommentOnly) api.setCommentOnly(c); } };
@@ -82,6 +82,7 @@ export function createAccount(api) {
 
   // how many projects wait on this person, as a small count on the account button
   let badgeN = 0;
+  let live = null, liveFor = null, liveJoining = false, liveFailedUntil = 0, liveOthers = [], lastTrack = '', liveSeenOnce = false;
   function setBadge(n) { badgeN = n || 0; renderBtn(); }
   async function refreshBadge() {
     if (!user()) return;
@@ -267,7 +268,79 @@ export function createAccount(api) {
     put(header('What changed'), c ? h('p', { class: 'muted', text: `In "${myBind().name}" since you last looked, seen ${when(c.at)}.` }) : null, rows, msgEl,
       h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
   }
-  setInterval(() => { const b = myBind(); if (b && b.shared && !document.hidden && navigator.onLine !== false) pull(); }, LIVE_MS);
+  setInterval(() => { const b = myBind(); if (b && b.shared && !document.hidden && navigator.onLine !== false) pull(); liveSync(); }, LIVE_MS);
+
+  /* ---------- who else has it open right now ---------- */
+  // Realtime presence on the shared project's own channel: who is here, and which tattoo each
+  // has selected. Nothing is stored. When Realtime is not there, this stays quiet and the
+  // check every few seconds above does the work as before.
+  const hereBtn = document.getElementById('hereNow');
+  const nameOfLook = (id) => (id && api.tattooName ? api.tattooName(id) : '');
+  function renderHere() {
+    if (api.setPeers) api.setPeers(liveOthers);
+    if (liveOthers.length && api.tried) api.tried('hereNow');
+    if (!hereBtn) return;
+    const list = liveOthers.slice(0, 3);
+    hereBtn.hidden = !list.length;
+    hereBtn.replaceChildren(...list.map((o) => { const i = document.createElement('i'); i.textContent = (o.name || '?').slice(0, 1).toUpperCase(); return i; }));
+    if (liveOthers.length > 3) { const i = document.createElement('i'); i.className = 'more'; i.textContent = '+' + (liveOthers.length - 3); hereBtn.append(i); }
+    const names = liveOthers.map((o) => o.name || 'Someone');
+    const label = names.length ? `${names.length === 1 ? names[0] + ' is' : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] + ' are'} here now` : '';
+    hereBtn.setAttribute('aria-label', label); hereBtn.title = label;
+    if (view === 'home' && !root.hidden) renderHereRows();
+  }
+  // "here now · looking at Rose" on the people in Work on it together
+  // shown on each person's own row once the list of people is in, on their own row until then
+  function renderHereRows() {
+    const box = document.getElementById('acctHereNow'); if (!box) return;
+    const together = document.getElementById('acctTogether');
+    for (const e of together.querySelectorAll('.acct-here-line')) e.remove();
+    const loose = [];
+    for (const o of liveOthers) {
+      const n = nameOfLook(o.look), text = 'Here now' + (n ? ` · looking at ${n}` : '');
+      const row = [...together.querySelectorAll('[data-uid]')].find((e) => e.dataset.uid === o.id) || together.querySelector('[data-owner]');
+      if (row) row.querySelector('.acct-name').append(h('small', { class: 'acct-turn yours acct-here-line', text }));
+      else loose.push(h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: o.name || 'Someone' }), h('small', { class: 'acct-turn yours acct-here-line', text }))));
+    }
+    box.replaceChildren(...loose); box.hidden = !loose.length;
+  }
+  function liveLeave() {
+    if (live) { try { live.leave(); } catch (e) { /* gone already */ } }
+    live = null; liveFor = null; lastTrack = ''; liveSeenOnce = false;
+    if (liveOthers.length) { liveOthers = []; renderHere(); }
+  }
+  async function liveSync() {
+    const b = myBind(), want = b && b.shared && !document.hidden && navigator.onLine !== false && cloud && cloud.presence ? b.id : null;
+    if (liveFor && liveFor !== want) liveLeave();
+    if (!want || live || liveJoining || Date.now() < liveFailedUntil) { if (live) liveTrack(); return; }
+    liveJoining = true;
+    try {
+      const ch = await cloud.presence(want, (others) => {
+        if (liveFor !== want) return;
+        const had = new Set(liveOthers.map((o) => o.id));
+        liveOthers = others; renderHere();
+        const came = others.filter((o) => !had.has(o.id));
+        if (came.length && liveSeenOnce && !(api.busy && api.busy())) api.toast(`${came.map((o) => o.name || 'Someone').join(' and ')} opened "${(myBind() || b).name}".`);
+        liveSeenOnce = true;
+        peersAhead();
+      });
+      if (myBind() !== b && (!myBind() || myBind().id !== want)) { ch.leave(); return; }
+      live = ch; liveFor = want; liveTrack(true);
+    } catch (e) { liveFailedUntil = Date.now() + 60000; } finally { liveJoining = false; }
+  }
+  // what this person has open, told to the others when it changes
+  function liveTrack(force) {
+    const b = myBind(); if (!live || !b) return;
+    const meta = { name: cloud.displayName() || 'Someone', look: api.looking ? api.looking() : null, rev: b.rev || 0 };
+    const key = JSON.stringify(meta);
+    if (!force && key === lastTrack) return;
+    lastTrack = key;
+    Promise.resolve(live.track(meta)).catch(() => { lastTrack = ''; });
+  }
+  // someone here already has a newer version: bring it in now instead of at the next check
+  function peersAhead() { const b = myBind(); if (b && liveOthers.some((o) => o.rev > (b.rev || 0))) pull(); }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) liveLeave(); else liveSync(); });
+  if (hereBtn) hereBtn.addEventListener('click', async () => { try { await ready(); } catch (e) { return; } open(); show('home'); const box = document.getElementById('acctHereNow'); if (box) box.scrollIntoView({ block: 'center' }); });
   window.addEventListener('online', () => { if (user()) { if (myBind() || following()) push(); } });
 
   // Replacing the project on screen another way (Projects on this device, a backup file,
@@ -443,6 +516,7 @@ export function createAccount(api) {
         h('button', { class: 'btn', type: 'button', text: 'Not now', onclick: () => { done(); status('Saved on this device only'); show('home'); } })));
   }
 
+  const hereRows = () => { const box = h('div', { class: 'acct-list acct-here-now', id: 'acctHereNow' }); box.hidden = true; queueMicrotask(renderHereRows); return box; };
   async function homeView() {
     const u = user(), b = myBind(), safe = b && b.sig === currentSig();
     const list = h('div', { class: 'acct-list' }, h('p', { class: 'muted', text: 'Loading your projects…' }));
@@ -456,13 +530,13 @@ export function createAccount(api) {
     const together = b && b.mine === false
       ? h('div', { class: 'acct-together', id: 'acctTogether' },
           h('h3', { class: 'shHead', text: 'Working on it together' }),
-          h('p', { class: 'muted', text: b.role === 'comment' ? 'You can pin comments, say yes or ask for a change on each tattoo, and add reference pictures. Only the people who can edit move the tattoos.' : 'You see each other\'s changes as they happen.' }), people,
+          h('p', { class: 'muted', text: b.role === 'comment' ? 'You can pin comments, say yes or ask for a change on each tattoo, and add reference pictures. Only the people who can edit move the tattoos.' : 'You see each other\'s changes as they happen.' }), hereRows(), people,
           changedBtn ? h('div', { class: 'acct-row' }, changedBtn) : null,
           h('div', { class: 'acct-row' }, h('button', { class: 'btn quiet danger', type: 'button', text: 'Leave this project', onclick: () => leaveRow(people, b) })))
       : h('div', { class: 'acct-together', id: 'acctTogether' },
           h('h3', { class: 'shHead', text: 'Work on it together' }),
           h('p', { class: 'muted', text: b && b.shared ? 'Everyone here sees the same tattoos, and each other\'s changes as they happen.' : 'Invite Liv or your artist into this project. You both see the same tattoos and each other\'s changes as they happen.' }),
-          people,
+          hereRows(), people,
           h('div', { class: 'acct-row' }, h('button', { class: 'btn primary', type: 'button', id: 'acctInvite', text: 'Invite someone', onclick: () => show('inviteRole') }), changedBtn));
     put(header('Your account'),
       h('p', { class: 'muted', text: `Signed in as ${cloud.displayName(u)}${u.email ? ' (' + u.email + ')' : ''}` }),
@@ -518,16 +592,17 @@ export function createAccount(api) {
         const ms = await cloud.members(b.id);
         if (view !== 'home') return;
         people.replaceChildren();
-        if (b.mine === false) people.append(h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: b.ownerName || 'The owner' }), h('small', { text: 'owns this project' }))));
+        if (b.mine === false) people.append(h('div', { class: 'acct-item', 'data-owner': '1' }, h('div', { class: 'acct-name' }, h('b', { text: b.ownerName || 'The owner' }), h('small', { text: 'owns this project' }))));
         for (const m of ms) {
           const me = m.user_id === u.id, comment = m.role === 'comment';
-          const item = h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: me ? 'You' : (m.name || 'Someone') }), h('small', { text: (comment ? 'comments and answers only' : 'can change tattoos') + ' · joined ' + when(m.added_at) })),
+          const item = h('div', { class: 'acct-item', 'data-uid': m.user_id }, h('div', { class: 'acct-name' }, h('b', { text: me ? 'You' : (m.name || 'Someone') }), h('small', { text: (comment ? 'comments and answers only' : 'can change tattoos') + ' · joined ' + when(m.added_at) })),
             b.mine !== false ? h('div', { class: 'acct-actions' },
               h('button', { class: 'btn', type: 'button', text: comment ? 'Let them edit' : 'Comments only', onclick: () => run(async () => { await cloud.setRole(b.id, m.user_id, comment ? 'edit' : 'comment'); show('home'); msg(comment ? `${m.name || 'They'} can now change the tattoos.` : `${m.name || 'They'} can now only comment and answer.`, true); }) }),
               h('button', { class: 'btn quiet danger', type: 'button', text: 'Take off', onclick: () => takeOffRow(item, b, m) })) : null);
           people.append(item);
         }
         if (!ms.length && b.mine !== false) people.append(h('p', { class: 'muted', text: 'Nobody has joined yet. Each invite link is for one person.' }));
+        renderHereRows();
       } catch (e) { /* the list of people is a nicety */ }
     }
   }
@@ -709,6 +784,8 @@ export function createAccount(api) {
     configured: true, saved, start, unbind, sendLink,
     status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing }),
     push, pull, displayName: () => (user() && cloud ? cloud.displayName() : ''),
+    // the selected tattoo changed: tell anyone else here
+    nudge: () => liveTrack(), here: () => liveOthers.slice(),
     // opens the panel at "Work on it together" (New to try's Show me)
     async showForgot() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); if (user()) { show('home'); return; } mode = 'signin'; show('signin'); },
     async showTogether() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'home' : 'signin'); return document.getElementById(user() ? 'acctTogether' : 'accountBtn'); },

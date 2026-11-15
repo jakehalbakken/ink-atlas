@@ -8,6 +8,8 @@
 // change on her side shows on his with her name; a comment Jake pins on the body reaches her;
 // both changing at once keeps both changes in one project (no copy); she cannot rename or remove
 // it and sees Leave; Jake takes her off and her screen says so; forgot password by emailed code.
+// Who is here now: each sees the other's initial, which tattoo the other has selected (in the
+// tray and the account panel), on a channel whose name does not give the project away.
 import assert from 'node:assert/strict';
 import { startFakeSupabase } from '../fake-supabase.mjs';
 
@@ -75,6 +77,33 @@ export default async function (p) {
     const jakeNames = await p.evaluate(() => window.__ink.state().tattoos.map((t) => t.name));
     assert.deepEqual(await q.evaluate(() => window.__ink.state().tattoos.map((t) => t.name)), jakeNames, 'she sees the same tattoos');
     assert.equal((await db(`select count(*)::int n from public.projects where owner = $1`, [liv]))[0].n, 0, 'joining makes no project of her own');
+
+    // who is here now: each sees the other, and which tattoo the other has selected
+    await until(p, () => window.__ink.peers().some((o) => o.name === 'Liv'), null, 'Jake sees Liv is here', 20000);
+    await until(q, () => window.__ink.peers().some((o) => o.name === 'Jake'), null, 'Liv sees Jake is here', 20000);
+    let here = await p.$eval('#hereNow', (e) => ({ shown: !e.hidden && !!e.offsetParent, text: e.textContent, label: e.getAttribute('aria-label'), h: e.getBoundingClientRect().height, w: e.getBoundingClientRect().width }));
+    assert.equal(here.shown, true, 'her initial shows by the account button'); assert.equal(here.text, 'L'); assert.equal(here.label, 'Liv is here now');
+    assert.ok(here.h >= 44 && here.w >= 44, 'big enough to tap');
+    const rooms = fake.topicsNow();
+    assert.equal(rooms.length, 1, 'one channel for the project'); assert.equal(rooms[0].keys.length, 2, 'both on it');
+    assert.ok(!rooms[0].topic.includes(proj.id), 'the channel name does not give away the project');
+    const look = await q.evaluate(() => window.__ink.state().tattoos[1].id), lookName = await q.evaluate(() => window.__ink.state().tattoos[1].name);
+    await q.evaluate((id) => window.__ink.select(id), look);
+    await until(p, (id) => window.__ink.peers().some((o) => o.name === 'Liv' && o.look === id), look, 'Jake sees which tattoo she has selected', 10000);
+    const chip = await p.evaluate((n) => { const c = [...document.querySelectorAll('#trayItems .chip')].find((x) => x.querySelector('span').textContent === n); const m = c && c.querySelector('b.peer'); return { mark: m && m.textContent, label: c && c.getAttribute('aria-label') }; }, lookName);
+    assert.equal(chip.mark, 'L', 'her initial on that tattoo in the tray'); assert.match(chip.label, /Liv looking at it/);
+    assert.equal(await p.$$eval('#trayItems b.peer', (e) => e.length), 1, 'and on no other');
+    await p.click('#hereNow');
+    await until(p, () => [...document.querySelectorAll('#acctTogether [data-uid]')].some((e) => /Here now · looking at/.test(e.textContent)), null, 'the account panel says what she is looking at, on her own row');
+    assert.equal(await p.$$eval('#acctTogether .acct-item', (e) => e.filter((x) => /Liv/.test(x.textContent)).length), 1, 'she is listed once');
+    assert.match(await p.$eval('#acctTogether', (e) => e.textContent), new RegExp('Liv.*Here now · looking at ' + lookName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    await p.screenshot({ path: 'shots/t83-here-now.png' });
+    await p.click('#account header .btn');
+    await q.click('#hereNow');
+    await until(q, () => /Jake.*owns this project.*Here now/.test((document.querySelector('#acctTogether [data-owner]') || {}).textContent || ''), null, 'Liv sees Jake here on his row');
+    await q.click('#account header .btn');
+    await q.evaluate(() => window.__ink.select(null));
+    await until(p, () => !document.querySelector('#trayItems b.peer'), null, 'the mark goes when she lets go', 10000);
 
     // her change reaches Jake by itself, and his view stays where it was
     const view0 = await p.evaluate(() => JSON.stringify(window.__ink.cam ? window.__ink.cam() : null));
@@ -161,6 +190,8 @@ export default async function (p) {
     assert.equal((await db('select count(*)::int n from public.project_members'))[0].n, 0);
     await until(q, () => !window.__ink.account().bind, null, 'Liv\'s screen lets go of it', 15000);
     assert.match(await toastText(q), /no longer on/);
+    await until(q, () => document.querySelector('#hereNow').hidden && !window.__ink.peers().length, null, 'Liv no longer shown anyone here', 10000);
+    await until(p, () => document.querySelector('#hereNow').hidden && !window.__ink.peers().length, null, 'Jake no longer shown Liv here', 10000);
     assert.ok(await q.evaluate(() => window.__ink.state().tattoos.length) > 0, 'what was on her screen stays');
     // the old link no longer lets her back in
     await q.goto(link, { waitUntil: 'load' });

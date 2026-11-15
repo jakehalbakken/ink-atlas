@@ -15,7 +15,9 @@ import path from 'node:path';
 import { startFakeSupabase } from '../fake-supabase.mjs';
 
 export default async function (p) {
-  const fake = await startFakeSupabase({ port: 54329 });
+  // Realtime off, like a project that has it switched off: everything here still works by the
+  // check every few seconds, and nobody is shown as here now.
+  const fake = await startFakeSupabase({ port: 54329, realtime: false });
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
   const until = async (pg, fn, arg, what, ms = 20000) => { try { await pg.waitForFunction(fn, { timeout: ms, polling: 100 }, arg); } catch (e) { const st = await pg.evaluate(() => JSON.stringify({ a: window.__ink && window.__ink.account(), panel: (document.querySelector('#account') || {}).textContent, toast: document.querySelector('#toast').textContent })).catch(() => ''); throw new Error('timed out: ' + what + '\n' + st + '\n' + fake.log.slice(-12).join('\n')); } };
   const db = async (sql, args) => (await fake.pool.query(sql, args)).rows;
@@ -243,6 +245,7 @@ export default async function (p) {
     const page = await p.evaluate(() => window.__ink.approval().html);
     assert.ok(page.includes('<figure>') && page.includes('This line weight'), 'her reference picture is on the page');
     assert.ok(!page.includes('Shade the petals darker'), 'a resolved comment is left off');
+    for (const pg of [p, q]) assert.equal(await pg.$eval('#hereNow', (e) => e.hidden), true, 'nobody shown as here without Realtime');
     console.log('t84 comment only: ok');
   } finally { await fake.stop(); fs.rmSync(tmp, { recursive: true, force: true }); }
 }

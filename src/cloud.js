@@ -59,6 +59,11 @@ function client() {
 }
 const homeUrl = () => location.origin + location.pathname;
 
+async function sha256Hex(text) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
+}
+
 export async function openCloud() {
   const sb = await client();
   let user = (await sb.auth.getSession()).data.session?.user || null;
@@ -215,6 +220,30 @@ export async function openCloud() {
     },
     async removeMember(id, userId) { check(await sb.from('project_members').delete().eq('project_id', id).eq('user_id', userId)); },
     async leave(id) { check(await sb.from('project_members').delete().eq('project_id', id).eq('user_id', uid())); },
+    // Who else has a project worked on together open right now: Supabase Realtime presence on a
+    // channel named after the project. Nothing is stored anywhere. onSync gets
+    // [{ id, name, look, rev, at }] for everyone else there. If the project's Realtime is off,
+    // this throws and the app carries on checking every few seconds as before.
+    async presence(id, onSync) {
+      const row = check(await sb.from('projects').select('owner').eq('id', id).limit(1))[0];
+      if (!row) throw new Error('Not on this project');
+      const topic = 'ink-here:' + await sha256Hex('ink-atlas-here|' + id + '|' + row.owner);
+      const me = uid(), ch = sb.channel(topic, { config: { presence: { key: me } } });
+      const others = () => Object.entries(ch.presenceState()).filter(([k]) => k !== me).map(([k, metas]) => {
+        const m = metas[metas.length - 1] || {};
+        return { id: k, name: typeof m.name === 'string' ? m.name.slice(0, 60) : '', look: typeof m.look === 'string' ? m.look.slice(0, 80) : null, rev: Number.isFinite(m.rev) ? m.rev : 0, at: Number.isFinite(m.at) ? m.at : 0 };
+      });
+      ch.on('presence', { event: 'sync' }, () => onSync(others()));
+      await new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error('Realtime did not answer')), 10000);
+        ch.subscribe((s) => { if (s === 'SUBSCRIBED') { clearTimeout(t); res(); } else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') { clearTimeout(t); rej(new Error('Realtime ' + s)); } });
+      }).catch((e) => { sb.removeChannel(ch); throw e; });
+      return {
+        track: (meta) => ch.track({ name: String(meta.name || '').slice(0, 60), look: meta.look || null, rev: meta.rev || 0, at: Date.now() }),
+        others,
+        leave: () => sb.removeChannel(ch),
+      };
+    },
 
     // Sending a copy to someone ---------------------------------------------
     async share(state, images, name) {
