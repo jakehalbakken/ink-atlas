@@ -10,7 +10,8 @@
 // it and sees Leave; Jake takes her off and her screen says so; forgot password by emailed code.
 // Who is here now: each sees the other's initial, which tattoo the other has selected (in the
 // tray and the account panel), on a channel whose name does not give the project away; Jake
-// follows Liv's view until he touches the body; Liv points at a spot and Jake sees it.
+// follows Liv's view until he touches the body; Liv points at a spot and Jake sees it; Jake
+// sees Liv typing a reply to his comment.
 import assert from 'node:assert/strict';
 import { startFakeSupabase } from '../fake-supabase.mjs';
 
@@ -203,6 +204,13 @@ export default async function (p) {
     assert.equal(pins.on, true); assert.ok(pins.open, 'the comment is open');
     assert.match(await q.$eval('#pinWho', (e) => e.textContent), /Jake/);
     await q.screenshot({ path: 'shots/t83-pin-arrives.png' });
+    // Liv typing a reply under it shows on Jake's open comment, and goes when she sends it
+    await p.evaluate((id) => window.__ink.openPin(id), note.id); await wait(200);
+    await q.type('#pinReply', 'Agreed, a bit darker');
+    await until(p, () => !document.querySelector('#pinTyping').hidden && /Liv is typing a reply/.test(document.querySelector('#pinTyping').textContent), null, 'Jake sees Liv typing', 10000);
+    await q.click('#pinReplySend');
+    await until(p, () => document.querySelector('#pinTyping').hidden, null, 'typing goes once she sends', 10000);
+    await until(p, (id) => ((window.__ink.state().notes.find((n) => n.id === id) || {}).replies || []).some((r) => r.by === 'Liv'), note.id, 'her reply reaches Jake', 15000);
     await q.click('#pinsDone'); await p.click('#pinsDone'); await wait(200);
 
     // both change at once: both changes kept, still one project

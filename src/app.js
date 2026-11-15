@@ -2118,7 +2118,7 @@ function renderPins() {
   $('#pinBar').hidden = !pins.on;
   if (pins.open && !list.find((n) => n.id === pins.open)) pins.open = null;
   const open = pins.open && list.find((n) => n.id === pins.open);
-  $('#pinEdit').hidden = !pins.pending; $('#pinRead').hidden = !open || !!pins.pending;
+  $('#pinEdit').hidden = !pins.pending; $('#pinRead').hidden = !open || !!pins.pending; renderTyping();
   if (!list.length || pins.pending || open) pins.list = false;
   if (!pins.list) pins.forTattoo = null;
   const forT = pins.forTattoo && state.tattoos.find((x) => x.id === pins.forTattoo);
@@ -2221,11 +2221,26 @@ function changePin(id, fn) {
   state.notes = state.notes.map((x, k) => (k === i ? n : x)); commit(); return true;
 }
 $('#pinReply').addEventListener('keydown', (e) => e.stopPropagation());
+// typing a reply: the others here see "Liv is typing" under that comment for a few seconds
+let typingOn = null, typingAt = 0, typingTimer = 0;
+const myTyping = () => (typingOn && performance.now() - typingAt < 6000 ? typingOn : null);
+$('#pinReply').addEventListener('input', () => {
+  if (!peersHere.length) return;
+  const was = myTyping(); typingOn = $('#pinReply').value.trim() ? pins.open : null; typingAt = performance.now();
+  if (was !== myTyping() && account && account.nudge) account.nudge();
+  clearTimeout(typingTimer); typingTimer = setTimeout(() => { if (account && account.nudge) account.nudge(); }, 6100);
+});
+function renderTyping() {
+  const who = pins.open ? peersHere.filter((o) => o.typing === pins.open).map((o) => o.name || 'Someone') : [];
+  $('#pinTyping').hidden = !who.length;
+  if (who.length) markTried('typing');
+  $('#pinTyping').textContent = who.length ? `${who.join(' and ')} ${who.length === 1 ? 'is' : 'are'} typing a reply…` : '';
+}
 $('#pinReplySend').addEventListener('click', () => {
   const id = pins.open, text = $('#pinReply').value.trim(); if (!id) return;
   if (!text) { toast('Type the reply first.'); $('#pinReply').focus(); return; }
   if ((pinNotes().find((n) => n.id === id)?.replies || []).length >= 50) { toast('This comment has 50 replies. Start a new comment for more.'); return; }
-  if (changePin(id, (n) => { n.replies = [...(Array.isArray(n.replies) ? n.replies : []), { id: 'r' + Math.random().toString(36).slice(2, 10), text, by: myName(), at: todayIso() }]; })) { $('#pinReply').value = ''; markTried('pinReplies'); }
+  if (changePin(id, (n) => { n.replies = [...(Array.isArray(n.replies) ? n.replies : []), { id: 'r' + Math.random().toString(36).slice(2, 10), text, by: myName(), at: todayIso() }]; })) { $('#pinReply').value = ''; markTried('pinReplies'); if (typingOn) { typingOn = null; if (account && account.nudge) account.nudge(); } }
 });
 $('#pinResolve').addEventListener('click', () => {
   const id = pins.open, n = id && pinNotes().find((x) => x.id === id); if (!n) return;
@@ -3961,8 +3976,8 @@ function startAccount() {
     rename(name) { state.projectName = name; commit(); },
     setSaved, toast, saveNow: () => save(), tried: (id = 'accounts') => markTried(id),
     // who else has the shared project open, and the tattoo each has selected
-    setPeers(list) { peersHere = Array.isArray(list) ? list : []; renderTray(); applyFollow(); peerPoints(); },
-    looking: () => selectedId, view: myView, follow: followPeer, point: myPoint, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
+    setPeers(list) { peersHere = Array.isArray(list) ? list : []; renderTray(); applyFollow(); peerPoints(); renderTyping(); },
+    looking: () => selectedId, view: myView, follow: followPeer, point: myPoint, typing: myTyping, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
     setCommentOnly, showChange, inches: (w) => w * state.heightCm / 175 * 100 / 2.54,
     // in the middle of moving something or typing: changes from elsewhere wait a moment
     busy: () => !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),

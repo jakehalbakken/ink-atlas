@@ -243,7 +243,7 @@ export async function openCloud() {
       const me = uid(), ch = sb.channel(topic, { config: { presence: { key: me } } });
       const others = () => Object.entries(ch.presenceState()).filter(([k]) => k !== me).map(([k, metas]) => {
         const m = metas[metas.length - 1] || {};
-        return { id: k, name: typeof m.name === 'string' ? m.name.slice(0, 60) : '', look: typeof m.look === 'string' ? m.look.slice(0, 80) : null, rev: Number.isFinite(m.rev) ? m.rev : 0, at: Number.isFinite(m.at) ? m.at : 0, view: cleanView(m.view), point: cleanPoint(m.point) };
+        return { id: k, name: typeof m.name === 'string' ? m.name.slice(0, 60) : '', look: typeof m.look === 'string' ? m.look.slice(0, 80) : null, rev: Number.isFinite(m.rev) ? m.rev : 0, at: Number.isFinite(m.at) ? m.at : 0, view: cleanView(m.view), point: cleanPoint(m.point), typing: typeof m.typing === 'string' && m.typing.length <= 80 ? m.typing : null };
       });
       ch.on('presence', { event: 'sync' }, () => onSync(others()));
       await new Promise((res, rej) => {
@@ -251,7 +251,7 @@ export async function openCloud() {
         ch.subscribe((s) => { if (s === 'SUBSCRIBED') { clearTimeout(t); res(); } else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') { clearTimeout(t); rej(new Error('Realtime ' + s)); } });
       }).catch((e) => { sb.removeChannel(ch); throw e; });
       return {
-        track: (meta) => ch.track({ name: String(meta.name || '').slice(0, 60), look: meta.look || null, rev: meta.rev || 0, view: cleanView(meta.view), point: cleanPoint(meta.point), at: Date.now() }),
+        track: (meta) => ch.track({ name: String(meta.name || '').slice(0, 60), look: meta.look || null, rev: meta.rev || 0, view: cleanView(meta.view), point: cleanPoint(meta.point), typing: typeof meta.typing === 'string' ? meta.typing.slice(0, 80) : null, at: Date.now() }),
         others,
         leave: () => sb.removeChannel(ch),
       };
