@@ -85,7 +85,7 @@ const STENCIL = '#8474ff';
 
 /* ---------- state ---------- */
 // v2: muscle and weight run 0..1 with 0.5 = average; `fit` holds the fine-tune sliders (-1..1, see fit.js).
-const freshState = () => ({ app: 'ink-atlas-proto', v: 2, tattoos: [], skin: 1, heightCm: 175, figure: 'male', muscle: 0.6, weight: 0.5, fit: {}, genitals: true });
+const freshState = () => ({ app: 'ink-atlas-proto', v: 2, tattoos: [], skin: 1, heightCm: 175, figure: 'male', muscle: 0.6, weight: 0.5, fit: {}, genitals: false }); // genitals off for anything new; older saves without the field keep them shown (cleanState)
 let state = freshState();
 let images = {}; // key -> dataURL
 const imgEls = {}; // key -> HTMLImageElement
