@@ -14,9 +14,11 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const isIdList = (v) => Array.isArray(v) && v.every((x) => x && typeof x === 'object' && !Array.isArray(x) && typeof x.id === 'string' && x.id);
 
 function mergeItem(b, l, r) {
-  if (!b) return { ...r, ...l };
-  const out = {};
-  for (const k of new Set([...Object.keys(l), ...Object.keys(r), ...Object.keys(b)])) {
+  const out = b ? {} : { ...r, ...l };
+  for (const k of new Set([...Object.keys(l), ...Object.keys(r), ...Object.keys(b || {})])) {
+    // a list with ids inside an item (a comment's replies): both sides' additions are kept
+    if (isIdList(l[k]) && isIdList(r[k]) && !same(l[k], r[k])) { const m = mergeList(b && isIdList(b[k]) ? b[k] : (b ? [] : null), l[k], r[k]); if (m.length) out[k] = m; else delete out[k]; continue; }
+    if (!b) continue;
     const v = same(l[k], b[k]) ? r[k] : l[k];
     if (v !== undefined) out[k] = v;
   }

@@ -50,6 +50,18 @@ export function changesBetween(before, after, opts = {}) {
     if (BN.has(n.id) || (n.by || '') === me) continue;
     out.push({ kind: 'comment', text: `${n.by || 'Someone'} commented: "${quote(n.text)}"`, noteId: n.id, pinned: !!n.pin });
   }
+  for (const n of list(after, 'notes')) {
+    const o = BN.get(n.id); if (!o) continue;
+    const had = new Set((Array.isArray(o.replies) ? o.replies : []).map((r) => r && r.id));
+    for (const r of Array.isArray(n.replies) ? n.replies : []) {
+      if (!r || had.has(r.id) || (r.by || '') === me) continue;
+      out.push({ kind: 'reply', text: `${r.by || 'Someone'} replied to "${quote(n.text, 30)}": "${quote(r.text)}"`, noteId: n.id, pinned: !!n.pin });
+    }
+    if (!!n.done !== !!o.done) {
+      const who = n.done ? n.done.by : '';
+      if (!n.done || who !== me) out.push({ kind: 'resolved', text: n.done ? `${who || 'Someone'} marked "${quote(n.text, 40)}" resolved` : `Reopened "${quote(n.text, 40)}"`, noteId: n.id, pinned: !!n.pin });
+    }
+  }
   const BR = byId(list(before, 'refs'));
   const newRefs = list(after, 'refs').filter((r) => !BR.has(r.id) && (r.by || '') !== me);
   if (newRefs.length) {

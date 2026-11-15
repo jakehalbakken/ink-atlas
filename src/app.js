@@ -58,7 +58,7 @@ import { sessionHours, sessionText, planHours } from './estimate.js';
 // a feature that needs the account's email sender is listed only once that is switched on
 const NEW_FEATURES = ALL_FEATURES.filter((f) => !f.needs || (f.needs === 'emailCodes' && emailCodes));
 // comments pinned to the body, and the tattoo whose "Ask for a change" box is open (used early by renderUI)
-const pins = { on: false, pending: null, open: null, els: new Map(), ids: '' };
+const pins = { on: false, pending: null, open: null, els: new Map(), ids: '', list: false, filter: 'open', forTattoo: null };
 let changeFor = null;
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -1870,6 +1870,7 @@ const SHOW = {
     toggle('#planMenu', true); return ['#openRefs', sel() ? 'Tap Reference board to add pictures for the selected tattoo or the whole project. Everyone on a shared project sees them.' : 'Tap Reference board, then Add pictures. Select a tattoo first to pin pictures to it.'];
   },
   pins: () => { showLook(true); return ['#pinsBtn', 'Tap Comments, then the spot on the body the comment is about.']; },
+  pinReplies: () => { const n = pinNotes()[0]; if (n) { pinsOn(); openPin(n.id); return ['#pinResolve', 'Reply under the comment, or tap Resolve when it is sorted.']; } showLook(true); return ['#pinsBtn', 'Tap Comments and pin one first. Tap its pin to reply or resolve it.']; },
   forgot: () => (account && account.configured ? (account.showForgot(), ['#acctForgot', 'Type your email, then tap here. We email you a code to sign in and set a new password.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   room: () => { showLook(true); return ['#roomBtn', 'Tap Open skin to see where you still have room, and how big a piece fits there.']; },
   roomFit: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRoom', 'Find room for it shows in green everywhere this tattoo fits. Tap a green spot to move it there.']; },
@@ -1999,7 +2000,7 @@ $('#changeNote').addEventListener('keydown', (e) => e.stopPropagation());
 // A comment on one spot of the skin ("move this up an inch"), kept with the artist notes in
 // state.notes as { id, text, pin: { tri, w }, by, at, tattooId? }. The spot is a body triangle and
 // weights in it, like tattoo anchors, so it stays on the same skin through every shape and pose.
-const pinNotes = () => (Array.isArray(state.notes) ? state.notes : []).filter((n) => n && typeof n === 'object' && n.pin && typeof n.id === 'string');
+function pinNotes() { return (Array.isArray(state.notes) ? state.notes : []).filter((n) => n && typeof n === 'object' && n.pin && typeof n.id === 'string'); } // a declaration: the edit sheet counts them before this line runs
 function pinSpot(p) {
   const geo = poseView.active ? (poseView.ensure(), poseView.geometry || bodyGeo) : bodyGeo;
   const P = geo.attributes.position.array, I = bodyGeo.index.array, Nn = (geo.attributes.normal || bodyGeo.attributes.normal).array, pos = new V3(), n = new V3();
@@ -2015,23 +2016,45 @@ function pinMarker(id, label, text) {
 }
 function renderPins() {
   const list = pinNotes(), layer = $('#pinLayer');
-  $('#pinsBtn').textContent = 'Comments' + (list.length ? ` (${list.length})` : '');
+  const openCount = list.filter((n) => !n.done).length;
+  $('#pinsBtn').textContent = 'Comments' + (openCount ? ` (${openCount})` : '');
   $('#pinsBtn').setAttribute('aria-pressed', String(pins.on));
   $('#pinBar').hidden = !pins.on;
   if (pins.open && !list.find((n) => n.id === pins.open)) pins.open = null;
   const open = pins.open && list.find((n) => n.id === pins.open);
   $('#pinEdit').hidden = !pins.pending; $('#pinRead').hidden = !open || !!pins.pending;
-  $('#pinText').textContent = pins.pending ? 'Type your comment for this spot.' : open ? `Comment ${list.indexOf(open) + 1} of ${list.length}` : list.length ? 'Tap the body to pin a comment there. Tap a pin to read it.' : 'Tap the body to pin a comment there, like: move this up an inch.';
+  if (!list.length || pins.pending || open) pins.list = false;
+  if (!pins.list) pins.forTattoo = null;
+  const forT = pins.forTattoo && state.tattoos.find((x) => x.id === pins.forTattoo);
+  $('#pinListBtn').hidden = !list.length || !!pins.pending || !!open;
+  $('#pinListBtn').textContent = pins.list ? 'Hide list' : 'List'; $('#pinListBtn').setAttribute('aria-expanded', String(pins.list));
+  $('#pinList').hidden = !pins.list;
+  if (pins.list) {
+    $('#pinListOpen').setAttribute('aria-pressed', String(pins.filter === 'open')); $('#pinListAll').setAttribute('aria-pressed', String(pins.filter !== 'open'));
+    const shown = list.map((n, i) => [n, i]).filter(([n]) => (pins.filter !== 'open' || !n.done) && (!forT || n.tattooId === forT.id));
+    $('#pinListEmpty').hidden = shown.length > 0;
+    $('#pinListItems').replaceChildren(...shown.map(([n, i]) => {
+      const t = n.tattooId && state.tattoos.find((x) => x.id === n.tattooId), r = Array.isArray(n.replies) ? n.replies.length : 0;
+      const b = el('button', { type: 'button' }); b.append(el('b', { text: `${i + 1}. ${n.text || ''}` }), el('small', { text: [n.by || 'You', t ? 'on ' + (t.name || 'a tattoo') : '', r ? `${r} ${r === 1 ? 'reply' : 'replies'}` : '', n.done ? 'resolved' : ''].filter(Boolean).join(' · ') }));
+      b.addEventListener('click', () => { pins.list = false; openPin(n.id); turnToPin(n.id); });
+      const li = el('li'); li.classList.toggle('done', !!n.done); li.append(b); return li;
+    }));
+  }
+  $('#pinText').textContent = pins.list && forT ? `Comments on ${forT.name || 'this tattoo'}` : pins.pending ? 'Type your comment for this spot.' : open ? `Comment ${list.indexOf(open) + 1} of ${list.length}` + (open.done ? ' · resolved' : '') : list.length ? 'Tap the body to pin a comment there. Tap a pin to read it.' : 'Tap the body to pin a comment there, like: move this up an inch.';
   if (open) {
     $('#pinBody').textContent = open.text || '';
     const t = open.tattooId && state.tattoos.find((x) => x.id === open.tattooId);
-    $('#pinWho').textContent = [open.by || 'You', open.at ? fmtDay(open.at) : '', t ? 'on ' + (t.name || 'a tattoo') : ''].filter(Boolean).join(' · ');
+    $('#pinWho').textContent = [open.by || 'You', open.at ? fmtDay(open.at) : '', t ? 'on ' + (t.name || 'a tattoo') : ''].filter(Boolean).join(' · ') + (open.done ? `. Resolved by ${open.done.by || 'someone'}${open.done.at ? ' ' + fmtDay(open.done.at) : ''}.` : '');
+    $('#pinReplies').replaceChildren(...(Array.isArray(open.replies) ? open.replies : []).map((r) => { const li = el('li', { text: r.text }); li.append(el('small', { text: [r.by || 'Someone', r.at ? fmtDay(r.at) : ''].filter(Boolean).join(' · ') })); return li; }));
+    $('#pinRead').classList.toggle('done', !!open.done);
+    $('#pinResolve').textContent = open.done ? 'Reopen' : 'Resolve';
+    $('#pinDelete').hidden = commentOnly && !(open.by && open.by === myName());
   }
-  const key = pins.on ? list.map((n) => n.id + ':' + (n.text || '').length).join(',') + (pins.pending ? '+new' : '') : '';
+  const key = pins.on ? list.map((n) => n.id + ':' + (n.text || '').length + (n.done ? 'd' : '')).join(',') + (pins.pending ? '+new' : '') : '';
   if (key !== pins.ids) {
     pins.ids = key; layer.replaceChildren(); pins.els.clear();
     if (pins.on) {
-      list.forEach((n, i) => { const b = pinMarker(n.id, String(i + 1), `Comment ${i + 1}: ${n.text || ''}`); pins.els.set(n.id, { b, p: n.pin }); layer.append(b); });
+      list.forEach((n, i) => { const b = pinMarker(n.id, n.done ? '✓' : String(i + 1), `Comment ${i + 1}${n.done ? ', resolved' : ''}: ${n.text || ''}`); b.classList.toggle('done', !!n.done); pins.els.set(n.id, { b, p: n.pin }); layer.append(b); });
       if (pins.pending) { const b = pinMarker('new', '+', 'New comment here'); pins.els.set('new', { b, p: pins.pending }); layer.append(b); }
     }
   }
@@ -2059,7 +2082,7 @@ function pinsOn() {
   if (selectedId) select(null);
   pins.on = true; pins.pending = null; pins.open = null; renderPins();
 }
-function pinsOff() { pins.on = false; pins.pending = null; pins.open = null; renderPins(); }
+function pinsOff() { pins.on = false; pins.pending = null; pins.open = null; pins.list = false; renderPins(); }
 function pinTap(x, y) {
   const h = hitBody(x, y);
   if (!h || h.faceIndex == null || !h.barycoord) { toast('Tap directly on the body to pin a comment.'); return; }
@@ -2068,6 +2091,17 @@ function pinTap(x, y) {
   renderPins(); $('#pinNote').value = ''; setTimeout(() => $('#pinNote').focus(), 30);
 }
 function openPin(id) { pins.open = pins.open === id ? null : id; pins.pending = null; renderPins(); }
+// Turn the view to a comment, but only when its pin is out of sight (the view never jumps for nothing).
+function turnToPin(id) {
+  const n = pinNotes().find((x) => x.id === id), s = n && pinSpot(n.pin); if (!s) return false;
+  placePins(); const e = pins.els.get(id); if (e && !e.b.hidden) return false;
+  goal.theta = Math.atan2(s.n.x, s.n.z); goal.phi = THREE.MathUtils.clamp(Math.acos(THREE.MathUtils.clamp(s.n.y, -1, 1)), 0.75, 2.0); goal.roll = 0;
+  goal.tx = s.pos.x; goal.ty = s.pos.y; goal.tz = s.pos.z; goal.r = THREE.MathUtils.clamp(cur.r, 1.1, 2.2);
+  glide = true; needsRender = true; return true;
+}
+$('#pinListBtn').addEventListener('click', () => { pins.list = !pins.list; renderPins(); });
+$('#pinListOpen').addEventListener('click', () => { pins.filter = 'open'; renderPins(); });
+$('#pinListAll').addEventListener('click', () => { pins.filter = 'all'; renderPins(); });
 $('#pinsBtn').addEventListener('click', () => { showLook(false); if (pins.on) pinsOff(); else pinsOn(); });
 $('#pinsDone').addEventListener('click', pinsOff);
 $('#pinCancel').addEventListener('click', () => { pins.pending = null; renderPins(); });
@@ -2083,8 +2117,29 @@ $('#pinSave').addEventListener('click', () => {
   pins.pending = null; pins.open = null; markTried('pins'); commit();
   toast('Comment pinned. It is also in your artist notes.', 'Undo', undo);
 });
+// Replies and resolving: anyone on the project, comment-only people included, since both are comments.
+function changePin(id, fn) {
+  if (!Array.isArray(state.notes)) return false;
+  const i = state.notes.findIndex((n) => n && n.id === id); if (i < 0) return false;
+  snapshot(); const n = { ...state.notes[i] }; fn(n);
+  state.notes = state.notes.map((x, k) => (k === i ? n : x)); commit(); return true;
+}
+$('#pinReply').addEventListener('keydown', (e) => e.stopPropagation());
+$('#pinReplySend').addEventListener('click', () => {
+  const id = pins.open, text = $('#pinReply').value.trim(); if (!id) return;
+  if (!text) { toast('Type the reply first.'); $('#pinReply').focus(); return; }
+  if ((pinNotes().find((n) => n.id === id)?.replies || []).length >= 50) { toast('This comment has 50 replies. Start a new comment for more.'); return; }
+  if (changePin(id, (n) => { n.replies = [...(Array.isArray(n.replies) ? n.replies : []), { id: 'r' + Math.random().toString(36).slice(2, 10), text, by: myName(), at: todayIso() }]; })) { $('#pinReply').value = ''; markTried('pinReplies'); }
+});
+$('#pinResolve').addEventListener('click', () => {
+  const id = pins.open, n = id && pinNotes().find((x) => x.id === id); if (!n) return;
+  const was = !!n.done;
+  if (changePin(id, (x) => { if (was) delete x.done; else x.done = { by: myName(), at: todayIso() }; })) { markTried('pinReplies'); toast(was ? 'Comment reopened.' : 'Comment resolved.', 'Undo', undo); }
+});
 $('#pinDelete').addEventListener('click', () => {
   const id = pins.open; if (!id || !Array.isArray(state.notes)) return;
+  const n = pinNotes().find((x) => x.id === id);
+  if (commentOnly && !(n && n.by && n.by === myName())) { toast('Only the person who wrote it, or someone who can edit, can delete a comment.'); return; }
   snapshot(); state.notes = state.notes.filter((n) => !(n && n.id === id)); pins.open = null; commit();
   toast('Comment deleted.', 'Undo', undo);
 });
@@ -2098,7 +2153,18 @@ function canChangeRef(r) { return !commentOnly || (!!r.by && r.by === myName());
 function renderRefCount(t) {
   const n = t ? refList().filter((r) => r.tattooId === t.id).length : 0;
   $('#bRefs').textContent = n ? `Reference pictures (${n})` : 'Add reference pictures';
+  // the comments pinned on this tattoo, from anyone
+  const c = t ? pinNotes().filter((x) => x.tattooId === t.id) : [], open = c.filter((x) => !x.done).length;
+  $('#bPinsFor').hidden = !c.length;
+  $('#bPinsFor').textContent = open ? `Comments (${open} open)` : `Comments (${c.length})`;
 }
+$('#bPinsFor').addEventListener('click', () => {
+  const t = sel(); if (!t) return;
+  const c = pinNotes().filter((x) => x.tattooId === t.id); if (!c.length) return;
+  pinsOn();
+  if (c.length === 1) { openPin(c[0].id); turnToPin(c[0].id); return; }
+  pins.forTattoo = t.id; pins.list = true; pins.filter = c.some((x) => !x.done) ? 'open' : 'all'; renderPins();
+});
 function openRefs(filter, refId) {
   toggle('#planMenu', false);
   refsUi.filter = filter && filter !== 'all' && state.tattoos.some((t) => t.id === filter) ? filter : 'all';
@@ -2120,6 +2186,7 @@ function renderRefs() {
     const selBox = $('#refTattoo'); selBox.replaceChildren(el('option', { value: '', text: 'The whole project' }), ...state.tattoos.map((x) => el('option', { value: x.id, text: x.name || 'Tattoo' })));
     selBox.value = open.tattooId || ''; selBox.disabled = !can;
     $('#refRemove').hidden = !can;
+    $('#refTry').hidden = commentOnly || !images[open.img];
     return;
   }
   const seg = $('#refsFor'); seg.replaceChildren();
@@ -2185,6 +2252,15 @@ $('#refsPaste').addEventListener('click', async () => {
 $('#refBack').addEventListener('click', () => { refsUi.open = null; renderRefs(); });
 $('#refText').addEventListener('change', () => { const r = refList().find((x) => x.id === refsUi.open); if (!r || !canChangeRef(r)) return; snapshot(); const v = $('#refText').value.trim().slice(0, 300); if (v) r.note = v; else delete r.note; commit(); });
 $('#refTattoo').addEventListener('change', () => { const r = refList().find((x) => x.id === refsUi.open); if (!r || !canChangeRef(r)) return; snapshot(); const v = $('#refTattoo').value; if (v) r.tattooId = v; else delete r.tattooId; commit(); renderRefs(); });
+// Try a reference picture on the body as a planned tattoo (its own artwork copy, so the board keeps its picture)
+$('#refTry').addEventListener('click', async () => {
+  const r = refList().find((x) => x.id === refsUi.open); if (!r || commentOnly || !images[r.img]) return;
+  toggle('#refs', false); snapshot();
+  const t = await addImage(images[r.img], (r.note || 'From the reference board').slice(0, 40), viewCenterSpot());
+  if (!t) return;
+  t.status = 'planned'; selectedId = t.id; markTried('refTry'); commit(); focusTattoo(t);
+  toast('On the body as a planned tattoo. Clean up artwork in More controls cuts out a background.', 'Undo', undo);
+});
 $('#refRemove').addEventListener('click', () => {
   const r = refList().find((x) => x.id === refsUi.open); if (!r || !canChangeRef(r)) return;
   snapshot(); state.refs = refList().filter((x) => x.id !== r.id); if (!state.refs.length) delete state.refs; refsUi.open = null; commit(); renderRefs();
@@ -2193,7 +2269,7 @@ $('#refRemove').addEventListener('click', () => {
 // a change in the list "What changed since you last looked", shown where it happened
 function showChange(it) {
   if (it.tattooId && state.tattoos.some((t) => t.id === it.tattooId)) { select(it.tattooId, true); return; }
-  if (it.noteId) { const n = pinNotes().find((x) => x.id === it.noteId); if (n) { pinsOn(); openPin(n.id); return; } toast(it.text); return; }
+  if (it.noteId) { const n = pinNotes().find((x) => x.id === it.noteId); if (n) { pinsOn(); openPin(n.id); turnToPin(n.id); return; } toast(it.text); return; }
   if (it.refId) { openRefs('all', it.refId); return; }
   toast(it.text);
 }
@@ -2201,7 +2277,7 @@ function showChange(it) {
 // what someone else just added, said when their changes come in
 function newFromOthers(before) {
   const fresh = pinNotes().filter((n) => !before.pins.has(n.id) && (n.by || '') !== myName());
-  if (fresh.length) { const n = fresh[fresh.length - 1]; toast(`${n.by || 'Someone'} pinned a comment: "${(n.text || '').slice(0, 60)}${(n.text || '').length > 60 ? '…' : ''}"`, 'Show', () => { pinsOn(); openPin(n.id); }); return true; }
+  if (fresh.length) { const n = fresh[fresh.length - 1]; toast(`${n.by || 'Someone'} pinned a comment: "${(n.text || '').slice(0, 60)}${(n.text || '').length > 60 ? '…' : ''}"`, 'Show', () => { pinsOn(); openPin(n.id); turnToPin(n.id); }); return true; }
   for (const t of state.tattoos) {
     const r = t.review, was = before.reviews.get(t.id);
     if (r && JSON.stringify(r) !== was && (r.by || '') !== myName()) { toast(r.verdict === 'approved' ? `${r.by || 'Someone'} said yes to ${t.name || 'a tattoo'}.` : `${r.by || 'Someone'} asked for a change on ${t.name || 'a tattoo'}: "${(r.note || '').slice(0, 60)}"`, 'Show', () => select(t.id, true)); return true; }
@@ -3817,6 +3893,6 @@ window.__ink = {
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
-  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   decalReach: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry, P = g && g.attributes.position ? g.attributes.position.array : []; let max = 0; for (let i = 0; i < P.length; i += 3) { const dist = Math.hypot(P[i] - t.pos[0], P[i + 1] - t.pos[1], P[i + 2] - t.pos[2]); if (dist > max) max = dist; } return { name: t.name, tris: P.length / 9, max, w: t.width, h: t.width / t.aspect }; }),
 };

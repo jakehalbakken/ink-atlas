@@ -91,7 +91,7 @@ export function createAccount(api) {
     const u = user();
     let badge = btn.querySelector('.acct-badge');
     if (!badge) { badge = document.createElement('i'); badge.className = 'acct-badge'; badge.setAttribute('aria-hidden', 'true'); btn.append(badge); }
-    badge.hidden = !(u && badgeN); badge.textContent = badgeN > 9 ? '9+' : String(badgeN);
+    badge.hidden = !(u && badgeN); badge.textContent = !badgeN ? '' : badgeN > 9 ? '9+' : String(badgeN);
     btn.classList.toggle('signed', !!u);
     const label = btn.querySelector('span');
     if (u) { const n = cloud.displayName(u) || '?'; label.textContent = n.slice(0, 1).toUpperCase(); btn.setAttribute('aria-label', 'Your account: ' + n + (badgeN ? `, ${badgeN} project${badgeN === 1 ? '' : 's'} waiting on you` : '')); btn.title = 'Signed in as ' + (u.email || n); }

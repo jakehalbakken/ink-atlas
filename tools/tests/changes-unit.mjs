@@ -30,4 +30,13 @@ const mine = JSON.parse(JSON.stringify(before)); mine.tattoos[2].review = { verd
 assert.deepEqual(changesBetween(before, mine, { me: 'Jake' }), []);
 assert.deepEqual(changesBetween(before, mine, { me: 'Liv' }).map((c) => c.text), ['Jake said yes to "Moth"']);
 assert.deepEqual(changesBetween(null, after), [], 'nothing to compare with');
+// replies and resolving
+const later = JSON.parse(JSON.stringify(after));
+later.notes[1].replies = [{ id: 'r1', text: 'how much higher?', by: 'Jake' }, { id: 'r2', text: 'an inch', by: 'Artist' }];
+later.notes[1].done = { by: 'Artist', at: '2026-11-15' };
+assert.deepEqual(changesBetween(after, later, { me: 'Jake' }).map((c) => c.text), ['Artist replied to "move it up": "an inch"', 'Artist marked "move it up" resolved']);
+assert.equal(changesBetween(after, later, { me: 'Jake' })[0].noteId, 'n2');
+assert.deepEqual(changesBetween(after, later, { me: 'Artist' }).map((c) => c.text), ['Jake replied to "move it up": "how much higher?"']);
+const reopened = JSON.parse(JSON.stringify(later)); delete reopened.notes[1].done;
+assert.deepEqual(changesBetween(later, reopened, { me: 'Artist' }).map((c) => c.text), ['Reopened "move it up"']);
 console.log('changes-unit: ok');
