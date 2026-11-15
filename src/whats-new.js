@@ -5,6 +5,8 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'mention', date: '2026-11-15', title: 'Mention someone in a comment', how: 'On a project you work on together, open Preview > Comments and type @ in a comment or a reply. The names of the people on the project show under it: tap one to mention them. A mention of you stands out in the comment, and What changed lists it first.', show: 'pinReplies' },
+  { id: 'ownCopy', date: '2026-11-15', title: 'Make your own copy of a shared project', how: 'On a project someone shared with you, open your account and tap Make my own copy. It goes into your own account as a separate project you can change freely, and the shared one stays as it is for everyone on it.', show: 'ownCopy' },
   { id: 'sleeve', date: '2026-11-15', title: 'Arms and legs, unrolled', how: 'Share, then Arms and legs, unrolled. Each arm and leg’s skin is laid flat side by side with your tattoos on it and a 5 cm grid, the way artists plan a sleeve, so you can see the gaps and what is left.', show: 'sleeve' },
   { id: 'history', date: '2026-11-15', title: 'Go back several steps', how: 'Press and hold Undo. A list shows your last steps in plain words, like Moving Rose or The body shape. Tap one to go back to just before it in one go; Redo brings them back.', show: 'history' },
   { id: 'spotFit', date: '2026-11-15', title: 'Does it fit there', how: 'Select a tattoo, open More controls, then Try other spots. Under each arm and leg spot it now also says when the piece is too long for that part of the limb at its size, or wraps more than half way round it.', show: 'spotCompare' },

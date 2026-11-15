@@ -7,7 +7,7 @@
 // her answer, a pinned comment and a reference picture (with its artwork) reach Jake; Jake, back
 // after being away, is told what changed and the list's Show opens the picture; both account
 // panels say whose turn it is and Jake's account button shows a count; Let them edit switches
-// her to editing on her screen by itself.
+// her to editing on her screen by itself; she makes her own copy and her changes go only there.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -246,6 +246,27 @@ export default async function (p) {
     assert.ok(page.includes('<figure>') && page.includes('This line weight'), 'her reference picture is on the page');
     assert.ok(!page.includes('Shade the petals darker'), 'a resolved comment is left off');
     for (const pg of [p, q]) assert.equal(await pg.$eval('#hereNow', (e) => e.hidden), true, 'nobody shown as here without Realtime');
+    // Make my own copy: she gets her own project to change freely; Jake's stays as it is
+    const nJake = await p.evaluate(() => window.__ink.state().tattoos.length);
+    await until(p, () => window.__ink.account().text === 'Saved to your account', null, 'Jake saved');
+    for (let i = 0; i < 100 && (await db('select state from public.projects'))[0].state.tattoos.length !== nJake; i++) await wait(200);
+    await until(q, (n) => window.__ink.state().tattoos.length === n && window.__ink.account().text === 'Saved to your account', nJake, 'Mara in step');
+    const [shared] = await db('select id, name, state from public.projects');
+    await q.click('#accountBtn');
+    await until(q, () => !!document.querySelector('#acctCopy'), null, 'Make my own copy offered');
+    assert.ok(await q.$eval('#acctCopy', (e) => e.getBoundingClientRect().height >= 44));
+    await q.click('#acctCopy');
+    await until(q, () => { const b = window.__ink.account().bind; return b && b.mine && !b.shared; }, null, 'her screen is on her copy');
+    assert.match(await q.$eval('#toast', (e) => e.textContent), /is your own copy/);
+    const copies = await db('select id, name, owner, shared, state from public.projects where id <> $1', [shared.id]);
+    assert.equal(copies.length, 1, 'one copy'); assert.equal(copies[0].name, shared.name + ' (my copy)'); assert.equal(copies[0].shared, false);
+    assert.deepEqual(copies[0].state.tattoos.map((t) => t.id), shared.state.tattoos.map((t) => t.id), 'the same tattoos');
+    assert.equal(copies[0].owner, mara, 'in her account');
+    await q.evaluate(() => { window.__ink.state().tattoos[0].name = 'Mara only'; window.__ink.commitTest(); });
+    for (let i = 0; i < 100 && (await db('select state from public.projects where id = $1', [copies[0].id]))[0].state.tattoos[0].name !== 'Mara only'; i++) await wait(200);
+    assert.equal((await db('select state from public.projects where id = $1', [copies[0].id]))[0].state.tattoos[0].name, 'Mara only', 'into her copy');
+    assert.notEqual((await db('select state from public.projects where id = $1', [shared.id]))[0].state.tattoos[0].name, 'Mara only', 'not into Jake\'s');
+    assert.equal((await db('select state from public.projects where id = $1', [copies[0].id]))[0].state.projectName, shared.name + ' (my copy)', 'named inside too');
     console.log('t84 comment only: ok');
   } finally { await fake.stop(); fs.rmSync(tmp, { recursive: true, force: true }); }
 }

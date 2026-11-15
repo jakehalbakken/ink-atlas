@@ -6,6 +6,8 @@
 // opts.me: this person's name, so their own comments and answers are left out.
 // opts.inches(width): a tattoo's width in inches, for "made bigger (3.1 to 3.6 in)".
 
+import { mentionsMe } from './mention.js';
+
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const list = (s, k) => (s && Array.isArray(s[k]) ? s[k].filter((x) => x && typeof x === 'object' && typeof x.id === 'string') : []);
 const byId = (xs) => new Map(xs.map((x) => [x.id, x]));
@@ -48,14 +50,16 @@ export function changesBetween(before, after, opts = {}) {
   const BN = byId(list(before, 'notes'));
   for (const n of list(after, 'notes')) {
     if (BN.has(n.id) || (n.by || '') === me) continue;
-    out.push({ kind: 'comment', text: `${n.by || 'Someone'} commented: "${quote(n.text)}"`, noteId: n.id, pinned: !!n.pin });
+    const at = mentionsMe(n.text, me);
+    out.push({ kind: 'comment', text: `${n.by || 'Someone'} ${at ? 'mentioned you' : 'commented'}: "${quote(n.text)}"`, noteId: n.id, pinned: !!n.pin, ...(at ? { mention: true } : {}) });
   }
   for (const n of list(after, 'notes')) {
     const o = BN.get(n.id); if (!o) continue;
     const had = new Set((Array.isArray(o.replies) ? o.replies : []).map((r) => r && r.id));
     for (const r of Array.isArray(n.replies) ? n.replies : []) {
       if (!r || had.has(r.id) || (r.by || '') === me) continue;
-      out.push({ kind: 'reply', text: `${r.by || 'Someone'} replied to "${quote(n.text, 30)}": "${quote(r.text)}"`, noteId: n.id, pinned: !!n.pin });
+      const at = mentionsMe(r.text, me);
+      out.push({ kind: 'reply', text: at ? `${r.by || 'Someone'} mentioned you on "${quote(n.text, 30)}": "${quote(r.text)}"` : `${r.by || 'Someone'} replied to "${quote(n.text, 30)}": "${quote(r.text)}"`, noteId: n.id, pinned: !!n.pin, ...(at ? { mention: true } : {}) });
     }
     if (!!n.done !== !!o.done) {
       const who = n.done ? n.done.by : '';
@@ -70,5 +74,6 @@ export function changesBetween(before, after, opts = {}) {
   }
   if (BODY.some((k) => !same(before[k], after[k]))) out.push({ kind: 'body', text: 'Changed the body shape' });
   if (before.skin !== after.skin || (before.skinHex || '') !== (after.skinHex || '')) out.push({ kind: 'skin', text: 'Changed the skin tone' });
-  return out;
+  // mentions of this person come first
+  return [...out.filter((c) => c.mention), ...out.filter((c) => !c.mention)];
 }

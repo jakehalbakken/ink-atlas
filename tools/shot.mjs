@@ -43,7 +43,7 @@ await new Promise((r) => setTimeout(r, 1500));
 // The checks have passed by now: a page that stalls the last picture (two signed-in pages under
 // software WebGL sometimes do) must not hang the run.
 const within = (pr, ms, what) => Promise.race([pr, new Promise((r) => setTimeout(() => { console.log('note: ' + what + ' took over ' + ms / 1000 + 's, skipped'); r(); }, ms))]);
-await within(p.screenshot({ path: out }), 30000, 'the last picture');
+await within(p.screenshot({ path: out }).catch((e) => console.log('note: the last picture was skipped (' + e.message.slice(0, 80) + ')')), 30000, 'the last picture');
 await within(b.close(), 15000, 'closing the browser');
 server.close();
 console.log('shot', out, 'from', url);

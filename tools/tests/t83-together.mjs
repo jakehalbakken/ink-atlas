@@ -211,6 +211,18 @@ export default async function (p) {
     await q.click('#pinReplySend');
     await until(p, () => document.querySelector('#pinTyping').hidden, null, 'typing goes once she sends', 10000);
     await until(p, (id) => ((window.__ink.state().notes.find((n) => n.id === id) || {}).replies || []).some((r) => r.by === 'Liv'), note.id, 'her reply reaches Jake', 15000);
+    // @mention: typing @J offers Jake; his comment shows the mention and the list says it mentions him
+    await q.type('#pinReply', 'Can you check @J');
+    await until(q, () => !document.querySelector('#pinReplyAt').hidden && [...document.querySelectorAll('#pinReplyAt button')].some((b) => b.textContent === '@Jake'), null, 'Jake offered');
+    assert.ok(await q.$eval('#pinReplyAt button', (e) => e.getBoundingClientRect().height >= 44), 'chip big enough');
+    assert.equal(await q.$$eval('#pinReplyAt button', (bs) => bs.some((b) => b.textContent === '@Liv')), false, 'not herself');
+    await q.click('#pinReplyAt button');
+    assert.equal(await q.$eval('#pinReply', (e) => e.value), 'Can you check @Jake ');
+    await q.type('#pinReply', 'tonight?'); await q.click('#pinReplySend');
+    await until(p, (id) => ((window.__ink.state().notes.find((n) => n.id === id) || {}).replies || []).some((r) => /@Jake tonight/.test(r.text)), note.id, 'the mention reaches Jake', 15000);
+    await p.evaluate((id) => { window.__ink.openPin(null); window.__ink.openPin(id); }, note.id); await wait(200);
+    await until(p, () => [...document.querySelectorAll('#pinReplies mark.at-me')].some((m) => m.textContent === '@Jake'), null, 'it stands out for Jake');
+    await p.screenshot({ path: 'shots/t83-mention.png' });
     await q.click('#pinsDone'); await p.click('#pinsDone'); await wait(200);
 
     // both change at once: both changes kept, still one project
