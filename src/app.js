@@ -167,6 +167,8 @@ const decals = {}; // id -> {mesh, outline, tex, texKey}
 /* ---------- camera rig ---------- */
 const cur = { theta: 0.35, phi: 1.45, roll: 0, r: 4.2, tx: 0, ty: 0.86, tz: 0 };
 const goal = { ...cur };
+// who else has a shared project open (account.js), and whose view this one follows
+let peersHere = [], followId = null;
 let glide = true; let needsRender = true;
 function fullBodyR() {
   const t = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
@@ -177,6 +179,7 @@ function fullBody(theta) {
   goal.roll = 0; goal.phi = 1.5; goal.r = fullBodyR(); goal.tx = 0; goal.ty = 0.73; goal.tz = 0.02; glide = true; needsRender = true;
 }
 function focusTattoo(t) {
+  if (followId) stopFollow();
   const spot = viewSpot(t);
   const n = new V3(...spot.normal);
   goal.theta = Math.atan2(n.x, n.z);
@@ -495,6 +498,92 @@ let exporting = false;
 /* ---------- persistence ---------- */
 // store.js does the writing. Here: when to save, telling the truth about whether it
 // worked, and keeping copies to go back to.
+// Following someone else's view on a project worked on together: the camera goes where theirs
+// goes until a touch on the body or Stop. Only the view follows; selection and edits stay yours.
+const myView = () => [goal.theta, goal.phi, goal.roll || 0, goal.r, goal.tx, goal.ty, goal.tz].map((x) => Math.round(x * 1000) / 1000);
+function followPeer(id) { followId = id; applyFollow(); renderFollow(); markTried('followView'); }
+function stopFollow(why) { if (!followId) return; followId = null; renderFollow(); if (why) toast(why); }
+function applyFollow() {
+  if (!followId) return;
+  const o = peersHere.find((x) => x.id === followId);
+  if (!o) { stopFollow('They closed the project, so you are no longer following their view.'); return; }
+  renderFollow();
+  if (!o.view) return;
+  const [theta, phi, roll, r, tx, ty, tz] = o.view;
+  Object.assign(goal, { theta, phi, roll, r, tx, ty, tz }); glide = true; needsRender = true;
+}
+/* Pointing at a spot for the others on a shared project: in Point mode a tap on the body puts a
+   pulsing ring there on everyone's screen, with the name of who pointed, for a few seconds.
+   Nothing is saved; it travels with who is here now. */
+const POINT_MS = 8000;
+const pointing = { on: false, mine: null, mineAt: 0, seq: 0, seen: new Map(), els: [] };
+const myPoint = () => (pointing.mine && performance.now() - pointing.mineAt < 30000 ? pointing.mine : null);
+function pointMode(on) {
+  pointing.on = !!on && peersHere.length > 0;
+  if (pointing.on) { if (tape.on) tapeOff(); if (pain.on) painOff(); if (room.on) roomDone(); if (pins.on) pinsOff(); toast(`Tap the body to show ${peerNames()} a spot.`); }
+  renderPoints();
+}
+const peerNames = () => { const n = peersHere.map((o) => o.name || 'Someone'); return n.length < 2 ? (n[0] || 'them') : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1]; };
+function pointTap(x, y) {
+  const h = hitBody(x, y);
+  if (!h || h.faceIndex == null || !h.barycoord) { toast('Tap directly on the body.'); return; }
+  pointing.mine = [h.faceIndex, h.barycoord.x, h.barycoord.y, h.barycoord.z, ++pointing.seq]; pointing.mineAt = performance.now();
+  renderPoints(); if (account && account.nudge) account.nudge(); markTried('pointAt');
+}
+function turnToSurface(s, r) {
+  goal.theta = Math.atan2(s.n.x, s.n.z); goal.phi = THREE.MathUtils.clamp(Math.acos(THREE.MathUtils.clamp(s.n.y, -1, 1)), 0.75, 2.0); goal.roll = 0;
+  goal.tx = s.pos.x; goal.ty = s.pos.y; goal.tz = s.pos.z; goal.r = THREE.MathUtils.clamp(r ?? cur.r, 1.1, 2.2);
+  glide = true; needsRender = true;
+}
+const pointVisible = (s) => {
+  const rc = canvas.getBoundingClientRect(), sc = screenOf(s.pos), dist = camera.position.distanceTo(s.pos);
+  ray.set(camera.position, s.pos.clone().sub(camera.position).normalize());
+  const hit = poseView.active ? poseView.withPosed(() => ray.intersectObject(body, false)[0]) : ray.intersectObject(body, false)[0];
+  return { sc, shown: !(hit && hit.distance < dist - 0.012) && sc.x > rc.left && sc.x < rc.right && sc.y > rc.top && sc.y < rc.bottom };
+};
+// a new spot from someone here: shown for a few seconds; if it is out of sight, a Show to turn to it
+function peerPoints() {
+  const now = performance.now();
+  for (const o of peersHere) {
+    if (!o.point) continue;
+    const key = o.id + ':' + o.point[4];
+    if (pointing.seen.has(key)) continue;
+    pointing.seen.set(key, now);
+    const s = pinSpot({ tri: o.point[0], w: o.point.slice(1, 4) });
+    if (s && !followId && !pointVisible(s).shown) toast(`${o.name || 'Someone'} is pointing at a spot.`, 'Show', () => turnToSurface(s));
+  }
+  if (pointing.seen.size > 200) for (const k of [...pointing.seen.keys()].slice(0, 100)) pointing.seen.delete(k);
+  if (!peersHere.length && pointing.on) pointing.on = false;
+  renderPoints();
+}
+function shownPoints() {
+  const now = performance.now(), out = [];
+  if (pointing.mine && now - pointing.mineAt < POINT_MS) out.push({ who: 'You', p: pointing.mine, mine: true });
+  for (const o of peersHere) if (o.point) { const t = pointing.seen.get(o.id + ':' + o.point[4]); if (t != null && now - t < POINT_MS) out.push({ who: o.name || 'Someone', p: o.point }); }
+  return out;
+}
+let pointTimer = 0;
+function renderPoints() {
+  const btn = $('#showSpotBtn');
+  btn.hidden = !peersHere.length; btn.setAttribute('aria-pressed', String(pointing.on)); btn.classList.toggle('on', pointing.on);
+  const layer = $('#spotLayer'), list = shownPoints();
+  pointing.els = list.map((x) => { const d = el('div', { class: 'spotMark' + (x.mine ? ' mine' : '') }); d.append(el('i'), el('span', { text: x.who })); return { d, p: x.p }; });
+  layer.replaceChildren(...pointing.els.map((e) => e.d));
+  placePoints();
+  clearTimeout(pointTimer); if (list.length) pointTimer = setTimeout(renderPoints, 600);
+}
+function placePoints() {
+  for (const e of pointing.els) {
+    const s = pinSpot({ tri: e.p[0], w: e.p.slice(1, 4) }); if (!s) { e.d.hidden = true; continue; }
+    const v = pointVisible(s); e.d.hidden = !v.shown; if (!v.shown) continue;
+    e.d.style.left = v.sc.x + 'px'; e.d.style.top = v.sc.y + 'px';
+  }
+}
+function renderFollow() {
+  const bar = document.getElementById('followBar'); if (!bar) return;
+  const o = followId && peersHere.find((x) => x.id === followId);
+  bar.hidden = !o; if (o) $('#followText').textContent = `Following ${o.name || 'their'}${o.name ? '\u2019s' : ''} view`;
+}
 let account = null, store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
 function usedImages() { const o = {}; for (const k of imageKeysFor(state)) if (images[k]) o[k] = images[k]; return o; }
 function setSaved(text, bad) { const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad); }
@@ -563,7 +652,7 @@ const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 let tried = readTried(); // features from New to try that were tried on this device
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
+function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; const was = selectedId; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (was !== id && account && account.nudge) account.nudge(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
 // the size said as an everyday thing: about the size of a credit card
 function likeOf(t) { if (!t) return ''; const k = (state.heightCm || 175) / 175, w = t.width * 100 * k / 2.54; return sizeLikeText(w, w / t.aspect); }
 function likeRender(t) { const lk = likeOf(t); $('#likeLine').textContent = lk; $('#likeLine').hidden = !lk; }
@@ -645,6 +734,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
   clearLiveGuides(); if (!$('#lookMenu').hidden) showLook(false);
+  if (followId) stopFollow();
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pts.size === 1) {
     const t = sel();
@@ -729,6 +819,7 @@ window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
+  if (pointing.on) { pointTap(x, y); return; }
   if (tape.on) { tapeTap(x, y); return; }
   if (pain.on) { painTap(x, y); return; }
   if (room.on) { roomTap(x, y); return; }
@@ -802,6 +893,8 @@ function renderTray() {
       el('img', { src: images[t.img], alt: '' }), el('span', { text: t.name }));
     if (t.status === 'existing') b.append(el('i', { class: 'lock', text: 'On me' })); else if (t.locked) b.append(el('i', { class: 'lock', text: 'Locked' }));
     else if (t.review) b.append(el('i', { class: 'lock ' + (t.review.verdict === 'approved' ? 'rv-ok' : 'rv-chg'), text: t.review.verdict === 'approved' ? 'Approved' : 'Change asked' }));
+    const watching = peersHere.filter((o) => o.look === t.id);
+    if (watching.length) { const names = watching.map((o) => o.name || 'Someone').join(' and '); b.append(el('b', { class: 'peer', text: (watching[0].name || '?').slice(0, 1).toUpperCase() + (watching.length > 1 ? '+' : ''), title: names + ' looking' })); b.setAttribute('aria-label', 'Select ' + t.name + ', ' + names + ' looking at it'); }
     tray.append(b);
   }
   $('#count').textContent = state.tattoos.length ? `${state.tattoos.length} on the body` : 'Nothing placed yet';
@@ -2070,6 +2163,9 @@ const SHOW = {
   },
   commentInvite: () => (account && account.configured ? (account.showTogether(), ['#acctInvite', 'Tap Invite someone, then Comments only. They can comment, answer and add reference pictures, but your tattoos stay where you put them.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   changes: () => (account && account.configured ? (account.showTogether(), ['#acctChanges', 'On a project you work on together, this lists what the others changed since you last looked. Tap Show on a line to see it.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
+  pointAt: () => (peersHere.length ? ['#showSpotBtn', 'Tap Point, then the spot on the body you want to show them.'] : account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else has this project open, a Point button shows at the top. Tap it, then the body, to show them a spot.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
+  followView: () => (account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else has this project open, Follow their view is on their row here. Your screen then turns with theirs until you touch the body.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
+  hereNow: () => (account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else on a project you work on together has it open, they are listed here, with the tattoo they are looking at. Their initial also shows by your account button.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   glance: () => (account && account.configured ? (account.showTogether(), ['#acctGlance', 'Every project you own or were invited to, with whose turn it is. Your turn shows only the ones waiting on you.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   refs: () => {
     toggle('#planMenu', true); return ['#openRefs', sel() ? 'Tap Reference board to add pictures for the selected tattoo or the whole project. Everyone on a shared project sees them.' : 'Tap Reference board, then Add pictures. Select a tattoo first to pin pictures to it.'];
@@ -2255,7 +2351,7 @@ function renderPins() {
   $('#pinBar').hidden = !pins.on;
   if (pins.open && !list.find((n) => n.id === pins.open)) pins.open = null;
   const open = pins.open && list.find((n) => n.id === pins.open);
-  $('#pinEdit').hidden = !pins.pending; $('#pinRead').hidden = !open || !!pins.pending;
+  $('#pinEdit').hidden = !pins.pending; $('#pinRead').hidden = !open || !!pins.pending; renderTyping();
   if (!list.length || pins.pending || open) pins.list = false;
   if (!pins.list) pins.forTattoo = null;
   const forT = pins.forTattoo && state.tattoos.find((x) => x.id === pins.forTattoo);
@@ -2358,11 +2454,26 @@ function changePin(id, fn) {
   state.notes = state.notes.map((x, k) => (k === i ? n : x)); commit(); return true;
 }
 $('#pinReply').addEventListener('keydown', (e) => e.stopPropagation());
+// typing a reply: the others here see "Liv is typing" under that comment for a few seconds
+let typingOn = null, typingAt = 0, typingTimer = 0;
+const myTyping = () => (typingOn && performance.now() - typingAt < 6000 ? typingOn : null);
+$('#pinReply').addEventListener('input', () => {
+  if (!peersHere.length) return;
+  const was = myTyping(); typingOn = $('#pinReply').value.trim() ? pins.open : null; typingAt = performance.now();
+  if (was !== myTyping() && account && account.nudge) account.nudge();
+  clearTimeout(typingTimer); typingTimer = setTimeout(() => { if (account && account.nudge) account.nudge(); }, 6100);
+});
+function renderTyping() {
+  const who = pins.open ? peersHere.filter((o) => o.typing === pins.open).map((o) => o.name || 'Someone') : [];
+  $('#pinTyping').hidden = !who.length;
+  if (who.length) markTried('typing');
+  $('#pinTyping').textContent = who.length ? `${who.join(' and ')} ${who.length === 1 ? 'is' : 'are'} typing a reply…` : '';
+}
 $('#pinReplySend').addEventListener('click', () => {
   const id = pins.open, text = $('#pinReply').value.trim(); if (!id) return;
   if (!text) { toast('Type the reply first.'); $('#pinReply').focus(); return; }
   if ((pinNotes().find((n) => n.id === id)?.replies || []).length >= 50) { toast('This comment has 50 replies. Start a new comment for more.'); return; }
-  if (changePin(id, (n) => { n.replies = [...(Array.isArray(n.replies) ? n.replies : []), { id: 'r' + Math.random().toString(36).slice(2, 10), text, by: myName(), at: todayIso() }]; })) { $('#pinReply').value = ''; markTried('pinReplies'); }
+  if (changePin(id, (n) => { n.replies = [...(Array.isArray(n.replies) ? n.replies : []), { id: 'r' + Math.random().toString(36).slice(2, 10), text, by: myName(), at: todayIso() }]; })) { $('#pinReply').value = ''; markTried('pinReplies'); if (typingOn) { typingOn = null; if (account && account.nudge) account.nudge(); } }
 });
 $('#pinResolve').addEventListener('click', () => {
   const id = pins.open, n = id && pinNotes().find((x) => x.id === id); if (!n) return;
@@ -4411,7 +4522,7 @@ function tick(now) {
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) { $('#size').textContent = sizeText(t); likeRender(t); } }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
-  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (tape.on) placeTape(); if (pins.on) placePins(); }
+  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (tape.on) placeTape(); if (pins.on) placePins(); if (pointing.els.length) placePoints(); }
   requestAnimationFrame(tick);
 }
 
@@ -4485,16 +4596,25 @@ function startAccount() {
     },
     rename(name) { state.projectName = name; commit(); },
     setSaved, toast, saveNow: () => save(), tried: (id = 'accounts') => markTried(id),
+    // who else has the shared project open, and the tattoo each has selected
+    setPeers(list) { peersHere = Array.isArray(list) ? list : []; renderTray(); applyFollow(); peerPoints(); renderTyping(); },
+    looking: () => selectedId, view: myView, follow: followPeer, point: myPoint, typing: myTyping, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
     setCommentOnly, showChange, inches: (w) => w * state.heightCm / 175 * 100 / 2.54,
     // in the middle of moving something or typing: changes from elsewhere wait a moment
     busy: () => !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
   });
   account.start();
 }
+$('#followStop').addEventListener('click', () => stopFollow());
+$('#showSpotBtn').addEventListener('click', () => pointMode(!pointing.on));
+$('#views').addEventListener('click', () => stopFollow(), true);
+// tell anyone else here where this view went, once it settles
+let viewSent = '';
+setInterval(() => { if (!account || !account.nudge || !peersHere.length) return; const k = myView().join(); if (k !== viewSent) { viewSent = k; account.nudge(); } }, 700);
 $('#cLink').addEventListener('click', () => { toggle('#share', false); if (account) account.sendLink().catch(() => {}); });
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
-  state: () => state, ready: () => booted,
+  state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
   sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),

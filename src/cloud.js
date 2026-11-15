@@ -59,6 +59,23 @@ function client() {
 }
 const homeUrl = () => location.origin + location.pathname;
 
+// where someone's camera is: [turn, tilt, roll, distance, aim x, y, z], or null
+export function cleanView(v) {
+  if (!Array.isArray(v) || v.length !== 7 || !v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) < 100)) return null;
+  return v.map((x) => Math.round(x * 1000) / 1000);
+}
+// a spot someone is pointing at: [body triangle, three weights, a count that goes up each time], or null
+export function cleanPoint(v) {
+  if (!Array.isArray(v) || v.length !== 5 || !Number.isInteger(v[0]) || v[0] < 0 || v[0] > 1e6 || !Number.isInteger(v[4]) || v[4] < 0) return null;
+  const w = v.slice(1, 4);
+  if (!w.every((x) => typeof x === 'number' && Number.isFinite(x) && x > -0.01 && x < 1.01)) return null;
+  return [v[0], ...w.map((x) => Math.round(x * 10000) / 10000), v[4]];
+}
+async function sha256Hex(text) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
+}
+
 export async function openCloud() {
   const sb = await client();
   let user = (await sb.auth.getSession()).data.session?.user || null;
@@ -215,6 +232,30 @@ export async function openCloud() {
     },
     async removeMember(id, userId) { check(await sb.from('project_members').delete().eq('project_id', id).eq('user_id', userId)); },
     async leave(id) { check(await sb.from('project_members').delete().eq('project_id', id).eq('user_id', uid())); },
+    // Who else has a project worked on together open right now: Supabase Realtime presence on a
+    // channel named after the project. Nothing is stored anywhere. onSync gets
+    // [{ id, name, look, rev, at }] for everyone else there. If the project's Realtime is off,
+    // this throws and the app carries on checking every few seconds as before.
+    async presence(id, onSync) {
+      const row = check(await sb.from('projects').select('owner').eq('id', id).limit(1))[0];
+      if (!row) throw new Error('Not on this project');
+      const topic = 'ink-here:' + await sha256Hex('ink-atlas-here|' + id + '|' + row.owner);
+      const me = uid(), ch = sb.channel(topic, { config: { presence: { key: me } } });
+      const others = () => Object.entries(ch.presenceState()).filter(([k]) => k !== me).map(([k, metas]) => {
+        const m = metas[metas.length - 1] || {};
+        return { id: k, name: typeof m.name === 'string' ? m.name.slice(0, 60) : '', look: typeof m.look === 'string' ? m.look.slice(0, 80) : null, rev: Number.isFinite(m.rev) ? m.rev : 0, at: Number.isFinite(m.at) ? m.at : 0, view: cleanView(m.view), point: cleanPoint(m.point), typing: typeof m.typing === 'string' && m.typing.length <= 80 ? m.typing : null };
+      });
+      ch.on('presence', { event: 'sync' }, () => onSync(others()));
+      await new Promise((res, rej) => {
+        const t = setTimeout(() => rej(new Error('Realtime did not answer')), 10000);
+        ch.subscribe((s) => { if (s === 'SUBSCRIBED') { clearTimeout(t); res(); } else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') { clearTimeout(t); rej(new Error('Realtime ' + s)); } });
+      }).catch((e) => { sb.removeChannel(ch); throw e; });
+      return {
+        track: (meta) => ch.track({ name: String(meta.name || '').slice(0, 60), look: meta.look || null, rev: meta.rev || 0, view: cleanView(meta.view), point: cleanPoint(meta.point), typing: typeof meta.typing === 'string' ? meta.typing.slice(0, 80) : null, at: Date.now() }),
+        others,
+        leave: () => sb.removeChannel(ch),
+      };
+    },
 
     // Sending a copy to someone ---------------------------------------------
     async share(state, images, name) {

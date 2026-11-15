@@ -11,6 +11,7 @@ import { createHmac, randomUUID, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import pg from 'pg';
+import { WebSocketServer } from 'ws';
 
 const SECRET = 'fake-supabase-secret';
 const b64u = (b) => Buffer.from(b).toString('base64url');
@@ -40,7 +41,7 @@ alter default privileges in schema public grant all on tables to anon, authentic
 alter default privileges in schema public grant all on functions to anon, authenticated;
 `;
 
-export async function startFakeSupabase({ port = 0, db = 'ink_fake_' + randomBytes(3).toString('hex'), sql = resolve(import.meta.dirname, '..', 'supabase', 'setup.sql') } = {}) {
+export async function startFakeSupabase({ realtime = true, port = 0, db = 'ink_fake_' + randomBytes(3).toString('hex'), sql = resolve(import.meta.dirname, '..', 'supabase', 'setup.sql') } = {}) {
   const admin = new pg.Client({ database: 'postgres' }); await admin.connect();
   await admin.query(`create database ${db}`); await admin.end();
   const pool = new pg.Pool({ database: db, max: 8 });
@@ -164,10 +165,66 @@ export async function startFakeSupabase({ port = 0, db = 'ink_fake_' + randomByt
       send(404, { message: 'not here: ' + req.method + ' ' + path });
     } catch (e) { send(500, { message: e.message }); }
   });
+
+  // Realtime, presence only (what the app uses): the Phoenix protocol as text frames
+  // [join_ref, ref, topic, event, payload]. Joining needs a signed-in person's token.
+  // realtime: false answers nothing, like a project with Realtime turned off.
+  const wss = new WebSocketServer({ noServer: true }), topics = new Map(), presenceLog = [];
+  let phxRef = 0;
+  const frame = (ws, joinRef, ref, topic, event, payload) => { if (ws.readyState === 1) ws.send(JSON.stringify([joinRef, ref, topic, event, payload])); };
+  const stateOf = (topic) => { const o = {}; for (const [, m] of topics.get(topic) || new Map()) if (m.meta) o[m.key] = { metas: [{ phx_ref: m.ref, ...m.meta }] }; return o; };
+  const diffAll = (topic, joins, leaves) => { for (const [ws, m] of topics.get(topic) || new Map()) frame(ws, m.joinRef, null, topic, 'presence_diff', { joins, leaves }); };
+  function leaveTopic(ws, topic) {
+    const room = topics.get(topic), m = room && room.get(ws); if (!m) return;
+    room.delete(ws); if (!room.size) topics.delete(topic);
+    if (m.meta) diffAll(topic, {}, { [m.key]: { metas: [{ phx_ref: m.ref, ...m.meta }] } });
+    presenceLog.push('leave ' + m.key.slice(0, 8));
+  }
+  server.on('upgrade', (req, sock, head) => {
+    if (!realtime || !req.url.startsWith('/realtime/v1/websocket')) { sock.destroy(); return; }
+    wss.handleUpgrade(req, sock, head, (ws) => {
+      const mine = new Set();
+      ws.on('message', (data) => {
+        let msg; try { msg = JSON.parse(data.toString()); } catch (e) { return; }
+        const [joinRef, ref, topic, event, payload] = msg;
+        const reply = (status, response = {}) => frame(ws, joinRef, ref, topic, 'phx_reply', { status, response });
+        if (topic === 'phoenix' && event === 'heartbeat') return reply('ok');
+        if (event === 'phx_join') {
+          const c = unjwt(payload && payload.access_token || ''), who = c && c.role === 'authenticated' ? c.sub : null;
+          if (!who) return reply('error', { reason: 'Unauthorized' });
+          const key = (payload.config && payload.config.presence && payload.config.presence.key) || who;
+          if (!topics.has(topic)) topics.set(topic, new Map());
+          topics.get(topic).set(ws, { key, joinRef, who, meta: null, ref: '' });
+          mine.add(topic); reply('ok', {});
+          presenceLog.push('join ' + key.slice(0, 8) + ' ' + topic.slice(0, 24));
+          return frame(ws, joinRef, null, topic, 'presence_state', stateOf(topic));
+        }
+        const m = topics.get(topic) && topics.get(topic).get(ws);
+        if (event === 'phx_leave') { leaveTopic(ws, topic); mine.delete(topic); return reply('ok'); }
+        if (!m) return reply('error', { reason: 'not joined' });
+        if (event === 'access_token') return reply('ok');
+        if (event === 'presence' && payload && payload.event === 'track') {
+          const was = m.meta ? { [m.key]: { metas: [{ phx_ref: m.ref, ...m.meta }] } } : {};
+          m.meta = payload.payload || {}; m.ref = String(++phxRef);
+          presenceLog.push('track ' + m.key.slice(0, 8) + ' ' + JSON.stringify(m.meta));
+          reply('ok'); return diffAll(topic, { [m.key]: { metas: [{ phx_ref: m.ref, ...m.meta }] } }, was);
+        }
+        if (event === 'presence' && payload && payload.event === 'untrack') {
+          if (m.meta) { const was = { [m.key]: { metas: [{ phx_ref: m.ref, ...m.meta }] } }; m.meta = null; diffAll(topic, {}, was); }
+          return reply('ok');
+        }
+        reply('ok');
+      });
+      ws.on('close', () => { for (const t of mine) leaveTopic(ws, t); });
+    });
+  });
+  const topicsNow = () => [...topics].map(([t, room]) => ({ topic: t, keys: [...room.values()].map((m) => m.key) }));
+
   await new Promise((r) => server.listen(port, '127.0.0.1', r));
   return {
+    presenceLog, topicsNow, setRealtime(on) { realtime = on; if (!on) for (const c of wss.clients) c.terminate(); },
     url: `http://127.0.0.1:${server.address().port}`, anonKey: jwt({ role: 'anon', exp: Math.floor(Date.now() / 1000) + 86400 * 365 }),
     pool, files, codes, log, as,
-    async stop() { await new Promise((r) => server.close(r)); await pool.end(); const a = new pg.Client({ database: 'postgres' }); await a.connect(); await a.query(`drop database if exists ${db} with (force)`); await a.end(); },
+    async stop() { for (const c of wss.clients) c.terminate(); await new Promise((r) => server.close(r)); await pool.end(); const a = new pg.Client({ database: 'postgres' }); await a.connect(); await a.query(`drop database if exists ${db} with (force)`); await a.end(); },
   };
 }
