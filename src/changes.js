@@ -51,7 +51,7 @@ export function changesBetween(before, after, opts = {}) {
   for (const n of list(after, 'notes')) {
     if (BN.has(n.id) || (n.by || '') === me) continue;
     const at = mentionsMe(n.text, me);
-    out.push({ kind: 'comment', text: `${n.by || 'Someone'} ${at ? 'mentioned you' : 'commented'}: "${quote(n.text)}"`, noteId: n.id, pinned: !!n.pin, ...(at ? { mention: true } : {}) });
+    out.push({ kind: 'comment', text: `${n.by || 'Someone'} ${n.suggest ? 'suggested a new spot' : at ? 'mentioned you' : 'commented'}: "${quote(n.text)}"`, noteId: n.id, pinned: !!n.pin, ...(at ? { mention: true } : {}) });
   }
   for (const n of list(after, 'notes')) {
     const o = BN.get(n.id); if (!o) continue;

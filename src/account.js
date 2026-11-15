@@ -110,6 +110,7 @@ export function createAccount(api) {
     clearTimeout(timer); timer = 0;
     if (!user()) return;
     if (pushing) { again = true; return; }
+    if (api.holding && api.holding()) { clearTimeout(retry); retry = setTimeout(push, 1500); return; } // trying something out on this screen: nothing goes up until it is done
     if (!myBind() && !following()) return;
     if (myBind() && myBind().sig === currentSig()) { status('Saved to your account'); return; }
     pushing = true; status('Saving to your account');

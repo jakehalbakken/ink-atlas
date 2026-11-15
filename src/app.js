@@ -23,7 +23,7 @@ import { emailCodes } from './cloud.js';
 import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
 import { makeArtistPacket } from './artist-packet.js';
-import { cleanState, imageKeysFor, REACTIONS } from './project.js';
+import { cleanState, imageKeysFor, REACTIONS, SUGGEST_KEYS } from './project.js';
 import { openStore } from './store.js';
 import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
@@ -738,15 +738,17 @@ function handsOn(on) { clearTimeout(handsOnTimer); if (on) document.body.classLi
 let gest = null; let lastTap = { t: 0, x: 0, y: 0, empty: false };
 // joined a shared project with a comment-only invite (src/account.js): tattoos can be looked at,
 // answered, commented on and given reference pictures, but not moved, resized, added or removed
-let commentOnly = false;
+let commentOnly = false, suggesting = null; // suggesting: { id, before, undoLen, redo } while someone who can only comment tries a new spot
+const cannotMove = (t) => commentOnly && !(suggesting && t && suggesting.id === t.id);
 function setCommentOnly(on) {
+  if (!on && suggesting) suggestEnd(false);
   commentOnly = !!on; document.body.classList.toggle('comment-only', commentOnly);
   if (commentOnly) { cancelGesture(); tapPlaceId = null; if (room.on && room.fitId) roomDone(); }
   renderUI();
 }
 function screenOf(v) { const p = v.clone().project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height }; }
 function onSelectedInk(x, y) {
-  const t = sel(); if (commentOnly || tapPlaceId || !t || t.locked || t.status === 'existing' || t.hidden) return false;
+  const t = sel(); if (cannotMove(t) || tapPlaceId || !t || t.locked || t.status === 'existing' || t.hidden) return false;
   const h = hitBody(x, y); return !!(h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t));
 }
 function two() { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, ang: Math.atan2(b.y - a.y, b.x - a.x), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; }
@@ -873,7 +875,7 @@ function handleSpots(t) {
 }
 function placeHandles() {
   const t = sel();
-  const show = !!t && !commentOnly && !t.locked && !t.hidden && t.status !== 'existing' && !tapPlaceId && !beforeAfter.on && !(gest && gest.mode === 'cam' && gest.moved);
+  const show = !!t && !cannotMove(t) && !t.locked && !t.hidden && t.status !== 'existing' && !tapPlaceId && !beforeAfter.on && !(gest && gest.mode === 'cam' && gest.moved);
   const s = show ? handleSpots(t) : null;
   if (!s) { if (!handleDrag) handleBox.hidden = true; return; }
   const r = canvas.getBoundingClientRect(), inView = (p) => p.x > r.left + 8 && p.x < r.right - 8 && p.y > r.top + 8 && p.y < r.bottom - 8;
@@ -882,7 +884,7 @@ function placeHandles() {
 }
 for (const [b, kind] of [[hSize, 'size'], [hTurn, 'turn']]) {
   b.addEventListener('pointerdown', (e) => {
-    const t = sel(); if (!t || t.locked || commentOnly || handleDrag) return;
+    const t = sel(); if (!t || t.locked || cannotMove(t) || handleDrag) return;
     e.preventDefault(); e.stopPropagation(); try { b.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
     const s = handleSpots(t); if (!s) return; markTried('handles');
     if (poseView.motion.playing) poseView.pause();
@@ -2374,6 +2376,7 @@ function renderAnswer(t) {
   const r = t.review, mine = !!(r && (r.by || '') === myName());
   $('#bApprove').setAttribute('aria-pressed', String(!!(r && r.verdict === 'approved' && mine)));
   $('#bUnreview').hidden = !(r && mine);
+  $('#bSuggest').hidden = !commentOnly || t.status === 'existing' || t.locked || !!suggesting;
 }
 function setReview(verdict, note) {
   const t = sel(); if (!t) return;
@@ -2387,6 +2390,53 @@ $('#bAskChange').addEventListener('click', () => { const t = sel(); if (!t) retu
 $('#bSendChange').addEventListener('click', () => { const v = $('#changeNote').value.trim(); if (!v) { toast('Say what should change, like: move it up an inch.'); $('#changeNote').focus(); return; } setReview('changes', v); });
 $('#bCancelChange').addEventListener('click', () => { changeFor = null; renderAnswer(sel()); });
 $('#bUnreview').addEventListener('click', () => setReview(null));
+
+/* ---------- suggest a new spot ---------- */
+// Someone who can only comment moves, sizes or turns a tattoo to show where they think it should
+// go. Nothing changes for anyone else: Send puts the tattoo back and pins a comment there that
+// carries the spot (note.suggest), and someone who can edit taps Use this spot.
+function suggestStart() {
+  const t = sel(); if (!t || !commentOnly || suggesting) return;
+  suggesting = { id: t.id, before: JSON.stringify(t), undoLen: undoStack.length, redo: redoStack.slice() };
+  document.body.classList.add('suggesting'); closePanels && closePanels();
+  $('#suggestText').textContent = `Move, size or turn ${t.name || 'it'} to where you think it should go.`;
+  $('#suggestNote').value = ''; $('#suggestBar').hidden = false;
+  renderUI(); placeHandles(); needsRender = true;
+}
+function suggestEnd(send) {
+  const s = suggesting; if (!s) return;
+  const i = state.tattoos.findIndex((x) => x.id === s.id), t = state.tattoos[i], was = JSON.parse(s.before);
+  const after = t ? Object.fromEntries(SUGGEST_KEYS.filter((k) => t[k] !== undefined).map((k) => [k, JSON.parse(JSON.stringify(t[k]))])) : null;
+  if (i >= 0) state.tattoos[i] = was;
+  undoStack.length = Math.min(undoStack.length, s.undoLen); redoStack.length = 0; redoStack.push(...s.redo);
+  suggesting = null; document.body.classList.remove('suggesting'); $('#suggestBar').hidden = true;
+  const moved = after && SUGGEST_KEYS.some((k) => JSON.stringify(after[k]) !== JSON.stringify(was[k]));
+  if (!send || !moved) { commit(); refreshUndo(); if (send) toast('Move, size or turn it first, then send.'); return; }
+  const n = new V3(...after.normal).normalize(); ray.set(new V3(...after.pos).addScaledVector(n, 0.06), n.clone().negate()); ray.far = 0.25;
+  const h = ray.intersectObject(body, false)[0]; ray.far = Infinity;
+  const note = { id: uid(), text: $('#suggestNote').value.trim().slice(0, 500) || `Suggested a new spot for ${was.name || 'this tattoo'}`, by: myName(), at: todayIso(), tattooId: was.id, suggest: { tattooId: was.id, ...after } };
+  if (h && h.faceIndex != null && h.barycoord) note.pin = { tri: h.faceIndex, w: [h.barycoord.x, h.barycoord.y, h.barycoord.z] };
+  else { const k = nearestIndex(after.pos), I = bodyGeo.index.array; let tri = 0; for (let q = 0; q < I.length; q++) if (I[q] === k) { tri = Math.floor(q / 3); break; } const w = [0, 0, 0]; w[[I[tri * 3], I[tri * 3 + 1], I[tri * 3 + 2]].indexOf(k)] = 1; note.pin = { tri, w }; }
+  snapshot(); state.notes = [...(Array.isArray(state.notes) ? state.notes : []), note]; commit(); refreshUndo();
+  markTried('suggestSpot');
+  toast('Suggestion sent. The others see it as a comment and can use that spot.', 'Undo', undo);
+}
+function suggestUse(n) {
+  const g = n && n.suggest, t = g && state.tattoos.find((x) => x.id === g.tattooId);
+  if (!t) { toast('That tattoo is not on the body any more.'); return; }
+  if (commentOnly) return;
+  if (t.locked) { toast(`${t.name || 'This tattoo'} is locked. Unlock it first.`); return; }
+  snapshot();
+  for (const k of SUGGEST_KEYS) { if (g[k] !== undefined) t[k] = JSON.parse(JSON.stringify(g[k])); else if (k === 'wrap' || k === 'bend' || k === 'taper') delete t[k]; }
+  state.notes = state.notes.map((x) => (x.id === n.id ? { ...x, done: { by: myName(), at: todayIso() } } : x));
+  commit(); markTried('suggestSpot');
+  toast(`Moved ${t.name || 'it'} to ${n.by || 'their'}${n.by ? "'s" : ''} spot.`, 'Undo', undo);
+}
+$('#bSuggest').addEventListener('click', suggestStart);
+$('#pinSuggestUse').addEventListener('click', () => { const n = pins.open && pinNotes().find((x) => x.id === pins.open); if (n) suggestUse(n); });
+$('#suggestSend').addEventListener('click', () => suggestEnd(true));
+$('#suggestCancel').addEventListener('click', () => suggestEnd(false));
+$('#suggestNote').addEventListener('keydown', (e) => e.stopPropagation());
 $('#changeNote').addEventListener('keydown', (e) => e.stopPropagation());
 
 /* ---------- comments pinned to the body ---------- */
@@ -2454,6 +2504,13 @@ function renderPins() {
     $('#pinWho').textContent = [open.by || 'You', open.at ? fmtDay(open.at) : '', t ? 'on ' + (t.name || 'a tattoo') : ''].filter(Boolean).join(' · ') + (open.done ? `. Resolved by ${open.done.by || 'someone'}${open.done.at ? ' ' + fmtDay(open.done.at) : ''}.` : '');
     $('#pinReplies').replaceChildren(...(Array.isArray(open.replies) ? open.replies : []).map((r) => { const li = el('li'); li.append(...mentionNodes(r.text), el('small', { text: [r.by || 'Someone', r.at ? fmtDay(r.at) : ''].filter(Boolean).join(' · ') })); return li; }));
     renderReacts(open);
+    const g = open.suggest, gt = g && state.tattoos.find((x) => x.id === g.tattooId);
+    $('#pinSuggest').hidden = !g;
+    if (g) {
+      const inch = (w) => (w * state.heightCm / 175 * 100 / 2.54).toFixed(1);
+      $('#pinSuggestText').textContent = !gt ? 'A suggested spot for a tattoo that is no longer on the body.' : `${open.by || 'Someone'} suggests this spot for ${gt.name || 'a tattoo'}: ${inch(g.width)} in wide${Math.abs(g.width - gt.width) > 0.002 ? ` (it is ${inch(gt.width)} in now)` : ''}. The pin shows where.`;
+      $('#pinSuggestUse').hidden = !gt || commentOnly || !!open.done;
+    }
     $('#pinRead').classList.toggle('done', !!open.done);
     $('#pinResolve').textContent = open.done ? 'Reopen' : 'Resolve';
     $('#pinDelete').hidden = commentOnly && !(open.by && open.by === myName());
@@ -5046,7 +5103,8 @@ function startAccount() {
     looking: () => selectedId, view: myView, follow: followPeer, point: myPoint, typing: myTyping, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
     setCommentOnly, showChange, inches: (w) => w * state.heightCm / 175 * 100 / 2.54,
     // in the middle of moving something or typing: changes from elsewhere wait a moment
-    busy: () => !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
+    holding: () => !!suggesting,
+    busy: () => !!suggesting || !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
   });
   account.start();
 }
@@ -5119,6 +5177,6 @@ window.__ink = {
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
-  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   decalReach: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry, P = g && g.attributes.position ? g.attributes.position.array : []; let max = 0; for (let i = 0; i < P.length; i += 3) { const dist = Math.hypot(P[i] - t.pos[0], P[i + 1] - t.pos[1], P[i + 2] - t.pos[2]); if (dist > max) max = dist; } return { name: t.name, tris: P.length / 9, max, w: t.width, h: t.width / t.aspect }; }),
 };

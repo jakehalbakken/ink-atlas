@@ -1,7 +1,7 @@
 // What changed since you last looked (src/changes.js).
 import assert from 'node:assert/strict';
 import { changesBetween } from '../../src/changes.js';
-import { cleanReacts } from '../../src/project.js';
+import { cleanReacts, cleanSuggest } from '../../src/project.js';
 import { mergeStates } from '../../src/merge.js';
 
 const T = (id, more) => ({ id, name: id, img: 'k' + id, width: 0.1, rot: 0, pos: [0, 1, 0], ...more });
@@ -62,4 +62,10 @@ assert.deepEqual(changesBetween(later, reopened, { me: 'Artist' }).map((c) => c.
   assert.ok(c.some((x) => x.kind === 'react' && x.text === 'Liv reacted 🔥 to "Darker here"'));
   assert.ok(!changesBetween(base, l, { me: 'Jake' }).some((x) => x.kind === 'react'), 'not my own');
 }
+// a suggested spot is kept only when it is a real placement
+assert.equal(cleanSuggest({ tattooId: 'a', pos: [0, 1, 0], normal: [0, 0, 2], width: 5, rot: 0.5, wrap: 0.3, bend: 0, junk: 1 }).width, 0.9);
+assert.deepEqual(cleanSuggest({ tattooId: 'a', pos: [0, 1, 0], normal: [0, 0, 2], width: 0.1, rot: 0.5, wrap: 0.3, bend: 0 }), { tattooId: 'a', pos: [0, 1, 0], normal: [0, 0, 1], width: 0.1, rot: 0.5, wrap: 0.3 });
+assert.equal(cleanSuggest({ tattooId: 'a', pos: [0, 1], normal: [0, 0, 1], width: 0.1, rot: 0 }), null);
+assert.equal(cleanSuggest({ pos: [0, 1, 0], normal: [0, 0, 1], width: 0.1, rot: 0 }), null);
+assert.match(changesBetween({ notes: [] }, { notes: [{ id: 's', text: 'Bigger here', by: 'Mara', suggest: {} }] }, { me: 'Jake' })[0].text, /^Mara suggested a new spot: "Bigger here"$/);
 console.log('changes-unit: ok');

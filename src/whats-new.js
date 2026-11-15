@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'suggestSpot', date: '2026-11-15', title: 'Suggest a new spot', how: 'Someone you invited to comment only can select a tattoo and tap Suggest a new spot under its name, then move, size or turn it and tap Send suggestion. Nothing moves for anyone else: it arrives as a comment on that spot, and you tap Use this spot to move it there.', show: 'answer' },
   { id: 'pinNew', date: '2026-11-15', title: 'New comments stand out', how: 'On a project you work on together, a comment or reply from someone else that you have not opened yet puts a red dot on its pin and on Comments in Preview, and says new in the list. Opening it clears the dot.', show: 'pinReplies' },
   { id: 'reacts', date: '2026-11-15', title: 'React to a comment', how: 'On a project you work on together, open a pinned comment in Preview > Comments and tap 👍, ❤️, 🔥 or 👀 under it. Everyone sees who reacted, and tapping it again takes yours back.', show: 'pinReplies' },
   { id: 'mirror', date: '2026-11-15', title: 'In a mirror', how: 'Share, then In a mirror. This view sits beside how it looks when you check it in a mirror, so you can see lettering and one-sided designs the way you will see them every morning.', show: 'mirror' },
