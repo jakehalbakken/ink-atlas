@@ -19,3 +19,12 @@ export function findLiveAlignment(moving,references,{threshold=.006,maxDistance=
  }
  return candidates.sort((a,b)=>a.score-b.score||b.lines.length-a.lines.length)[0]||null;
 }
+
+// The centre line of the body: a tattoo dragged on the front or back of the trunk, neck or head
+// within the threshold of the middle (x = 0) gets a guide down the middle, and its snap target.
+export function findCentreLine(moving,{threshold=.006}={}){
+ if(!valid(moving)||moving.locked||moving.status==='existing'||moving.hidden)return null;
+ const n=unit(moving.normal),x=moving.pos[0];if(Math.abs(x)>threshold||Math.abs(n[0])>.6)return null;
+ const mf=frame(moving),mh=Math.abs(mf.r[1])*moving.width/2+Math.abs(mf.u[1])*moving.width/moving.aspect/2,[,y,z]=moving.pos,lift=.001*Math.sign(n[2]||1);
+ return {referenceId:null,referenceName:'',lines:[{axis:'x',kind:'Centre of the body',from:[0,y-mh-.03,z+lift],to:[0,y+mh+.03,z+lift],error:-x}],candidate:[0,y,z],score:Math.abs(x)};
+}

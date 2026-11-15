@@ -1,0 +1,21 @@
+// Centre line guide: near the middle of the trunk only, facing front or back, not for ink already on.
+import assert from 'node:assert/strict';
+import { findCentreLine } from '../../src/live-alignment.js';
+const t = (o) => ({ id: 'a', pos: [0.004, 1.3, 0.12], normal: [0, 0, 1], width: 0.06, aspect: 1, rot: 0, status: 'planned', ...o });
+const p = findCentreLine(t());
+assert.ok(p, 'near the middle on the chest');
+assert.equal(p.lines[0].kind, 'Centre of the body');
+assert.deepEqual(p.candidate, [0, 1.3, 0.12]);
+assert.ok(Math.abs(p.score - 0.004) < 1e-12);
+assert.ok(p.lines[0].from[0] === 0 && p.lines[0].to[0] === 0 && p.lines[0].from[1] < 1.3 - 0.03 && p.lines[0].to[1] > 1.3 + 0.03, 'line runs down the middle past the tattoo');
+assert.ok(p.lines[0].from[2] > 0.12, 'drawn just off the front');
+assert.ok(findCentreLine(t({ pos: [-0.004, 1.3, -0.1], normal: [0, 0, -1] })).lines[0].from[2] < -0.1, 'back: just off the back');
+assert.equal(findCentreLine(t({ pos: [0.01, 1.3, 0.12] })), null, 'too far off');
+assert.equal(findCentreLine(t({ normal: [0.9, 0, 0.4] })), null, 'facing sideways');
+assert.equal(findCentreLine(t({ status: 'existing' })), null, 'ink already on');
+assert.equal(findCentreLine(t({ locked: true })), null, 'locked');
+assert.equal(findCentreLine(t({ hidden: true })), null, 'hidden');
+const flat = findCentreLine(t({ aspect: 3 })), turned = findCentreLine(t({ rot: Math.PI / 2, aspect: 3 }));
+const span = (q) => q.lines[0].to[1] - q.lines[0].from[1];
+assert.ok(span(turned) > span(flat) + 0.03, 'a wide piece turned upright gets a longer line');
+console.log('PASS centre-line-unit');
