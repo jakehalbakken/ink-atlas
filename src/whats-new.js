@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'prefsSync', date: '2026-11-15', title: 'Your settings on every device', how: 'Signed in, your hair, beard, body hair, eye colour, light and hourly rate follow you: change them on the iPad and your phone shows the same a moment later. Turn it off under Account settings in your account. Your face photo stays on the device it was taken on.', show: 'prefsSync' },
   { id: 'chipComments', date: '2026-11-15', title: 'Comment counts in the tray', how: 'A tattoo with open comments pinned on it shows how many on its picture in the tray, in red while one has something new from someone else. Select it and tap Comments to read them.', show: 'pinReplies' },
   { id: 'approveAll', date: '2026-11-15', title: 'Looks good on all', how: 'On a project you work on together, select a planned tattoo and tap Looks good on all to say yes to every planned tattoo nobody has answered yet in one go. Tattoos with an answer or an ask for a change are left as they are, and Undo takes it all back.', show: 'answer' },
   { id: 'findComment', date: '2026-11-15', title: 'Find a comment', how: 'With four or more comments pinned, open Preview > Comments and tap List. Type a word, a name or a tattoo in Find a comment and only the comments that mention it stay, replies included.', show: 'pinFind' },

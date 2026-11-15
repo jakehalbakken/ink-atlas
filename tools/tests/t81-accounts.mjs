@@ -63,6 +63,14 @@ export default async function (p) {
     rows = await db('select rev, state from public.projects'); assert.equal(rows[0].rev, 2); assert.equal(rows[0].state.tattoos[0].name, 'Changed on A');
     const uploadsBefore = fake.log.filter((l) => l.startsWith('POST /storage')).length;
 
+    // settings that follow you: A's light and hair go into the account's user details
+    await p.evaluate(() => { document.querySelector('#lightChoices [data-light="warm"]').click(); document.querySelector('#hairRow [data-hair="buzz"]').click(); });
+    const metaOf = async () => (await db(`select meta from auth.users where email = 'jake@example.com'`))[0].meta || {};
+    for (let k = 0; k < 60 && (((await metaOf()).prefs || {}).s || {}).light !== 'warm'; k++) await wait(250);
+    let mp = (await metaOf()).prefs;
+    assert.equal(mp.s.light, 'warm', 'light in the account'); assert.equal(mp.s.hair.style, 'buzz', 'hair in the account'); assert.ok(mp.at > 0);
+    assert.equal(mp.s.face, undefined, 'never the face');
+
     // device B: sign in, say not now, open it from the account
     const q = await openPage(); await ready(q, url); await wait(500);
     await q.click('#accountBtn'); await until(q, () => document.querySelector('#account input[type=email]'), null, 'B form');
@@ -74,6 +82,10 @@ export default async function (p) {
     await type(q, '#account input[type=password]', 'tattoos1');
     await clickText(q, 'Sign in');
     await until(q, () => window.__ink.account().view === 'move', null, 'B asked');
+    // B takes A's settings as it signs in, without ticking them off in New to try
+    await until(q, () => localStorage.getItem('ia-light') === 'warm' && JSON.parse(localStorage.getItem('ia-hair') || '{}').style === 'buzz', null, 'B has A\'s light and hair');
+    assert.equal(await q.$eval('#hairRow [data-hair="buzz"]', (b) => b.getAttribute('aria-pressed')), 'true', 'B shows the buzz cut');
+    assert.equal(await q.evaluate(() => (localStorage.getItem('ia-tried') || '').includes('"hair"')), false, 'not ticked as tried on B');
     await clickText(q, 'Not now');
     await until(q, () => [...document.querySelectorAll('#account .acct-item button')].some((b) => b.textContent === 'Open'), null, 'B lists the project');
     // B's own sample project never went up
@@ -85,6 +97,19 @@ export default async function (p) {
     assert.ok(await q.evaluate(() => window.__ink.state().tattoos.every((t) => typeof window.__ink.imageOf(t.img) === 'string')), 'artwork came down');
     await wait(2500);
     assert.equal((await db('select rev from public.projects'))[0].rev, 2, 'opening it does not save a new version');
+    // a beard set on B reaches A when A comes back to the app; turning it off keeps B's own
+    await q.evaluate(() => document.querySelector('#beardRow [data-beard="stubble"]').click());
+    for (let k = 0; k < 60 && (((await metaOf()).prefs || {}).s || {}).beard !== 'stubble'; k++) await wait(250);
+    assert.equal((await metaOf()).prefs.s.beard, 'stubble', 'B\'s beard in the account');
+    await p.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await until(p, () => localStorage.getItem('ia-beard') === 'stubble', null, 'A got B\'s beard');
+    await q.click('#accountBtn'); await until(q, () => document.querySelector('#acctPrefs'), null, 'settings switch');
+    await q.evaluate(() => { document.querySelector('#account details.acct-more').open = true; });
+    assert.equal(await q.$eval('#acctPrefs', (b) => b.getAttribute('aria-pressed')), 'true');
+    await q.click('#acctPrefs'); assert.equal(await q.$eval('#acctPrefs', (b) => b.getAttribute('aria-pressed')), 'false');
+    await q.evaluate(() => document.querySelector('#lightChoices [data-light="sun"]').click()); await wait(3500);
+    assert.equal((await metaOf()).prefs.s.light, 'warm', 'off: B\'s light stays on B');
+    await q.click('#acctPrefs'); await q.click('#account header .btn');
     // B changes it; A picks it up on coming back
     await q.evaluate(() => { window.__ink.state().tattoos[0].name = 'Changed on B'; window.__ink.commitTest(); });
     await until(q, () => window.__ink.account().text === 'Saved to your account' && window.__ink.account().bind.rev === 3, null, 'B saved up');

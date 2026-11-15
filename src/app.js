@@ -69,6 +69,7 @@ import { evenness, evennessText, limbLine, straighten, readsFor } from './symmet
 import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost, planCalendar, planCalendarText, planCalendarFile } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
 import { matchesComment } from './comment-find.js';
+import { writePrefs, readPrefs as readDevicePrefs } from './prefs.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
 
 // a feature that needs the account's email sender is listed only once that is switched on
@@ -2201,7 +2202,8 @@ $('#eyeCols').addEventListener('click', () => viewFace(), true);
 setSkinIris(eyes ? EYE_COLOURS[eyes] : null); renderEyes();
 
 /* ---------- New to try: the newest features, how to try them, and Show me ---------- */
-function markTried(id) { if (tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
+let quietTry = false; // settings arriving from the account tick nothing in New to try
+function markTried(id) { if (quietTry || tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
 function renderNew() {
   const n = untriedCount(tried, NEW_FEATURES); $('#newBtn').hidden = n === 0; $('#newCount').textContent = String(n);
   $('#newBtn').setAttribute('aria-label', `New to try, ${n} not tried yet`); $('#newBtn').setAttribute('aria-expanded', String(!$('#newPop').hidden));
@@ -2234,6 +2236,7 @@ const SHOW = {
   pointAt: () => (peersHere.length ? ['#showSpotBtn', 'Tap Point, then the spot on the body you want to show them.'] : account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else has this project open, a Point button shows at the top. Tap it, then the body, to show them a spot.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   followView: () => (account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else has this project open, Follow their view is on their row here. Your screen then turns with theirs until you touch the body.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   hereNow: () => (account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else on a project you work on together has it open, they are listed here, with the tattoo they are looking at. Their initial also shows by your account button.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
+  prefsSync: () => (account && account.configured ? (account.status().signedIn ? account.showPrefs() : account.showTogether(), account.status().signedIn ? ['#acctPrefs', 'Hair, beard, body hair, eye colour, light and your hourly rate come with you to every device you sign in on. Turn Same on every device off here to keep this device its own.'] : ['#acctTogether', 'Sign in here. Your hair, light and the other body settings then follow you to every device you sign in on.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   glance: () => (account && account.configured ? (account.showTogether(), ['#acctGlance', 'Every project you own or were invited to, with whose turn it is. Your turn shows only the ones waiting on you.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   refs: () => {
     toggle('#planMenu', true); return ['#openRefs', sel() ? 'Tap Reference board to add pictures for the selected tattoo or the whole project. Everyone on a shared project sees them.' : 'Tap Reference board, then Add pictures. Select a tattoo first to pin pictures to it.'];
@@ -5155,6 +5158,23 @@ function startAccount() {
     setCommentOnly, showChange, inches: (w) => w * state.heightCm / 175 * 100 / 2.54,
     // in the middle of moving something or typing: changes from elsewhere wait a moment
     holding: () => !!suggesting || !!spotPeek,
+    // settings from the account (prefs.js): write them here and show them, quietly
+    applyPrefs(p) {
+      const changed = writePrefs(p); if (!changed.length) return [];
+      const now = readDevicePrefs(); quietTry = true;
+      try {
+        if (changed.includes('light')) setLight(readLight());
+        if (changed.includes('hair')) { const h = now.hair || { style: 'none', colour: 'brown', hex: null }; setHair(h.style, h.colour, h.hex); }
+        if (changed.includes('beard')) setBeard(now.beard || 'none');
+        if (changed.includes('bodyHair')) setBodyHair(now.bodyHair || 'none');
+        if (changed.includes('eyes')) setEyes(now.eyes || null);
+        if (changed.includes('rate')) renderSheet();
+      } finally { quietTry = false; }
+      const words = { light: 'light', hair: 'hair', beard: 'beard', bodyHair: 'body hair', eyes: 'eye colour', rate: 'hourly rate' };
+      const list = changed.map((k) => words[k]);
+      toast(`Your ${list.length > 1 ? list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1] : list[0]} came over from your account.`);
+      return changed;
+    },
     busy: () => !!suggesting || !!spotPeek || !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
   });
   account.start();
