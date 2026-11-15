@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'flash', date: '2026-11-15', title: 'Split a flash sheet', how: 'Upload a flash sheet or a page of sketches with several separate designs on it. Tap Split them, or Split into designs in More controls, and each design becomes its own tattoo to place and size. Undo puts the sheet back.', show: 'flash' },
   { id: 'sharp', date: '2026-11-15', title: 'Small artwork warning', how: 'Open Ink check or Stencil for your artist in More controls. When the artwork file is too small to print sharp at the size it has on your body, it says so, and how many pixels wide a sharp file needs to be.', show: 'sharp' },
   { id: 'planStencils', date: '2026-11-15', title: 'Every stencil in one PDF', how: 'With two or more planned tattoos, open Stencil for your artist in More controls and tap All planned pieces. You get one PDF with every planned stencil at its real size, at the Detail you set, ready to print or send to your artist.', show: 'planStencils' },
   { id: 'spotCompare', date: '2026-11-15', title: 'Compare spots', how: 'Select a tattoo and open Try other spots in More controls. Each spot now says how much it usually hurts there and the lightest clothes that hide a piece this size, so you can compare before you move it.', show: 'spotCompare' },

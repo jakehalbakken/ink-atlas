@@ -52,6 +52,7 @@ import { POSE_BONES, vertexBones } from './pose.js';
 import { posesFor } from './pose-pick.js';
 import { PART_NAMES } from './body-photo.js';
 import { stencilLines, stencilPixels, stencilScale, pngWithDpi, artSharpness } from './stencil.js';
+import { findDesigns, inDesign } from './flash.js';
 import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
 import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
 import { makeRef, approvalHtml, parseAnswers } from './approval.js';
@@ -2117,6 +2118,7 @@ const SHOW = {
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
   approval: () => { toggle('#share', true); return ['#cApprove', 'Tap to make a page for your artist or client. They tap Yes or Change for each tattoo and send it back.']; },
   inkCheck: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check shows colours that barely show on your skin, and lines too fine for this size.']; },
+  flash: () => { const t = sel(); if (t && !$('#bSplit').hidden) { $('#editorAdvanced').open = true; return ['#bSplit', 'Split this picture into one tattoo per design. The first stays where the picture was, the rest go to free spots. Undo puts it back.']; } return ['#add', 'Upload a flash sheet or a page of sketches. When the picture holds several separate designs, Split them gives each its own tattoo.']; },
   sharp: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check and Stencil for your artist now say when the artwork file is too small to print sharp at its size, and how big a file would.']; },
   planStencils: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Open Stencil for your artist. With two or more planned pieces, All planned pieces makes one PDF with every stencil at real size, at the Detail you set.']; },
   stencil: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Stencil for your artist turns this tattoo into clean lines at its real size, to print or share.']; },
@@ -3174,6 +3176,54 @@ $('#sitCal').addEventListener('click', () => {
 const readRate = () => { try { const n = +localStorage.getItem('ia-rate'); return n > 0 && n < 5000 ? n : 0; } catch { return 0; } };
 const writeRate = (n) => { try { if (n > 0) localStorage.setItem('ia-rate', String(n)); else localStorage.removeItem('ia-rate'); } catch {} };
 let infoTimer = 0;
+/* ---------- Flash sheet: a picture of several designs split into one tattoo each ---------- */
+const flashCache = new Map(); // artwork key -> the designs found on it, or null for one design
+async function flashOf(t) {
+  if (!t || !t.img) return null;
+  if (flashCache.has(t.img)) return flashCache.get(t.img);
+  const im = imgEls[t.img] || await loadImg(t.img); if (!im) return null;
+  const w = im.naturalWidth, h = im.naturalHeight, c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0);
+  const f = findDesigns(g.getImageData(0, 0, w, h).data, w, h), out = f.boxes.length >= 2 ? { ...f, w, h } : null;
+  flashCache.set(t.img, out); return out;
+}
+let flashShown = 0;
+function flashRender(t) {
+  const b = $('#bSplit'); b.hidden = true; flashShown = 0;
+  if (!t || t.locked || t.status === 'existing' || commentOnly) return;
+  flashOf(t).then((f) => { if (sel() !== t || !f) return; b.hidden = false; b.textContent = `Split into ${f.boxes.length} designs`; flashShown = f.boxes.length; });
+}
+async function splitFlash(id) {
+  const t = state.tattoos.find((q) => q.id === id); if (!t || commentOnly) return false;
+  if (t.locked) { toast('Unlock this tattoo first.'); return false; }
+  const f = await flashOf(t), im = imgEls[t.img]; if (!f || !im) { toast('This picture holds one design.'); return false; }
+  snapshot();
+  // each keeps its size next to the others; a small sheet is scaled up so the biggest piece is
+  // at least about 8 cm across, a usable size to start from
+  const base = (t.name || 'Design').replace(/\s*\(sample\)$/, ''), widest = Math.max(...f.boxes.map((b) => b.w)), made = [];
+  const scale = t.width / f.w * Math.max(1, 0.08 / (widest * t.width / f.w));
+  for (let i = 0; i < f.boxes.length; i++) {
+    const b = f.boxes[i], c = document.createElement('canvas'); c.width = b.w; c.height = b.h;
+    const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+    // only this design: the next one's strokes inside its box are left out
+    const d = g.getImageData(0, 0, b.w, b.h), px = d.data;
+    for (let y = 0; y < b.h; y++) for (let x = 0; x < b.w; x++) if (!inDesign(f, b.id, b.x + x, b.y + y)) px[(y * b.w + x) * 4 + 3] = 0;
+    g.putImageData(d, 0, 0);
+    let out = c;
+    if (t.imageTopDown === false) { out = document.createElement('canvas'); out.width = b.w; out.height = b.h; const o = out.getContext('2d'); o.translate(0, b.h); o.scale(1, -1); o.drawImage(c, 0, 0); }
+    const width = Math.min(0.3, Math.max(0.015, b.w * scale)), spot = i === 0 ? { pos: t.pos, normal: t.normal, rot: t.rot } : nextSlot();
+    const n = await addImage(out.toDataURL('image/png'), `${base} ${i + 1}`, { ...spot, width, opacity: t.opacity ?? 0.92 });
+    if (!n) continue;
+    if (t.status) n.status = t.status; if (t.flip) n.flip = true; for (const k of ['wrap', 'bend', 'taper']) if (i === 0 && t[k]) n[k] = t[k];
+    made.push(n);
+  }
+  if (!made.length) { undo(); toast('The designs could not be split.'); return false; }
+  state.tattoos = state.tattoos.filter((q) => q !== t);
+  selectedId = made[0].id; commit(); focusTattoo(made[0]); markTried('flash');
+  toast(`Split into ${made.length} tattoos. The first is where the sheet was. Undo puts the sheet back.`);
+  return made.length;
+}
+$('#bSplit').addEventListener('click', () => { const t = sel(); if (t) splitFlash(t.id); });
 function renderInfo() {
   clearTimeout(infoTimer);
   infoTimer = setTimeout(() => {
@@ -3186,6 +3236,7 @@ function renderInfo() {
     evenRender(t);
     lineRender(t);
     readRender(t);
+    flashRender(t);
     const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv;
     const wr = wearOf(t); $('#wearLine').textContent = wr ? wr.text : ''; $('#wearLine').hidden = !wr;
     if (document.activeElement !== $('#estRate')) $('#estRate').value = readRate() || '';
@@ -3223,7 +3274,11 @@ $('#file').addEventListener('change', async (e) => {
     if (typeof url !== 'string') continue;
     const t = await addImage(url, f.name.replace(/\.[^.]+$/, '').slice(0, 100), first ? viewCenterSpot() : null); if (t) {first = false;last = t;}
   }
-  if (last) { selectedId = last.id; commit(); focusTattoo(last); } else commit();
+  if (last) {
+    selectedId = last.id; commit(); focusTattoo(last);
+    // one picture with several designs on it: offer to split it
+    if (files.length === 1) flashOf(last).then((f) => { if (f && sel() === last) toast(`This picture has ${f.boxes.length} separate designs.`, 'Split them', () => splitFlash(last.id)); });
+  } else commit();
 });
 function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#lightPop' && typeof renderLight === 'function') renderLight(); if (id === '#newPop' && typeof renderNew === 'function') renderNew(); if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
 $('#bodyBtn').addEventListener('click', () => { showLook(false); toggle('#bodyPop'); });
@@ -4447,6 +4502,7 @@ window.__ink = {
   planMessage: () => planMessageText(),
   planSits: () => { planSitsRender(sel()); return planSitsShown; },
   spotNotes: () => spotNotesShown,
+  flashShown: () => flashShown, splitFlash: (id) => splitFlash(id),
   labels: () => labelsLast,
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
