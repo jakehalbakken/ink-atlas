@@ -4,7 +4,8 @@
 // the torso). The walk stays on connected, forward-facing triangles inside the
 // artwork rectangle, so ink can wrap around a limb but never jumps across a gap.
 //
-// wrap  0..1     unroll sideways around a cylinder, so a band meets around an arm
+// The artwork is unfolded onto the skin like a stencil, so it always follows the skin round
+// a limb (t.wrap is kept in saved projects but no longer changes anything).
 // bend  -1..1    arch the artwork up or down across its width
 // taper -0.75..0.75  widen one end and narrow the other
 import * as THREE from 'three';
@@ -39,33 +40,69 @@ export function buildAdjacency(index) {
 // Returns { positions: Float32Array, uvs: Float32Array } ready for a BufferGeometry.
 export function buildDecal(geo, adj, t, frame, startTri) {
   const P = geo.attributes.position.array, N = geo.attributes.normal.array, I = geo.index.array;
-  const tris = (I.length / 3) | 0;
+  const tris = (I.length / 3) | 0, verts = (P.length / 3) | 0;
   const w = t.width, h = t.width / t.aspect;
-  const wrap = clamp(t.wrap || 0, 0, 1), bend = clamp(t.bend || 0, -1, 1), taper = clamp(t.taper || 0, -0.75, 0.75);
-  const radius = clamp(0.57 * w, 0.046, 0.15);
-  const Ox = t.pos[0], Oy = t.pos[1], Oz = t.pos[2], R = frame.right, U = frame.up, Nt = frame.n;
+  const bend = clamp(t.bend || 0, -1, 1), taper = clamp(t.taper || 0, -0.75, 0.75);
+  const Ox = t.pos[0], Oy = t.pos[1], Oz = t.pos[2], R = frame.right, U = frame.up;
   const m = UV_MARGIN, span = 1 - 2 * m;
-  // Surface vertex -> rectangle coords u0,v0 in [0,1] (0,0 = one corner of the artwork).
+  // The artwork is laid on the skin like a paper stencil: each vertex gets flat x, y
+  // coordinates by unfolding the triangles one by one outward from the anchor, so ink keeps
+  // its true size along the skin and carries on round an arm or leg instead of smearing and
+  // stopping where the limb turns away (the old flat projection cut pieces off at the side).
+  const flat = new Float64Array(verts * 2).fill(NaN);
+  const setPlanar = (ix) => { const dx = P[ix * 3] - Ox, dy = P[ix * 3 + 1] - Oy, dz = P[ix * 3 + 2] - Oz;
+    flat[ix * 2] = dx * R.x + dy * R.y + dz * R.z; flat[ix * 2 + 1] = dx * U.x + dy * U.y + dz * U.z; };
+  const known = (ix) => flat[ix * 2] === flat[ix * 2];
+  const area2 = (a, b, c) => (flat[b * 2] - flat[a * 2]) * (flat[c * 2 + 1] - flat[a * 2 + 1]) - (flat[b * 2 + 1] - flat[a * 2 + 1]) * (flat[c * 2] - flat[a * 2]);
+  for (let k = 0; k < 3; k++) setPlanar(I[startTri * 3 + k]);
+  const side0 = Math.sign(area2(I[startTri * 3], I[startTri * 3 + 1], I[startTri * 3 + 2])) || 1;
+  // place vertex c from the known edge a-b, on the side that keeps the mesh's winding
+  const unfold = (a, b, c, order) => {
+    const ex = P[b * 3] - P[a * 3], ey = P[b * 3 + 1] - P[a * 3 + 1], ez = P[b * 3 + 2] - P[a * 3 + 2];
+    const cx = P[c * 3] - P[a * 3], cy = P[c * 3 + 1] - P[a * 3 + 1], cz = P[c * 3 + 2] - P[a * 3 + 2];
+    const L2 = ex * ex + ey * ey + ez * ez || 1e-12, tp = (cx * ex + cy * ey + cz * ez) / L2;
+    const hx = cx - ex * tp, hy = cy - ey * tp, hz = cz - ez * tp, hh = Math.hypot(hx, hy, hz);
+    const ax = flat[a * 2], ay = flat[a * 2 + 1], fx = flat[b * 2] - ax, fy = flat[b * 2 + 1] - ay, fl = Math.hypot(fx, fy) || 1e-12;
+    const sc = fl / Math.sqrt(L2), nx = -fy / fl, ny = fx / fl;
+    for (const sd of [1, -1]) {
+      flat[c * 2] = ax + fx * tp + nx * hh * sc * sd; flat[c * 2 + 1] = ay + fy * tp + ny * hh * sc * sd;
+      if (Math.sign(area2(order[0], order[1], order[2])) === side0) return;
+    }
+  };
   const rect = (ix) => {
-    const dx = P[ix * 3] - Ox, dy = P[ix * 3 + 1] - Oy, dz = P[ix * 3 + 2] - Oz;
-    let x = dx * R.x + dy * R.y + dz * R.z;
-    const y = dx * U.x + dy * U.y + dz * U.z, z = dx * Nt.x + dy * Nt.y + dz * Nt.z;
-    if (wrap) x = x * (1 - wrap) + Math.atan2(x, z + radius) * radius * wrap;
+    const x = flat[ix * 2], y = flat[ix * 2 + 1];
     const halfW = Math.max(1e-4, (w / 2) * (1 + taper * clamp(2 * y / h, -1, 1)));
     const yb = y - 0.35 * w * bend * (x / (w / 2)) * (x / (w / 2));
     return [0.5 + x / (2 * halfW), 0.5 - yb / h];
   };
-  const faceFwd = (t3) => { const a = I[t3] * 3, b = I[t3 + 1] * 3, c = I[t3 + 2] * 3;
-    return ((N[a] + N[b] + N[c]) * Nt.x + (N[a + 1] + N[b + 1] + N[c + 1]) * Nt.y + (N[a + 2] + N[b + 2] + N[c + 2]) * Nt.z) / 3; };
-  const gate = wrap > 0.02 ? -0.3 : 0.12; // let it curl around when wrapping; keep it flat otherwise
+  const len3 = (a, b) => Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
+  const len2 = (a, b) => Math.hypot(flat[a * 2] - flat[b * 2], flat[a * 2 + 1] - flat[b * 2 + 1]);
+  const faceN = (o) => { const a = I[o] * 3, b = I[o + 1] * 3, c = I[o + 2] * 3;
+    return [N[a] + N[b] + N[c], N[a + 1] + N[b + 1] + N[c + 1], N[a + 2] + N[b + 2] + N[c + 2]]; };
   const edge = 0.05; // triangles may overhang the rectangle by this much before being dropped
 
-  const pos = [], uv = [], supports = [], from = [], seen = new Uint8Array(tris), stack = [startTri | 0]; seen[startTri | 0] = 1;
-  let guard = 0;
-  while (stack.length && guard++ < 8000) {
-    const tri = stack.pop(), o = tri * 3;
-    if (tri !== (startTri | 0) && faceFwd(o) < gate) continue; // silhouette: stop, do not cross to the back
-    const a = I[o], b = I[o + 1], c = I[o + 2], A = rect(a), B = rect(b), C = rect(c);
+  const pos = [], uv = [], supports = [], from = [], seen = new Uint8Array(tris), parent = new Int32Array(tris).fill(-1);
+  const queue = [startTri | 0]; seen[startTri | 0] = 1;
+  let head = 0;
+  while (head < queue.length && head < 12000) {
+    const tri = queue[head++], o = tri * 3, a = I[o], b = I[o + 1], c = I[o + 2];
+    if (tri !== (startTri | 0)) {
+      // a sharp fold (armpit, between fingers, the groin) is not skin a stencil lies across
+      const pn = faceN(parent[tri] * 3), fn = faceN(o);
+      if ((pn[0] * fn[0] + pn[1] * fn[1] + pn[2] * fn[2]) / ((Math.hypot(...pn) * Math.hypot(...fn)) || 1) < 0.2) continue;
+      const missing = [a, b, c].filter((v) => !known(v));
+      if (missing.length > 1) continue;
+      const v = missing.length ? missing[0] : -1;
+      if (v >= 0) { const [p, q] = [a, b, c].filter((x) => x !== v); unfold(p, q, v, [a, b, c]); }
+      // where two unfoldings meet round the back of a limb the flat triangle tears: drop it
+      const bad = (x, y) => { const l2 = len2(x, y), l3 = len3(x, y); return l2 > l3 * 1.6 + 1e-4 || l2 < l3 / 1.6 - 1e-4; };
+      // flat distance from the anchor can never be shorter than the straight one through the body,
+      // so a vertex that folds back into the picture (the far side of a limb) is dropped too
+      const near = (x) => Math.hypot(flat[x * 2], flat[x * 2 + 1]) < 0.9 * Math.hypot(P[x * 3] - Ox, P[x * 3 + 1] - Oy, P[x * 3 + 2] - Oz) - 0.004;
+      const torn = bad(a, b) || bad(b, c) || bad(c, a) || (v >= 0 && near(v));
+      if (torn || Math.sign(area2(a, b, c)) !== side0) { if (v >= 0) { flat[v * 2] = NaN; flat[v * 2 + 1] = NaN; } continue; }
+    }
+    const A = rect(a), B = rect(b), C = rect(c);
     const minU = Math.min(A[0], B[0], C[0]), maxU = Math.max(A[0], B[0], C[0]), minV = Math.min(A[1], B[1], C[1]), maxV = Math.max(A[1], B[1], C[1]);
     if (maxU < -edge || minU > 1 + edge || maxV < -edge || minV > 1 + edge) continue; // outside the artwork
     for (const [vi, r] of [[a, A], [b, B], [c, C]]) {
@@ -74,7 +111,7 @@ export function buildDecal(geo, adj, t, frame, startTri) {
       uv.push(m + r[0] * span, m + r[1] * span);
     }
     from.push(tri);
-    for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !seen[nb]) { seen[nb] = 1; stack.push(nb); } }
+    for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !seen[nb]) { seen[nb] = 1; parent[nb] = tri; queue.push(nb); } }
   }
   // tris: the body triangle each decal triangle copies (used to bake ink into the skin texture).
   return { positions: new Float32Array(pos), uvs: new Float32Array(uv), supports: new Uint32Array(supports), tris: new Uint32Array(from) };

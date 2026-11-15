@@ -525,9 +525,10 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <p class="tip">Sizes are approximate and depend on your body height setting.</p>
     </details>
     <details id="wrapBox">
-      <summary>Wrap around the body<i id="wrapMark"></i></summary>
+      <summary>Bend and taper<i id="wrapMark"></i></summary>
       <div class="grp">
-        <div class="lbl">Wrap around a limb<ink-slider id="rWrap" min="0" max="100" default="0" origin="0" aria-label="Wrap"></ink-slider></div>
+        <p class="tip">Ink lies on the skin like a stencil and follows it round an arm or leg by itself.</p>
+        <div class="lbl" hidden>Wrap<ink-slider id="rWrap" min="0" max="100" default="0" origin="0" aria-label="Wrap"></ink-slider></div>
         <div class="lbl">Bend<ink-slider id="rBend" min="-100" max="100" default="0" aria-label="Bend"></ink-slider></div>
         <div class="lbl">Taper<ink-slider id="rTaper" min="-75" max="75" default="0" aria-label="Taper"></ink-slider></div>
       </div>
