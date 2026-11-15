@@ -2423,8 +2423,10 @@ function renderPins() {
   $('#pinListBtn').textContent = pins.list ? 'Hide list' : 'List'; $('#pinListBtn').setAttribute('aria-expanded', String(pins.list));
   $('#pinList').hidden = !pins.list;
   if (pins.list) {
-    $('#pinListOpen').setAttribute('aria-pressed', String(pins.filter === 'open')); $('#pinListAll').setAttribute('aria-pressed', String(pins.filter !== 'open'));
-    const shown = list.map((n, i) => [n, i]).filter(([n]) => (pins.filter !== 'open' || !n.done) && (!forT || n.tattooId === forT.id));
+    const anyMine = list.some(mentionsMeIn); if (!anyMine && pins.filter === 'me') pins.filter = 'open';
+    $('#pinListMe').hidden = !anyMine;
+    for (const [b, f] of [['#pinListOpen', 'open'], ['#pinListAll', 'all'], ['#pinListMe', 'me']]) $(b).setAttribute('aria-pressed', String((pins.filter || 'all') === f));
+    const shown = list.map((n, i) => [n, i]).filter(([n]) => (pins.filter !== 'open' || !n.done) && (pins.filter !== 'me' || mentionsMeIn(n)) && (!forT || n.tattooId === forT.id));
     $('#pinListEmpty').hidden = shown.length > 0;
     $('#pinListItems').replaceChildren(...shown.map(([n, i]) => {
       const t = n.tattooId && state.tattoos.find((x) => x.id === n.tattooId), r = Array.isArray(n.replies) ? n.replies.length : 0;
@@ -2496,6 +2498,7 @@ function turnToPin(id) {
 $('#pinListBtn').addEventListener('click', () => { pins.list = !pins.list; renderPins(); });
 $('#pinListOpen').addEventListener('click', () => { pins.filter = 'open'; renderPins(); });
 $('#pinListAll').addEventListener('click', () => { pins.filter = 'all'; renderPins(); });
+$('#pinListMe').addEventListener('click', () => { pins.filter = 'me'; renderPins(); markTried('mention'); });
 $('#pinsBtn').addEventListener('click', () => { showLook(false); if (pins.on) pinsOff(); else pinsOn(); });
 $('#pinsDone').addEventListener('click', pinsOff);
 $('#pinCancel').addEventListener('click', () => { pins.pending = null; renderPins(); });
@@ -2549,7 +2552,7 @@ function renderReacts(n) {
 }
 // @mentions: a mention of this person stands out, and typing @ offers the names on the project
 function mentionNodes(text) { return mentionPieces(text, myName()).map((p) => (p.me ? el('mark', { class: 'at-me', text: p.text }) : document.createTextNode(p.text))); }
-const mentionsMeIn = (n) => !!myName() && (mentionsMe(n.text, myName()) || (Array.isArray(n.replies) && n.replies.some((r) => mentionsMe(r.text, myName()))));
+function mentionsMeIn(n) { return !!myName() && (mentionsMe(n.text, myName()) || (Array.isArray(n.replies) && n.replies.some((r) => mentionsMe(r.text, myName())))); }
 function mentionNames() {
   const out = [...((account && account.people && account.people()) || []), ...peersHere.map((o) => o.name)];
   for (const n of state.notes || []) { out.push(n.by); for (const r of Array.isArray(n.replies) ? n.replies : []) out.push(r.by); }

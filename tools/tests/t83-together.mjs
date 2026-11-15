@@ -224,6 +224,15 @@ export default async function (p) {
     await p.evaluate((id) => { window.__ink.openPin(null); window.__ink.openPin(id); }, note.id); await wait(200);
     await until(p, () => [...document.querySelectorAll('#pinReplies mark.at-me')].some((m) => m.textContent === '@Jake'), null, 'it stands out for Jake');
     await p.screenshot({ path: 'shots/t83-mention.png' });
+    // the list can show only the comments that mention him
+    await p.evaluate(() => { window.__ink.openPin(null); }); await wait(100);
+    await p.click('#pinListBtn'); await wait(150);
+    assert.equal(await shown(p, '#pinListMe'), true, 'Mentions you offered');
+    await p.click('#pinListMe'); await wait(150);
+    assert.equal(await p.$eval('#pinListMe', (e) => e.getAttribute('aria-pressed')), 'true');
+    assert.equal(await p.$$eval('#pinListItems li', (l) => l.length), 1);
+    assert.match(await p.$eval('#pinListItems li', (e) => e.textContent), /mentions you/);
+    await p.click('#pinListItems li button'); await wait(200);
     // a quick reaction: Jake taps thumbs up, Liv sees it is his; tapping again takes it back
     assert.equal(await shown(p, '#pinReacts'), true, 'reactions offered on a shared project');
     assert.ok(await p.$eval('#pinReacts .react', (e) => e.getBoundingClientRect().height >= 44));
