@@ -47,7 +47,7 @@ import { toneColour, nearestTone, sampleSkin, skinCheck, hexToRgb } from './skin
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
-import { SPOTS, spotAim, turnAlong, spotNote } from './spots.js';
+import { SPOTS, spotAim, turnAlong, spotNote, edgeTris, girthAt, fitNote } from './spots.js';
 import { POSE_BONES, vertexBones, skinPose } from './pose.js';
 import { stretchUnder, stretchText } from './stretch.js';
 import { posesFor } from './pose-pick.js';
@@ -1707,8 +1707,35 @@ function spotHit(spot, side) {
   // the last skin the ray meets before the bone is this limb's own skin, not an arm in the way
   const hits = ray.intersectObject(body, false).filter((h) => h.distance < 1.5 + 1e-6);
   const h = hits[hits.length - 1]; if (!h) return null;
-  return { point: h.point, normal: h.normal.clone().transformDirection(body.matrixWorld).normalize(), aim };
+  return { point: h.point, normal: h.normal.clone().transformDirection(body.matrixWorld).normalize(), aim, tri: h.faceIndex };
 }
+// Does a piece this size fit a limb spot: round the limb (the loop of skin through the spot, square
+// to the limb) and up it (the share of the limb between its joints that a piece can use).
+const LIMB_ROOM = {
+  'forearm-front': ['lowerarm01', 'wrist', 0.8], 'forearm-back': ['lowerarm01', 'wrist', 0.8],
+  'upperarm-out': ['upperarm01', 'lowerarm01', 0.75], 'upperarm-front': ['upperarm01', 'lowerarm01', 0.75],
+  'thigh-front': ['upperleg01', 'lowerleg01', 0.75], 'thigh-out': ['upperleg01', 'lowerleg01', 0.75],
+  calf: ['lowerleg01', 'foot', 0.75], shin: ['lowerleg01', 'foot', 0.75], wrist: [null, null, 0], ankle: [null, null, 0],
+};
+let spotEdges = null;
+const LIMB_PAIR = { 'forearm-front': 'forearm-back', 'forearm-back': 'forearm-front', 'upperarm-out': 'upperarm-front', 'upperarm-front': 'upperarm-out', 'thigh-front': 'thigh-out', 'thigh-out': 'thigh-front', calf: 'shin', shin: 'calf' };
+function spotFit(spot, side, h, t) {
+  const lim = LIMB_ROOM[spot.id]; if (!lim || !h || h.tri == null) return '';
+  if (!spotEdges) spotEdges = edgeTris(bodyGeo.index.array, bodyGeo.index.count / 3);
+  const loop = (hh) => (hh && hh.tri != null ? girthAt(bodyGeo.attributes.position.array, bodyGeo.index.array, hh.tri, hh.point.toArray(), hh.aim.along, spotEdges) : null);
+  // the same limb measured from the paired spot too (front and back), so both say the same
+  const pair = SPOTS.find((x) => x.id === LIMB_PAIR[spot.id]), both = [loop(h), pair ? loop(spotHit(pair, side)) : null].filter((v) => v > 0);
+  const girth = both.length ? both.reduce((a, b) => a + b, 0) / both.length : 0;
+  let room = 0;
+  if (lim[0]) {
+    const J = poseView.restRig().joints, at = (n) => { const b = POSE_BONES.find((x) => x.name === `${n}.${side}`); return b ? [0, 1, 2].map((i) => J[b.head * 3 + i]) : null; };
+    const a = at(lim[0]), b = at(lim[1]); if (a && b) room = Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) * lim[2];
+  }
+  // the piece's width goes round the limb and its height runs up it (Try other spots turns it so)
+  spotFitLast[spot.id] = { girth, room };
+  return fitNote(t.width, t.width / t.aspect, girth || 0, room);
+}
+const spotFitLast = {};
 // compare spots: under each spot, how much it usually hurts there and what hides a piece this size
 let spotNotesKey = '', spotNotesShown = null;
 function spotNotes(t) {
@@ -1726,6 +1753,8 @@ function spotNotes(t) {
       const near = []; for (let v = 0; v < PAIN_N; v++) { if (!d.place[v]) continue; const o = v * 3, x = P[o] - c[0], y = P[o + 1] - c[1], z = P[o + 2] - c[2]; if (x * x + y * y + z * z <= r2) near.push(v); }
       const shares = near.length ? list.map((f) => { let n = 0; for (const v of near) if (f(v)) n++; return n / near.length; }) : null;
       note = spotNote(u ? u.level : null, shares, /leg/.test(spot.bone));
+      const fit = spotFit(spot, spotSide, h, t);
+      if (fit) note = note ? `${note}, ${fit}` : fit[0].toUpperCase() + fit.slice(1);
     }
     if (sub) { sub.textContent = note; sub.hidden = !note; }
     if (spotNotesShown) spotNotesShown[b.dataset.spot] = note;
@@ -2227,7 +2256,7 @@ const SHOW = {
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
-  spotCompare: () => { const t = needTattoo(); if (!t) return null; if ($('#spotPop').hidden) $('#bSpots').click(); return ['#spotChoices [data-spot="forearm-front"]', 'Each spot says how much it usually hurts and the lightest clothes that hide this tattoo there. Tap one to move it.']; },
+  spotCompare: () => { const t = needTattoo(); if (!t) return null; if ($('#spotPop').hidden) $('#bSpots').click(); return ['#spotChoices [data-spot="forearm-front"]', 'Each spot says how much it usually hurts, the lightest clothes that hide this tattoo there, and on an arm or leg whether it fits at this size. Tap one to move it.']; },
   spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
   approval: () => { toggle('#share', true); return ['#cApprove', 'Tap to make a page for your artist or client. They tap Yes or Change for each tattoo and send it back.']; },
@@ -4752,7 +4781,7 @@ window.__ink = {
   planMessage: () => planMessageText(),
   planSits: () => { planSitsRender(sel()); return planSitsShown; },
   spotNotes: () => spotNotesShown,
-  flashShown: () => flashShown, splitFlash: (id) => splitFlash(id), stretchShown: () => stretchShown,
+  spotFit: () => spotFitLast, flashShown: () => flashShown, splitFlash: (id) => splitFlash(id), stretchShown: () => stretchShown,
   labels: () => labelsLast,
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },

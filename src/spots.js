@@ -87,3 +87,45 @@ export function spotNote(level, shares, leg = false) {
   if (!pain) return hide ? hide[0].toUpperCase() + hide.slice(1) : '';
   return hide ? `${pain}, ${hide}` : pain;
 }
+
+// Round the limb: the length of the loop the plane through `point` square to `axis` cuts round the
+// skin, walked from triangle `tri` across shared edges so it never jumps to the other arm or the
+// body. index: triangle vertex indices; `edges` (from edgeTris) can be passed in to reuse. Returns
+// the loop's length, or null when the walk leaves the mesh or never closes.
+export function edgeTris(index, triCount) {
+  const m = new Map();
+  for (let t = 0; t < triCount; t++) for (let k = 0; k < 3; k++) {
+    const a = index[t * 3 + k], b = index[t * 3 + (k + 1) % 3], key = a < b ? a * 4194304 + b : b * 4194304 + a;
+    const l = m.get(key); if (l) l.push(t); else m.set(key, [t]);
+  }
+  return m;
+}
+export function girthAt(pos, index, tri, point, axis, edges, maxSteps = 4000) {
+  const f = (v) => (pos[v * 3] - point[0]) * axis[0] + (pos[v * 3 + 1] - point[1]) * axis[1] + (pos[v * 3 + 2] - point[2]) * axis[2] + 1e-7;
+  const keyOf = (a, b) => (a < b ? a * 4194304 + b : b * 4194304 + a);
+  const cross = (a, b) => { const fa = f(a), fb = f(b), s = fa / (fa - fb); return [0, 1, 2].map((i) => pos[a * 3 + i] + (pos[b * 3 + i] - pos[a * 3 + i]) * s); };
+  // the edges of a triangle the plane crosses
+  const cut = (t) => { const out = []; for (let k = 0; k < 3; k++) { const a = index[t * 3 + k], b = index[t * 3 + (k + 1) % 3]; if ((f(a) > 0) !== (f(b) > 0)) out.push([a, b]); } return out; };
+  const first = cut(tri); if (first.length !== 2) return null;
+  let total = 0, t = tri, enter = first[0], steps = 0;
+  const startKey = keyOf(...first[0]);
+  while (steps++ < maxSteps) {
+    const c = cut(t); if (c.length !== 2) return null;
+    const ek = keyOf(...enter), exit = keyOf(...c[0]) === ek ? c[1] : c[0];
+    const p = cross(...enter), q = cross(...exit); total += Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
+    const xk = keyOf(...exit); if (xk === startKey) return total;
+    const nb = (edges.get(xk) || []).filter((u) => u !== t); if (nb.length !== 1) return null;
+    t = nb[0]; enter = exit;
+  }
+  return null;
+}
+
+// Whether a piece fits a limb spot at its size: across goes round the limb, along runs up it, both
+// in the same units as girth (the loop round the limb) and room (the length of limb to use). '' when
+// it fits comfortably.
+export function fitNote(across, along, girth, room) {
+  if (girth > 0 && across > girth * 0.85) return 'too wide, it goes nearly all the way round';
+  if (room > 0 && along > room) return 'too long for here at this size';
+  if (girth > 0 && across > girth * 0.5) return 'wraps more than half way round';
+  return '';
+}
