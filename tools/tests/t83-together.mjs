@@ -47,6 +47,8 @@ export default async function (p) {
     await until(p, () => !!window.__ink.account().bind && window.__ink.account().view === 'home' && document.querySelector('#acctInvite'), null, 'home with Invite someone');
     assert.ok(await p.$eval('#acctInvite', (e) => e.getBoundingClientRect().height >= 44), 'Invite button big enough');
     await p.click('#acctInvite');
+    await until(p, () => window.__ink.account().view === 'inviteRole', null, 'asked how they can work on it');
+    await p.click('#acctInviteEdit');
     await until(p, () => window.__ink.account().view === 'invite', null, 'invite link made');
     await p.screenshot({ path: 'shots/t83-invite.png' });
     const link = await p.$eval('#account .acct-link', (e) => e.value);

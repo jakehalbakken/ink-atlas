@@ -16,9 +16,10 @@
 //   both changed it, the two are put together (src/merge.js) instead of making a copy.
 // - Signed out, or with accounts not set up, nothing here runs and the app is as it was.
 import { cloudConfigured, emailCodes, openCloud, openShare, plainError } from './cloud.js';
-import { mergeStates } from './merge.js';
+import { mergeStates, commentsOnto, withoutComments } from './merge.js';
+import { changesBetween } from './changes.js';
 
-const BIND = 'ia-cloud-bind', BASE = 'ia-cloud-base', LIVE_MS = 4000;
+const BIND = 'ia-cloud-bind', BASE = 'ia-cloud-base', SEEN = 'ia-cloud-seen', CHANGES = 'ia-cloud-changes', LIVE_MS = 4000;
 const ls = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
   set(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage off */ } },
@@ -62,7 +63,10 @@ export function createAccount(api) {
   const following = () => !!(user() && ls.get(FOLLOW) === user().id);
   const follow = (on) => ls.set(FOLLOW, on && user() ? user().id : null);
   const asked = () => !!(user() && ls.get(ASKED) === user().id);
-  const setBind = (b) => { bind = b; ls.set(BIND, b); renderBtn(); };
+  const setBind = (b) => { bind = b; ls.set(BIND, b); renderBtn(); tellRole(); };
+  // someone who joined with a comment-only invite: the app hides moving and changing tattoos
+  let roleShown = null;
+  const tellRole = () => { const c = !!(myBind() && myBind().role === 'comment'); if (c !== roleShown) { roleShown = c; if (api.setCommentOnly) api.setCommentOnly(c); } };
   const myBind = () => (bind && user() && bind.uid === user().id ? bind : null);
   const currentSig = () => sigOf(JSON.stringify(api.snapshot().state));
   const status = (text, bad) => { lastStatus = text; api.setSaved(text, bad); };
@@ -76,11 +80,21 @@ export function createAccount(api) {
     return cloudReady;
   }
 
+  // how many projects wait on this person, as a small count on the account button
+  let badgeN = 0;
+  function setBadge(n) { badgeN = n || 0; renderBtn(); }
+  async function refreshBadge() {
+    if (!user()) return;
+    try { const me = cloud.displayName(), rows = await cloud.list(); setBadge(rows.filter((r) => { const t = turnOf(r, me); return t && t.yours; }).length); } catch (e) { /* a nicety */ }
+  }
   function renderBtn() {
     const u = user();
+    let badge = btn.querySelector('.acct-badge');
+    if (!badge) { badge = document.createElement('i'); badge.className = 'acct-badge'; badge.setAttribute('aria-hidden', 'true'); btn.append(badge); }
+    badge.hidden = !(u && badgeN); badge.textContent = badgeN > 9 ? '9+' : String(badgeN);
     btn.classList.toggle('signed', !!u);
     const label = btn.querySelector('span');
-    if (u) { const n = cloud.displayName(u) || '?'; label.textContent = n.slice(0, 1).toUpperCase(); btn.setAttribute('aria-label', 'Your account: ' + n); btn.title = 'Signed in as ' + (u.email || n); }
+    if (u) { const n = cloud.displayName(u) || '?'; label.textContent = n.slice(0, 1).toUpperCase(); btn.setAttribute('aria-label', 'Your account: ' + n + (badgeN ? `, ${badgeN} project${badgeN === 1 ? '' : 's'} waiting on you` : '')); btn.title = 'Signed in as ' + (u.email || n); }
     else { label.textContent = 'Sign in'; btn.setAttribute('aria-label', 'Sign in'); btn.title = 'Sign in'; }
   }
 
@@ -108,6 +122,7 @@ export function createAccount(api) {
           setBind({ uid: user().id, id: r.id, rev: r.rev, sig, name: r.name, shared: false, mine: true }); setBase(r.id, json);
           break;
         }
+        if (b.role === 'comment') { const r = await pushComments(b, json, snap.images); if (r === 'again') continue; break; }
         const r = await cloud.save(b.id, b.rev, state, snap.images, name, doneFor(b), { shared: !!b.shared, mine: b.mine !== false });
         if (!r.conflict) {
           setBind({ ...b, rev: r.rev, sig, name: r.name || b.name, shared: !!(b.shared || r.shared) }); setBase(b.id, json);
@@ -142,13 +157,38 @@ export function createAccount(api) {
       clearTimeout(retry); retry = setTimeout(push, 30000);
     } finally { if (pushing) { pushing = false; if (again) { again = false; push(); } } }
   }
+  // Someone who can only comment: what goes up is the account's project with their comments,
+  // answers and reference pictures on it, and what is on screen becomes exactly that.
+  async function pushComments(b, json, images) {
+    const local = JSON.parse(json), have = (k) => typeof images[k] === 'string';
+    const p = await cloud.load(b.id, have);
+    markUp(p);
+    if (myBind() !== b) return 'again';
+    if (p.role !== 'comment') { setBind({ ...b, role: p.role }); return 'again'; } // the owner let them edit meanwhile
+    const out = commentsOnto(baseFor(b.id), local, p.state);
+    let rev = p.rev;
+    if (JSON.stringify(out) !== JSON.stringify(p.state)) {
+      const r = await cloud.saveComments(b.id, p.rev, out, p.keys, images, doneFor(b));
+      if (r.conflict) return 'again';
+      rev = r.rev;
+    }
+    if (myBind() !== b || currentSig() !== sigOf(json)) return 'again'; // changed while saving: start again
+    const base = baseFor(b.id);
+    if (p.rev !== b.rev || !base || JSON.stringify(withoutComments(local)) !== JSON.stringify(withoutComments(base))) {
+      const said = await api.open(out, { ...p.images, ...images }, p.name, { live: true });
+      if (p.rev !== b.rev && !(said && said.toasted)) liveNote(`${p.editedBy || 'Someone'} changed "${p.name}".`);
+    }
+    setBind({ ...b, rev, sig: currentSig(), name: p.name, shared: true, mine: false, role: 'comment' }); setBase(b.id, stateJson());
+    return 'done';
+  }
   // a short note when someone else's changes come in, at most once a minute unless it matters
   let lastNote = 0;
   function liveNote(text, always) { const now = Date.now(); if (!always && now - lastNote < 60000) return; lastNote = now; api.toast(text); }
   // Coming back to the app, and every few seconds while a shared project is open: a newer
   // version saved on another device, or by someone else on the project, opens here.
   let pulling = false;
-  async function pull() {
+  async function pull(look) {
+    if (look) lookPending = true;
     const b = myBind(); if (!b || pushing || pulling) return;
     pulling = true;
     try {
@@ -160,9 +200,12 @@ export function createAccount(api) {
         else status('Removed from your account. Still saved on this device');
         return;
       }
-      if (!!meta.shared !== !!b.shared || meta.mine !== (b.mine !== false)) setBind({ ...b, shared: !!meta.shared, mine: meta.mine });
+      if (!!meta.shared !== !!b.shared || meta.mine !== (b.mine !== false) || (meta.role || 'edit') !== (b.role || 'edit')) {
+        if ((meta.role || 'edit') !== (b.role || 'edit') && b.mine === false) api.toast(meta.role === 'comment' ? `You can now comment and answer on "${b.name}", but not change the tattoos.` : `You can now change the tattoos in "${b.name}".`);
+        setBind({ ...b, shared: !!meta.shared, mine: meta.mine, role: meta.role || 'edit' });
+      }
       const now = myBind();
-      if (meta.rev <= now.rev) return;
+      if (meta.rev <= now.rev) { if (lookPending) { lookPending = false; lookForChanges(); } return; }
       if (currentSig() !== now.sig) { pulling = false; push(); return; } // both changed: push keeps both, or puts them together
       if (now.shared && api.busy && api.busy()) return; // in the middle of something: the next check brings it in
       const p = await cloud.load(now.id);
@@ -170,8 +213,9 @@ export function createAccount(api) {
       if (bind !== now || currentSig() !== now.sig) return;
       if (p.shared) {
         const said = await api.open(p.state, p.images, p.name, { live: true });
-        setBind({ ...now, rev: p.rev, sig: currentSig(), name: p.name, shared: true, mine: p.mine }); setBase(now.id, stateJson());
+        setBind({ ...now, rev: p.rev, sig: currentSig(), name: p.name, shared: true, mine: p.mine, role: p.role }); setBase(now.id, stateJson());
         api.saveNow(); status('Saved to your account');
+        if (lookPending) { lookPending = false; if (lookForChanges(said && said.toasted)) return; }
         if (!(said && said.toasted)) liveNote(`${p.editedBy || 'Someone'} changed "${p.name}".` + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} still on the way.` : ''));
         return;
       }
@@ -181,7 +225,48 @@ export function createAccount(api) {
       api.toast('Opened the newest version from your account.' + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} still missing.` : ''));
     } catch (e) { /* stay as we are; the next check tries again */ } finally { pulling = false; }
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && user()) pull(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) markSeen(); else if (user()) { pull(true); refreshBadge(); } });
+  window.addEventListener('pagehide', () => markSeen());
+
+  /* ---------- what changed since you last looked ---------- */
+  // The shared project as it was when this person last had it on screen (when the app last
+  // went to the background, or they last looked at the list), kept for a few projects.
+  let lookPending = false;
+  const seenAll = () => { const v = ls.get(SEEN); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; };
+  function markSeen(id) {
+    const b = myBind(); if (!b || !b.shared || (id && id !== b.id)) return;
+    const all = seenAll(); delete all[b.id];
+    const keep = Object.keys(all).slice(-2), next = {}; for (const k of keep) next[k] = all[k];
+    next[b.id] = stateJson();
+    try { localStorage.setItem(SEEN, JSON.stringify(next)); } catch (e) { try { localStorage.setItem(SEEN, JSON.stringify({ [b.id]: next[b.id] })); } catch (e2) { /* storage full: no list next time */ } }
+  }
+  // returns true when it told the person about the changes
+  function lookForChanges(alreadyToasted) {
+    const b = myBind(); if (!b || !b.shared) return false;
+    const was = seenAll()[b.id];
+    let before = null; try { before = was ? JSON.parse(was) : null; } catch (e) { before = null; }
+    markSeen();
+    if (!before) return false;
+    const items = changesBetween(before, api.snapshot().state, { me: cloud.displayName(), inches: api.inches });
+    if (!items.length) return false;
+    ls.set(CHANGES, { uid: user().id, id: b.id, at: new Date().toISOString(), items: items.slice(0, 40) });
+    if (items.length === 1 && alreadyToasted) return true;
+    api.toast(items.length === 1 ? 'Since you last looked: ' + items[0].text + '.' : `${items.length} changes to "${b.name}" since you last looked.`, 'Show', () => { open(); show('changes'); });
+    return true;
+  }
+  const lastChanges = () => { const c = ls.get(CHANGES), b = myBind(); return c && b && user() && c.uid === user().id && c.id === b.id && Array.isArray(c.items) ? c : null; };
+  function changesView() {
+    const c = lastChanges();
+    const rows = h('div', { class: 'acct-list' });
+    if (!c) rows.append(h('p', { class: 'muted', text: 'Nothing has changed since you last looked.' }));
+    else for (const it of c.items) {
+      const go = it.tattooId || it.noteId || it.refId;
+      rows.append(h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('span', { text: it.text })),
+        go ? h('div', { class: 'acct-actions' }, h('button', { class: 'btn', type: 'button', text: 'Show', onclick: () => { close(); if (api.showChange) api.showChange(it); } })) : null));
+    }
+    put(header('What changed'), c ? h('p', { class: 'muted', text: `In "${myBind().name}" since you last looked, seen ${when(c.at)}.` }) : null, rows, msgEl,
+      h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+  }
   setInterval(() => { const b = myBind(); if (b && b.shared && !document.hidden && navigator.onLine !== false) pull(); }, LIVE_MS);
   window.addEventListener('online', () => { if (user()) { if (myBind() || following()) push(); } });
 
@@ -201,10 +286,12 @@ export function createAccount(api) {
     const p = await cloud.load(id);
     markUp(p);
     await api.open(p.state, p.images, p.name, { keepCopy: !safe, reason: 'Before opening a project from your account' });
-    setBind({ uid: user().id, id: p.id, rev: p.rev, sig: currentSig(), name: p.name, shared: p.shared, mine: p.mine, ownerName: p.ownerName }); setBase(p.id, stateJson());
+    setBind({ uid: user().id, id: p.id, rev: p.rev, sig: currentSig(), name: p.name, shared: p.shared, mine: p.mine, ownerName: p.ownerName, role: p.role }); setBase(p.id, stateJson());
     follow(true);
+    const told = p.shared && lookForChanges();
     api.saveNow(); status('Saved to your account');
     close();
+    if (told && safe && !p.missing.length) return;
     api.toast((said || `Opened "${p.name}" from your account.`) + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} missing.` : '') + (safe ? '' : ' What was on screen is kept in Projects on this device.'));
   }
 
@@ -214,10 +301,13 @@ export function createAccount(api) {
     try {
       const j = await cloud.acceptInvite(token);
       if (api.tried) api.tried('together');
-      await openFromAccount(j.id, `You joined "${j.name}"${j.ownerName ? ' with ' + j.ownerName : ''}. You both see changes as they happen.`);
+      const role = await cloud.roleIn(j.id);
+      await openFromAccount(j.id, role === 'comment'
+        ? `You joined "${j.name}"${j.ownerName ? ' with ' + j.ownerName : ''} to comment and answer. Tap a tattoo to say yes or ask for a change.`
+        : `You joined "${j.name}"${j.ownerName ? ' with ' + j.ownerName : ''}. You both see changes as they happen.`);
     } catch (e) { show('home'); msg(plainError(e)); }
   }
-  async function makeInvite() {
+  async function makeInvite(role = 'edit') {
     if (!myBind()) { follow(true); ls.set(ASKED, user().id); await push(); }
     let b = myBind();
     if (!b) throw new Error('Could not reach your account. Try again in a moment.');
@@ -228,9 +318,9 @@ export function createAccount(api) {
       await cloud.startSharing(b.id, api.snapshot().images, doneSet('p/' + b.id));
       setBind({ ...myBind(), shared: true });
     }
-    const token = await cloud.invite(b.id);
-    if (api.tried) api.tried('together');
-    show('invite', location.origin + location.pathname + '?join=' + token);
+    const token = await cloud.invite(b.id, role);
+    if (api.tried) api.tried(role === 'comment' ? 'comment-invite' : 'together');
+    show('invite', { url: location.origin + location.pathname + '?join=' + token, role });
   }
 
   /* ---------- after signing in ---------- */
@@ -238,8 +328,9 @@ export function createAccount(api) {
     const u = user();
     if (api.tried) api.tried();
     if (bind && bind.uid !== u.id) setBind(null);
+    refreshBadge();
     if (pendingJoin) { const t = pendingJoin; pendingJoin = null; await joinWith(t); return; }
-    if (myBind()) { pull(); status(myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account'); if (myBind().sig !== currentSig()) push(); if (!root.hidden && view === 'signin') show('home'); return; }
+    if (myBind()) { pull(true); status(myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account'); if (myBind().sig !== currentSig()) push(); if (!root.hidden && view === 'signin') show('home'); return; }
     if (following()) { push(); if (!root.hidden && view === 'signin') show('home'); return; }
     if (pendingShare) { const s = pendingShare; pendingShare = null; follow(true); ls.set(ASKED, u.id); await push(); close(); api.toast(myBind() ? `"${s}" is saved to your account.` : 'Signed in. Your account could not be reached just now; it will try again.'); return; }
     if (!asked()) { if (!resetting) { open(); show('move'); } return; }
@@ -254,6 +345,7 @@ export function createAccount(api) {
   (document.getElementById('viewport') || document.body).append(root);
   root.addEventListener('click', (e) => { if (e.target === root && !busy) close(); });
   root.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape' && !busy) close(); });
+  let homeFilter = 'all';
   let view = 'home', busy = false, mode = 'create', msgEl = null, codeEmail = '', codeMode = 'signup', resetting = false, pendingShare = null, pendingJoin = null;
   // focus the first field, unless the person is already typing in one
   const focusSoon = (el) => setTimeout(() => { const a = document.activeElement; if (!(a && a.tagName === 'INPUT' && panel.contains(a))) el.focus(); }, 60);
@@ -278,6 +370,8 @@ export function createAccount(api) {
     else if (v === 'link') linkView(extra);
     else if (v === 'shared') sharedView(extra);
     else if (v === 'invite') inviteView(extra);
+    else if (v === 'inviteRole') inviteRoleView();
+    else if (v === 'changes') changesView();
     panel.scrollTop = 0;
   }
 
@@ -357,16 +451,19 @@ export function createAccount(api) {
       : h('div', { class: 'acct-here' }, h('p', { text: `"${api.projectName()}" is only on this device.` }), h('button', { class: 'btn primary', type: 'button', text: 'Save it to my account', onclick: () => run(async () => { follow(true); ls.set(ASKED, u.id); await push(); if (!myBind()) throw new Error('Could not reach your account. Try again in a moment.'); show('home'); msg('Saved to your account.', true); }) }));
     // working on the project on screen together with someone
     const people = h('div', { class: 'acct-list' });
+    const changed = lastChanges();
+    const changedBtn = changed ? h('button', { class: 'btn', type: 'button', id: 'acctChanges', text: `What changed (${changed.items.length})`, onclick: () => show('changes') }) : null;
     const together = b && b.mine === false
       ? h('div', { class: 'acct-together', id: 'acctTogether' },
           h('h3', { class: 'shHead', text: 'Working on it together' }),
-          h('p', { class: 'muted', text: 'You see each other\'s changes as they happen.' }), people,
+          h('p', { class: 'muted', text: b.role === 'comment' ? 'You can pin comments, say yes or ask for a change on each tattoo, and add reference pictures. Only the people who can edit move the tattoos.' : 'You see each other\'s changes as they happen.' }), people,
+          changedBtn ? h('div', { class: 'acct-row' }, changedBtn) : null,
           h('div', { class: 'acct-row' }, h('button', { class: 'btn quiet danger', type: 'button', text: 'Leave this project', onclick: () => leaveRow(people, b) })))
       : h('div', { class: 'acct-together', id: 'acctTogether' },
           h('h3', { class: 'shHead', text: 'Work on it together' }),
           h('p', { class: 'muted', text: b && b.shared ? 'Everyone here sees the same tattoos, and each other\'s changes as they happen.' : 'Invite Liv or your artist into this project. You both see the same tattoos and each other\'s changes as they happen.' }),
           people,
-          h('div', { class: 'acct-row' }, h('button', { class: 'btn primary', type: 'button', id: 'acctInvite', text: 'Invite someone', onclick: () => run(makeInvite) })));
+          h('div', { class: 'acct-row' }, h('button', { class: 'btn primary', type: 'button', id: 'acctInvite', text: 'Invite someone', onclick: () => show('inviteRole') }), changedBtn));
     put(header('Your account'),
       h('p', { class: 'muted', text: `Signed in as ${cloud.displayName(u)}${u.email ? ' (' + u.email + ')' : ''}` }),
       here, together, h('h3', { class: 'shHead', text: 'Your projects' }), list,
@@ -388,11 +485,26 @@ export function createAccount(api) {
       if (view !== 'home') return;
       list.replaceChildren();
       if (!rows.length) list.append(h('p', { class: 'muted', text: 'Nothing in your account yet.' }));
-      for (const r of rows) {
+      // every project at a glance: whose turn it is, yours first
+      const me = cloud.displayName(u);
+      for (const r of rows) r.turn = turnOf(r, me);
+      setBadge(rows.filter((r) => r.turn && r.turn.yours).length);
+      const yours = rows.filter((r) => r.turn && r.turn.yours).length, theirs = rows.filter((r) => r.turn && r.turn.waiting).length;
+      if (yours || theirs) {
+        const pick = (f) => () => { homeFilter = homeFilter === f ? 'all' : f; show('home'); };
+        list.append(h('div', { class: 'acct-glance', id: 'acctGlance', role: 'group', 'aria-label': 'Show projects' },
+          h('button', { class: 'btn', type: 'button', 'aria-pressed': homeFilter === 'yours' ? 'true' : 'false', text: `${yours} need${yours === 1 ? 's' : ''} you`, onclick: pick('yours') }),
+          h('button', { class: 'btn', type: 'button', 'aria-pressed': homeFilter === 'theirs' ? 'true' : 'false', text: `${theirs} waiting on others`, onclick: pick('theirs') })));
+      }
+      const shown = rows.filter((r) => homeFilter === 'yours' ? r.turn && r.turn.yours : homeFilter === 'theirs' ? r.turn && r.turn.waiting : true)
+        .sort((a, b) => (b.turn && b.turn.yours ? 1 : 0) - (a.turn && a.turn.yours ? 1 : 0));
+      if (rows.length && !shown.length) list.append(h('p', { class: 'muted', text: 'None right now.' }));
+      for (const r of shown) {
         const isHere = b && b.id === r.id;
         const who = !r.mine ? ` · shared by ${r.owner_name || 'someone'}` : r.shared ? ' · shared' : '';
         const item = h('div', { class: 'acct-item' + (isHere ? ' here' : '') },
-          h('div', { class: 'acct-name' }, h('b', { text: r.name }), h('small', { text: `${r.tattoos} tattoo${r.tattoos === 1 ? '' : 's'} · ${when(r.updated_at)}${who}${isHere ? ' · open now' : ''}` })),
+          h('div', { class: 'acct-name' }, h('b', { text: r.name }), h('small', { text: `${r.tattoos} tattoo${r.tattoos === 1 ? '' : 's'} · ${when(r.updated_at)}${who}${isHere ? ' · open now' : ''}` }),
+            r.turn ? h('small', { class: 'acct-turn' + (r.turn.yours ? ' yours' : r.turn.done ? ' done' : ''), text: r.turn.text }) : null),
           h('div', { class: 'acct-actions' },
             isHere ? null : h('button', { class: 'btn primary', type: 'button', text: 'Open', onclick: () => run(() => openFromAccount(r.id)) }),
             r.mine ? h('button', { class: 'btn', type: 'button', text: 'Rename', onclick: () => renameRow(item, r) }) : null,
@@ -408,14 +520,37 @@ export function createAccount(api) {
         people.replaceChildren();
         if (b.mine === false) people.append(h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: b.ownerName || 'The owner' }), h('small', { text: 'owns this project' }))));
         for (const m of ms) {
-          const me = m.user_id === u.id;
-          const item = h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: me ? 'You' : (m.name || 'Someone') }), h('small', { text: 'joined ' + when(m.added_at) })),
-            b.mine !== false ? h('div', { class: 'acct-actions' }, h('button', { class: 'btn quiet danger', type: 'button', text: 'Take off', onclick: () => takeOffRow(item, b, m) })) : null);
+          const me = m.user_id === u.id, comment = m.role === 'comment';
+          const item = h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: me ? 'You' : (m.name || 'Someone') }), h('small', { text: (comment ? 'comments and answers only' : 'can change tattoos') + ' · joined ' + when(m.added_at) })),
+            b.mine !== false ? h('div', { class: 'acct-actions' },
+              h('button', { class: 'btn', type: 'button', text: comment ? 'Let them edit' : 'Comments only', onclick: () => run(async () => { await cloud.setRole(b.id, m.user_id, comment ? 'edit' : 'comment'); show('home'); msg(comment ? `${m.name || 'They'} can now change the tattoos.` : `${m.name || 'They'} can now only comment and answer.`, true); }) }),
+              h('button', { class: 'btn quiet danger', type: 'button', text: 'Take off', onclick: () => takeOffRow(item, b, m) })) : null);
           people.append(item);
         }
         if (!ms.length && b.mine !== false) people.append(h('p', { class: 'muted', text: 'Nobody has joined yet. Each invite link is for one person.' }));
       } catch (e) { /* the list of people is a nicety */ }
     }
+  }
+  // Whose turn it is on a project, from its summary (supabase/setup.sql): changes asked for
+  // first, then a new comment, then tattoos waiting on an answer. yours: something for this
+  // person to do; waiting: something for someone else to do.
+  function turnOf(r, me) {
+    const s = r.summary; if (!s) return null;
+    const n = (x, one, many) => `${x} ${x === 1 ? one : many}`;
+    const askers = (Array.isArray(s.change_by) ? s.change_by : []).filter((x) => x && x !== me);
+    const owner = r.mine ? 'them' : (r.owner_name || 'the owner');
+    const canEdit = r.mine || (bind && bind.id === r.id ? bind.role !== 'comment' : true);
+    if (s.changes) {
+      if (askers.length && canEdit) return { yours: true, text: `Your turn: ${askers.join(' and ')} asked for ${n(s.changes, 'change', 'changes')}` };
+      return { waiting: true, text: `Waiting on ${r.mine && askers.length ? 'you' : owner} to make ${n(s.changes, 'change', 'changes')}` };
+    }
+    if (!r.shared) return s.planned && s.approved === s.planned ? { done: true, text: 'All approved' } : null;
+    if (s.comment_by && s.comment_by !== me && r.edited_by !== me) return { yours: true, text: `Your turn: ${s.comment_by} commented "${s.comment_text || ''}"` };
+    const open = Math.max(0, (s.planned || 0) - (s.approved || 0) - (s.changes || 0));
+    // the owner plans, the people they invited answer
+    if (open) return !r.mine ? { yours: true, text: `Your turn: ${n(open, 'tattoo waits', 'tattoos wait')} on your answer` } : { waiting: true, text: `Waiting on an answer for ${n(open, 'tattoo', 'tattoos')}` };
+    if (s.planned) return { done: true, text: 'All approved' };
+    return null;
   }
   function takeOffRow(item, b, m) {
     item.replaceChildren(h('p', { text: `Take ${m.name || 'this person'} off "${b.name}"? They stop seeing it and their old link stops working.` }),
@@ -429,17 +564,29 @@ export function createAccount(api) {
         show('home'); msg(`You left "${r.name}".`, true);
       }) }), h('button', { class: 'btn', type: 'button', text: 'Stay', onclick: () => show('home') })));
   }
-  function inviteView(url) {
+  function inviteRoleView() {
+    view = 'inviteRole';
+    put(header('Invite someone'),
+      h('p', { text: `Who are you inviting into "${api.projectName()}"?` }),
+      h('div', { class: 'cards' },
+        h('button', { class: 'card', type: 'button', id: 'acctInviteEdit', onclick: () => run(() => makeInvite('edit')) }, h('b', { text: 'Someone who can change the tattoos' }), h('span', { text: 'Like Liv. You both move, resize and add tattoos, and see each other\'s changes as they happen.' })),
+        h('button', { class: 'card', type: 'button', id: 'acctInviteComment', onclick: () => run(() => makeInvite('comment')) }, h('b', { text: 'Someone who comments and answers' }), h('span', { text: 'Like your artist or a client. They pin comments, say yes or ask for a change on each tattoo and add reference pictures, but can\'t move anything.' }))),
+      msgEl,
+      h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+  }
+  function inviteView({ url, role }) {
     const box = h('input', { type: 'text', readonly: true, value: url, 'aria-label': 'Invite link', class: 'acct-link' });
     const canShare = !!navigator.share;
     put(header('Invite someone'),
-      h('p', { text: `Send this link to one person, like Liv or your artist. When they open it and sign in, they join "${api.projectName()}". You both see the same tattoos and each other's changes as they happen.` }),
+      h('p', { text: role === 'comment'
+        ? `Send this link to one person, like your artist. When they open it and sign in, they join "${api.projectName()}" to comment and answer. They see your changes as they happen.`
+        : `Send this link to one person, like Liv. When they open it and sign in, they join "${api.projectName()}". You both see the same tattoos and each other's changes as they happen.` }),
       box,
       h('div', { class: 'acct-row' },
         canShare ? h('button', { class: 'btn primary', type: 'button', text: 'Share link', onclick: () => navigator.share({ title: 'Join my Ink Atlas project', url }).catch(() => {}) }) : null,
         h('button', { class: canShare ? 'btn' : 'btn primary', type: 'button', text: 'Copy link', onclick: async () => { try { await navigator.clipboard.writeText(url); msg('Link copied.', true); } catch (e) { box.select(); msg('Select the link and copy it.'); } } })),
       msgEl,
-      h('p', { class: 'muted', text: 'Each link is for one person and works for 14 days. They can change the tattoos; only you can rename or remove the project. You can take them off any time.' }),
+      h('p', { class: 'muted', text: role === 'comment' ? 'Each link is for one person and works for 14 days. They can comment, answer and add reference pictures, not change the tattoos. You can let them edit, or take them off, any time.' : 'Each link is for one person and works for 14 days. They can change the tattoos; only you can rename or remove the project. You can take them off any time.' }),
       h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
   }
   function renameRow(item, r) {

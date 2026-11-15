@@ -65,7 +65,31 @@ export function cleanState(raw, hasImage) {
     if (n.by !== undefined) { if (typeof n.by === 'string') n.by = n.by.slice(0, 60); else delete n.by; }
     if (n.at !== undefined && !(typeof n.at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(n.at))) delete n.at;
   }
+  // reference pictures (optional): inspiration for the whole project or one tattoo
+  if (s.refs !== undefined) { const r = cleanRefs(s.refs, hasImage, new Set(out.map((t) => t.id))); if (r.length) s.refs = r; else delete s.refs; }
   return { state: s, dropped, replace };
+}
+
+// Reference pictures: { id, img, tattooId?, note?, by?, at? }. A picture that is missing goes,
+// and a tattoo that is gone leaves its pictures on the whole project.
+export const MAX_REFS = 60;
+export function cleanRefs(list, hasImage, tattooIds) {
+  if (!Array.isArray(list)) return [];
+  const out = [], seen = new Set();
+  for (const r of list) {
+    if (out.length >= MAX_REFS) break;
+    if (!r || typeof r !== 'object' || Array.isArray(r) || typeof r.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(r.id) || seen.has(r.id)) continue;
+    if (typeof r.img !== 'string' || !hasImage(r.img)) continue;
+    seen.add(r.id);
+    const c = { id: r.id, img: r.img };
+    if (typeof r.tattooId === 'string' && tattooIds.has(r.tattooId)) c.tattooId = r.tattooId;
+    if (typeof r.note === 'string' && r.note.trim()) c.note = r.note.trim().slice(0, 300);
+    if (typeof r.by === 'string' && r.by.trim()) c.by = r.by.slice(0, 60);
+    if (typeof r.at === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(r.at)) c.at = r.at;
+    if (Number.isFinite(r.aspect) && r.aspect > 0.05 && r.aspect < 20) c.aspect = r.aspect;
+    out.push(c);
+  }
+  return out;
 }
 
 // A spot on the body: a triangle of the body mesh and three weights inside it.
@@ -81,6 +105,7 @@ export function imageKeysFor(state) {
   const scan = (s) => {
     for (const t of [...(s?.tattoos || []),...(s?.unplacedTattoos || [])]) if (typeof t?.img === 'string') keys.add(t.img);
     if (typeof s?.paint?.img === 'string') keys.add(s.paint.img);
+    for (const r of Array.isArray(s?.refs) ? s.refs : []) if (typeof r?.img === 'string') keys.add(r.img);
     for(const board of Array.isArray(s?.artworkBoards)?s.artworkBoards:[])for(const entry of Object.values(board?.entries||{}))for(const k of [entry?.sourceKey,entry?.outputKey])if(typeof k==='string')keys.add(k);
     for (const a of Object.values(s?.artworks || {})) {
       for (const k of [a?.source, a?.output, a?.mask]) if (typeof k === 'string') keys.add(k);

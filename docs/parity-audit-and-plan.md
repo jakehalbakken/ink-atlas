@@ -102,7 +102,7 @@ Status words: **Built+tested** (code exists and an automated test exercises it),
 | Write v47-compatible backups | **Missing** | | None | No | One-way today. |
 | Several projects, shelf, archive | **Missing** | One `project` key | None | No | |
 | Installable, works offline | Built | Vite PWA plugin | Build output checked; offline not tested | Unknown | |
-| Accounts, cloud sync, share links | **Live** (2026-11-14; working together built, not live) | Supabase: email + password sign-in, projects kept in the account and synced, second device picks up changes, both-changed keeps both, Send to someone link that saves into the other person's account | t81 (real PostgreSQL through tools/fake-supabase.mjs), accounts-rls-unit | No | Needs Jake's Supabase project and two GitHub secrets (docs/accounts-setup.md). Private review and comments are still missing; the approval page still works with no backend. |
+| Accounts, cloud sync, share links | **Live** (2026-11-14; working together, answers and pinned comments live 2026-11-15; comment-only invites, What changed, whose-turn list and reference board built 2026-11-15, not live) | Supabase: email + password sign-in, projects kept in the account and synced, second device picks up changes, both-changed keeps both, Send to someone link that saves into the other person's account | t81 (real PostgreSQL through tools/fake-supabase.mjs), accounts-rls-unit | No | Needs Jake's Supabase project and two GitHub secrets (docs/accounts-setup.md). Invite links (edit or comments only), Looks good / Ask for a change, comments pinned to the body, what changed since you last looked, every project with whose turn it is, and a shared reference board: t83, t84, changes-unit, merge-unit. The approval page still works with no backend. Not yet checked with two real iPads. |
 | AI art, photo-to-3D body | **Missing** | | None | No | Deferred. Needs consent, a provider, and a cost decision. |
 
 ### 3D interoperability, honestly
@@ -153,7 +153,7 @@ Each stage ends with: `npm run build`, all scripts in `tools/tests/`, new tests 
 
 - [ ] 4a Local foundations that need no server: several projects with a shelf, restore as a copy, a single-file review packet
 - [x] 4b Backend choice with Jake, then accounts and sync (Supabase, built 2026-11-14; live once his project exists)
-- [ ] 4c Private review room: invite-only, comments pinned to a version and a body spot
+- [x] 4c Private review room: invite-only (edit or comments only), comments pinned to a body spot, answers, what changed, whose turn, reference board (built 2026-11-15; comments pinned to a version still missing)
 - [ ] 4d Any photo upload or AI step: consent wording, provider, cost shown first
 
 ## Decisions

@@ -61,3 +61,35 @@ export function mergeStates(base, local, remote) {
   }
   return out;
 }
+
+// What someone who can only comment saves: the account's project exactly as it is, with the
+// comments, answers and reference pictures they changed on this device since it last matched
+// the account put onto it. The server refuses anything else from them.
+export const COMMENT_LISTS = ['notes', 'refs'];
+export function commentsOnto(base, local, remote) {
+  const b = base && typeof base === 'object' ? base : {}, l = local && typeof local === 'object' ? local : {};
+  const out = JSON.parse(JSON.stringify(remote));
+  const list = (s, k) => (isIdList(s[k]) ? s[k] : []);
+  for (const k of COMMENT_LISTS) {
+    if (same(list(l, k), list(b, k))) continue;
+    const m = mergeList(list(b, k), list(l, k), list(out, k));
+    if (m.length) out[k] = m; else delete out[k];
+  }
+  const byId = (s) => new Map((Array.isArray(s.tattoos) ? s.tattoos : []).filter((t) => t && typeof t.id === 'string').map((t) => [t.id, t]));
+  const B = byId(b), L = byId(l);
+  for (const t of Array.isArray(out.tattoos) ? out.tattoos : []) {
+    const lt = t && L.get(t.id); if (!lt) continue;
+    const was = B.get(t.id);
+    if (same(lt.review, was && was.review)) continue;
+    if (lt.review) t.review = lt.review; else delete t.review;
+  }
+  return out;
+}
+// A project without its comments, answers and reference pictures (as the server compares them).
+export function withoutComments(s) {
+  if (!s || typeof s !== 'object') return s;
+  const out = { ...s };
+  for (const k of COMMENT_LISTS) delete out[k];
+  if (Array.isArray(s.tattoos)) out.tattoos = s.tattoos.map((t) => { if (!t || typeof t !== 'object') return t; const { review, ...rest } = t; return rest; });
+  return out;
+}
