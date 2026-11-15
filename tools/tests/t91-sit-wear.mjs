@@ -1,6 +1,6 @@
 // What to wear to the sitting: moved to usual spots with Try other spots, a planned tattoo's
 // sittings show a line on what to wear so the spot is open (a T-shirt for a forearm, shorts for a
-// calf, a top you can take off for the chest), the same words go in the calendar entries, ink
+// calf, a top you can take off for the chest) and which way to sleep for the first nights, the same words go in the calendar entries, ink
 // already on shows none, and seeing it ticks it in New to try.
 import assert from 'node:assert/strict';
 export default async function (p) {
@@ -19,9 +19,11 @@ export default async function (p) {
     const r = await p.evaluate((id) => window.__ink.sitWear(id), t.id);
     assert.ok(r.shown, spot + ': the line shows');
     assert.equal(r.line, r.text, spot + ': the line shows the same words');
+    assert.equal(r.sleepLine, r.sleep, spot + ': the sleep line shows the same words');
+    sleeps[spot] = r.sleep;
     return r.text;
   };
-  const seen = {};
+  const seen = {}, sleeps = {};
   for (const [spot, want] of [
     ['forearm-back', /^For the sitting: wear a T-shirt, so the spot is open\.$/],
     ['calf', /^For the sitting: wear shorts, so the spot is open\.$/],
@@ -32,6 +34,8 @@ export default async function (p) {
     seen[spot] = await at(spot);
     assert.match(seen[spot], want, spot + ': ' + seen[spot]);
   }
+  assert.match(sleeps.chest, /sleep on your back /, 'chest: on your back'); assert.match(sleeps.calf, /sleep on your (front|left side|right side|front or your (left|right) side) /, 'calf: ' + sleeps.calf);
+  assert.match(sleeps['forearm-back'], /sleep on your (left|right) side|on your back|on your front/, sleeps['forearm-back']);
   await p.screenshot({ path: 'shots/t91-sit-wear.png' });
   const tried = await p.evaluate(() => { try { return JSON.parse(localStorage.getItem('ia-tried') || '[]'); } catch { return []; } });
   assert.ok(tried.includes('sitWear'), 'seeing it ticks it');
@@ -39,9 +43,9 @@ export default async function (p) {
   await p.$eval('#sitStart', (e) => { e.value = '2026-12-05'; e.dispatchEvent(new Event('change')); }); await wait(400);
   await p.click('#sitCal'); await wait(600);
   const ics = await p.evaluate(async () => { const k = Object.keys(window.saved).find((n) => /\.ics$/.test(n)); return k ? (await window.saved[k].text()).replace(/\r\n /g, '') : ''; });
-  assert.ok(ics.includes('For the sitting: wear a top you can take off or open\\, like a button-up\\, so the spot is open.'), 'in the calendar: ' + ics.slice(0, 600));
+  assert.ok(ics.includes('For the sitting: wear a top you can take off or open\\, like a button-up\\, so the spot is open. For the first few nights after each sitting\\, sleep on your back so the fresh ink isn\'t pressed.'), 'in the calendar: ' + ics.slice(0, 900));
   // ink already on: no sittings, so no line
   await p.click('#bStatus'); await wait(500);
   assert.equal(await p.$eval('#sitBox', (e) => e.hidden), true, 'no planner for ink already on');
-  console.log('PASS t91-sit-wear: ' + Object.entries(seen).map(([k, v]) => k + ': ' + v).join(' | '));
+  console.log('PASS t91-sit-wear: ' + Object.entries(seen).map(([k, v]) => k + ': ' + v + ' ' + sleeps[k]).join(' | '));
 }

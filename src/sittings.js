@@ -68,3 +68,15 @@ export function sittingsCalendar(name, plan, stamp = new Date(), wear = '') {
   const fold = (l) => { let out = l.slice(0, 75); for (let i = 75; i < l.length; i += 74) out += '\r\n ' + l.slice(i, i + 74); return out; };
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ink Atlas//Sittings//EN', 'CALSCALE:GREGORIAN', ...ev, 'END:VCALENDAR'].join('\r\n').split('\r\n').map(fold).join('\r\n') + '\r\n';
 }
+
+// How to sleep for the first nights after a sitting, so the fresh ink isn't pressed or rubbed:
+// from which way the skin under it faces on the standing body (+z front, +x the body's own left).
+export function sleepLine(pos, normal) {
+  if (!pos || !normal) return '';
+  const [nx, , nz] = normal, side = pos[0] > 0.05 ? 'left' : pos[0] < -0.05 ? 'right' : '', other = side === 'left' ? 'right' : side === 'right' ? 'left' : '';
+  const say = (how) => `For the first few nights after each sitting, sleep ${how} so the fresh ink isn't pressed.`;
+  if (nz > 0.55) return say('on your back');
+  if (nz < -0.55) return say(other ? `on your front or your ${other} side` : 'on your front');
+  if (Math.abs(nx) > 0.5) return say(`on your ${nx > 0 ? 'right' : 'left'} side`);
+  return other ? say(`on your ${other} side`) : '';
+}

@@ -58,7 +58,7 @@ import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, room
 import { whereItSits } from './where.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
-import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash } from './sittings.js';
+import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
 
 // a feature that needs the account's email sender is listed only once that is switched on
@@ -3002,6 +3002,7 @@ function sitRender(t) {
   $('#sitDry').textContent = last.date ? `Keep it out of pools, the sea, baths and strong sun for two weeks after each sitting${plan.sittings.length > 1 ? `: after the last one, until ${dayWords(clearOn(last.date))}` : `, until ${dayWords(clearOn(last.date))}`}.` : '';
   $('#sitDry').hidden = !last.date;
   const wear = sitWearOf(t); $('#sitWear').textContent = wear; $('#sitWear').hidden = !wear;
+  const sleep = sleepLine(t.pos, t.normal); $('#sitSleep').textContent = sleep; $('#sitSleep').hidden = !sleep;
   if (wear && $('#editorAdvanced').open && !infoByShow && performance.now() > infoQuietUntil) markTried('sitWear');
   const c = tripClash(plan, s.away, todayIso()); $('#sitClash').hidden = !c;
   if (c) {
@@ -3023,7 +3024,7 @@ for (const id of ['#sitLater', '#sitEarlier']) $(id).addEventListener('click', (
 $('#sitCal').addEventListener('click', () => {
   const t = sel(), plan = sitPlan(t); if (!plan || !plan.healed) return;
   const name = (t.name || 'Tattoo').trim() || 'Tattoo';
-  saveFile((name.replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo') + '-sittings.ics', new Blob([sittingsCalendar(name, plan, new Date(), sitWearOf(t))], { type: 'text/calendar' }));
+  saveFile((name.replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo') + '-sittings.ics', new Blob([sittingsCalendar(name, plan, new Date(), [sitWearOf(t), sleepLine(t.pos, t.normal)].filter(Boolean).join(' '))], { type: 'text/calendar' }));
   markTried('sittings');
 });
 const readRate = () => { try { const n = +localStorage.getItem('ia-rate'); return n > 0 && n < 5000 ? n : 0; } catch { return 0; } };
@@ -4213,7 +4214,7 @@ window.__ink = {
   reads: () => $('#readRow').hidden ? '' : $('#readText').textContent + ($('#readFix').hidden ? '' : ' | ' + $('#readFix').textContent),
   wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
-  sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
+  sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
   shows: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: showsOf(t), shares: showsShares(t) } : null; },
   even: () => $('#evenRow').hidden ? '' : $('#evenLine').textContent + ($('#evenFix').hidden ? '' : ' | ' + $('#evenFix').textContent),
   sitShown: () => $('#sitBox').hidden ? null : [...$('#sitList').children].map((li) => li.textContent),

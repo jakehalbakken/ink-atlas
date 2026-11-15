@@ -3,7 +3,7 @@
 // between, healed four weeks after the last; the calendar file has one all-day event a sitting.
 // Run: node tools/tests/sittings-unit.mjs
 import assert from 'node:assert/strict';
-import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash } from '../../src/sittings.js';
+import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine } from '../../src/sittings.js';
 
 const one = planSittings({ lo: 2, hi: 3, sessions: 1 });
 assert.equal(one.sittings.length, 1); assert.equal(one.sittings[0].what, 'The whole piece'); assert.equal(one.healed, '', 'no date, no healed date');
@@ -38,4 +38,16 @@ assert.equal(tripClash(planSittings({ lo: 12, hi: 18, sessions: 3 }, { start: '2
 assert.equal(tripClash(grey, '2026-12-10', '2026-12-01').earlier, '', 'no earlier start in the past');
 assert.equal(tripClash(planSittings({ lo: 2, hi: 3, sessions: 1 }), '2026-12-10'), null, 'no dates, no clash');
 assert.ok(ics.includes('until Sat\\, Dec 19') || ics.replace(/\r\n /g, '').includes('until Sat\\, Dec 19'), 'the calendar says when it can go in the water');
+// which way to sleep for the first nights: away from the side the fresh ink faces
+const night = (how) => `For the first few nights after each sitting, sleep ${how} so the fresh ink isn't pressed.`;
+assert.equal(sleepLine([0.1, 1.3, 0.1], [0, 0, 1]), night('on your back'), 'chest');
+assert.equal(sleepLine([0.1, 1.3, -0.1], [0, 0, -1]), night('on your front or your right side'), 'left shoulder blade');
+assert.equal(sleepLine([0, 1.2, -0.1], [0, 0.2, -0.95]), night('on your front'), 'spine');
+assert.equal(sleepLine([0.4, 1.2, 0], [0.9, 0.3, 0]), night('on your right side'), 'outer left arm');
+assert.equal(sleepLine([-0.3, 1.0, 0], [-0.8, 0, 0.3]), night('on your left side'), 'right side of the ribs');
+assert.equal(sleepLine([-0.5, 1.3, 0], [0, 1, 0]), night('on your left side'), 'top of the right arm');
+assert.equal(sleepLine([0, 1.7, 0], [0, 1, 0]), '', 'top of the head: nothing to say');
+assert.equal(sleepLine(null, [0, 0, 1]), '');
+const icsTips = sittingsCalendar('Rose', planSittings({ lo: 2, hi: 3, sessions: 1 }, { start: '2026-12-05' }), new Date('2026-11-15T00:00:00Z'), 'Wear a T-shirt.');
+assert.ok(icsTips.replace(/\r\n /g, '').includes('Wear a T-shirt. Planned in Ink Atlas.'), 'tips in the calendar');
 console.log('sittings-unit: ok');
