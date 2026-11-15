@@ -51,7 +51,7 @@ import { SPOTS, spotAim, turnAlong, spotNote } from './spots.js';
 import { POSE_BONES, vertexBones } from './pose.js';
 import { posesFor } from './pose-pick.js';
 import { PART_NAMES } from './body-photo.js';
-import { stencilLines, stencilPixels, stencilScale, pngWithDpi } from './stencil.js';
+import { stencilLines, stencilPixels, stencilScale, pngWithDpi, artSharpness } from './stencil.js';
 import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
 import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
 import { makeRef, approvalHtml, parseAnswers } from './approval.js';
@@ -1054,7 +1054,9 @@ async function makeStencil() {
   st.png = new Blob([png], { type: 'image/png' }); st.pdf = new Blob([pdf], { type: 'application/pdf' });
   st.base = name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo';
   window.__lastStencil = { w: S.w, h: S.h, dpi: S.dpi, line: S.line, inkPixels: r.inkPixels, linePixels: r.linePixels, png: png.length, pdf: pdf.length, wCm: size.wCm, hCm: size.hCm, detail: st.detail };
-  $('#stText').textContent = `${name}: ${P.sizeNote(size)} at real size.` + (t.flip ? ' Mirrored as on your body.' : '') + (r.linePixels ? '' : ' Nothing to trace at this detail, so slide Detail up.');
+  const soft = artSharpness(im.naturalWidth, im.naturalHeight, size.wCm / 2.54);
+  $('#stText').textContent = `${name}: ${P.sizeNote(size)} at real size.` + (t.flip ? ' Mirrored as on your body.' : '') + (r.linePixels ? '' : ' Nothing to trace at this detail, so slide Detail up.') + (soft ? ` The artwork file is small for this size (about ${soft.dpi} dots per inch), so the lines may print soft.` : '');
+  if (soft) markTried('sharp');
   stReady(r.linePixels > 0);
 }
 function showStencil(on) {
@@ -1109,6 +1111,8 @@ async function runInkCheck() {
       ic.wantIn = Math.ceil(need * 2) / 2;
       items.push(['', `At about ${inTxt(ic.wantIn)} in wide, nearly every line is 0.5 mm or more.`]);
     } else if (need) items.push(['', 'This is fine line work: pick an artist who does fine line, and expect it to soften with time.']);
+    const soft = artSharpness(im.naturalWidth, im.naturalHeight, wIn);
+    if (soft) { items.push(['', `The artwork file is ${im.naturalWidth} px wide, about ${soft.dpi} dots per inch at this size, so a print or stencil will look soft. A file at least ${soft.wantPx} px wide prints sharp.`]); markTried('sharp'); }
   }
   const list = $('#icList');
   for (const [col, text] of items) { const li = document.createElement('li'), key = document.createElement('span'); key.className = 'key'; if (col) key.style.background = col; else key.style.visibility = 'hidden'; const tx = document.createElement('span'); tx.textContent = text; li.append(key, tx); list.append(li); }
@@ -2113,6 +2117,7 @@ const SHOW = {
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
   approval: () => { toggle('#share', true); return ['#cApprove', 'Tap to make a page for your artist or client. They tap Yes or Change for each tattoo and send it back.']; },
   inkCheck: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check shows colours that barely show on your skin, and lines too fine for this size.']; },
+  sharp: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check and Stencil for your artist now say when the artwork file is too small to print sharp at its size, and how big a file would.']; },
   planStencils: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Open Stencil for your artist. With two or more planned pieces, All planned pieces makes one PDF with every stencil at real size, at the Detail you set.']; },
   stencil: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Stencil for your artist turns this tattoo into clean lines at its real size, to print or share.']; },
   realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },

@@ -115,3 +115,15 @@ export function pngWithDpi(png, dpi) {
   const out = new Uint8Array(parts.reduce((n, x) => n + x.length, 0)); let at = 0; for (const x of parts) { out.set(x, at); at += x.length; }
   return out;
 }
+
+// Is the artwork file big enough to print sharp at this size? pxW x pxH is the stored picture,
+// wIn the width it has on the body. The app stores artwork at most `cap` pixels on its long
+// side, so a picture at the cap may have come from a bigger file: say nothing then. Returns null
+// when it is sharp enough (or cannot tell), else { dpi, wantPx } (the width that prints at 200).
+export function artSharpness(pxW, pxH, wIn, cap = 1600) {
+  if (!(pxW > 0 && pxH > 0 && wIn > 0)) return null;
+  if (Math.max(pxW, pxH) >= cap - 10) return null;
+  const dpi = pxW / wIn;
+  if (dpi >= 150) return null;
+  return { dpi: Math.round(dpi), wantPx: Math.ceil(wIn * 200 / 100) * 100 };
+}
