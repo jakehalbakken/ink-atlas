@@ -69,5 +69,9 @@ export default async function (p) {
   await p.keyboard.press('Escape'); await p.evaluate(() => window.__ink.select(null)); await wait(300);
   const n1 = await count(); await p.keyboard.press('Delete'); await wait(300);
   assert.equal(await count(), n1, 'nothing selected, nothing removed');
+  // ? lists the keys, with or without a tattoo selected
+  await p.evaluate(() => document.activeElement && document.activeElement.blur());
+  await p.keyboard.type('?'); await wait(300);
+  assert.match(await p.$eval('#toast', (e) => e.textContent), /^Keys for the selected tattoo: arrows move it/);
   console.log('PASS t93-keys: moved ' + (s1.x - s0.x).toFixed(1) + ' px right in three presses, turn, size, duplicate, delete, undo');
 }

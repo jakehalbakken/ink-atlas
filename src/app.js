@@ -1214,9 +1214,12 @@ function keyMove(t, dx, dy) {
   const h = surfaceAt(new V3(...t.pos).add(dir).addScaledVector(n, 0.03), n.clone().negate()); if (!h) return false;
   keyStep('move'); t.pos = h.pos; t.normal = h.normal; commit(); return true;
 }
+const KEYS_HELP = 'Keys for the selected tattoo: arrows move it (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Cmd+Z undoes, Shift+Cmd+Z redoes.';
 document.addEventListener('keydown', (e) => {
   if (e.altKey || e.defaultPrevented || document.querySelector('[aria-modal=true]')) return;
   const tgt = e.target; if (tgt && tgt.closest && tgt.closest('input,textarea,select,[contenteditable],ink-slider')) return;
+  // ? lists the keys
+  if (e.key === '?' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); toast(KEYS_HELP); markTried('keys'); return; }
   const t = sel(); if (!t || commentOnly) return;
   const k = e.key, mod = e.metaKey || e.ctrlKey, big = e.shiftKey ? 5 : 1;
   const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
