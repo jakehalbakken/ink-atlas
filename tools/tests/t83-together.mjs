@@ -110,8 +110,8 @@ export default async function (p) {
     await until(p, () => window.__ink.peers().some((o) => o.name === 'Liv' && o.view), null, 'her view is shared', 10000);
     await p.click('#hereNow');
     await until(p, () => !!document.querySelector('#acctTogether .acct-follow'), null, 'Follow their view offered');
-    assert.ok(await p.$eval('#acctTogether .acct-follow', (e) => e.getBoundingClientRect().height >= 44), 'Follow big enough');
-    await p.click('#acctTogether .acct-follow');
+    await until(p, () => document.querySelector('#acctTogether .acct-follow').getBoundingClientRect().height >= 44, null, 'Follow big enough, once the panel is in', 3000);
+    await p.evaluate(() => document.querySelector('#acctTogether .acct-follow').click());
     await until(p, () => window.__ink.following() && !document.querySelector('#followBar').hidden, null, 'following her view');
     assert.match(await p.$eval('#followText', (e) => e.textContent), /Following Liv.s view/);
     assert.equal(await p.$eval('#account', (e) => e.hidden), true, 'the panel closes');
@@ -124,6 +124,8 @@ export default async function (p) {
     await q.evaluate(() => document.querySelector('[data-view="0"]').click()); await wait(2500);
     assert.ok((await p.evaluate(() => window.__ink.cam()))[2] < -0.5, 'and her view no longer moves his');
     assert.ok(camAfter[2] < -0.5);
+    await p.evaluate(() => document.querySelector('[data-view="0"]').click()); // back to the front for the rest
+    for (let i = 0, last = ''; i < 40; i++) { const c = JSON.stringify(await p.evaluate(() => window.__ink.cam())); if (c === last) break; last = c; await wait(400); } // let his view settle
 
     // her change reaches Jake by itself, and his view stays where it was
     const view0 = await p.evaluate(() => JSON.stringify(window.__ink.cam ? window.__ink.cam() : null));
