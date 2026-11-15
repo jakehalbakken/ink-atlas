@@ -173,6 +173,15 @@ export default async function (p) {
   await p.click('#undo'); await wait(400);
   assert.ok(await p.evaluate(() => !!window.__ink.state().paint), 'Undo brings the paint back');
   await p.waitForFunction(() => window.__ink.paintShown(), { timeout: 10000 });
+  // Body > Reset to plain body does the same from a place that is always there
+  await p.click('#bodyBtn'); await wait(300);
+  await p.click('#plainBody'); await wait(400);
+  assert.equal(await p.evaluate(() => !!window.__ink.state().paint), false, 'Reset to plain body takes the paint off');
+  assert.equal(await p.evaluate(() => window.__ink.state().tattoos.length), nTat, 'and keeps every tattoo');
+  await p.click('#undo'); await wait(400);
+  assert.ok(await p.evaluate(() => !!window.__ink.state().paint), 'Undo puts it back');
+  await p.click('#bodyBtn'); await wait(200);
+  await p.waitForFunction(() => window.__ink.paintShown(), { timeout: 10000 });
 
   // kept after a reload
   await p.evaluate(() => window.__ink.flush()); await wait(500);

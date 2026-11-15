@@ -223,8 +223,8 @@ function placeChrome() {
   const bottom = Math.max($('#top').getBoundingClientRect().bottom, fits ? 0 : v.getBoundingClientRect().bottom + 8);
   document.documentElement.style.setProperty('--below', Math.round(bottom) + 'px');
 }
-addEventListener('resize', placeChrome);
-new ResizeObserver(placeChrome).observe($('#top .toolbar'));
+addEventListener('resize', () => { placeChrome(); requestAnimationFrame(placeChrome); setTimeout(placeChrome, 300); });
+{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); ro.observe($('#top .toolbar')); ro.observe($('#top')); }
 if (document.fonts) document.fonts.ready.then(placeChrome);
 placeChrome();
 function freeArea() {
@@ -973,7 +973,7 @@ function renderSheet() {
   const linkedCount=t.artworkId?state.tattoos.filter(x=>x.artworkId===t.artworkId).length:1;
   $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=!!t.locked; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
   $('#exactWidth').value = (t.width * state.heightCm / 175 * 100 / 2.54).toFixed(2);
-  for (const id of ['rSize','rTurn','rFade','rWrap','rBend','rTaper','bFlip','bFlipVertical','bDraft','bCleanup','bProcreate','bDel','exactWidth','resetTransform']) $('#'+id).toggleAttribute('disabled', !!t.locked);
+  for (const id of ['rSize','rTurn','rFade','rWrap','rBend','rTaper','bFlip','bFlipVertical','bDraft','bCleanup','bProcreate','exactWidth','resetTransform']) $('#'+id).toggleAttribute('disabled', !!t.locked);
   document.querySelectorAll('[data-inch],[data-nudge]').forEach(b => b.disabled = !!t.locked);
   $('#rSize').value = Math.round(Math.log(t.width / 0.012) / Math.log(0.9 / 0.012) * 1000);
   $('#rTurn').value = Math.round(((((t.rot * 180 / Math.PI) + 180) % 360 + 360) % 360) - 180);
@@ -1378,7 +1378,9 @@ $('#rToCurve').addEventListener('input', () => { tryOn.curve = +$('#rToCurve').v
 addEventListener('resize', () => { if (!$('#tryOn').hidden) toPlace(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && tryOn.stream) toStopCamera(); else if (!document.hidden && !$('#tryOn').hidden && !tryOn.frozen) toStartCamera(); });
 $('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); const f = frameOf(t); const p = new V3(...t.pos).addScaledVector(f.right, t.width * 0.6).addScaledVector(f.n, 0.2); const h = surfaceAt(p, f.n.clone().negate()); const c = { ...t, id: uid(), name: t.name + ' copy', locked: false, pos: h ? h.pos : t.pos, normal: h ? h.normal : t.normal }; state.tattoos.push(c); selectedId = c.id; commit(); });
-$('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.locked) { toast('Unlock this tattoo first.'); return; } snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
+// Remove always works, locked or already on me too: it is one undo step, and nothing on the body should be stuck
+$('#bDelTop').addEventListener('click', () => $('#bDel').click());
+$('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
 function setWidthInches(value) {
  const t = sel(); if (!t || t.locked || !Number.isFinite(value) || value <= 0) return;
  snapshot(); t.width = Math.max(.012, Math.min(.9, value * 2.54 / 100 * 175 / state.heightCm)); commit();
@@ -1566,6 +1568,14 @@ $('#pm3dSend').addEventListener('click', () => { toggle('#pcMenu', false); expor
 $('#pm3dBack').addEventListener('click', () => { toggle('#pcMenu', false); $('#paintedFile').click(); });
 $('#pmPaintHide').addEventListener('click', () => { if (!state.paint) return; snapshot(); state.paint.hidden = !state.paint.hidden; commit(); renderPcMenu(); });
 $('#pmPaintSplit').addEventListener('click', () => paintToTattoos());
+// Body > Reset to plain body: takes off everything painted onto the skin from Procreate, keeps every tattoo
+function resetPlainBody() {
+  const n = state.tattoos.length, tats = n === 1 ? 'Your tattoo stays in the tray' : n ? `Your ${n} tattoos stay in the tray` : 'No tattoos are placed';
+  if (!state.paint) { toast(`The body is already plain: there is no paint from Procreate on it. ${tats}${n ? ': select one and tap the bin to remove it.' : '.'}`); return false; }
+  snapshot(); delete state.paint; toggle('#paintPop', false); commit(); renderPcMenu();
+  toast(`Plain body back. ${tats}.`, 'Undo', undo); return true;
+}
+$('#plainBody').addEventListener('click', resetPlainBody);
 function renderPaintPop() { const p = state.paint; if (!p) { toggle('#paintPop', false); return; } $('#ppHide').firstChild.textContent = p.hidden ? 'Show paint' : 'Hide paint'; $('#ppHide small').textContent = p.hidden ? 'Put the paint back on the body.' : 'See the plain body with your tattoos, keep the paint for later.'; }
 function openPaintPop() { cancelGesture(); for (const id of ['#bodyPop', '#lightPop', '#posePop', '#clothesPop', '#agePop', '#newPop']) toggle(id, false); toggle('#paintPop'); renderPaintPop(); renderTray(); }
 $('#ppHide').addEventListener('click', () => { if (!state.paint) return; snapshot(); state.paint.hidden = !state.paint.hidden; commit(); renderPaintPop(); renderPcMenu(); });
@@ -2286,6 +2296,7 @@ const SHOW = {
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
+  plainBody: () => { toggle('#bodyPop', true); return ['#plainBody', 'Takes off anything painted on the skin from Procreate and keeps every tattoo in the tray as its own item. Undo puts it back.']; },
   paintChip: () => [state.paint ? '#paintChip' : null, state.paint ? 'Paint you brought back from Procreate shows here in the tattoo list. Tap it to make it movable tattoos, hide it, or remove it.' : 'Paint you bring back from Procreate now shows in the tattoo list as Paint on skin. Tap it to make it movable tattoos, hide it, or remove it for the plain body.'],
   layout: () => ['#top .toolbar', 'Everything starts here: Body, Preview, Plan and Share, with Undo and Redo as the arrows. Select a tattoo for its own controls.'],
   history: () => { if (!$('#undo').disabled) openHistory(); return ['#undo', 'Press and hold Undo for a list of your last steps. Tap one to go back to just before it. Redo brings them back.']; },
