@@ -57,6 +57,7 @@ import { findDesigns, inDesign } from './flash.js';
 import { meshNeighbours, alongSkin, aroundAt, tapeText } from './tape.js';
 import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
 import { DISTANCES, shrinkFor, distanceText, softenRGBA } from './distance.js';
+import { unrollLimb, mapTriangle, mapBounds, typicalRound } from './limb-map.js';
 import { makeRef, approvalHtml, parseAnswers } from './approval.js';
 import { coverByArt, coverText } from './cover.js';
 import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
@@ -2255,6 +2256,7 @@ const SHOW = {
   tape: () => { showLook(true); return ['#tapeBtn', 'Tap Tape measure, then two points on the body. Around wraps it round an arm, a leg or the waist.']; },
   posesSheet: () => { toggle('#share', true); return ['#cPoses', 'Tap for your tattoo in four poses that move it, in one picture.']; },
   sizesSheet: () => { toggle('#share', true); return ['#cSizes', 'Tap for your tattoo a size smaller, as it is and a size bigger, side by side on the body.']; },
+  sleeve: () => { toggle('#share', true); return ['#cSleeve', 'Tap for each arm and leg’s skin laid flat with your tattoos on it, the way artists plan a sleeve.']; },
   distance: () => { toggle('#share', true); return ['#cDistance', 'Tap for your tattoo close up, across a table, a room and a street, with the detail an eye can’t make out at each distance run together.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
   eyes: () => { toggle('#bodyPop', true); viewFace(); return ['#eyeCols', 'Tap a colour for the eyes. The view moves to the face.']; },
@@ -3999,6 +4001,111 @@ function wrapCentre(g, text, x, y, maxW, lh) {
   g.fillText(a, x, y);
 }
 let distanceLast = null;
+/* ---------- Sleeve map: each arm and leg's skin laid flat, with the tattoos on it ---------- */
+const LIMBS = [
+  { key: 'armL', label: 'Left arm', side: 'L', bones: ['upperarm01', 'lowerarm01', 'wrist'], keep: /^(upperarm|lowerarm)0[12]\.L$/, joint: 'Elbow' },
+  { key: 'armR', label: 'Right arm', side: 'R', bones: ['upperarm01', 'lowerarm01', 'wrist'], keep: /^(upperarm|lowerarm)0[12]\.R$/, joint: 'Elbow' },
+  { key: 'legL', label: 'Left leg', side: 'L', bones: ['upperleg01', 'lowerleg01', 'foot'], keep: /^(upperleg|lowerleg)0[12]\.L$/, joint: 'Knee' },
+  { key: 'legR', label: 'Right leg', side: 'R', bones: ['upperleg01', 'lowerleg01', 'foot'], keep: /^(upperleg|lowerleg)0[12]\.R$/, joint: 'Knee' },
+];
+function limbUnrolled(L) {
+  const geo = bodyGeo, P = (geo.attributes.rest || geo.attributes.position).array, J = poseView.restRig().joints;
+  const at = (n) => { const b = POSE_BONES.find((x) => x.name === `${n}.${L.side}`); return [0, 1, 2].map((i) => J[b.head * 3 + i]); };
+  const top = (v) => { let best = '', w = -1; for (const [n, x] of vertexBones(v)) if (x > w) { w = x; best = n; } return best; };
+  return unrollLimb({ pos: P, count: COUNTS.body, joints: L.bones.map(at), keep: (v) => L.keep.test(top(v)), outward: [L.side === 'L' ? 1 : -1, 0, 0], trim: true });
+}
+// Draw one limb's map: skin, then each visible tattoo's triangles multiplied over it, the same way
+// the skin picture for Procreate is made. Returns a canvas with the background left clear.
+function limbPicture(m, pxPerUnit) {
+  const b = mapBounds(m), W = Math.ceil(b.half * 2 * pxPerUnit) + 4, H = Math.ceil(b.length * pxPerUnit) + 4;
+  const scene = new THREE.Scene(), owned = [];
+  const camera = new THREE.OrthographicCamera(-W / 2 / pxPerUnit, W / 2 / pxPerUnit, 2 / pxPerUnit, -(H - 2) / pxPerUnit, -1, 1);
+  const add = (pos, material, order, uvs) => {
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); if (uvs) g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    const mesh = new THREE.Mesh(g, material); mesh.renderOrder = order; mesh.frustumCulled = false; scene.add(mesh); owned.push(g, material);
+  };
+  // across the map is mirrored so the map reads as seen from the outside of the limb
+  const put = (out, tri) => { for (const [x, y] of tri) out.push(-x, -y, 0); };
+  const I = bodyGeo.index.array, triN = I.length / 3, skin = [];
+  for (let t = 0; t < triN; t++) for (const tri of mapTriangle(m, I[t * 3], I[t * 3 + 1], I[t * 3 + 2])) put(skin, tri);
+  add(skin, new THREE.MeshBasicMaterial({ color: new THREE.Color(skinColor()), side: THREE.DoubleSide, toneMapped: false }), 0);
+  let inked = 0;
+  state.tattoos.forEach((t, order) => {
+    const d = decals[t.id]; if (t.hidden || !d || !d.tex) return;
+    const tris = d.mesh.geometry.userData.tris, uv = d.mesh.geometry.getAttribute('uv'); if (!tris || !uv) return;
+    const pos = [], tex = [];
+    for (let k = 0; k < tris.length; k++) {
+      const tt = tris[k]; if (tt >= triN) continue;
+      for (const tri of mapTriangle(m, I[tt * 3], I[tt * 3 + 1], I[tt * 3 + 2])) { put(pos, tri); for (let j = 0; j < 3; j++) tex.push(uv.getX(k * 3 + j), uv.getY(k * 3 + j)); }
+    }
+    if (!pos.length) return;
+    const mat = d.mesh.material.clone(); mat.side = THREE.DoubleSide; mat.depthTest = false; mat.polygonOffset = false;
+    mat.blending = THREE.CustomBlending; mat.blendEquation = THREE.AddEquation; mat.blendSrc = THREE.ZeroFactor; mat.blendDst = THREE.SrcColorFactor; mat.blendSrcAlpha = THREE.ZeroFactor; mat.blendDstAlpha = THREE.OneFactor;
+    add(pos, mat, 10 + order, tex); inked++;
+  });
+  const target = new THREE.WebGLRenderTarget(W, H, { colorSpace: THREE.SRGBColorSpace, depthBuffer: false, samples: 4 });
+  target.texture.colorSpace = THREE.SRGBColorSpace;
+  const prevTarget = renderer.getRenderTarget(), prevColor = new THREE.Color(), prevAlpha = renderer.getClearAlpha(), prevScissor = renderer.getScissorTest();
+  renderer.getClearColor(prevColor);
+  const raw = new Uint8Array(W * H * 4);
+  try {
+    renderer.setScissorTest(false); renderer.setRenderTarget(target); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, camera);
+    renderer.readRenderTargetPixels(target, 0, 0, W, H, raw);
+  } finally {
+    renderer.setRenderTarget(prevTarget); renderer.setClearColor(prevColor, prevAlpha); renderer.setScissorTest(prevScissor);
+    target.dispose(); for (const o of owned) o.dispose();
+  }
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const im = new ImageData(W, H), row = W * 4;
+  for (let y = 0; y < H; y++) im.data.set(raw.subarray((H - 1 - y) * row, (H - y) * row), y * row);
+  c.getContext('2d').putImageData(im, 0, 0);
+  return { canvas: c, W, H, inked, half: b.half, length: b.length };
+}
+function sleeveMap() {
+  if (!bodyGeo.index) return null;
+  syncDecals();
+  const k = state.heightCm / 175, unitsPerCm = 1 / (k * 100), px = 1400;
+  const maps = LIMBS.map((L) => { const m = limbUnrolled(L); const pic = limbPicture(m, px); return { L, m, ...pic }; });
+  const pad = 60, head = 260, foot = 70, gap = 80;
+  const out = document.createElement('canvas');
+  out.width = pad * 2 + maps.reduce((a, x) => a + x.W, 0) + gap * (maps.length - 1); out.height = head + Math.max(...maps.map((x) => x.H)) + foot + pad;
+  const g = out.getContext('2d'); g.fillStyle = '#16171c'; g.fillRect(0, 0, out.width, out.height);
+  const step = 5 * unitsPerCm * px; // grid every 5 cm
+  let x0 = pad;
+  for (const mp of maps) {
+    const { canvas: c, W, H } = mp;
+    // a 5 cm grid on the skin only
+    const grid = document.createElement('canvas'); grid.width = W; grid.height = H; const gg = grid.getContext('2d');
+    gg.strokeStyle = 'rgba(40,40,60,0.18)'; gg.lineWidth = 1.5;
+    for (let x = W / 2 % step; x < W; x += step) { gg.beginPath(); gg.moveTo(x, 0); gg.lineTo(x, H); gg.stroke(); }
+    for (let y = 2; y < H; y += step) { gg.beginPath(); gg.moveTo(0, y); gg.lineTo(W, y); gg.stroke(); }
+    gg.globalCompositeOperation = 'destination-in'; gg.drawImage(c, 0, 0);
+    g.drawImage(c, x0, head); g.drawImage(grid, x0, head);
+    // the elbow or knee
+    const jy = head + 2 + jointDown(mp.L) * px;
+    g.setLineDash([8, 8]); g.strokeStyle = 'rgba(242,242,245,0.45)'; g.lineWidth = 2; g.beginPath(); g.moveTo(x0 - 10, jy); g.lineTo(x0 + W + 10, jy); g.stroke(); g.setLineDash([]);
+    g.fillStyle = '#9a9cab'; g.font = '22px -apple-system, system-ui, sans-serif'; g.textAlign = 'left'; g.textBaseline = 'bottom'; g.fillText(mp.L.joint, x0, jy - 6);
+    // names and which way round
+    g.fillStyle = '#f2f2f5'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '600 30px -apple-system, system-ui, sans-serif';
+    g.fillText(mp.L.label, x0 + W / 2, head - 70);
+    g.fillStyle = '#9a9cab'; g.font = '20px -apple-system, system-ui, sans-serif';
+    const [l, r] = mp.L.side === 'L' ? ['Front', 'Back'] : ['Back', 'Front'];
+    g.textAlign = 'left'; g.fillText(l, x0, head - 28); g.textAlign = 'center'; g.fillText('Outside', x0 + W / 2, head - 28); g.textAlign = 'right'; g.fillText(r, x0 + W, head - 28);
+    g.textAlign = 'center'; g.fillText('Inside edges meet', x0 + W / 2, head + H + 26);
+    x0 += W + gap;
+  }
+  g.fillStyle = '#f2f2f5'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '600 40px -apple-system, system-ui, sans-serif';
+  g.fillText('Arms and legs, unrolled', out.width / 2, 56);
+  g.fillStyle = '#9a9cab'; g.font = '22px -apple-system, system-ui, sans-serif';
+  g.fillText('Each limb’s skin laid flat, cut along the inside, as seen from the outside. Grid squares are 5 cm (about 2 in).', out.width / 2, 104);
+  sleeveLast = { maps: maps.map((x) => ({ key: x.L.key, W: x.W, H: x.H, inked: x.inked, lengthCm: x.length / unitsPerCm, roundCm: typicalRound(x.m) / unitsPerCm })), head, pad, gap, w: out.width, h: out.height };
+  return out.toDataURL('image/png');
+}
+function jointDown(L) {
+  const J = poseView.restRig().joints, at = (n) => { const b = POSE_BONES.find((x) => x.name === `${n}.${L.side}`); return [0, 1, 2].map((i) => J[b.head * 3 + i]); };
+  const a = at(L.bones[0]), b = at(L.bones[1]); return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+let sleeveLast = null;
 // The selected tattoo at three sizes on the body, side by side: a size smaller, as it is now and
 // a size bigger, each labelled with its real width, to choose between or send to the artist.
 // The tattoo itself never changes.
@@ -4206,6 +4313,7 @@ $('#cMessage').addEventListener('click', async () => {
   await shareOrDownload('tattoo-plan.txt', new Blob([text], { type: 'text/plain' })); toast('Saved as a text file.');
 });
 $('#cSizes').addEventListener('click', () => { const url = sizesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('sizes-sheet'); showPreview(url, 'ink-atlas-sizes.png', 'Three sizes'); });
+$('#cSleeve').addEventListener('click', () => { const url = sleeveMap(); if (!url) { toast('The map could not be made just now.'); return; } markTried('sleeve'); showPreview(url, 'ink-atlas-arms-and-legs.png', 'Arms and legs, unrolled'); });
 $('#cDistance').addEventListener('click', async () => { const url = await distanceSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('distance'); showPreview(url, 'ink-atlas-distance.png', 'From a distance'); });
 $('#cAging').addEventListener('click', () => { const url = agingSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('aging-sheet'); showPreview(url, 'ink-atlas-aging.png', 'How it may age'); });
 $('#cLabels').addEventListener('click', () => { const url = labelsShot(); if (url === null) { toast('Add a tattoo first, then try this.'); return; } if (!url) { toast('Turn the body so a tattoo faces you, then try this.'); return; } markTried('labels'); showPreview(url, 'ink-atlas-sizes-labelled.png', 'Picture with sizes'); });
@@ -4783,7 +4891,7 @@ $('#cLink').addEventListener('click', () => { toggle('#share', false); if (accou
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
-  sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
+  sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },

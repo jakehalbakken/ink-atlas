@@ -36,7 +36,8 @@ export default async function(p){
  // limbs: the art runs along the limb, the top towards the body
  await p.$eval('#spotSide [data-side="L"]',e=>e.click());await p.$eval('#spotChoices [data-spot="forearm-front"]',e=>e.click());await wait(60);
  const fa=await tat();assert.ok(Math.abs(fa.rot)>0.2,`forearm art turned along the arm (${fa.rot})`);
- await p.waitForFunction(()=>window.__ink.settled(),{timeout:6000}).catch(()=>{});await wait(200);
+ // the glide is slow on the headless renderer: wait for it to reach the free space, not for a fixed time
+ await p.waitForFunction(([id,pop])=>{const t=window.__ink.state().tattoos.find(t=>t.id===id),q=window.__ink.projectPoint(t.pos),sh=document.querySelector('#dock').getBoundingClientRect().left;return q.x>pop&&q.x<sh&&q.y>80&&q.y<780;},{timeout:30000},[id,pop]).catch(()=>{});await wait(200);
  const scr=await p.evaluate(id=>window.__ink.projectPoint(window.__ink.state().tattoos.find(t=>t.id===id).pos),id);
  const sheet=await p.$eval('#dock',e=>e.getBoundingClientRect().left);
  assert.ok(scr.x>pop&&scr.x<sheet&&scr.y>80&&scr.y<780,`view follows it into the free space ${JSON.stringify(scr)} pop ${pop} sheet ${sheet}`);
