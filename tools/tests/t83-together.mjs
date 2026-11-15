@@ -199,11 +199,14 @@ export default async function (p) {
     await p.screenshot({ path: 'shots/t83-pin.png' });
     await until(q, () => (window.__ink.state().notes || []).some((n) => n.pin && n.text === 'Darker lines here'), null, 'the comment reaches Liv', 15000);
     await until(q, () => /Jake pinned a comment/.test(document.querySelector('#toast').textContent), null, 'Liv is told');
+    // new to her: the pin and the Comments button carry a dot until she opens it
+    await until(q, () => document.querySelector('#pinsBtn').classList.contains('has-new'), null, 'Comments marked new for Liv');
     // Show opens it on her side
     await q.evaluate(() => [...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show').click()); await wait(400);
     pins = await q.evaluate(() => window.__ink.pins());
     assert.equal(pins.on, true); assert.ok(pins.open, 'the comment is open');
     assert.match(await q.$eval('#pinWho', (e) => e.textContent), /Jake/);
+    assert.equal(await q.$eval('#pinsBtn', (e) => e.classList.contains('has-new')), false, 'read once opened');
     await q.screenshot({ path: 'shots/t83-pin-arrives.png' });
     // Liv typing a reply under it shows on Jake's open comment, and goes when she sends it
     await p.evaluate((id) => window.__ink.openPin(id), note.id); await wait(200);

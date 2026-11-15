@@ -2401,6 +2401,18 @@ function pinSpot(p) {
   for (let k = 0; k < 3; k++) { const v = I[p.tri * 3 + k]; pos.x += P[v * 3] * p.w[k]; pos.y += P[v * 3 + 1] * p.w[k]; pos.z += P[v * 3 + 2] * p.w[k]; n.x += Nn[v * 3] * p.w[k]; n.y += Nn[v * 3 + 1] * p.w[k]; n.z += Nn[v * 3 + 2] * p.w[k]; }
   return { pos, n: n.normalize() };
 }
+// Which comments this person has not read yet, on a project worked on together: kept on this
+// device only (localStorage ia-pins-seen), as how many things by others each comment had when opened.
+const pinSeen = (() => { try { const o = JSON.parse(localStorage.getItem('ia-pins-seen') || '{}'); return o && typeof o === 'object' ? o : {}; } catch { return {}; } })();
+function othersIn(n) { const me = myName() || 'You'; return (n.by && n.by !== me ? 1 : 0) + (Array.isArray(n.replies) ? n.replies.filter((r) => r.by && r.by !== me).length : 0); }
+function pinUnread(n) { return workingTogether() && !!myName() && othersIn(n) > (+pinSeen[n.id] || 0); }
+function markPinRead(n) {
+  if (!n || !workingTogether()) return;
+  const c = othersIn(n); if ((+pinSeen[n.id] || 0) >= c) return;
+  pinSeen[n.id] = c; markTried('pinNew');
+  const keys = Object.keys(pinSeen); if (keys.length > 500) for (const k of keys.slice(0, keys.length - 500)) delete pinSeen[k];
+  try { localStorage.setItem('ia-pins-seen', JSON.stringify(pinSeen)); } catch { /* no storage: it shows as new again next time */ }
+}
 function pinMarker(id, label, text) {
   const b = el('button', { type: 'button', 'aria-label': text }); b.append(el('i', { text: label }));
   b.addEventListener('pointerdown', (e) => e.stopPropagation());
@@ -2430,7 +2442,7 @@ function renderPins() {
     $('#pinListEmpty').hidden = shown.length > 0;
     $('#pinListItems').replaceChildren(...shown.map(([n, i]) => {
       const t = n.tattooId && state.tattoos.find((x) => x.id === n.tattooId), r = Array.isArray(n.replies) ? n.replies.length : 0;
-      const b = el('button', { type: 'button' }); b.append(el('b', { text: `${i + 1}. ${n.text || ''}` }), el('small', { text: [n.by || 'You', t ? 'on ' + (t.name || 'a tattoo') : '', r ? `${r} ${r === 1 ? 'reply' : 'replies'}` : '', mentionsMeIn(n) ? 'mentions you' : '', n.done ? 'resolved' : ''].filter(Boolean).join(' · ') }));
+      const b = el('button', { type: 'button' }); b.append(el('b', { text: `${i + 1}. ${n.text || ''}` }), el('small', { text: [n.by || 'You', t ? 'on ' + (t.name || 'a tattoo') : '', r ? `${r} ${r === 1 ? 'reply' : 'replies'}` : '', mentionsMeIn(n) ? 'mentions you' : '', pinUnread(n) ? 'new' : '', n.done ? 'resolved' : ''].filter(Boolean).join(' · ') }));
       b.addEventListener('click', () => { pins.list = false; openPin(n.id); turnToPin(n.id); });
       const li = el('li'); li.classList.toggle('done', !!n.done); li.append(b); return li;
     }));
@@ -2454,7 +2466,11 @@ function renderPins() {
       if (pins.pending) { const b = pinMarker('new', '+', 'New comment here'); pins.els.set('new', { b, p: pins.pending }); layer.append(b); }
     }
   }
-  for (const [id, e] of pins.els) e.b.classList.toggle('on', id === pins.open || id === 'new');
+  if (open) markPinRead(open);
+  const unread = new Set(list.filter(pinUnread).map((n) => n.id));
+  for (const [id, e] of pins.els) { e.b.classList.toggle('on', id === pins.open || id === 'new'); e.b.classList.toggle('unread', unread.has(id)); }
+  $('#pinsBtn').classList.toggle('has-new', unread.size > 0); $('#lookBtn').classList.toggle('has-new', unread.size > 0 && !pins.on);
+  $('#pinsBtn').setAttribute('aria-label', 'Comments' + (openCount ? `, ${openCount} open` : '') + (unread.size ? `, ${unread.size} new` : ''));
   canvas.style.cursor = tape.on || pain.on || pins.on ? 'crosshair' : (tapPlaceId ? 'crosshair' : '');
   needsRender = true; placePins();
 }
