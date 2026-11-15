@@ -58,8 +58,25 @@ export default async function (p) {
   await p.evaluate(() => window.__ink.flush && window.__ink.flush()); await wait(800);
   await p.reload(); await ready();
   assert.deepEqual((await get()).sittings, { start: '2026-12-05', gap: 6 }, 'kept after reopening');
-  const cleaned = await p.evaluate(() => [window.__ink.cleanCheck({ sittings: { start: '2026-13-40', gap: 5 } }), window.__ink.cleanCheck({ sittings: { start: '2027-01-09', gap: 4, x: 1 } }), window.__ink.cleanCheck({ sittings: 'soon' })]);
-  assert.deepEqual(cleaned, [{}, { sittings: { start: '2027-01-09', gap: 4 } }, {}], JSON.stringify(cleaned));
+  const cleaned = await p.evaluate(() => [window.__ink.cleanCheck({ sittings: { start: '2026-13-40', gap: 5 } }), window.__ink.cleanCheck({ sittings: { start: '2027-01-09', gap: 4, x: 1 } }), window.__ink.cleanCheck({ sittings: 'soon' }), window.__ink.cleanCheck({ sittings: { away: '2027-02-31x' } }), window.__ink.cleanCheck({ sittings: { away: '2027-02-14' } })]);
+  assert.deepEqual(cleaned, [{}, { sittings: { start: '2027-01-09', gap: 4 } }, {}, {}, { sittings: { away: '2027-02-14' } }], JSON.stringify(cleaned));
+  // a trip that lands while sitting 2 is fresh: said, and Start after it moves the sittings
+  await (await p.$$('#trayItems .chip'))[0].click(); await wait(500);
+  await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; }); await wait(800);
+  assert.match(await p.$eval('#sitDry', (e) => e.hidden ? '' : e.textContent), /^Keep it out of pools, the sea, baths and strong sun for two weeks after each sitting: after the last one, until /);
+  assert.ok(await p.$eval('#sitAway', (e) => e.getBoundingClientRect().height >= 44), 'trip date big enough');
+  assert.equal(await p.$eval('#sitClash', (e) => e.hidden), true, 'no trip, no warning');
+  await p.$eval('#sitAway', (e) => { e.value = '2027-01-20'; e.dispatchEvent(new Event('change')); }); await wait(400);
+  assert.deepEqual((await get()).sittings, { start: '2026-12-05', gap: 6, away: '2027-01-20' });
+  assert.equal(await p.$eval('#sitClash', (e) => e.hidden), false, 'the trip clashes');
+  assert.match(await p.$eval('#sitClashText', (e) => e.textContent), /^Your trip on Wed, Jan 20 is 4 days after sitting 2, while the ink is still fresh/);
+  assert.ok(await p.$eval('#sitLater', (e) => e.getBoundingClientRect().height >= 44), 'button big enough');
+  await p.click('#sitLater'); await wait(400);
+  assert.equal((await get()).sittings.start, '2027-01-21', 'starts after the trip');
+  assert.equal(await p.$eval('#sitClash', (e) => e.hidden), true, 'clear now');
+  await p.click('#undo'); await wait(400);
+  assert.equal((await get()).sittings.start, '2026-12-05', 'undo moves it back');
+  assert.equal(await p.$eval('#sitClash', (e) => e.hidden), false);
   await p.screenshot({ path: 'shots/t85-sittings.png' });
-  console.log('PASS t85 session planner: ' + est.sessions + ' sittings, dates and healed day, weeks between, undo, calendar file, hidden for ink already on, kept and cleaned | ' + shown.join(' / '));
+  console.log('PASS t85 session planner: ' + est.sessions + ' sittings, dates and healed day, weeks between, undo, calendar file, hidden for ink already on, kept and cleaned, trip check and Start after it | ' + shown.join(' / '));
 }

@@ -57,7 +57,7 @@ import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, room
 import { whereItSits } from './where.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten } from './symmetry.js';
-import { planSittings, dayWords, sittingHours, sittingsCalendar } from './sittings.js';
+import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
 
 // a feature that needs the account's email sender is listed only once that is switched on
@@ -1936,6 +1936,7 @@ const SHOW = {
   wear: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const wr = wearOf(t); $('#wearLine').textContent = wr ? wr.text : ''; $('#wearLine').hidden = !wr; return [wr ? '#wearLine' : '#estRow', 'This line says how the spot treats a tattoo over the years, like sun, rubbing or creases.']; },
   shows: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv; return [sv ? '#showsLine' : '#estRow', 'Under where it sits, a line says which everyday clothes hide this tattoo and which show it.']; },
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
+  trip: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings and checks them against a trip.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitAway', 'Pick the first sitting, then add a trip or beach day. If it lands while the ink is still fresh, it says so and moves the sittings in one tap.']; },
   sittings: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitBox', 'Pick the date of the first sitting and the weeks between. Each sitting gets its date, and the last line says when it is healed.']; },
   note: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#noteBox', 'Type what your artist should know about this one. It goes on the artist sheet and the artist packet.']; },
   made: () => { const t = state.tattoos.find((q) => q.status === 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Planned to mark this tattoo as already on me. Then More controls has who did it and when.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; return ['#madeBox', 'Add who did this tattoo, the studio and the month. It goes on the artist sheet.']; },
@@ -2717,6 +2718,15 @@ function sitRender(t) {
   $('#sitGap').value = String(s.gap || 3); $('#sitGap').disabled = plan.sittings.length < 2;
   $('#sitHealed').textContent = plan.healed ? `Healed by about ${dayWords(plan.healed)}.` : 'Pick the first date to see when each sitting falls and when it is healed.';
   $('#sitHealed').hidden = false; $('#sitCal').hidden = !plan.healed;
+  if (document.activeElement !== $('#sitAway')) $('#sitAway').value = s.away || '';
+  const last = plan.sittings.at(-1);
+  $('#sitDry').textContent = last.date ? `Keep it out of pools, the sea, baths and strong sun for two weeks after each sitting${plan.sittings.length > 1 ? `: after the last one, until ${dayWords(clearOn(last.date))}` : `, until ${dayWords(clearOn(last.date))}`}.` : '';
+  $('#sitDry').hidden = !last.date;
+  const c = tripClash(plan, s.away, todayIso()); $('#sitClash').hidden = !c;
+  if (c) {
+    $('#sitClashText').textContent = `Your trip on ${dayWords(s.away)} is ${c.days === 0 ? 'the same day as' : c.days === 1 ? 'the day after' : c.days + ' days after'} ${plan.sittings.length > 1 ? 'sitting ' + c.n : 'the sitting'}, while the ink is still fresh. Move the first sitting so it heals first.`;
+    $('#sitLater').dataset.to = c.later; $('#sitEarlier').dataset.to = c.earlier; $('#sitEarlier').hidden = !c.earlier;
+  }
 }
 function setSittings(k, v) {
   const t = sel(); if (!t) return; const now = { ...(t.sittings || {}) };
@@ -2727,6 +2737,8 @@ function setSittings(k, v) {
 }
 $('#sitStart').addEventListener('change', () => { const v = $('#sitStart').value; setSittings('start', /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''); });
 $('#sitGap').addEventListener('change', () => setSittings('gap', +$('#sitGap').value));
+$('#sitAway').addEventListener('change', () => { const v = $('#sitAway').value; setSittings('away', /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''); markTried('trip'); });
+for (const id of ['#sitLater', '#sitEarlier']) $(id).addEventListener('click', () => { const v = $(id).dataset.to; if (v) { setSittings('start', v); markTried('trip'); } });
 $('#sitCal').addEventListener('click', () => {
   const t = sel(), plan = sitPlan(t); if (!plan || !plan.healed) return;
   const name = (t.name || 'Tattoo').trim() || 'Tattoo';

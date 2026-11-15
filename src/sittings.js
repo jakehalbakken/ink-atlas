@@ -24,6 +24,23 @@ export function planSittings(hours, { colour = 0, start = '', gapWeeks = 3 } = {
   return { sittings, healed, gapWeeks: gap };
 }
 
+// Fresh ink stays out of pools, the sea, baths and strong sun for about two weeks.
+export const KEEP_DRY_DAYS = 14;
+export function clearOn(date) { const t = parse(date); return t == null ? '' : iso(t + KEEP_DRY_DAYS * DAY); }
+
+// A trip or beach day ('YYYY-MM-DD') that lands while a sitting is still fresh. Returns null when
+// it is clear, else { n, days } (the sitting it follows and how many days after) with the start
+// dates that keep it clear: later (every sitting after the trip) and earlier (the last sitting
+// two weeks before it, or '' when that would be before today).
+export function tripClash(plan, away, today = '') {
+  const a = parse(away); if (a == null || !plan.sittings.length || !plan.sittings[0].date) return null;
+  const hit = plan.sittings.find((x) => { const d = parse(x.date); return a >= d && a < d + KEEP_DRY_DAYS * DAY; });
+  if (!hit) return null;
+  const span = (plan.sittings.length - 1) * plan.gapWeeks * 7 * DAY;
+  const earlier = a - KEEP_DRY_DAYS * DAY - span, t0 = parse(today);
+  return { n: hit.n, days: Math.round((a - parse(hit.date)) / DAY), later: iso(a + DAY), earlier: t0 != null && earlier < t0 ? '' : iso(earlier) };
+}
+
 function parse(s) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ''); if (!m) return null; const t = Date.UTC(+m[1], +m[2] - 1, +m[3]); return Number.isFinite(t) && iso(t) === s ? t : null; }
 function iso(t) { return new Date(t).toISOString().slice(0, 10); }
 
@@ -46,7 +63,7 @@ export function sittingsCalendar(name, plan, stamp = new Date()) {
     'BEGIN:VEVENT', `UID:${ymd(x.date)}-${x.n}-${esc(name).replace(/[^A-Za-z0-9]/g, '').slice(0, 20)}@ink-atlas`, `DTSTAMP:${now}`,
     `DTSTART;VALUE=DATE:${ymd(x.date)}`, `DTEND;VALUE=DATE:${next(x.date)}`,
     `SUMMARY:${esc(`${name}: sitting ${x.n} of ${plan.sittings.length} (${x.what})`)}`,
-    `DESCRIPTION:${esc(`${sittingHours(x)}. Planned in Ink Atlas.`)}`, 'END:VEVENT'].join('\r\n'));
+    `DESCRIPTION:${esc(`${sittingHours(x)}. Keep it out of pools, the sea, baths and strong sun until ${dayWords(clearOn(x.date))}. Planned in Ink Atlas.`)}`, 'END:VEVENT'].join('\r\n'));
   // calendar lines fold at 75 characters, the rest going on after a space
   const fold = (l) => { let out = l.slice(0, 75); for (let i = 75; i < l.length; i += 74) out += '\r\n ' + l.slice(i, i + 74); return out; };
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ink Atlas//Sittings//EN', 'CALSCALE:GREGORIAN', ...ev, 'END:VCALENDAR'].join('\r\n').split('\r\n').map(fold).join('\r\n') + '\r\n';

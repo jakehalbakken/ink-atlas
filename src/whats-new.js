@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'trip', date: '2026-11-15', title: 'Plan around a trip', how: 'Select a planned tattoo, open More controls and pick the first sitting. Add a trip or beach day: if it lands while the ink is still fresh, it says so and moves the sittings in one tap. The calendar file now says when each sitting can go in the water again.', show: 'trip' },
   { id: 'straight', date: '2026-11-15', title: 'Straighten along the limb', how: 'Select a tattoo and open More controls. A line says how far it is turned off the line of the arm or leg, or off upright on the body. Straighten lines it up, one step you can undo.', show: 'straight' },
   { id: 'wear', date: '2026-11-15', title: 'How it holds up there', how: 'Select a tattoo and open More controls. A line says how that spot treats a tattoo over the years: hands and feet fade faster, creases blur fine lines, sunny spots need sunscreen.', show: 'wear' },
   { id: 'shows', date: '2026-11-15', title: 'What it shows in', how: 'Select a tattoo and open More controls. A line says the lightest everyday clothes that hide it and what shows it, like Hidden by a T-shirt, shows in a tank top. Handy for work or a dress code.', show: 'shows' },

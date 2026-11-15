@@ -3,7 +3,7 @@
 // between, healed four weeks after the last; the calendar file has one all-day event a sitting.
 // Run: node tools/tests/sittings-unit.mjs
 import assert from 'node:assert/strict';
-import { planSittings, dayWords, sittingHours, sittingsCalendar } from '../../src/sittings.js';
+import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash } from '../../src/sittings.js';
 
 const one = planSittings({ lo: 2, hi: 3, sessions: 1 });
 assert.equal(one.sittings.length, 1); assert.equal(one.sittings[0].what, 'The whole piece'); assert.equal(one.healed, '', 'no date, no healed date');
@@ -25,4 +25,17 @@ assert.ok(ics.includes('DTSTART;VALUE=DATE:20261205') && ics.includes('DTEND;VAL
 assert.ok(ics.includes('SUMMARY:Rose\\, back\\; big: sitting 1 of 3 (Outline)'), 'commas and semicolons escaped');
 assert.ok(ics.split('\r\n').every((l) => l.length <= 75), 'lines short enough for calendars');
 assert.equal(sittingsCalendar('X', planSittings({ lo: 2, hi: 3, sessions: 2 })).includes('VEVENT'), false, 'no dates, no events');
+// planning around a trip: two weeks dry after each sitting
+assert.equal(clearOn('2026-12-26'), '2027-01-09');
+assert.equal(tripClash(grey, '2026-12-01'), null, 'before the first sitting: clear');
+assert.equal(tripClash(grey, '2027-01-09'), null, 'two weeks after a sitting: clear');
+assert.equal(tripClash(grey, '2027-01-01', '2026-11-15').n, 2, 'a week after sitting 2');
+const c = tripClash(grey, '2027-01-01', '2026-11-01');
+assert.equal(c.days, 6); assert.equal(c.later, '2027-01-02', 'start after the trip');
+assert.equal(c.earlier, '2026-11-06', 'or finish two weeks before it');
+assert.equal(tripClash(planSittings({ lo: 12, hi: 18, sessions: 3 }, { start: '2027-01-02', gapWeeks: 3 }), '2027-01-01'), null, 'moved after: clear');
+assert.equal(tripClash(planSittings({ lo: 12, hi: 18, sessions: 3 }, { start: '2026-11-06', gapWeeks: 3 }), '2027-01-01'), null, 'moved before: clear');
+assert.equal(tripClash(grey, '2026-12-10', '2026-12-01').earlier, '', 'no earlier start in the past');
+assert.equal(tripClash(planSittings({ lo: 2, hi: 3, sessions: 1 }), '2026-12-10'), null, 'no dates, no clash');
+assert.ok(ics.includes('until Sat\\, Dec 19') || ics.replace(/\r\n /g, '').includes('until Sat\\, Dec 19'), 'the calendar says when it can go in the water');
 console.log('sittings-unit: ok');
