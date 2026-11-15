@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { clearance, inkSeeds, vertexAreas, roomByRegion, halfGirth, acrossAt, regionOf, roomColour, roomSummary, inchWords } from '../../src/room.js';
 import { whereItSits, along, measure } from '../../src/where.js';
-import { sessionHours, sessionText, planHours } from '../../src/estimate.js';
+import { sessionHours, sessionText, planHours, planText } from '../../src/estimate.js';
 
 // a strip of 21 x 3 vertices, 1 apart, folded at the middle so its two ends sit 0.2 apart in space
 const W = 21, pos = [], idx = [];
@@ -75,4 +75,6 @@ assert.match(sessionText(sleeve), /^About \d+ to \d+ hours, about \d+ sessions\.
 assert.equal(sessionText(palm, 150), 'About 1.5 to 2.5 hours, one session. About $225 to $375 at $150 an hour.');
 assert.equal(sessionText(small, 120), 'About an hour or less, one session. About $120 at $120 an hour.');
 assert.deepEqual(planHours([{ lo: 1, hi: 2, sessions: 1 }, { lo: 3, hi: 4, sessions: 1 }]), { lo: 4, hi: 6, sessions: 2 });
+assert.equal(planText([{ lo: 2, hi: 3, sessions: 1 }, { lo: 6, hi: 9, sessions: 2 }], 150), 'All 2 planned tattoos: about 8 to 12 hours, about 3 sessions. About $1,200 to $1,800 at $150 an hour.');
+assert.equal(planText([{ lo: 2, hi: 3, sessions: 1 }]), '', 'one piece: no plan line');
 console.log('PASS room-unit: clearance along the skin, seeds, areas, regions and summary, where it sits on limbs and torso, hour guesses; ' + sessionText(palm, 150) + ' | ' + sessionText(sleeve));

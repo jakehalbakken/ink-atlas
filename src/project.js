@@ -4,6 +4,7 @@
 // to leave out or fix is counted, so the caller can say so instead of failing silently.
 import { FIT_GROUPS } from './fit.js';
 import { cleanReview, cleanAsks } from './approval.js';
+import { cleanVersions } from './versions.js';
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -46,6 +47,11 @@ export function cleanState(raw, hasImage) {
     for (const [k, lo, hi] of [['wrap', 0, 1], ['bend', -1, 1], ['taper', -0.75, 0.75]]) { if (num(t[k]) && t[k]) t[k] = clamp(t[k], lo, hi); else delete t[k]; }
     if (t.status !== 'existing' && t.status !== 'planned') delete t.status;
     if (t.fromLayer !== undefined && (typeof t.fromLayer !== 'string' || t.fromLayer.length > 100)) delete t.fromLayer;
+    // a note for the artist and, for ink already on, who did it and when (optional)
+    if (t.note !== undefined) { if (typeof t.note === 'string' && t.note.trim()) t.note = t.note.slice(0, 500); else delete t.note; }
+    if (t.sittings !== undefined) { const m = t.sittings, c = {}; if (m && typeof m === 'object' && !Array.isArray(m)) { if (typeof m.start === 'string' && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(m.start)) c.start = m.start; if ([2, 3, 4, 6, 8].includes(m.gap)) c.gap = m.gap; } if (Object.keys(c).length) t.sittings = c; else delete t.sittings; }
+    if (t.made !== undefined) { const m = t.made, c = {}; if (m && typeof m === 'object' && !Array.isArray(m)) { for (const k of ['artist', 'studio']) if (typeof m[k] === 'string' && m[k].trim()) c[k] = m[k].trim().slice(0, 60); if (typeof m.when === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(m.when)) c.when = m.when; } if (Object.keys(c).length) t.made = c; else delete t.made; }
+    cleanVersions(t, hasImage); // earlier artwork of this tattoo (optional)
     if (t.review !== undefined) { const r = cleanReview(t.review); if (r) t.review = r; else delete t.review; } // an answer from Ask for approval (optional)
     const len = vec3(t.normal, 2) ? Math.hypot(t.normal[0], t.normal[1], t.normal[2]) : 0;
     if (vec3(t.pos, 10) && len > 0.5) t.normal = t.normal.map((c) => c / len);
@@ -79,7 +85,7 @@ export function cleanPin(p) {
 export function imageKeysFor(state) {
   const keys = new Set();
   const scan = (s) => {
-    for (const t of [...(s?.tattoos || []),...(s?.unplacedTattoos || [])]) if (typeof t?.img === 'string') keys.add(t.img);
+    for (const t of [...(s?.tattoos || []),...(s?.unplacedTattoos || [])]) { if (typeof t?.img === 'string') keys.add(t.img); for (const v of Array.isArray(t?.versions) ? t.versions : []) if (typeof v?.img === 'string') keys.add(v.img); }
     if (typeof s?.paint?.img === 'string') keys.add(s.paint.img);
     for(const board of Array.isArray(s?.artworkBoards)?s.artworkBoards:[])for(const entry of Object.values(board?.entries||{}))for(const k of [entry?.sourceKey,entry?.outputKey])if(typeof k==='string')keys.add(k);
     for (const a of Object.values(s?.artworks || {})) {

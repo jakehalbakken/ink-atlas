@@ -53,7 +53,9 @@ import { coverByArt, coverText } from './cover.js';
 import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
 import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, roomByRegion, roomColour, roomSummary, inchWords } from './room.js';
 import { whereItSits } from './where.js';
-import { sessionHours, sessionText, planHours } from './estimate.js';
+import { sessionHours, sessionText, planText } from './estimate.js';
+import { planSittings, dayWords, sittingHours, sittingsCalendar } from './sittings.js';
+import { keepVersion, useVersion, versionList } from './versions.js';
 
 // a feature that needs the account's email sender is listed only once that is switched on
 const NEW_FEATURES = ALL_FEATURES.filter((f) => !f.needs || (f.needs === 'emailCodes' && emailCodes));
@@ -440,12 +442,14 @@ function gapText(t) {
 }
 let gapTimer = 0;
 function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; }, 120); }
+let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
 let agingYears = 0; // view only: how the ink looks after this many years
 function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0].join('|'); }
 function syncDecals() {
   const ids = new Set(state.tattoos.map((t) => t.id));
   for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); d.tex.dispose(); d.outline.material.map.dispose(); delete decals[id]; }
-  state.tattoos.forEach((t, i) => {
+  state.tattoos.forEach((t0, i) => {
+    const t = peek && peek.id === t0.id && imgEls[peek.v.img] ? { ...t0, img: peek.v.img, aspect: peek.v.aspect, flip: peek.v.flip, imageTopDown: peek.v.top } : t0;
     let d = decals[t.id];
     if (!d) {
       const mat = new THREE.MeshBasicMaterial({ blending: THREE.MultiplyBlending, premultipliedAlpha: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, toneMapped: false });
@@ -781,8 +785,12 @@ function renderSheet() {
   $('#empty').hidden = state.tattoos.length > 0;
   if(tapPlaceId&&(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'))tapPlaceId=null;
   $('#tapPlaceBar').hidden=!tapPlaceId;$('#bTapPlace').setAttribute('aria-pressed',String(!!tapPlaceId));$('#bTapPlace').textContent=tapPlaceId?'Cancel tap to place':'Tap to place';$('#bTapPlace').disabled=!t||t.locked||t.hidden||t.status==='existing';canvas.style.cursor=tapPlaceId?'crosshair':'';
-  if (!t) return;
+  if (!t) { if (peek) { peek = null; syncDecals(); } return; }
   if (document.activeElement !== $('#name')) $('#name').value = t.name;
+  if (document.activeElement !== $('#tNote')) $('#tNote').value = t.note || '';
+  $('#madeBox').hidden = t.status !== 'existing';
+  renderVersions(t);
+  for (const [id, k] of [['#madeArtist', 'artist'], ['#madeStudio', 'studio'], ['#madeWhen', 'when']]) if (document.activeElement !== $(id)) $(id).value = (t.made && t.made[k]) || '';
   $('#size').textContent = sizeText(t); renderGap(); if ($('#editorAdvanced').open) renderInfo();
   const linkedCount=t.artworkId?state.tattoos.filter(x=>x.artworkId===t.artworkId).length:1;
   $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=!!t.locked; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
@@ -833,6 +841,65 @@ slider('#rWrap', (t, v) => { t.wrap = v / 100; });
 slider('#rBend', (t, v) => { t.bend = v / 100; });
 slider('#rTaper', (t, v) => { t.taper = v / 100; });
 $('#name').addEventListener('change', () => { const t = sel(); if (!t) return; snapshot(); t.name = $('#name').value.trim() || 'Tattoo'; commit(); });
+// a note for the artist, and who did ink that is already on and when: each change is one undo step
+$('#tNote').addEventListener('change', () => { const t = sel(); if (!t) return; const v = $('#tNote').value.trim().slice(0, 500); if (v === (t.note || '')) return; snapshot(); if (v) t.note = v; else delete t.note; commit(); markTried('note'); });
+for (const [id, k] of [['#madeArtist', 'artist'], ['#madeStudio', 'studio'], ['#madeWhen', 'when']]) $(id).addEventListener('change', () => {
+  const t = sel(); if (!t) return; let v = $(id).value.trim().slice(0, 60); if (k === 'when' && !/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) v = '';
+  if (v === ((t.made && t.made[k]) || '')) return;
+  snapshot(); const m = { ...(t.made || {}) }; if (v) m[k] = v; else delete m[k]; if (Object.keys(m).length) t.made = m; else delete t.made; commit(); markTried('made');
+});
+// Versions: every earlier artwork of the selected tattoo. Tapping one shows it on the body (view
+// only); Use this one brings it back as one undo step; Side by side is a picture of the two.
+function renderVersions(t) {
+  if (peek && (!t || peek.id !== t.id)) { peek = null; syncDecals(); }
+  const list = t ? versionList(t) : [];
+  $('#verBox').hidden = list.length < 2; if (list.length < 2) return;
+  const on = peek ? peek.v.name : list.find((v) => v.now).name;
+  $('#verList').replaceChildren(...list.map((v) => el('button', { type: 'button', 'aria-pressed': String(v.name === on), 'aria-label': v.name + (v.now ? ', in use' : ''), onclick: () => peekVersion(v) },
+    el('img', { src: images[v.img] || '', alt: '' }), el('span', { text: v.now ? v.name + ' now' : v.name }))));
+  $('#verActs').hidden = !peek;
+  $('#verText').textContent = peek ? `Showing ${peek.v.name} on the body. Nothing changes until you tap Use this one.` : `${list.length} versions. The one in use is marked now.`;
+}
+async function peekVersion(v) {
+  const t = sel(); if (!t) return;
+  if (v.now) { peek = null; syncDecals(); renderVersions(t); return; }
+  if (!await loadImg(v.img)) { toast('That version could not be opened.'); return; }
+  peek = { id: t.id, v }; syncDecals(); renderVersions(t); markTried('versions');
+}
+function useThisVersion() {
+  const t = sel(); if (!t || !peek || peek.id !== t.id) return;
+  if (t.locked) { toast('Unlock this tattoo first.'); return; }
+  const i = (t.versions || []).findIndex((v) => v.name === peek.v.name && v.img === peek.v.img); if (i < 0) return;
+  const name = peek.v.name; snapshot(); useVersion(t, i); peek = null; commit(); markTried('versions');
+  toast(`${t.name || 'Tattoo'} is back to ${name}. The other versions are kept.`, 'Undo', undo);
+}
+$('#verUse').addEventListener('click', useThisVersion);
+$('#verSide').addEventListener('click', () => { const url = versionsShot(); if (url) showPreview(url, 'ink-atlas-versions.png', 'Versions side by side'); });
+$('#editorAdvanced').addEventListener('toggle', () => { if (!$('#editorAdvanced').open && peek) { peek = null; syncDecals(); renderVersions(sel()); } });
+// the version being shown next to the one in use, same view, side by side
+function versionsShot() {
+  const t = sel(); if (!t || !peek || peek.id !== t.id) return null;
+  const shown = peek, inset = curInset; curInset = 0; applyInset();
+  exporting = true;
+  const H = canvas.height, pad = Math.round(H * 0.02), head = Math.round(H * 0.075), W = canvas.width;
+  const out = document.createElement('canvas'); out.width = W * 2 + pad * 3; out.height = H + head + pad;
+  const g = out.getContext('2d'); g.fillStyle = '#16171c'; g.fillRect(0, 0, out.width, out.height);
+  try {
+    peek = null; syncDecals(); poseView.withPosed(() => renderer.render(scene, camera), posedInk()); g.drawImage(canvas, 0, 0, W, H, pad, head, W, H);
+    peek = shown; syncDecals(); poseView.withPosed(() => renderer.render(scene, camera), posedInk()); g.drawImage(canvas, 0, 0, W, H, W + pad * 2, head, W, H);
+  } finally { peek = shown; exporting = false; syncDecals(); curInset = inset; applyInset(); needsRender = true; }
+  g.fillStyle = '#f2f2f5'; g.textBaseline = 'middle'; g.textAlign = 'center'; g.font = `600 ${Math.round(head * 0.42)}px -apple-system, system-ui, sans-serif`;
+  g.fillText(`${currentNameOf(t)} (in use)`, pad + W / 2, head / 2 + pad / 2); g.fillText(shown.v.name, W + pad * 2 + W / 2, head / 2 + pad / 2);
+  return out.toDataURL('image/png');
+}
+const currentNameOf = (t) => versionList(t).find((v) => v.now).name;
+// "By Mia Lopez at Black Rose, March 2023"
+function madeText(m) {
+  if (!m) return '';
+  const when = m.when ? new Date(+m.when.slice(0, 4), +m.when.slice(5) - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
+  const who = [m.artist && 'By ' + m.artist, m.studio && (m.artist ? 'at ' : 'At ') + m.studio].filter(Boolean).join(' ');
+  return [who, when].filter(Boolean).join(', ');
+}
 $('#bFlip').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.locked) { toast('Unlock this tattoo first.'); return; } snapshot(); t.flip = !t.flip; commit(); });
 $('#bLock').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.locked = !t.locked; commit(); });
 $('#bStatus').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.status = t.status === 'existing' ? 'planned' : 'existing'; t.locked = t.status === 'existing'; commit(); });
@@ -1120,8 +1187,10 @@ async function cleanupSelected(linked=false) {
   const key = uid(); images[key] = result.dataUrl;
   if(!await loadImg(key)){delete images[key];toast('The cleaned image could not be opened. Nothing changed.');return;}
   snapshot();
+  const was=new Map(state.tattoos.map(q=>[q.id,q]));
   const revision=applyArtworkRevision(state,id,key,result.aspect,{linked,session:result.session,settings:result.settings});
   state=revision.nextState;
+  for(const cid of revision.changedIds){const q=state.tattoos.find(x=>x.id===cid);keepVersion(was.get(cid),q);}
   if(revision.artworkId)state.artworks[revision.artworkId].cleanup=result.settings || {};
   commit(); toast(`${revision.changedIds.length} artwork updated. Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
 }
@@ -1285,8 +1354,10 @@ async function bringBackFromProcreate(blob) {
   const pic = await normalisePicture(blob), key = uid(); images[key] = pic.dataUrl;
   if (!await loadImg(key)) { delete images[key]; toast('That picture could not be opened. Nothing changed.'); return; }
   const id = now.t.id; cancelGesture(); snapshot();
+  const was = new Map(state.tattoos.map((q) => [q.id, q]));
   const rev = applyArtworkRevision(state, id, key, pic.aspect, { linked: false });
   state = rev.nextState;
+  for (const cid of rev.changedIds) keepVersion(was.get(cid), state.tattoos.find((x) => x.id === cid));
   const t = state.tattoos.find((x) => x.id === id);
   // the picture came back as it looks on the body, mirror and flip already in it
   t.flip = false; t.imageTopDown = true;
@@ -1846,7 +1917,7 @@ function needTattoo() {
   if (sel() !== t) select(t.id, true); else revealTattoo(t);
   return t;
 }
-var infoQuietUntil = 0;
+var infoQuietUntil = 0, infoByShow = false; // More controls opened by a Show me: pointed at, not tried
 const SHOW = {
   together: () => (account && account.configured ? (account.showTogether(), ['#acctInvite', 'Tap Invite someone and send the link to Liv or your artist. Once they join, you both see the same tattoos and each other\'s changes as they happen.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   answer: () => {
@@ -1857,6 +1928,10 @@ const SHOW = {
   forgot: () => (account && account.configured ? (account.showForgot(), ['#acctForgot', 'Type your email, then tap here. We email you a code to sign in and set a new password.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   room: () => { showLook(true); return ['#roomBtn', 'Tap Open skin to see where you still have room, and how big a piece fits there.']; },
   roomFit: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRoom', 'Find room for it shows in green everywhere this tattoo fits. Tap a green spot to move it there.']; },
+  versions: () => { const t = state.tattoos.find((q) => (q.versions || []).length && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bProcreate', 'Edit this tattoo in Procreate and bring it back: the earlier artwork is kept as a version you can compare and go back to.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; renderVersions(t); return ['#verBox', 'Tap a version to see it on the body, then Use this one or Side by side.']; },
+  sittings: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitBox', 'Pick the date of the first sitting and the weeks between. Each sitting gets its date, and the last line says when it is healed.']; },
+  note: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#noteBox', 'Type what your artist should know about this one. It goes on the artist sheet and the artist packet.']; },
+  made: () => { const t = state.tattoos.find((q) => q.status === 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Planned to mark this tattoo as already on me. Then More controls has who did it and when.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; return ['#madeBox', 'Add who did this tattoo, the studio and the month. It goes on the artist sheet.']; },
   where: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#whereLine', 'This line says where the tattoo sits the way your artist measures it, like 3 in below the elbow.']; },
   estimate: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#estRow', 'A rough guess at how long this tattoo takes. Type your artist\'s hourly rate for a price.']; },
   pain: () => { showLook(true); return ['#painBtn', 'Tap Pain map, then any spot or tattoo to see how much it usually hurts there.']; },
@@ -1899,7 +1974,7 @@ const SHOW = {
 let coachTimer = 0, coachArmed = 0;
 function showMe(f) {
   closePanels();
-  infoQuietUntil = performance.now() + 1000; const r = SHOW[f.show]?.(); if (!r) return;
+  infoQuietUntil = performance.now() + 1000; const r = SHOW[f.show]?.(); if ($('#editorAdvanced').open) infoByShow = true; if (!r) return;
   coach(r[0], r[1]);
 }
 function coach(target, text) {
@@ -2545,6 +2620,46 @@ function hoursOf(t) {
   const w = toInches(t.width), h = w / t.aspect;
   return sessionHours({ widthIn: w, heightIn: h, fill: st.fill, colour: st.colour });
 }
+// the whole plan, under a planned tattoo's own guess: every planned piece that shows
+function planRender(t) {
+  const list = t && t.status !== 'existing' ? state.tattoos.filter((q) => q.status !== 'existing' && !q.hidden).map(hoursOf).filter(Boolean) : [];
+  const line = planText(list, readRate()); $('#planLine').textContent = line; $('#planLine').hidden = !line;
+  if (line && $('#editorAdvanced').open && !infoByShow && performance.now() > infoQuietUntil) markTried('plan');
+}
+// the session planner: a planned piece in sittings, with dates once a first one is picked
+function sitPlan(t) {
+  const hrs = t && t.status !== 'existing' && hoursOf(t); if (!hrs) return null;
+  const st = artStats(t), s = t.sittings || {};
+  return planSittings(hrs, { colour: st ? st.colour : 0, start: s.start || '', gapWeeks: s.gap || 3 });
+}
+function sitRender(t) {
+  const plan = sitPlan(t); $('#sitBox').hidden = !plan; if (!plan) return;
+  const list = $('#sitList'); list.replaceChildren();
+  for (const x of plan.sittings) {
+    const li = document.createElement('li'), b = document.createElement('b');
+    b.textContent = x.what; li.append(b, `, ${sittingHours(x).toLowerCase()}${x.date ? ', ' + dayWords(x.date) : ''}`); list.append(li);
+  }
+  const s = t.sittings || {};
+  if (document.activeElement !== $('#sitStart')) $('#sitStart').value = s.start || '';
+  $('#sitGap').value = String(s.gap || 3); $('#sitGap').disabled = plan.sittings.length < 2;
+  $('#sitHealed').textContent = plan.healed ? `Healed by about ${dayWords(plan.healed)}.` : 'Pick the first date to see when each sitting falls and when it is healed.';
+  $('#sitHealed').hidden = false; $('#sitCal').hidden = !plan.healed;
+}
+function setSittings(k, v) {
+  const t = sel(); if (!t) return; const now = { ...(t.sittings || {}) };
+  if (v) now[k] = v; else delete now[k];
+  if (now.gap === 3) delete now.gap;
+  if (JSON.stringify(now) === JSON.stringify(t.sittings || {})) return;
+  snapshot(); if (Object.keys(now).length) t.sittings = now; else delete t.sittings; commit(); sitRender(t); markTried('sittings');
+}
+$('#sitStart').addEventListener('change', () => { const v = $('#sitStart').value; setSittings('start', /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : ''); });
+$('#sitGap').addEventListener('change', () => setSittings('gap', +$('#sitGap').value));
+$('#sitCal').addEventListener('click', () => {
+  const t = sel(), plan = sitPlan(t); if (!plan || !plan.healed) return;
+  const name = (t.name || 'Tattoo').trim() || 'Tattoo';
+  saveFile((name.replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo') + '-sittings.ics', new Blob([sittingsCalendar(name, plan)], { type: 'text/calendar' }));
+  markTried('sittings');
+});
 const readRate = () => { try { const n = +localStorage.getItem('ia-rate'); return n > 0 && n < 5000 ? n : 0; } catch { return 0; } };
 const writeRate = (n) => { try { if (n > 0) localStorage.setItem('ia-rate', String(n)); else localStorage.removeItem('ia-rate'); } catch {} };
 let infoTimer = 0;
@@ -2554,12 +2669,14 @@ function renderInfo() {
     const t = sel(); if (!t) return;
     const w = whereOf(t); $('#whereLine').textContent = w ? w.line : ''; $('#whereLine').hidden = !w;
     const hrs = hoursOf(t); $('#estLine').textContent = hrs ? sessionText(hrs, readRate()) : '';
+    planRender(t);
+    sitRender(t);
     if (document.activeElement !== $('#estRate')) $('#estRate').value = readRate() || '';
   }, 150);
 }
-$('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRate').value); writeRate(n > 0 ? n : 0); const t = sel(), hrs = t && hoursOf(t); if (hrs) $('#estLine').textContent = sessionText(hrs, readRate()); markTried('estimate'); });
+$('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRate').value); writeRate(n > 0 ? n : 0); const t = sel(), hrs = t && hoursOf(t); if (hrs) $('#estLine').textContent = sessionText(hrs, readRate()); planRender(t); markTried('estimate'); });
 // opened by a Show me, it is only being pointed at, not tried yet
-$('#editorAdvanced').addEventListener('toggle', () => { if ($('#editorAdvanced').open && sel()) { renderInfo(); if (performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); } } });
+$('#editorAdvanced').addEventListener('toggle', () => { if (!$('#editorAdvanced').open) infoByShow = false; else if (sel()) { renderInfo(); if (!infoByShow && performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); } } });
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */
 function showLook(open) { const m = $('#lookMenu'); m.hidden = open == null ? !m.hidden : !open; $('#lookBtn').setAttribute('aria-expanded', String(!m.hidden)); }
 function renderLook() {
@@ -3112,6 +3229,8 @@ async function artistSheet() {
     const im = imgEls[t.img]; if (im) { const k = Math.min(114 / im.naturalWidth, 114 / im.naturalHeight); g.drawImage(im, 1145 - im.naturalWidth * k / 2, y + 65 - im.naturalHeight * k / 2, im.naturalWidth * k, im.naturalHeight * k); }
     g.fillStyle = '#17181d'; g.font = '600 28px Figtree, system-ui, sans-serif'; g.fillText(t.name.slice(0, 30), 1236, y + 50);
     g.fillStyle = '#5b6070'; g.font = '23px Figtree, system-ui, sans-serif'; g.fillText(sizeText(t).replace(/\s+/g, ' '), 1236, y + 90);
+    const extra = t.status === 'existing' ? madeText(t.made) : (t.note || '').replace(/\s+/g, ' ');
+    if (extra) { g.font = 'italic 21px Figtree, system-ui, sans-serif'; let e = extra; while (e.length > 4 && g.measureText(e).width > 500) e = e.slice(0, -2); if (e !== extra) e = e.replace(/\s*\S*$/, '') + '…'; g.fillText(e, 1236, y + 124); }
     y += 152;
   }
   g.fillStyle = '#8a8f9c'; g.font = '20px Figtree, system-ui, sans-serif'; g.fillText('Sizes are approximate. Confirm scale on skin with your artist.', 1080, 1250);
@@ -3710,6 +3829,14 @@ window.__ink = {
   room: () => ({ on: room.on, fitId: room.fitId, text: $('#roomText').textContent, shown: !!(room.mesh && room.mesh.visible), need: room.need ? toInches(room.need * 2) : 0, at: (v) => { roomData(); return { across: toInches(room.across[v]), clear: toInches(room.clear[v]), cap: toInches(room.cap[v]), off: roomOff(v), fits: room.fitId ? roomFits(v) : null, place: painData().place[v] }; }, shares: () => inkShares(), summary: () => roomSummaryText(), regions: () => roomByRegion(roomData().across, painData().place, (v) => !roomOff(v)).map((r) => ({ region: r.region, across: toInches(r.across) })), fitsCount: () => { roomData(); let n = 0; for (let v = 0; v < PAIN_N; v++) if (room.fitId && roomFits(v)) n++; return n; }, pick: (id) => roomPick(state.tattoos.find((t) => t.id === id)), under: (x, y) => { const h = hitBody(x, y); if (!h || !h.face) return null; roomData(); const P = bodyGeo.attributes.position.array, vs = [h.face.a, h.face.b, h.face.c]; let v = vs[0], bd = Infinity; for (const u of vs) { const d = (P[u * 3] - h.point.x) ** 2 + (P[u * 3 + 1] - h.point.y) ** 2 + (P[u * 3 + 2] - h.point.z) ** 2; if (d < bd) { bd = d; v = u; } } return { v, off: roomOff(v), fits: room.fitId ? roomFits(v) : null, across: toInches(room.across[v]), place: painData().place[v], point: h.point.toArray() }; }, drawnAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null, colourAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.color.array.slice(v * 3, v * 3 + 3)) : null }),
   where: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? whereOf(t) : null; },
   estimate: (id) => { const t = state.tattoos.find((q) => q.id === id); const h = t && hoursOf(t); return h ? { ...h, text: sessionText(h, readRate()), stats: artStats(t) } : null; },
+  cleanCheck: (f) => { const t = cleanState({ tattoos: [{ id: 'x', img: 'k', pos: [0, 1, 0.1], normal: [0, 0, 1], ...f }] }, () => true).state.tattoos[0]; const o = {}; if ('note' in t) o.note = t.note; if ('made' in t) o.made = t.made; if ('sittings' in t) o.sittings = t.sittings; return o; },
+  madeText: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? madeText(t.made) : ''; },
+  versions: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? versionList(t).map((v) => ({ name: v.name, now: v.now, img: v.img })) : []; },
+  peek: () => (peek ? { id: peek.id, name: peek.v.name } : null),
+  versionsShot: () => versionsShot(),
+  sittings: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? sitPlan(t) : null; },
+  sitShown: () => $('#sitBox').hidden ? null : [...$('#sitList').children].map((li) => li.textContent),
+  planLine: () => $('#planLine').hidden ? '' : $('#planLine').textContent,
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
   bodyMatch: () => ({ open: !$('#bodyMatch').hidden, busy: bm.busy, fitted: !!bm.result, ratios: bm.ratios || null, read: bm.read || null, tone: bm.tone || null, skin: skinColor(), ink: bm.ink ? { pieces: bm.ink.pieces.map((p) => [p.x0, p.y0, p.x1, p.y1]), stats: bm.ink.pieces.map((p) => [+p.sharp.toFixed(3), +p.dark.toFixed(3), +p.mid.toFixed(3), +p.fill.toFixed(2), +p.cloth.toFixed(3), +p.out.toFixed(3), Math.round(p.area), Math.round(bm.ink.sw)]), on: [...bm.ink.on], view: bm.ink.view, mirror: bm.ink.mirror } : null }), bodyMatchLm: () => bm.lm || null,
   beforeAfter: () => ({ on: beforeAfter.on, split: beforeAfter.split }), hair: () => ({ ...hair }), beard: () => beard, setBeard: (s) => setBeard(s), beardStrands: () => ({ visible: beardStrands.mesh.visible, tucked: beardStrands.tucked, strands: beardStrands.mesh.userData.strands || 0, probe: beardStrands.probe(poseView.active ? poseView.geometry : null) }), beardCovers: (p) => beardStrands.covers(p), beardField: () => bodyGeo.attributes.beard && bodyGeo.attributes.beard.array, bringBackPainted, bringBack, paintToTattoos, paintShown: () => !!(paintSkin && paintSkin.mesh.visible), paintAt: () => paintSkin ? { v: paintSkin.from[0], drawn: Array.from(paintSkin.mesh.geometry.attributes.position.array.slice(0, 3)) } : null, hairStrands: () => ({ visible: hairStrands.mesh.visible, tucked: hairStrands.tucked, strands: hairStrands.mesh.userData.strands || 0, probe: hairStrands.probe(poseView.active ? poseView.geometry : null) }), hairReading: (r) => applyHairReading(r), hairLast: () => hairLast, eyes: () => ({ pick: eyes, hex: skinIrisHex() }),

@@ -1,0 +1,53 @@
+// Session planner: a big piece split into sittings with healing time between them, from Time to
+// tattoo's guess (estimate.js). Shop rule of thumb: outline first, shading next, colour last,
+// about five hours a sitting at most, two to four weeks between sittings for the skin to settle,
+// and about four weeks after the last one to heal. Pure maths.
+
+const DAY = 86400000;
+
+// hours: { lo, hi, sessions } from sessionHours; colour: share of the ink in colour (0..1);
+// start: 'YYYY-MM-DD' of the first sitting or ''; gapWeeks: weeks between sittings.
+// Returns { sittings: [{ n, lo, hi, what, date }], healed } with dates as 'YYYY-MM-DD' or ''.
+export function planSittings(hours, { colour = 0, start = '', gapWeeks = 3 } = {}) {
+  const n = Math.max(1, hours.sessions | 0), gap = Math.min(12, Math.max(1, Math.round(gapWeeks) || 3));
+  const coloured = colour > 0.2;
+  const what = (i) => {
+    if (n === 1) return 'The whole piece';
+    if (i === 0) return 'Outline';
+    if (i === n - 1) return coloured ? 'Colour and finish' : 'Shading and finish';
+    if (coloured && n >= 4 && i >= Math.ceil((n - 1) / 2)) return 'Colour';
+    return 'Shading';
+  };
+  const t0 = parse(start);
+  const sittings = Array.from({ length: n }, (_, i) => ({ n: i + 1, lo: hours.lo / n, hi: hours.hi / n, what: what(i), date: t0 == null ? '' : iso(t0 + i * gap * 7 * DAY) }));
+  const healed = t0 == null ? '' : iso(t0 + ((n - 1) * gap + 4) * 7 * DAY);
+  return { sittings, healed, gapWeeks: gap };
+}
+
+function parse(s) { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ''); if (!m) return null; const t = Date.UTC(+m[1], +m[2] - 1, +m[3]); return Number.isFinite(t) && iso(t) === s ? t : null; }
+function iso(t) { return new Date(t).toISOString().slice(0, 10); }
+
+// "Sat, Dec 6" from 'YYYY-MM-DD'
+export function dayWords(s) { const t = parse(s); return t == null ? '' : new Date(t).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }); }
+
+// "About 2 to 3 hours" for one sitting, in half hours
+export function sittingHours({ lo, hi }) {
+  const a = Math.max(0.5, Math.floor(lo * 2) / 2), b = Math.max(a + 0.5, Math.ceil(hi * 2) / 2);
+  const f = (x) => (x === 1 ? '1' : String(x));
+  return hi <= 1.1 ? 'About an hour' : `About ${f(a)} to ${f(b)} hours`;
+}
+
+// An .ics calendar file with one all-day event per sitting, to add to the phone's calendar.
+export function sittingsCalendar(name, plan, stamp = new Date()) {
+  const esc = (x) => String(x).replace(/[\\,;]/g, (c) => '\\' + c).replace(/\n/g, '\\n');
+  const ymd = (s) => s.replace(/-/g, ''), next = (s) => iso(parse(s) + DAY).replace(/-/g, '');
+  const now = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const ev = plan.sittings.filter((x) => x.date).map((x) => [
+    'BEGIN:VEVENT', `UID:${ymd(x.date)}-${x.n}-${esc(name).replace(/[^A-Za-z0-9]/g, '').slice(0, 20)}@ink-atlas`, `DTSTAMP:${now}`,
+    `DTSTART;VALUE=DATE:${ymd(x.date)}`, `DTEND;VALUE=DATE:${next(x.date)}`,
+    `SUMMARY:${esc(`${name}: sitting ${x.n} of ${plan.sittings.length} (${x.what})`)}`,
+    `DESCRIPTION:${esc(`${sittingHours(x)}. Planned in Ink Atlas.`)}`, 'END:VEVENT'].join('\r\n'));
+  // calendar lines fold at 75 characters, the rest going on after a space
+  const fold = (l) => { let out = l.slice(0, 75); for (let i = 75; i < l.length; i += 74) out += '\r\n ' + l.slice(i, i + 74); return out; };
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ink Atlas//Sittings//EN', 'CALSCALE:GREGORIAN', ...ev, 'END:VCALENDAR'].join('\r\n').split('\r\n').map(fold).join('\r\n') + '\r\n';
+}

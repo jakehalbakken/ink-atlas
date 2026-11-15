@@ -44,3 +44,12 @@ export function planHours(list) {
   for (const h of list) { lo += h.lo; hi += h.hi; sessions += h.sessions; }
   return { lo, hi, sessions };
 }
+
+// "All 4 planned tattoos: about 12 to 16 hours, about 6 sessions." with the price at a rate, as
+// one line under a selected tattoo's own guess. Each piece counts its own sessions.
+export function planText(list, rate = 0) {
+  if (list.length < 2) return '';
+  const t = sessionText(planHours(list), rate);
+  return `All ${list.length} planned tattoos: ${t[0].toLowerCase()}${t.slice(1)}`;
+}
+

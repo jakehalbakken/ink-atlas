@@ -543,3 +543,16 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Phones: the Pain map and Open skin bars sit at the bottom in the tray's place while they are on (the tray comes back after Done), so the head, neck and chest stay in view. Tested: t79 and t82 at 390 x 844.
 - New to try: Tape measure in a pose, Long hair that hangs.
 
+## Notes for your artist, who did it, time for the whole plan (2026-11-15, built, not live)
+
+- Note for your artist (More controls): a box on every tattoo, saved as optional `t.note` (500 characters), one undo step per change, on the artist sheet picture (third line, cut to fit) and the artist packet.
+- Who did it and when (More controls, ink already on only): Artist, Studio and month, saved as optional `t.made`. Reads "By Mia Lopez at Black Rose, March 2023" on the artist sheet, and on the packet's line for that tattoo. Each field is its own undo step.
+- Time for the whole plan: under a planned tattoo's own guess, "All 4 planned tattoos: about 12 to 16 hours, about 6 sessions." with the price at the artist's rate.
+- Storage: two optional fields; `cleanState` keeps good values and drops bad ones; older saves have neither, so no migration. Tested: t86 (note, undo, redo, who did it, month words, plan line, kept after reopening, damaged values cleaned, 44 pt fields), room-unit (plan line maths), t55 (Show me for each).
+
+
+## Design versions and session planner (2026-11-15, built, not live)
+
+- Design versions (More controls): bringing art back from Procreate or cleaning it up keeps the earlier artwork as a version (`t.versions`, at most 12, plus `t.vName` for the one in use). Tap a version to see it on the body without changing anything, Side by side makes a picture of the two in the same view, Use this one brings it back as one undo step. Names stay with their artwork, so bringing v1 back keeps calling it v1. Tested: versions-unit (keep, dedupe, cap, use, clean), t84 (bring back from Procreate makes v1 and v2, peek changes nothing, side by side picture, use and undo, closing stops the peek, kept after reopening, 44 pt buttons).
+- Session planner (More controls, planned tattoos): the sessions from Time to tattoo become sittings, outline first, colour late in a coloured piece, finish last, each with its hours. A first date and weeks between (2, 3, 4, 6 or 8; default 3) give each sitting its day and the healed day (four weeks after the last). Add to calendar saves an .ics with one all-day event a sitting. Stored as optional `t.sittings`. Tested: sittings-unit (labels, dates over the new year, impossible dates, calendar escaping and folding), t85 (sittings match the sessions, dates, weeks between, undo, calendar file, hidden for ink already on, kept and cleaned, 44 pt fields).
+- Storage: optional fields cleaned in `cleanState`; older saves have none, so no migration. Not yet checked: whether the account sync carries these fields (asked the accounts side), and the .ics opening in the iPad's Calendar.

@@ -74,6 +74,9 @@ export default async function(p){
  await p.type('#estRate','150');await wait(300);
  const priced=await p.$eval('#estLine',e=>e.textContent);assert.match(priced,/ About \$\d+( to \$\d+)? at \$150 an hour\.$/,priced);
  assert.equal(await p.evaluate(()=>localStorage.getItem('ia-rate')),'150','rate kept on this device');
+ // the whole plan under it, when there is more than one planned tattoo
+ const nPlan=all.filter(t=>t.status!=='existing'&&!t.hidden).length,planLine=await p.evaluate(()=>window.__ink.planLine());
+ if(nPlan>1)assert.match(planLine,new RegExp('^All '+nPlan+' planned tattoos: about .* at \\$150 an hour\\.$'),planLine);else assert.equal(planLine,'');
  const sprWhere=await p.evaluate(id=>window.__ink.where(id),spr.id);assert.match(sprWhere.line,/^Ribs, left side: /,sprWhere.line);
  // an arm: put the Sprig on the forearm through Try other spots and read it
  const sprEst=await p.evaluate(id=>window.__ink.estimate(id),spr.id);assert.ok(sprEst.lo>0.4&&sprEst.hi<3,JSON.stringify(sprEst));
@@ -91,5 +94,5 @@ export default async function(p){
  await p.click('#roomDone');await wait(300);
  assert.notEqual(await p.$eval('#dock',e=>getComputedStyle(e).display),'none','phone: the tray comes back');
  await p.setViewport({width:1180,height:820,deviceScaleFactor:1});await wait(300);
- console.log('PASS t82 open skin: '+reg.Back.toFixed(1)+' in on the back, '+reg.Forearms.toFixed(1)+' on a forearm; tap reads, green fits, tap moves and undo puts back, too tight says so, pose, Done, tape | '+where+' | '+priced);
+ console.log('PASS t82 open skin: '+reg.Back.toFixed(1)+' in on the back, '+reg.Forearms.toFixed(1)+' on a forearm; tap reads, green fits, tap moves and undo puts back, too tight says so, pose, Done, tape | '+where+' | '+priced+' | '+planLine);
 }
