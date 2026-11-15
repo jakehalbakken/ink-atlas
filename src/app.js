@@ -918,6 +918,13 @@ function renderTray() {
     else if (t.review) b.append(el('i', { class: 'lock ' + (t.review.verdict === 'approved' ? 'rv-ok' : 'rv-chg'), text: t.review.verdict === 'approved' ? 'Approved' : 'Change asked' }));
     const watching = peersHere.filter((o) => o.look === t.id);
     if (watching.length) { const names = watching.map((o) => o.name || 'Someone').join(' and '); b.append(el('b', { class: 'peer', text: (watching[0].name || '?').slice(0, 1).toUpperCase() + (watching.length > 1 ? '+' : ''), title: names + ' looking' })); b.setAttribute('aria-label', 'Select ' + t.name + ', ' + names + ' looking at it'); }
+    // open comments pinned on it, with a dot when one has something new from someone else
+    const cs = pinNotes().filter((x) => x.tattooId === t.id && !x.done);
+    if (cs.length) {
+      let fresh = false; try { fresh = cs.some(pinUnread); } catch { /* before comments are set up */ }
+      b.append(el('b', { class: 'cmts' + (fresh ? ' new' : ''), text: String(cs.length), title: `${cs.length} open comment${cs.length === 1 ? '' : 's'}` }));
+      b.setAttribute('aria-label', b.getAttribute('aria-label') + `, ${cs.length} open comment${cs.length === 1 ? '' : 's'}${fresh ? ', new' : ''}`);
+    }
     tray.append(b);
   }
   $('#count').textContent = state.tattoos.length ? `${state.tattoos.length} on the body` : 'Nothing placed yet';
@@ -2497,7 +2504,7 @@ function pinUnread(n) { return workingTogether() && !!myName() && othersIn(n) > 
 function markPinRead(n) {
   if (!n || !workingTogether()) return;
   const c = othersIn(n); if ((+pinSeen[n.id] || 0) >= c) return;
-  pinSeen[n.id] = c; markTried('pinNew');
+  pinSeen[n.id] = c; markTried('pinNew'); renderTray();
   const keys = Object.keys(pinSeen); if (keys.length > 500) for (const k of keys.slice(0, keys.length - 500)) delete pinSeen[k];
   try { localStorage.setItem('ia-pins-seen', JSON.stringify(pinSeen)); } catch { /* no storage: it shows as new again next time */ }
 }
@@ -2728,7 +2735,7 @@ function renderRefCount(t) {
 $('#bPinsFor').addEventListener('click', () => {
   const t = sel(); if (!t) return;
   const c = pinNotes().filter((x) => x.tattooId === t.id); if (!c.length) return;
-  pinsOn();
+  markTried('chipComments'); pinsOn();
   if (c.length === 1) { openPin(c[0].id); turnToPin(c[0].id); return; }
   pins.forTattoo = t.id; pins.list = true; pins.filter = c.some((x) => !x.done) ? 'open' : 'all'; renderPins();
 });

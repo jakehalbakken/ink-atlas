@@ -214,12 +214,15 @@ export default async function (p) {
     await until(q, () => /Jake pinned a comment/.test(document.querySelector('#toast').textContent), null, 'Liv is told');
     // new to her: the pin and the Comments button carry a dot until she opens it
     await until(q, () => document.querySelector('#pinsBtn').classList.contains('has-new'), null, 'Comments marked new for Liv');
+    // and the tattoo's chip in the tray says how many open comments it has, in red while new
+    assert.equal(await q.evaluate(() => { const b = document.querySelector('#trayItems .chip b.cmts.new'); return b && b.textContent; }), '1', 'red count on the chip');
     // Show opens it on her side
     await q.evaluate(() => [...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show').click()); await wait(400);
     pins = await q.evaluate(() => window.__ink.pins());
     assert.equal(pins.on, true); assert.ok(pins.open, 'the comment is open');
     assert.match(await q.$eval('#pinWho', (e) => e.textContent), /Jake/);
     assert.equal(await q.$eval('#pinsBtn', (e) => e.classList.contains('has-new')), false, 'read once opened');
+    assert.equal(await q.evaluate(() => { const b = document.querySelector('#trayItems .chip b.cmts'); return b && (b.classList.contains('new') ? 'new ' : '') + b.textContent; }), '1', 'count stays, no longer red');
     await q.screenshot({ path: 'shots/t83-pin-arrives.png' });
     // Liv typing a reply under it shows on Jake's open comment, and goes when she sends it
     await p.evaluate((id) => window.__ink.openPin(id), note.id); await wait(200);

@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'chipComments', date: '2026-11-15', title: 'Comment counts in the tray', how: 'A tattoo with open comments pinned on it shows how many on its picture in the tray, in red while one has something new from someone else. Select it and tap Comments to read them.', show: 'pinReplies' },
   { id: 'approveAll', date: '2026-11-15', title: 'Looks good on all', how: 'On a project you work on together, select a planned tattoo and tap Looks good on all to say yes to every planned tattoo nobody has answered yet in one go. Tattoos with an answer or an ask for a change are left as they are, and Undo takes it all back.', show: 'answer' },
   { id: 'findComment', date: '2026-11-15', title: 'Find a comment', how: 'With four or more comments pinned, open Preview > Comments and tap List. Type a word, a name or a tattoo in Find a comment and only the comments that mention it stay, replies included.', show: 'pinFind' },
   { id: 'suggestSpot', date: '2026-11-15', title: 'Suggest a new spot', how: 'Someone you invited to comment only can select a tattoo and tap Suggest a new spot under its name, then move, size or turn it and tap Send suggestion. Nothing moves for anyone else: it arrives as a comment on that spot, and you can press and hold Hold to see it there to look at it in place before you tap Use this spot.', show: 'answer' },
