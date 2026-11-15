@@ -9,6 +9,7 @@ import { COUNTS, MARKS, EYES, LIPS_MASK } from './mesh.js';
 import { FACE_MAP } from './face-map.js';
 import { landmarks3D, faceAttribute } from './face-fit.js';
 import { createRestRig, POSE_BONES } from './pose.js';
+import { bodyHairField } from './body-hair.js';
 
 const MUSCLE_GLSL = `
 // Eyebrows: a centre line of five points per brow (from the face points stored on the head) and
@@ -17,6 +18,7 @@ uniform vec3 uBrow[10];
 uniform float uBrowOn;
 uniform vec3 uHairCol; uniform float uHairOn; uniform float uHairDense;
 uniform vec3 uBeardCol; uniform float uBeardOn; uniform float uBeardDense;
+uniform float uBodyHair;
 float hash3(vec3 p) { p = fract(p * vec3(443.897, 441.423, 437.195)); p += dot(p, p.yzx + 19.19); return fract((p.x + p.y) * p.z); }
 float vnoise(vec3 p) {
   vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -230,6 +232,28 @@ export function setSkinBeard(style, colour) {
   BEARD_U.uBeardDense.value = style === 'stubble' ? 0 : 1;
   if (colour) BEARD_U.uBeardCol.value.set(colour);
 }
+// Body hair on the arms, legs, chest and stomach, shared by every body material, in the hair
+// colour. level: 'none', 'light' or 'full'.
+const BODYHAIR_U = { uBodyHair: { value: 0 } };
+const BODYHAIR = { key: '', field: null };
+const bodyHairGeos = new Map(); // geometry -> the shape it was last filled for, to fill when turned on
+export function setSkinBodyHair(level) {
+  BODYHAIR_U.uBodyHair.value = level === 'full' ? 1 : level === 'light' ? 0.55 : 0;
+  if (BODYHAIR_U.uBodyHair.value > 0) for (const [geo, shape] of [...bodyHairGeos]) fillBodyHair(geo, shape); // a copy: filling moves each to the end
+}
+// worked out only while body hair shows: it costs a few milliseconds a shape
+function fillBodyHair(geo, shape) {
+  if (!geo.attributes.bhair || !shape || !geo.index || geo.attributes.position.count < COUNTS.body) return;
+  bodyHairGeos.delete(geo); bodyHairGeos.set(geo, shape);
+  if (bodyHairGeos.size > 4) bodyHairGeos.delete(bodyHairGeos.keys().next().value); // the main and posed bodies stay newest
+  if (!(BODYHAIR_U.uBodyHair.value > 0)) return;
+  const R = geo.attributes.rest ? geo.attributes.rest.array : geo.attributes.position.array;
+  const key = shapeKeyOf(shape) + ':' + geo.attributes.position.count;
+  if (BODYHAIR.key !== key || !BODYHAIR.field || BODYHAIR.field.length !== geo.attributes.position.count * 4) {
+    BODYHAIR.field = bodyHairFor(R, geo.index.array, geo.attributes.position.count, shape); BODYHAIR.key = key;
+  }
+  if (geo.userData.bhairKey !== BODYHAIR.key) { geo.attributes.bhair.array.set(BODYHAIR.field); geo.attributes.bhair.needsUpdate = true; geo.userData.bhairKey = BODYHAIR.key; }
+}
 export function skinFaceOn(on) { FACE_U.uFaceOn.value = on && FACE.uv ? 1 : 0; FACE.key = ''; FACE.attr = null; }
 const shapeKeyOf = (shape) => JSON.stringify([shape.figure, shape.muscle, shape.weight, shape.fit]);
 function faceFor(geo, shape) {
@@ -254,8 +278,9 @@ export function createSkin(geo, color) {
   if (!geo.attributes.face) geo.setAttribute('face', new THREE.BufferAttribute(new Float32Array(n * 3), 3));
   if (!geo.attributes.hair) geo.setAttribute('hair', new THREE.BufferAttribute(new Float32Array(n).fill(-0.02), 1));
   if (!geo.attributes.beard) geo.setAttribute('beard', new THREE.BufferAttribute(new Float32Array(n).fill(-0.02), 1));
+  if (!geo.attributes.bhair) geo.setAttribute('bhair', new THREE.BufferAttribute(new Float32Array(n * 4), 4));
   const V = () => ({ value: new THREE.Vector3() });
-  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, ...HAIR_U, ...BEARD_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
+  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, ...HAIR_U, ...BEARD_U, ...BODYHAIR_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
   const mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.54, metalness: 0, specularIntensity: 0.45, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffd9c8') });
   // A posed body keeps its standing positions in 'rest', so painted detail stays on the same
   // skin when the body bends; a standing body paints straight from its positions.
@@ -264,10 +289,10 @@ export function createSkin(geo, color) {
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, uniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute float lip;\nattribute float cav;\nattribute vec3 face;\nvarying vec3 vFace;\nattribute float hair;\nvarying float vHair;\nattribute float beard;\nvarying float vBeard;\n#ifdef USE_REST\nattribute vec3 rest;\n#endif\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = part; vLip = lip; vCav = cav; vFace = face; vHair = hair; vBeard = beard;\n#ifdef USE_REST\nvObj = rest;\n#else\nvObj = position;\n#endif');
+      .replace('#include <common>', '#include <common>\nattribute float part;\nattribute float lip;\nattribute float cav;\nattribute vec3 face;\nvarying vec3 vFace;\nattribute float hair;\nvarying float vHair;\nattribute float beard;\nvarying float vBeard;\nattribute vec4 bhair;\nvarying vec4 vBHair;\n#ifdef USE_REST\nattribute vec3 rest;\n#endif\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvPart = part; vLip = lip; vCav = cav; vFace = face; vHair = hair; vBeard = beard; vBHair = bhair;\n#ifdef USE_REST\nvObj = rest;\n#else\nvObj = position;\n#endif');
     sh.fragmentShader = sh.fragmentShader
-      .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nuniform sampler2D uFace;\nuniform float uFaceOn;\nvarying vec3 vFace;\nvarying float vHair;\nvarying float vBeard;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
+      .replace('#include <common>', '#include <common>\nuniform vec3 uEyeL;\nuniform vec3 uEyeR;\nuniform vec3 uNipL;\nuniform vec3 uNipR;\nuniform vec3 uNavel;\nuniform float uAreolaR;\nuniform vec3 uIris;\nuniform sampler2D uFace;\nuniform float uFaceOn;\nvarying vec3 vFace;\nvarying float vHair;\nvarying float vBeard;\nvarying vec4 vBHair;\nvarying float vPart;\nvarying float vLip;\nvarying float vCav;\nvarying vec3 vObj;\n' + MUSCLE_GLSL)
       .replace('#include <color_fragment>', `#include <color_fragment>
   vec2 mhAll = muscleH(vObj); // once per pixel: shading here, the bump below
   float hairA = 0.0;
@@ -313,6 +338,20 @@ export function createSkin(geo, color) {
       skin = mix(skin, mix(shadow, bcol, clamp(cover, 0.0, 1.0)), bA);
       hairA = max(hairA, bA * uBeardDense);
     }
+    if (uBodyHair > 0.01 && vBHair.w > 0.01) {
+      // body hair: fine hairs lying down the limb (noise squashed along the hair's direction),
+      // thinning into a soft tint where the skin is too small on screen to show single hairs
+      vec3 a = normalize(vBHair.xyz + vec3(1e-4));
+      float dens = vBHair.w * uBodyHair * (0.75 + 0.5 * vnoise(vObj * 40.0));
+      vec3 q = vObj * 3400.0; q -= a * dot(q, a) * 0.955;
+      vec3 q2 = vObj * 5200.0 + 17.0; q2 -= a * dot(q2, a) * 0.95;
+      float h1 = 1.0 - abs(vnoise(q) * 2.0 - 1.0), h2 = 1.0 - abs(vnoise(q2) * 2.0 - 1.0);
+      float hairs = max(smoothstep(0.86, 0.97, h1) * step(0.45, vnoise(q * 0.31 + 5.0)), 0.75 * smoothstep(0.88, 0.98, h2) * step(0.5, vnoise(q2 * 0.29 + 9.0)));
+      float bfw = length(fwidth(vObj)), near = 1.0 - smoothstep(0.00018, 0.0006, bfw);
+      float cover = mix(0.42, 0.16, near) * dens * (0.8 + 0.4 * vnoise(vObj * 260.0)) + near * hairs * smoothstep(0.0, 0.45, dens) * min(1.0, 0.35 + dens);
+      vec3 hc = mix(skin * vec3(0.7, 0.62, 0.6), uBeardCol, 0.6);
+      skin = mix(skin, hc, clamp(cover, 0.0, 0.9));
+    }
     if (vPart > 0.5) {
       vec3 c = vObj.x > 0.0 ? uEyeL : uEyeR;
       float f = normalize(vObj - c).z;
@@ -338,6 +377,35 @@ export function createSkin(geo, color) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.82, hairA * uHairDense);\nif (vPart > 0.5) roughnessFactor = 0.1;');
   };
   return { mat, uniforms };
+}
+
+// The body hair field on the standing body: its own normals from the standing positions (a posed
+// body's normals are posed), the joints from the skeleton, the nipples and navel.
+function bodyHairFor(R, I, n, shape) {
+  const out = new Float32Array(n * 4);
+  try {
+    const nor = new Float32Array(n * 3), body = COUNTS.body;
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t], b = I[t + 1], c = I[t + 2]; if (a >= body || b >= body || c >= body) continue;
+      const ux = R[b * 3] - R[a * 3], uy = R[b * 3 + 1] - R[a * 3 + 1], uz = R[b * 3 + 2] - R[a * 3 + 2];
+      const vx = R[c * 3] - R[a * 3], vy = R[c * 3 + 1] - R[a * 3 + 1], vz = R[c * 3 + 2] - R[a * 3 + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      for (const v of [a, b, c]) { nor[v * 3] += nx; nor[v * 3 + 1] += ny; nor[v * 3 + 2] += nz; }
+    }
+    // which way the triangles wind: normals should point away from the body's middle
+    let cx = 0, cy = 0, cz = 0; for (let v = 0; v < body; v++) { cx += R[v * 3]; cy += R[v * 3 + 1]; cz += R[v * 3 + 2]; } cx /= body; cy /= body; cz /= body;
+    let out1 = 0; for (let v = 0; v < body; v += 7) out1 += nor[v * 3] * (R[v * 3] - cx) + nor[v * 3 + 1] * (R[v * 3 + 1] - cy) + nor[v * 3 + 2] * (R[v * 3 + 2] - cz);
+    const sgn = out1 < 0 ? -1 : 1;
+    for (let v = 0; v < body; v++) { const o = v * 3, l = (Math.hypot(nor[o], nor[o + 1], nor[o + 2]) || 1) * sgn; nor[o] /= l; nor[o + 1] /= l; nor[o + 2] /= l; }
+    const { joints } = createRestRig(shape);
+    const at = (name, end) => { const b = POSE_BONES.find((x) => x.name === name); const i = b[end] * 3; return [joints[i], joints[i + 1], joints[i + 2]]; };
+    const J = {};
+    for (const s of ['L', 'R']) { J['shoulder' + s] = at('upperarm01.' + s, 'head'); J['elbow' + s] = at('lowerarm01.' + s, 'head'); J['wrist' + s] = at('wrist.' + s, 'head'); J['hip' + s] = at('upperleg01.' + s, 'head'); J['knee' + s] = at('lowerleg01.' + s, 'head'); J['ankle' + s] = at('foot.' + s, 'head'); }
+    if (Object.values(J).some((p) => p.some((x) => !Number.isFinite(x)))) return out;
+    const m = (i) => [R[i * 3], R[i * 3 + 1], R[i * 3 + 2]];
+    out.set(bodyHairField({ pos: R, nor, count: body, joints: J, marks: { navel: m(MARKS.navel), nipL: m(MARKS.nipL), nipR: m(MARKS.nipR) }, figure: shape.figure }));
+  } catch { /* no hair rather than a broken body */ }
+  return out;
 }
 
 let acc = null, cnt = null, elen = null;
@@ -392,6 +460,7 @@ export function updateSkin(geo, uniforms, areola, shape) {
       if (geo.userData.beardKey !== BEARD.key) { geo.attributes.beard.array.set(BEARD.field); geo.attributes.beard.needsUpdate = true; geo.userData.beardKey = BEARD.key; }
     }
   }
+  fillBodyHair(geo, shape);
   if (FACE.uv && geo.attributes.face) { geo.attributes.face.array.set(faceFor(geo, shape)); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = true; }
   else if (geo.userData.faceSet) { geo.attributes.face.array.fill(0); geo.attributes.face.needsUpdate = true; geo.userData.faceSet = false; }
   if (shape) {
