@@ -18,6 +18,7 @@
 import { cloudConfigured, emailCodes, openCloud, openShare, plainError } from './cloud.js';
 import { mergeStates, commentsOnto, withoutComments } from './merge.js';
 import { changesBetween } from './changes.js';
+import { readPrefs, cleanPrefs, decide } from './prefs.js';
 
 const BIND = 'ia-cloud-bind', BASE = 'ia-cloud-base', SEEN = 'ia-cloud-seen', CHANGES = 'ia-cloud-changes', LIVE_MS = 4000;
 const ls = {
@@ -80,6 +81,36 @@ export function createAccount(api) {
     return cloudReady;
   }
 
+  /* ---------- settings that follow you ---------- */
+  // Hair, beard, body hair, eye colour, light and hourly rate are kept per device; signed in, they
+  // also go into the account's user details (prefs.js), so every device shows the same body. The
+  // newest change wins. Turned off per device with ia-prefs-off. The face photo never leaves.
+  const PREFS_AT = 'ia-prefs-at', PREFS_OFF = 'ia-prefs-off';
+  let prefsSent = null, prefsBusy = false;
+  const prefsOn = () => !!(cloud && user()) && !ls.get(PREFS_OFF);
+  async function syncPrefs(fresh) {
+    if (!prefsOn() || prefsBusy) return;
+    prefsBusy = true;
+    try {
+      if (fresh) await cloud.refreshUser();
+      if (!prefsOn()) return;
+      const local = readPrefs(), remote = cloud.prefs(), d = decide(local, +ls.get(PREFS_AT) || 0, remote);
+      if (d === 'take') { api.applyPrefs(remote.s); ls.set(PREFS_AT, remote.at); prefsSent = JSON.stringify(readPrefs()); }
+      else if (d === 'send') { const v = { at: Math.max(Date.now(), ((remote && +remote.at) || 0) + 1), s: local }; await cloud.setPrefs(v); ls.set(PREFS_AT, v.at); prefsSent = JSON.stringify(local); }
+      else prefsSent = JSON.stringify(local);
+    } catch (e) { /* tried again on the next change or return to the app */ } finally { prefsBusy = false; }
+  }
+  // a change made on this device goes to the account a moment later
+  setInterval(() => {
+    if (!prefsOn() || prefsBusy || prefsSent == null || document.hidden) return;
+    if (JSON.stringify(readPrefs()) !== prefsSent) { ls.set(PREFS_AT, Date.now()); syncPrefs(false); }
+  }, 2500);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncPrefs(true); });
+  function setPrefsOn(on) {
+    ls.set(PREFS_OFF, on ? null : true); prefsSent = null;
+    if (on) { api.tried && api.tried('prefsSync'); syncPrefs(true); }
+  }
+
   // how many projects wait on this person, as a small count on the account button
   let badgeN = 0;
   let live = null, liveFor = null, liveJoining = false, liveFailedUntil = 0, liveOthers = [], lastTrack = '', liveSeenOnce = false;
@@ -110,6 +141,7 @@ export function createAccount(api) {
     clearTimeout(timer); timer = 0;
     if (!user()) return;
     if (pushing) { again = true; return; }
+    if (api.holding && api.holding()) { clearTimeout(retry); retry = setTimeout(push, 1500); return; } // trying something out on this screen: nothing goes up until it is done
     if (!myBind() && !following()) return;
     if (myBind() && myBind().sig === currentSig()) { status('Saved to your account'); return; }
     pushing = true; status('Saving to your account');
@@ -406,6 +438,7 @@ export function createAccount(api) {
   async function afterSignIn() {
     const u = user();
     if (api.tried) api.tried();
+    syncPrefs(false);
     if (bind && bind.uid !== u.id) setBind(null);
     refreshBadge();
     if (pendingJoin) { const t = pendingJoin; pendingJoin = null; await joinWith(t); return; }
@@ -589,7 +622,9 @@ export function createAccount(api) {
       h('details', { class: 'acct-more' }, h('summary', { text: 'Account settings' }),
         h('div', { class: 'acct-row' },
           h('button', { class: 'btn', type: 'button', text: 'Set a password', onclick: () => passwordView() }),
-          h('button', { class: 'btn', type: 'button', text: 'Change my name', onclick: () => nameView() }))),
+          h('button', { class: 'btn', type: 'button', text: 'Change my name', onclick: () => nameView() })),
+        h('p', { class: 'muted', text: 'Your hair, beard, body hair, eye colour, light and hourly rate follow you to every device you sign in on. Your face photo stays on the device it was taken on.' }),
+        h('div', { class: 'acct-row' }, (() => { const b2 = h('button', { class: 'btn', type: 'button', id: 'acctPrefs' }); const paint = () => { const on = !ls.get(PREFS_OFF); b2.textContent = on ? 'Same on every device: on' : 'Same on every device: off'; b2.setAttribute('aria-pressed', String(on)); }; paint(); b2.addEventListener('click', () => { setPrefsOn(!!ls.get(PREFS_OFF)); paint(); msg(ls.get(PREFS_OFF) ? 'Settings on this device stay here now.' : 'Settings follow you again.', true); }); return b2; })())),
       h('div', { class: 'acct-row' }, h('button', { class: 'btn danger', type: 'button', text: 'Sign out', onclick: () => signOutView() })));
     try {
       const rows = await cloud.list();
@@ -826,6 +861,7 @@ export function createAccount(api) {
     nudge: () => liveTrack(), here: () => liveOthers.slice(), people,
     // opens the panel at "Work on it together" (New to try's Show me)
     async showForgot() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); if (user()) { show('home'); return; } mode = 'signin'; show('signin'); },
+    async showPrefs() { try { await ready(); } catch (e) { return; } open(); show(user() ? 'home' : 'signin'); const d = root.querySelector('details.acct-more'); if (d) d.open = true; },
     async showTogether() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'home' : 'signin'); return document.getElementById(user() ? 'acctTogether' : 'accountBtn'); },
   };
 }

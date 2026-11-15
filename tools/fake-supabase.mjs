@@ -225,6 +225,6 @@ export async function startFakeSupabase({ realtime = true, port = 0, db = 'ink_f
     presenceLog, topicsNow, setRealtime(on) { realtime = on; if (!on) for (const c of wss.clients) c.terminate(); },
     url: `http://127.0.0.1:${server.address().port}`, anonKey: jwt({ role: 'anon', exp: Math.floor(Date.now() / 1000) + 86400 * 365 }),
     pool, files, codes, log, as,
-    async stop() { for (const c of wss.clients) c.terminate(); await new Promise((r) => server.close(r)); await pool.end(); const a = new pg.Client({ database: 'postgres' }); await a.connect(); await a.query(`drop database if exists ${db} with (force)`); await a.end(); },
+    async stop() { for (const c of wss.clients) c.terminate(); const closed = new Promise((r) => server.close(r)); if (server.closeAllConnections) server.closeAllConnections(); await closed; await pool.end(); const a = new pg.Client({ database: 'postgres' }); await a.connect(); await a.query(`drop database if exists ${db} with (force)`); await a.end(); },
   };
 }

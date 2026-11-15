@@ -51,7 +51,7 @@ export function changesBetween(before, after, opts = {}) {
   for (const n of list(after, 'notes')) {
     if (BN.has(n.id) || (n.by || '') === me) continue;
     const at = mentionsMe(n.text, me);
-    out.push({ kind: 'comment', text: `${n.by || 'Someone'} ${at ? 'mentioned you' : 'commented'}: "${quote(n.text)}"`, noteId: n.id, pinned: !!n.pin, ...(at ? { mention: true } : {}) });
+    out.push({ kind: 'comment', text: `${n.by || 'Someone'} ${n.suggest ? 'suggested a new spot' : at ? 'mentioned you' : 'commented'}: "${quote(n.text)}"`, noteId: n.id, pinned: !!n.pin, ...(at ? { mention: true } : {}) });
   }
   for (const n of list(after, 'notes')) {
     const o = BN.get(n.id); if (!o) continue;
@@ -60,6 +60,11 @@ export function changesBetween(before, after, opts = {}) {
       if (!r || had.has(r.id) || (r.by || '') === me) continue;
       const at = mentionsMe(r.text, me);
       out.push({ kind: 'reply', text: at ? `${r.by || 'Someone'} mentioned you on "${quote(n.text, 30)}": "${quote(r.text)}"` : `${r.by || 'Someone'} replied to "${quote(n.text, 30)}": "${quote(r.text)}"`, noteId: n.id, pinned: !!n.pin, ...(at ? { mention: true } : {}) });
+    }
+    const hadR = new Set((Array.isArray(o.reacts) ? o.reacts : []).map((r) => r && r.id));
+    for (const r of Array.isArray(n.reacts) ? n.reacts : []) {
+      if (!r || hadR.has(r.id) || (r.by || '') === me) continue;
+      out.push({ kind: 'react', text: `${r.by || 'Someone'} reacted ${r.e} to "${quote(n.text, 40)}"`, noteId: n.id, pinned: !!n.pin });
     }
     if (!!n.done !== !!o.done) {
       const who = n.done ? n.done.by : '';

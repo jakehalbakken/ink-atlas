@@ -212,6 +212,62 @@ export default async function (p) {
     assert.ok(before, 'cam read');
     await p.click('#pinsDone');
 
+    // Suggest a new spot: she sizes it up with the corner handle, sends it, and nothing moves for anyone;
+    // Jake opens her comment and uses the spot
+    await until(q, () => window.__ink.account().text === 'Saved to your account', null, 'Mara settled');
+    await q.evaluate((id) => window.__ink.select(id), t0); await wait(400);
+    assert.equal(await shown(q, '#bSuggest'), true, 'Suggest a new spot offered');
+    assert.equal(await shown(q, '#hSize'), false, 'no handles before');
+    const w0 = await q.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0);
+    await q.click('#bSuggest'); await wait(300);
+    assert.equal(await q.evaluate(() => window.__ink.suggesting()), t0);
+    assert.equal(await shown(q, '#suggestBar'), true); assert.equal(await shown(q, '#hSize'), true, 'handles while suggesting');
+    const hb = await (await q.$('#hSize')).boundingBox();
+    await q.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2); await q.mouse.down();
+    for (let k = 1; k <= 8; k++) { await q.mouse.move(hb.x + hb.width / 2 + k * 6, hb.y + hb.height / 2 + k * 6); await wait(16); }
+    await q.mouse.up(); await wait(300);
+    const w1 = await q.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0);
+    assert.ok(w1 > w0 * 1.05, `bigger on her screen while suggesting: ${w0} -> ${w1}`);
+    await wait(2500);
+    const [mid] = await db('select state from public.projects');
+    assert.ok(Math.abs(mid.state.tattoos.find((t) => t.id === t0).width - w0) < 1e-9, 'nothing saved while she tries it');
+    await q.type('#suggestNote', 'Bigger reads better here');
+    await q.click('#suggestSend'); await wait(300);
+    assert.equal(await q.evaluate(() => window.__ink.suggesting()), null);
+    assert.ok(Math.abs(await q.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0) - w0) < 1e-9, 'back where it was on her screen');
+    assert.match(await q.$eval('#toast', (e) => e.textContent), /Suggestion sent/);
+    let sug = null;
+    for (let k = 0; k < 100 && !sug; k++) { sug = ((await db('select state from public.projects'))[0].state.notes || []).find((n) => n.suggest); if (!sug) await wait(200); }
+    assert.ok(sug, 'the suggestion reaches the account'); assert.equal(sug.text, 'Bigger reads better here'); assert.equal(sug.by, 'Mara'); assert.ok(sug.pin, 'pinned on the body');
+    assert.ok(Math.abs(sug.suggest.width - w1) < 1e-6, 'carries her size');
+    assert.ok(Math.abs((await db('select state from public.projects'))[0].state.tattoos.find((t) => t.id === t0).width - w0) < 1e-9, 'the tattoo itself is unchanged');
+    await until(p, (id) => (window.__ink.state().notes || []).some((n) => n.id === id), sug.id, 'Jake has her suggestion', 15000);
+    await p.evaluate((id) => { window.__ink.pinsOn(); window.__ink.openPin(id); }, sug.id); await wait(300);
+    assert.equal(await shown(p, '#pinSuggestUse'), true, 'Use this spot offered');
+    assert.match(await p.$eval('#pinSuggestText', (e) => e.textContent), /Mara suggests this spot for/);
+    await p.screenshot({ path: 'shots/t84-suggest.png' });
+    // Hold to see it there: shows her size while held, back the moment it lifts, nothing saved
+    assert.equal(await shown(p, '#pinSuggestPeek'), true, 'Hold to see it there offered');
+    const undo0 = await p.evaluate(() => window.__ink.undoLen ? window.__ink.undoLen() : -1);
+    const pb = await p.$eval('#pinSuggestPeek', (e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    await p.mouse.move(pb.x, pb.y); await p.mouse.down(); await wait(250);
+    assert.ok(Math.abs(await p.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0) - w1) < 1e-6, 'her size while held');
+    await p.mouse.up(); await wait(250);
+    assert.ok(Math.abs(await p.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0) - w0) < 1e-9, 'back when let go');
+    assert.equal(await p.evaluate(() => window.__ink.undoLen ? window.__ink.undoLen() : -1), undo0, 'peeking adds no undo step');
+    await p.click('#pinSuggestUse'); await wait(300);
+    assert.ok(Math.abs(await p.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0) - w1) < 1e-6, 'moved to her spot');
+    assert.ok((await p.evaluate((id) => window.__ink.state().notes.find((n) => n.id === id), sug.id)).done, 'her suggestion marked done');
+    assert.match(await p.$eval('#toast', (e) => e.textContent), /Mara's spot/);
+    // tidy up so the rest counts as before: put it back and remove the suggestion
+    await p.evaluate(() => window.__ink.undo()); await wait(200);
+    await p.evaluate((id) => { window.__ink.pinsOn(); window.__ink.openPin(id); }, sug.id); await wait(200);
+    await p.click('#pinDelete'); await wait(300);
+    await p.click('#pinsDone');
+    await until(p, () => window.__ink.account().text === 'Saved to your account', null, 'Jake tidy saved');
+    await until(q, (id) => !(window.__ink.state().notes || []).some((n) => n.id === id), sug.id, 'gone for Mara', 15000);
+    await q.evaluate(() => window.__ink.select(null));
+
     // Let them edit: her screen switches by itself
     await p.click('#accountBtn');
     await until(p, () => [...document.querySelectorAll('#acctTogether .acct-item')].some((e) => /Mara/.test(e.textContent) && /comments and answers only/.test(e.textContent)), null, 'Jake sees her as comments only');

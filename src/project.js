@@ -73,6 +73,10 @@ export function cleanState(raw, hasImage) {
     // replies to a pinned comment, and who marked it resolved (optional)
     if (n.replies !== undefined) { const r = cleanReplies(n.replies); if (r.length) n.replies = r; else delete n.replies; }
     if (n.done !== undefined) { const d = cleanWho(n.done); if (d) n.done = d; else delete n.done; }
+    // a placement someone who can only comment suggests for a tattoo (optional)
+    if (n.suggest !== undefined) { const g = cleanSuggest(n.suggest); if (g) n.suggest = g; else delete n.suggest; }
+    // quick reactions to a pinned comment (optional)
+    if (n.reacts !== undefined) { const r = cleanReacts(n.reacts); if (r.length) n.reacts = r; else delete n.reacts; }
   }
   // reference pictures (optional): inspiration for the whole project or one tattoo
   if (s.refs !== undefined) { const r = cleanRefs(s.refs, hasImage, new Set(out.map((t) => t.id))); if (r.length) s.refs = r; else delete s.refs; }
@@ -96,6 +100,33 @@ export function cleanReplies(list) {
     if (!r || typeof r !== 'object' || typeof r.id !== 'string' || !r.id || seen.has(r.id) || typeof r.text !== 'string' || !r.text.trim()) continue;
     seen.add(r.id);
     out.push({ id: r.id.slice(0, 40), text: r.text.slice(0, 500), ...cleanWho(r) });
+  }
+  return out;
+}
+
+// a suggested spot for a tattoo: { tattooId, pos, normal, width, rot, wrap?, bend?, taper? }
+export const SUGGEST_KEYS = ['pos', 'normal', 'width', 'rot', 'wrap', 'bend', 'taper'];
+export function cleanSuggest(g) {
+  if (!g || typeof g !== 'object' || Array.isArray(g) || typeof g.tattooId !== 'string' || !g.tattooId) return null;
+  const v3 = (a, m) => Array.isArray(a) && a.length === 3 && a.every((c) => num(c) && Math.abs(c) <= m);
+  if (!v3(g.pos, 10) || !v3(g.normal, 2) || !num(g.width) || !num(g.rot)) return null;
+  const len = Math.hypot(...g.normal); if (len < 0.5) return null;
+  const o = { tattooId: g.tattooId.slice(0, 40), pos: g.pos.slice(), normal: g.normal.map((c) => c / len), width: clamp(g.width, 0.012, 0.9), rot: g.rot };
+  for (const [k, lo, hi] of [['wrap', 0, 1], ['bend', -1, 1], ['taper', -0.75, 0.75]]) if (num(g[k]) && g[k]) o[k] = clamp(g[k], lo, hi);
+  return o;
+}
+// quick reactions to a comment: [{ id, e, by }], one of each kind per person (id is kind|name)
+export const REACTIONS = [['👍', 'Thumbs up'], ['❤️', 'Love it'], ['🔥', 'Fire'], ['👀', 'Looking at it']];
+export const MAX_REACTS = 40;
+export function cleanReacts(list) {
+  if (!Array.isArray(list)) return [];
+  const kinds = new Set(REACTIONS.map((r) => r[0])), out = [], seen = new Set();
+  for (const r of list) {
+    if (out.length >= MAX_REACTS) break;
+    if (!r || typeof r !== 'object' || !kinds.has(r.e) || typeof r.by !== 'string' || !r.by.trim()) continue;
+    const by = r.by.slice(0, 60), id = (r.e + '|' + by).slice(0, 80);
+    if (seen.has(id)) continue;
+    seen.add(id); out.push({ id, e: r.e, by });
   }
   return out;
 }

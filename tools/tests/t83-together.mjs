@@ -22,6 +22,7 @@ export default async function (p) {
   const db = async (sql, args) => (await fake.pool.query(sql, args)).rows;
   const clickText = async (pg, text) => { const ok = await pg.evaluate((t) => { const b = [...document.querySelectorAll('#account button')].find((x) => x.textContent.trim() === t && !x.disabled && x.offsetParent); if (b) b.click(); return !!b; }, text); assert.ok(ok, 'button ' + text); };
   const hasText = (pg, text) => pg.evaluate((t) => [...document.querySelectorAll('#account button')].some((x) => x.textContent.trim() === t && x.offsetParent), text);
+  const shown = (pg, sel) => pg.$eval(sel, (e) => !!(e.getClientRects().length && getComputedStyle(e).display !== 'none' && !e.hidden)).catch(() => false);
   const type = async (pg, sel, text) => { await wait(150); await pg.$eval(sel, (e) => { e.value = ''; }); await pg.type(sel, text); assert.equal(await pg.$eval(sel, (e) => e.value), text, 'typed into ' + sel); };
   const toastText = (pg) => pg.$eval('#toast', (e) => (e.hidden ? '' : e.textContent));
   const openPage = async () => {
@@ -170,11 +171,24 @@ export default async function (p) {
     await q.evaluate((id) => window.__ink.select(id), t0); await wait(300);
     assert.equal(await q.evaluate(() => window.__ink.answerShown()), true, 'Looks good / Ask for a change show on a shared project');
     assert.ok(await q.$eval('#bApprove', (e) => e.getBoundingClientRect().height >= 44), 'answer buttons big enough');
+    // Looks good on all: a yes to every planned tattoo nobody has answered, one undo step
+    const nPlanned = await q.evaluate(() => window.__ink.state().tattoos.filter((t) => t.status !== 'existing' && !t.hidden && !t.review).length);
+    if (nPlanned >= 2) {
+      assert.equal(await q.$eval('#bApproveAll', (e) => !e.hidden && e.textContent), `Looks good on all ${nPlanned}`);
+      await q.click('#bApproveAll'); await wait(200);
+      const all = await q.evaluate(() => window.__ink.state().tattoos.filter((t) => t.status !== 'existing').map((t) => t.review && t.review.verdict + '|' + t.review.by));
+      assert.ok(all.every((x) => x === 'approved|Liv'), 'all said yes by Liv: ' + all);
+      assert.match(await q.$eval('#toast', (e) => e.textContent), new RegExp(`yes to ${nPlanned} tattoos`));
+      assert.equal(await q.$eval('#bApproveAll', (e) => e.hidden), true, 'gone once all are answered');
+      await q.click('#undo'); await wait(200);
+      assert.equal(await q.evaluate(() => window.__ink.state().tattoos.filter((t) => t.review).length), 0, 'one undo takes them all back');
+    } else console.log('note: fewer than two planned tattoos, Looks good on all not checked');
     await q.click('#bAskChange'); await wait(150);
     await q.type('#changeNote', 'Move it up an inch');
     await q.screenshot({ path: 'shots/t83-ask-change.png' });
     await q.click('#bSendChange'); await wait(200);
     const rv = await q.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).review, t0);
+    if (nPlanned === 2) assert.equal(await q.$eval('#bApproveAll', (e) => e.hidden), true, 'a single unanswered one needs no all');
     assert.equal(rv.verdict, 'changes'); assert.equal(rv.note, 'Move it up an inch'); assert.equal(rv.by, 'Liv'); assert.match(rv.at, /^\d{4}-\d{2}-\d{2}$/);
     await until(p, (id) => { const t = window.__ink.state().tattoos.find((x) => x.id === id); return t && t.review && t.review.by === 'Liv'; }, t0, 'her answer reaches Jake', 15000);
     await until(p, () => /Liv asked for a change/.test(document.querySelector('#toast').textContent), null, 'Jake is told who asked what');
@@ -198,11 +212,17 @@ export default async function (p) {
     await p.screenshot({ path: 'shots/t83-pin.png' });
     await until(q, () => (window.__ink.state().notes || []).some((n) => n.pin && n.text === 'Darker lines here'), null, 'the comment reaches Liv', 15000);
     await until(q, () => /Jake pinned a comment/.test(document.querySelector('#toast').textContent), null, 'Liv is told');
+    // new to her: the pin and the Comments button carry a dot until she opens it
+    await until(q, () => document.querySelector('#pinsBtn').classList.contains('has-new'), null, 'Comments marked new for Liv');
+    // and the tattoo's chip in the tray says how many open comments it has, in red while new
+    assert.equal(await q.evaluate(() => { const b = document.querySelector('#trayItems .chip b.cmts.new'); return b && b.textContent; }), '1', 'red count on the chip');
     // Show opens it on her side
     await q.evaluate(() => [...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show').click()); await wait(400);
     pins = await q.evaluate(() => window.__ink.pins());
     assert.equal(pins.on, true); assert.ok(pins.open, 'the comment is open');
     assert.match(await q.$eval('#pinWho', (e) => e.textContent), /Jake/);
+    assert.equal(await q.$eval('#pinsBtn', (e) => e.classList.contains('has-new')), false, 'read once opened');
+    assert.equal(await q.evaluate(() => { const b = document.querySelector('#trayItems .chip b.cmts'); return b && (b.classList.contains('new') ? 'new ' : '') + b.textContent; }), '1', 'count stays, no longer red');
     await q.screenshot({ path: 'shots/t83-pin-arrives.png' });
     // Liv typing a reply under it shows on Jake's open comment, and goes when she sends it
     await p.evaluate((id) => window.__ink.openPin(id), note.id); await wait(200);
@@ -223,6 +243,29 @@ export default async function (p) {
     await p.evaluate((id) => { window.__ink.openPin(null); window.__ink.openPin(id); }, note.id); await wait(200);
     await until(p, () => [...document.querySelectorAll('#pinReplies mark.at-me')].some((m) => m.textContent === '@Jake'), null, 'it stands out for Jake');
     await p.screenshot({ path: 'shots/t83-mention.png' });
+    // the list can show only the comments that mention him
+    await p.evaluate(() => { window.__ink.openPin(null); }); await wait(100);
+    await p.click('#pinListBtn'); await wait(150);
+    assert.equal(await shown(p, '#pinListMe'), true, 'Mentions you offered');
+    await p.click('#pinListMe'); await wait(150);
+    assert.equal(await p.$eval('#pinListMe', (e) => e.getAttribute('aria-pressed')), 'true');
+    assert.equal(await p.$$eval('#pinListItems li', (l) => l.length), 1);
+    assert.match(await p.$eval('#pinListItems li', (e) => e.textContent), /mentions you/);
+    await p.click('#pinListItems li button'); await wait(200);
+    // a quick reaction: Jake taps thumbs up, Liv sees it is his; tapping again takes it back
+    assert.equal(await shown(p, '#pinReacts'), true, 'reactions offered on a shared project');
+    assert.ok(await p.$eval('#pinReacts .react', (e) => e.getBoundingClientRect().height >= 44));
+    await p.click('#pinReacts .react[data-e="👍"]');
+    assert.equal(await p.$eval('#pinReacts .react[data-e="👍"]', (e) => e.getAttribute('aria-pressed')), 'true');
+    await q.evaluate((id) => { window.__ink.openPin(null); window.__ink.openPin(id); }, note.id);
+    await until(q, () => { const b = document.querySelector('#pinReacts .react[data-e="👍"]'); return b && /Jake/.test(b.getAttribute('aria-label')) && b.textContent.includes('1'); }, null, 'Liv sees his thumbs up', 15000);
+    await q.click('#pinReacts .react[data-e="🔥"]');
+    await until(p, () => { const b = document.querySelector('#pinReacts .react[data-e="🔥"]'); return b && /Liv/.test(b.getAttribute('aria-label')); }, null, 'Jake sees her fire', 15000);
+    await p.screenshot({ path: 'shots/t83-reacts.png' });
+    assert.equal(await p.$eval('#pinReacts .react[data-e="❤️"]', (e) => e.textContent), '❤️', 'no count when nobody reacted');
+    await p.click('#pinReacts .react[data-e="👍"]');
+    assert.equal(await p.$eval('#pinReacts .react[data-e="👍"]', (e) => e.getAttribute('aria-pressed')), 'false', 'taken back');
+    await until(q, () => !/Jake/.test(document.querySelector('#pinReacts .react[data-e="👍"]').getAttribute('aria-label')), null, 'gone for Liv too', 15000);
     await q.click('#pinsDone'); await p.click('#pinsDone'); await wait(200);
 
     // both change at once: both changes kept, still one project

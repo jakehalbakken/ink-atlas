@@ -1,6 +1,8 @@
 // What changed since you last looked (src/changes.js).
 import assert from 'node:assert/strict';
 import { changesBetween } from '../../src/changes.js';
+import { cleanReacts, cleanSuggest } from '../../src/project.js';
+import { mergeStates } from '../../src/merge.js';
 
 const T = (id, more) => ({ id, name: id, img: 'k' + id, width: 0.1, rot: 0, pos: [0, 1, 0], ...more });
 const before = { skin: 1, muscle: 0.5, tattoos: [T('Rose'), T('Koi'), T('Moth')], notes: [{ id: 'n1', text: 'old', by: 'Jake' }] };
@@ -47,4 +49,23 @@ assert.deepEqual(changesBetween(later, reopened, { me: 'Artist' }).map((c) => c.
   assert.equal(c[0].mention, true); assert.match(c[0].text, /^Liv mentioned you on "old": "@jake smaller\?"$/);
   assert.equal(c.find((x) => x.noteId === 'm2').mention, undefined, 'a mention of someone else is a comment');
 }
+// reactions: cleaned to one of each kind per person, merged from both sides, listed for the others
+{
+  assert.deepEqual(cleanReacts([{ e: '👍', by: 'Liv' }, { e: '👍', by: 'Liv' }, { e: '💩', by: 'Liv' }, { e: '🔥', by: '' }, { e: '❤️', by: 'Jake', id: 'x' }]),
+    [{ id: '👍|Liv', e: '👍', by: 'Liv' }, { id: '❤️|Jake', e: '❤️', by: 'Jake' }]);
+  const base = { notes: [{ id: 'n', text: 'Darker here', reacts: [{ id: '👀|Mara', e: '👀', by: 'Mara' }] }] };
+  const l = JSON.parse(JSON.stringify(base)); l.notes[0].reacts.push({ id: '👍|Jake', e: '👍', by: 'Jake' });
+  const r = JSON.parse(JSON.stringify(base)); r.notes[0].reacts = [{ id: '🔥|Liv', e: '🔥', by: 'Liv' }];
+  const m = mergeStates(base, l, r);
+  assert.deepEqual(m.notes[0].reacts.map((x) => x.id).sort(), ['🔥|Liv', '👍|Jake'].sort(), 'both added, the one taken back stays gone');
+  const c = changesBetween(base, r, { me: 'Jake' });
+  assert.ok(c.some((x) => x.kind === 'react' && x.text === 'Liv reacted 🔥 to "Darker here"'));
+  assert.ok(!changesBetween(base, l, { me: 'Jake' }).some((x) => x.kind === 'react'), 'not my own');
+}
+// a suggested spot is kept only when it is a real placement
+assert.equal(cleanSuggest({ tattooId: 'a', pos: [0, 1, 0], normal: [0, 0, 2], width: 5, rot: 0.5, wrap: 0.3, bend: 0, junk: 1 }).width, 0.9);
+assert.deepEqual(cleanSuggest({ tattooId: 'a', pos: [0, 1, 0], normal: [0, 0, 2], width: 0.1, rot: 0.5, wrap: 0.3, bend: 0 }), { tattooId: 'a', pos: [0, 1, 0], normal: [0, 0, 1], width: 0.1, rot: 0.5, wrap: 0.3 });
+assert.equal(cleanSuggest({ tattooId: 'a', pos: [0, 1], normal: [0, 0, 1], width: 0.1, rot: 0 }), null);
+assert.equal(cleanSuggest({ pos: [0, 1, 0], normal: [0, 0, 1], width: 0.1, rot: 0 }), null);
+assert.match(changesBetween({ notes: [] }, { notes: [{ id: 's', text: 'Bigger here', by: 'Mara', suggest: {} }] }, { me: 'Jake' })[0].text, /^Mara suggested a new spot: "Bigger here"$/);
 console.log('changes-unit: ok');

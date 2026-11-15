@@ -135,6 +135,10 @@ export async function openCloud() {
     async verifyCode(email, token) { check(await sb.auth.verifyOtp({ email, token: String(token).replace(/\s+/g, ''), type: 'email' })); },
     async setPassword(password) { check(await sb.auth.updateUser({ password })); },
     async setName(name) { check(await sb.auth.updateUser({ data: { name: String(name).slice(0, 60) } })); },
+    // Settings that follow you (prefs.js): { at, s } in the user's own details, nothing else
+    prefs() { const p = user && user.user_metadata && user.user_metadata.prefs; return p && typeof p === 'object' ? p : null; },
+    async setPrefs(v) { const d = check(await sb.auth.updateUser({ data: { prefs: v } })); if (d && d.user) user = d.user; },
+    async refreshUser() { const { data, error } = await sb.auth.getUser(); if (!error && data && data.user && user && data.user.id === user.id) user = data.user; },
     async signOut() { const { error } = await sb.auth.signOut({ scope: 'local' }); if (error) throw new Error(plain(error)); user = null; },
 
     // Projects -------------------------------------------------------------
