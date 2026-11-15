@@ -29,7 +29,9 @@ import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
 import { createBeforeAfter } from './before-after.js';
 import { createPoseView } from './pose-view.js';
-import { createClothes, TOPS, BOTTOMS, HAIR } from './clothes.js';
+import { createClothes, TOPS, BOTTOMS, HAIR, coverage as clothesCoverage } from './clothes.js';
+import { OUTFITS, visibilityText } from './visibility.js';
+import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
 import { AGES, ageInk } from './aging.js';
@@ -54,6 +56,7 @@ import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertex
 import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, roomByRegion, roomColour, roomSummary, inchWords } from './room.js';
 import { whereItSits } from './where.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
+import { evenness, evennessText, limbLine, straighten } from './symmetry.js';
 import { planSittings, dayWords, sittingHours, sittingsCalendar } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
 
@@ -1929,6 +1932,10 @@ const SHOW = {
   room: () => { showLook(true); return ['#roomBtn', 'Tap Open skin to see where you still have room, and how big a piece fits there.']; },
   roomFit: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRoom', 'Find room for it shows in green everywhere this tattoo fits. Tap a green spot to move it there.']; },
   versions: () => { const t = state.tattoos.find((q) => (q.versions || []).length && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bProcreate', 'Edit this tattoo in Procreate and bring it back: the earlier artwork is kept as a version you can compare and go back to.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; renderVersions(t); return ['#verBox', 'Tap a version to see it on the body, then Use this one or Side by side.']; },
+  straight: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; lineRender(t); return [$('#lineRow').hidden ? '#estRow' : '#lineRow', 'This line says how far the tattoo is turned off the line of the limb, or off upright on the body. Straighten lines it up in one step you can undo.']; },
+  wear: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const wr = wearOf(t); $('#wearLine').textContent = wr ? wr.text : ''; $('#wearLine').hidden = !wr; return [wr ? '#wearLine' : '#estRow', 'This line says how the spot treats a tattoo over the years, like sun, rubbing or creases.']; },
+  shows: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv; return [sv ? '#showsLine' : '#estRow', 'Under where it sits, a line says which everyday clothes hide this tattoo and which show it.']; },
+  even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
   sittings: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitBox', 'Pick the date of the first sitting and the weeks between. Each sitting gets its date, and the last line says when it is healed.']; },
   note: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#noteBox', 'Type what your artist should know about this one. It goes on the artist sheet and the artist packet.']; },
   made: () => { const t = state.tattoos.find((q) => q.status === 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Planned to mark this tattoo as already on me. Then More controls has who did it and when.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; return ['#madeBox', 'Add who did this tattoo, the studio and the month. It goes on the artist sheet.']; },
@@ -1978,14 +1985,18 @@ function showMe(f) {
   coach(r[0], r[1]);
 }
 function coach(target, text) {
-  const ring = $('#pointRing'), tip = $('#pointTip'), t0 = performance.now();
-  tip.textContent = text; tip.hidden = false; ring.hidden = !target; coachArmed = t0 + 350;
+  const ring = $('#pointRing'), tip = $('#pointTip');
+  tip.textContent = text; tip.hidden = false; ring.hidden = !target; coachArmed = performance.now() + 350;
   cancelAnimationFrame(coachTimer);
-  let scrolled = false;
+  // the tip stays about 8 seconds on screen: time the page spent busy (opening a panel, a first
+  // measurement) does not count, so on a slow device it is never gone before it is seen
+  let scrolled = 0, shown = 0, last = 0;
   const place = () => {
-    const now = performance.now(); if (now - t0 > 8000) return endCoach();
+    const now = performance.now(); if (last) shown += Math.min(now - last, 100); last = now;
+    if (shown > 8000) return endCoach();
     const n = target && document.querySelector(target), vis = n && n.getClientRects().length && !n.hidden;
-    if (vis && !scrolled) { n.scrollIntoView({ block: 'nearest', inline: 'nearest' }); scrolled = true; }
+    // scrolled into view, and again if lines filling in above it push it off screen
+    if (vis && scrolled < 6) { const r = n.getBoundingClientRect(); if (!scrolled || r.top < 0 || r.bottom > innerHeight) { n.scrollIntoView({ block: 'nearest', inline: 'nearest' }); scrolled++; } }
     if (vis) {
       const b = n.getBoundingClientRect(), pad = 6; ring.hidden = false;
       Object.assign(ring.style, { left: b.left - pad + 'px', top: b.top - pad + 'px', width: b.width + pad * 2 + 'px', height: b.height + pad * 2 + 'px' });
@@ -2626,6 +2637,68 @@ function planRender(t) {
   const line = planText(list, readRate()); $('#planLine').textContent = line; $('#planLine').hidden = !line;
   if (line && $('#editorAdvanced').open && !infoByShow && performance.now() > infoQuietUntil) markTried('plan');
 }
+// what it shows in: the share of the tattoo's skin each everyday outfit covers, cut the same
+// way as Preview > Clothes, on the rest body (worked out once per body shape)
+let outfitCover = null;
+function showsShares(t) {
+  const d = decals[t.id], sup = d && d.mesh.geometry.userData.supports; if (!sup || !sup.length) return null;
+  if (!outfitCover || outfitCover.key !== shapeKey) {
+    const P = bodyGeo.attributes.position.array, J = poseView.restRig().joints;
+    outfitCover = { key: shapeKey, list: OUTFITS.map((o) => { const c = clothesCoverage(P, J, o.top, o.bottom, 'none'); return (v) => (c.top[v] > 0) || (c.bottom[v] > 0); }) };
+  }
+  return outfitCover.list.map((f) => { let n = 0; for (const v of sup) if (f(v)) n++; return n / sup.length; });
+}
+// how it holds up here, from the place under most of the tattoo
+function wearOf(t) {
+  if (!t || t.hidden) return null;
+  const d = painData(), r = painUnder({ pos: bodyGeo.attributes.position.array, count: PAIN_N, level: d.smooth, place: d.place, centre: t.pos, radius: Math.max(0.01, Math.min(t.width, t.width / t.aspect) / 2) });
+  return r ? { ...wearAt(r.place), place: r.place } : null;
+}
+function showsOf(t) { return t && !t.hidden ? visibilityText(showsShares(t)) : ''; }
+// even placement: off the centre line, or not quite matching its twin on the other side
+function evenOf(t) { return evenness(t, state.tattoos, cmPerUnit()); }
+function evenRender(t) {
+  const e = t && evenOf(t); $('#evenRow').hidden = !e; if (!e) return;
+  $('#evenLine').textContent = evennessText(e);
+  $('#evenFix').hidden = e.even; $('#evenFix').textContent = e.kind === 'twin' ? 'Match the other side' : 'Centre it';
+}
+function evenFix() {
+  const t = sel(), e = t && evenOf(t); if (!e || e.even) return;
+  if (t.locked) { toast('Unlock this tattoo first.'); return; }
+  if (poseView.active) { toast('Turn off the pose first, then line it up.'); return; }
+  let m = null;
+  if (e.kind === 'centre') {
+    const n = new V3(0, t.normal[1], t.normal[2]); if (n.lengthSq() < 1e-6) n.set(0, 0, Math.sign(t.pos[2]) || 1); n.normalize();
+    const at = new V3(0, t.pos[1], t.pos[2]), h = surfaceAt(at.clone().addScaledVector(n, 0.3), n.clone().negate());
+    if (h && Math.abs(h.pos[0]) < 0.004) m = { pos: [0, h.pos[1], h.pos[2]], normal: h.normal };
+  } else {
+    const twin = state.tattoos.find((q) => q.id === e.twinId), o = twin && otherSide(twin);
+    if (o) m = { ...o, width: twin.width };
+  }
+  if (!m) { toast('Could not find that spot on this body.'); return; }
+  snapshot(); Object.assign(t, m); commit(); markTried('even');
+  toast(e.kind === 'twin' ? `${t.name} now mirrors ${e.twinName}.` : `${t.name} is on the centre line.`, 'Undo', undo);
+}
+$('#evenFix').addEventListener('click', evenFix);
+// straight along the limb (or upright on the torso): how far it is turned off that line
+function lineOf(t) {
+  if (!t || t.hidden) return null;
+  const L = limbLine(t.pos, POSE_BONES, poseView.restRig().joints); if (!L) return null;
+  const up0 = frameOf({ ...t, rot: 0 }).up.toArray(), target = turnAlong(up0, L.along, t.normal);
+  return { ...straighten(t.rot || 0, target), name: L.name };
+}
+function lineRender(t) {
+  const l = lineOf(t); $('#lineRow').hidden = !l; if (!l) return;
+  const on = l.name === 'body' ? 'upright on the body' : `along the ${l.name}`;
+  $('#lineText').textContent = l.offDeg < 1.5 ? `Straight ${on}.` : `Turned ${Math.round(l.offDeg)}° off straight ${on}.`;
+  $('#lineFix').hidden = l.offDeg < 1.5;
+}
+$('#lineFix').addEventListener('click', () => {
+  const t = sel(), l = lineOf(t); if (!l || l.offDeg < 1.5) return;
+  if (t.locked) { toast('Unlock this tattoo first.'); return; }
+  snapshot(); t.rot = l.rot; commit(); markTried('straight');
+  toast(`${t.name} is straight ${l.name === 'body' ? 'up' : 'along the ' + l.name}.`, 'Undo', undo);
+});
 // the session planner: a planned piece in sittings, with dates once a first one is picked
 function sitPlan(t) {
   const hrs = t && t.status !== 'existing' && hoursOf(t); if (!hrs) return null;
@@ -2671,6 +2744,10 @@ function renderInfo() {
     const hrs = hoursOf(t); $('#estLine').textContent = hrs ? sessionText(hrs, readRate()) : '';
     planRender(t);
     sitRender(t);
+    evenRender(t);
+    lineRender(t);
+    const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv;
+    const wr = wearOf(t); $('#wearLine').textContent = wr ? wr.text : ''; $('#wearLine').hidden = !wr;
     if (document.activeElement !== $('#estRate')) $('#estRate').value = readRate() || '';
   }, 150);
 }
@@ -3835,6 +3912,10 @@ window.__ink = {
   peek: () => (peek ? { id: peek.id, name: peek.v.name } : null),
   versionsShot: () => versionsShot(),
   sittings: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? sitPlan(t) : null; },
+  line: () => $('#lineRow').hidden ? '' : $('#lineText').textContent + ($('#lineFix').hidden ? '' : ' | Straighten'),
+  wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
+  shows: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: showsOf(t), shares: showsShares(t) } : null; },
+  even: () => $('#evenRow').hidden ? '' : $('#evenLine').textContent + ($('#evenFix').hidden ? '' : ' | ' + $('#evenFix').textContent),
   sitShown: () => $('#sitBox').hidden ? null : [...$('#sitList').children].map((li) => li.textContent),
   planLine: () => $('#planLine').hidden ? '' : $('#planLine').textContent,
   gap: () => { const t = sel(); return t ? nearestGap(t) : null; }, gapPts: () => state.tattoos.map((t) => (inkPoints(t) || []).length / 3), gapText: () => $('#gap').hidden ? '' : $('#gap').textContent,
