@@ -5,7 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
-  { id: 'labels', date: '2026-11-15', title: 'Picture with sizes', how: 'Share > Picture with sizes takes this view with each tattoo’s name and size written beside it, in inches and centimetres. Turn the body first so the tattoos you want face you.', show: 'labels' },
+  { id: 'labels', date: '2026-11-15', title: 'Picture with sizes', how: 'Share > Picture with sizes takes this view with each tattoo’s name, size and where it sits written beside it, in inches and centimetres. Turn the body first so the tattoos you want face you.', show: 'labels' },
   { id: 'centre', date: '2026-11-15', title: 'Centre line while you drag', how: 'Drag a tattoo on your chest, stomach, back or neck across the middle and a guide line shows down the centre of the body. With Snap to guides on (More controls > Precise placement) it sits exactly in the middle.', show: 'centre' },
   { id: 'message', date: '2026-11-15', title: 'Plan as a message', how: 'Share > Plan as a message puts every planned tattoo into a few lines: its size, where it sits the way an artist measures, the time it takes, the first sitting and your note. Send it, or paste it into a text to your artist.', show: 'message' },
   { id: 'keys', date: '2026-11-15', title: 'Keyboard shortcuts', how: 'With a keyboard on the iPad, select a tattoo: the arrows move it the way they point (hold Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates it and Delete removes it. Undo puts any of it back.', show: 'keys' },

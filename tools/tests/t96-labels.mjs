@@ -19,7 +19,8 @@ export default async function (p) {
   const h = await p.evaluate(() => window.__ink.heightCm ? window.__ink.heightCm() : (window.__ink.state().heightCm || 175));
   const inch = (u) => (u * h / 1.75 / 2.54).toFixed(1);
   const la = L.find((x) => x.id === 'la');
-  assert.equal(la.lines[0], 'Chest left'); assert.ok(la.lines[1].startsWith(`${inch(0.06)} × ${inch(0.06)} in (`), la.lines[1]);
+  assert.equal(la.lines[0], 'Chest left'); assert.ok(la.lines.length >= 3, 'name, size and where'); assert.match(la.lines[2], /^Centre/, la.lines[2]);
+  assert.ok(L.every((l) => l.side !== 'near'), 'beside the body: ' + L.map((l) => l.side)); assert.ok(la.lines[1].startsWith(`${inch(0.06)} × ${inch(0.06)} in (`), la.lines[1]);
   const [x, y] = [L[0], L[1]];
   assert.ok(!(x.x < y.x + y.w && x.x + x.w > y.x && x.y < y.y + y.h && x.y + x.h > y.y), 'labels apart');
   const dims = await p.evaluate(() => { const c = document.querySelector('#stage canvas'); return [c.width, c.height]; });

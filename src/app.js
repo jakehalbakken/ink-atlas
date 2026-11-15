@@ -3480,10 +3480,13 @@ function labelsShot() {
   if (!found.length) return '';
   const fs = Math.max(12, Math.round(Math.min(W, H) * 0.024)), pad = Math.round(fs * 0.55), lh = Math.round(fs * 1.25);
   const bold = `600 ${fs}px -apple-system, system-ui, sans-serif`, plain = `${fs}px -apple-system, system-ui, sans-serif`;
+  const sfs = Math.round(fs * 0.82), small = `${sfs}px -apple-system, system-ui, sans-serif`, sh = Math.round(sfs * 1.25);
   const items = found.map(({ t, box }) => {
-    const w = toInches(t.width), lines = [t.name || 'Tattoo', sizeLabel(w, w / t.aspect)];
-    g.font = bold; const a = g.measureText(lines[0]).width; g.font = plain; const b = g.measureText(lines[1]).width;
-    return { t, box, lines, w: Math.ceil(Math.max(a, b) + pad * 2), h: lh * 2 + pad * 2 };
+    // the name, the size, then where it sits the way an artist measures it
+    let at = ''; try { const wh = whereOf(t); at = wh && wh.line ? wh.line.slice(wh.line.indexOf(':') + 1).trim().replace(/\.$/, '') : ''; } catch { at = ''; }
+    const w = toInches(t.width), lines = [t.name || 'Tattoo', sizeLabel(w, w / t.aspect), ...(at ? at.split(/, /).map((l) => l.charAt(0).toUpperCase() + l.slice(1)) : [])];
+    const widths = lines.map((l, k) => { g.font = k > 1 ? small : k ? plain : bold; return g.measureText(l).width; });
+    return { t, box, lines, w: Math.ceil(Math.max(...widths) + pad * 2), h: lh * 2 + sh * (lines.length - 2) + pad * 2 };
   });
   const spots = placeLabels(items, W, H, Math.round(fs * 0.4), span);
   // every line first, then the labels over them, so no line crosses a label's words
@@ -3502,6 +3505,7 @@ function labelsShot() {
     g.fillStyle = '#f2f2f5'; g.textBaseline = 'middle'; g.textAlign = 'left';
     g.font = bold; g.fillText(it.lines[0], x + pad, y + pad + lh / 2);
     g.font = plain; g.fillStyle = '#c9cad3'; g.fillText(it.lines[1], x + pad, y + pad + lh * 1.5);
+    g.font = small; g.fillStyle = '#a9abb6'; it.lines.slice(2).forEach((l, k) => g.fillText(l, x + pad, y + pad + lh * 2 + sh * (k + 0.5)));
   });
   labelsLast = items.map((it, i) => ({ id: it.t.id, box: it.box.map(Math.round), ...spots[i], w: it.w, h: it.h, lines: it.lines, span }));
   return out.toDataURL('image/png');
