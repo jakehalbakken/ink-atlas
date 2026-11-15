@@ -17,4 +17,17 @@ for (const { years } of AGES.slice(1)) {
   last = wv; lastDark = core;
 }
 assert.ok(last > width(fresh) + 3, '20 years is clearly softer than fresh');
+// light colours fade sooner than black; the soft grey edge of a black line does not
+{
+  const { fadeExtra } = await import('../../src/aging.js');
+  assert.equal(fadeExtra(15, 15, 15), 0, 'black'); assert.equal(fadeExtra(120, 120, 120), 0, 'line-edge grey');
+  assert.ok(fadeExtra(250, 220, 60) > fadeExtra(200, 30, 30), 'yellow fades sooner than red');
+  assert.ok(fadeExtra(200, 30, 30) > 0 && fadeExtra(200, 30, 30) < 0.2, 'red a little');
+  assert.ok(fadeExtra(250, 200, 220) > 0.3, 'pastel pink a lot');
+  const patch = (c) => { const d = new Uint8ClampedArray(W * H * 4).fill(255); for (let y = 10; y < 50; y++) for (let x = 60; x < 140; x++) d.set([...c, 255], (y * W + x) * 4); return d; };
+  const left = (c) => { const d = ageInk(patch(c), W, H, 20, pxPerMm), o = (30 * W + 100) * 4; return (255 - d[o]) + (255 - d[o + 1]) + (255 - d[o + 2]); };
+  const before = (c) => 3 * 255 - c[0] - c[1] - c[2];
+  const yel = left([240, 200, 40]) / before([240, 200, 40]), blk = left([20, 20, 20]) / before([20, 20, 20]);
+  assert.ok(yel < blk - 0.1, `after 20 years yellow keeps less of its ink (${yel.toFixed(2)}) than black (${blk.toFixed(2)})`);
+}
 console.log(`PASS aging unit: a 0.5 mm line reads ${width(fresh)}px fresh and ${last}px at 20 years, paper stays white`);

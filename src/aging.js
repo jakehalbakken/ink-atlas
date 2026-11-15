@@ -36,6 +36,20 @@ function boxPass(src, dst, w, h, r, horizontal) {
   }
 }
 
+// How much more than black an ink colour fades: light colours, pastels and white most, yellow
+// and orange next, red, green and blue a little, black and dark grey not at all (0..0.65).
+export function fadeExtra(r, g, b) {
+  const mx = Math.max(r, g, b) / 255, mn = Math.min(r, g, b) / 255, L = (mx + mn) / 2, d = mx - mn;
+  if (L < 0.2) return 0;
+  const sat = d < 1e-6 ? 0 : d / (1 - Math.abs(2 * L - 1));
+  let hue = 0;
+  if (d > 1e-6) { const R = r / 255, G = g / 255, B = b / 255; hue = mx === R ? 60 * (((G - B) / d) % 6) : mx === G ? 60 * ((B - R) / d + 2) : 60 * ((R - G) / d + 4); if (hue < 0) hue += 360; }
+  const light = Math.min(1, Math.max(0, (L - (sat > 0.3 ? 0.35 : 0.55)) / 0.4)) * 0.45; // greys: only pale washes, not the soft edge of a black line
+  const yellow = sat > 0.3 && hue >= 30 && hue <= 75 ? 0.2 : 0;
+  const colour = sat > 0.3 ? 0.08 : 0;
+  return Math.min(0.65, light + yellow + colour);
+}
+
 // rgba: the ink picture on white (rows of RGBA bytes), changed in place.
 // pxPerMm: how many picture pixels make one millimetre on the body.
 export function ageInk(rgba, w, h, years, pxPerMm) {
@@ -45,8 +59,11 @@ export function ageInk(rgba, w, h, years, pxPerMm) {
   const r = Math.max(0, Math.min(40, Math.round((m.spreadMm * pxPerMm) / 1.7)));
   const a = new Float32Array(w * h), b = new Float32Array(w * h);
   const keep = [1, 1 - 0.06 * m.tint, 1 - 0.12 * m.tint]; // red absorbed most: drifts to blue-green
+  // light colours fade sooner than black: each pixel keeps less of its ink, by its own colour
+  const over = 1 - Math.exp(-Math.max(0, Number(years) || 0) / 10), own = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) own[i] = 1 - fadeExtra(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]) * over;
   for (let c = 0; c < 3; c++) {
-    for (let i = 0; i < w * h; i++) a[i] = 255 - rgba[i * 4 + c]; // darkness
+    for (let i = 0; i < w * h; i++) a[i] = (255 - rgba[i * 4 + c]) * own[i]; // darkness
     if (r > 0) for (let pass = 0; pass < 3; pass++) { boxPass(a, b, w, h, r, true); boxPass(b, a, w, h, r, false); }
     // a spread line is wider and greyer, not fainter overall: lift the thin soft edges back up
     const k = m.density * keep[c], lift = 1 + 1.2 * Math.min(1, m.spreadMm);

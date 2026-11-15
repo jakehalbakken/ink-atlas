@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'colourFade', date: '2026-11-15', title: 'Light colours fade sooner', how: 'Aging and the How it ages picture now fade light colours, pastels and yellow faster than black, the way real ink does, so a colour piece at 20 years looks honest. Try Share, then How it ages, on a tattoo with colour.', show: 'agingSheet' },
   { id: 'distance', date: '2026-11-15', title: 'From a distance', how: 'Select a tattoo, then Share, then From a distance. One picture shows it close up, across a table, across a room and across the street, with the detail an eye can’t make out at each distance run together. Ink check also says from how far its finest lines blur.', show: 'distance' },
   { id: 'stretch', date: '2026-11-15', title: 'How it stretches as you move', how: 'Select a tattoo and open More controls. A line says how much the skin under it stretches and squeezes in the poses that move that spot most, like an arm overhead or a bent knee. Show that pose puts the body in the worst one so you can see it.', show: 'stretch' },
   { id: 'bodyHair', date: '2026-11-15', title: 'Body hair', how: 'Body, then Hair, then Light or Full under the beard. Hair grows on the forearms, lower legs, thighs, the middle of the chest and below the navel, in the hair colour, so you can see how a piece sits with it. Zoom in on a forearm to see single hairs. It stays on this device and changes nothing in the project.', show: 'bodyHair' },

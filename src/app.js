@@ -3870,7 +3870,7 @@ function agingSheet() {
   g.font = `600 ${Math.round(head * 0.3)}px -apple-system, system-ui, sans-serif`;
   g.fillText(`How ${t.name || 'this tattoo'} may age`, out.width / 2, head * 0.42);
   g.fillStyle = '#9a9cab'; g.font = `${Math.round(head * 0.19)}px -apple-system, system-ui, sans-serif`;
-  g.fillText('A rough guide, not a promise. Fine lines soften first.', out.width / 2, head * 0.78);
+  g.fillText('A rough guide, not a promise. Fine lines soften first, and light colours fade sooner than black.', out.width / 2, head * 0.78);
   agingLast = { tile, pad, head, lab, id: t.id };
   return out.toDataURL('image/png');
 }
