@@ -40,6 +40,7 @@ export function evennessText(e) {
 
 // Straight along the body: the line of the limb under a tattoo (upper arm, forearm, thigh, shin)
 // or straight up on the torso. p: the tattoo's centre; joints: the rest rig; bones: POSE_BONES.
+// along: the line of the limb, pointing towards the body (up the torso for the body)
 export function limbLine(p, bones, joints) {
   const at = (name) => { const b = bones.find((x) => x.name === name); return b ? [joints[b.head * 3], joints[b.head * 3 + 1], joints[b.head * 3 + 2]] : null; };
   const segs = [];
@@ -55,7 +56,7 @@ export function limbLine(p, bones, joints) {
     const k = Math.max(0, Math.min(1, ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1] + (p[2] - a[2]) * d[2]) / l2));
     // the torso is wide: count distance across it at half
     const q = [a[0] + d[0] * k, a[1] + d[1] * k, a[2] + d[2] * k], dist = Math.hypot((p[0] - q[0]) * (name === 'body' ? 0.5 : 1), p[1] - q[1], p[2] - q[2]);
-    if (dist < bd) { bd = dist; let al = d.map((v) => v / Math.sqrt(l2)); if (al[1] < 0) al = al.map((v) => -v); best = { name, along: name === 'body' ? [0, 1, 0] : al }; }
+    if (dist < bd) { bd = dist; best = { name, along: name === 'body' ? [0, 1, 0] : d.map((v) => -v / Math.sqrt(l2)) }; }
   }
   return best;
 }
@@ -65,4 +66,23 @@ export function straighten(rot, target) {
   const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   const a = wrap(target), b = wrap(target + Math.PI), da = Math.abs(wrap(rot - a)), db = Math.abs(wrap(rot - b));
   return da <= db ? { rot: a, offDeg: da * 180 / Math.PI } : { rot: b, offDeg: db * 180 / Math.PI };
+}
+
+// Who it reads the right way up for: art on a limb with its top towards the body reads for others
+// while the arm hangs (or you stand) and upside down when you look down at it yourself; top
+// towards the hand or foot is the other way round. On the front of the body the top up reads for
+// others and upside down when you look down; on the back only others (or a mirror) see it.
+// up and normal are the art's up and the skin's outward direction; line is limbLine's answer.
+// Returns { who: 'others' | 'you' | 'side' | 'back', text, turn } with turn the label of the
+// button that turns it round for the other reader, or '' when turning would not help.
+export function readsFor(up, normal, line) {
+  if (!line) return null;
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const limb = line.name === 'body' ? '' : /arm/.test(line.name) ? 'arm' : 'leg';
+  const c = dot(up, line.along);
+  if (Math.abs(c) < 0.5) return { who: 'side', text: limb ? `Runs across the ${limb}: it reads sideways for everyone.` : 'It reads sideways for everyone.', turn: '' };
+  if (!limb && normal[2] < -0.35) return c > 0 ? { who: 'back', text: 'Reads the right way up for others. You see it only in a mirror.', turn: '' } : { who: 'back', text: 'Upside down for others and in a mirror.', turn: 'Turn it upright' };
+  const hang = limb === 'arm' ? 'while your arm hangs' : limb === 'leg' ? 'while you stand' : '';
+  if (c > 0) return { who: 'others', text: `Reads the right way up for others${hang ? ' ' + hang : ''}. Looking down at it, it is upside down for you.`, turn: 'Turn it to face me' };
+  return { who: 'you', text: `Reads the right way up for you, looking down at it. Upside down for others${hang ? ' ' + hang : ''}.`, turn: 'Turn it to face others' };
 }

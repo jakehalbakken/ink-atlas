@@ -56,7 +56,7 @@ import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertex
 import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, roomByRegion, roomColour, roomSummary, inchWords } from './room.js';
 import { whereItSits } from './where.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
-import { evenness, evennessText, limbLine, straighten } from './symmetry.js';
+import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
 import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
 
@@ -1936,6 +1936,7 @@ const SHOW = {
   wear: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const wr = wearOf(t); $('#wearLine').textContent = wr ? wr.text : ''; $('#wearLine').hidden = !wr; return [wr ? '#wearLine' : '#estRow', 'This line says how the spot treats a tattoo over the years, like sun, rubbing or creases.']; },
   shows: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv; return [sv ? '#showsLine' : '#estRow', 'Under where it sits, a line says which everyday clothes hide this tattoo and which show it.']; },
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
+  reads: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; readRender(t); return [$('#readRow').hidden ? '#estRow' : '#readRow', 'This line says who the tattoo reads the right way up for: others, or you looking down at it. The button turns it round in one step you can undo.']; },
   trip: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings and checks them against a trip.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitAway', 'Pick the first sitting, then add a trip or beach day. If it lands while the ink is still fresh, it says so and moves the sittings in one tap.']; },
   sittings: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitBox', 'Pick the date of the first sitting and the weeks between. Each sitting gets its date, and the last line says when it is healed.']; },
   note: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#noteBox', 'Type what your artist should know about this one. It goes on the artist sheet and the artist packet.']; },
@@ -2700,6 +2701,21 @@ $('#lineFix').addEventListener('click', () => {
   snapshot(); t.rot = l.rot; commit(); markTried('straight');
   toast(`${t.name} is straight ${l.name === 'body' ? 'up' : 'along the ' + l.name}.`, 'Undo', undo);
 });
+// who it reads the right way up for: others, or you looking down at it
+function readOf(t) {
+  if (!t || t.hidden) return null;
+  return readsFor(frameOf(t).up.toArray(), t.normal, limbLine(t.pos, POSE_BONES, poseView.restRig().joints));
+}
+function readRender(t) {
+  const r = readOf(t); $('#readRow').hidden = !r; if (!r) return;
+  $('#readText').textContent = r.text; $('#readFix').textContent = r.turn; $('#readFix').hidden = !r.turn;
+}
+$('#readFix').addEventListener('click', () => {
+  const t = sel(), r = readOf(t); if (!r || !r.turn) return;
+  if (t.locked) { toast('Unlock this tattoo first.'); return; }
+  snapshot(); t.rot = Math.atan2(Math.sin((t.rot || 0) + Math.PI), Math.cos((t.rot || 0) + Math.PI)); commit(); markTried('reads');
+  const now = readOf(t); toast(now && now.who === 'you' ? `${t.name} now reads for you.` : `${t.name} now reads for others.`, 'Undo', undo);
+});
 // the session planner: a planned piece in sittings, with dates once a first one is picked
 function sitPlan(t) {
   const hrs = t && t.status !== 'existing' && hoursOf(t); if (!hrs) return null;
@@ -2758,6 +2774,7 @@ function renderInfo() {
     sitRender(t);
     evenRender(t);
     lineRender(t);
+    readRender(t);
     const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv;
     const wr = wearOf(t); $('#wearLine').textContent = wr ? wr.text : ''; $('#wearLine').hidden = !wr;
     if (document.activeElement !== $('#estRate')) $('#estRate').value = readRate() || '';
@@ -3925,6 +3942,7 @@ window.__ink = {
   versionsShot: () => versionsShot(),
   sittings: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? sitPlan(t) : null; },
   line: () => $('#lineRow').hidden ? '' : $('#lineText').textContent + ($('#lineFix').hidden ? '' : ' | Straighten'),
+  reads: () => $('#readRow').hidden ? '' : $('#readText').textContent + ($('#readFix').hidden ? '' : ' | ' + $('#readFix').textContent),
   wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
   shows: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: showsOf(t), shares: showsShares(t) } : null; },
   even: () => $('#evenRow').hidden ? '' : $('#evenLine').textContent + ($('#evenFix').hidden ? '' : ' | ' + $('#evenFix').textContent),
