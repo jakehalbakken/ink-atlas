@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'stretch', date: '2026-11-15', title: 'How it stretches as you move', how: 'Select a tattoo and open More controls. A line says how much the skin under it stretches and squeezes in the poses that move that spot most, like an arm overhead or a bent knee. Show that pose puts the body in the worst one so you can see it.', show: 'stretch' },
   { id: 'bodyHair', date: '2026-11-15', title: 'Body hair', how: 'Body, then Hair, then Light or Full under the beard. Hair grows on the forearms, lower legs, thighs, the middle of the chest and below the navel, in the hair colour, so you can see how a piece sits with it. Zoom in on a forearm to see single hairs. It stays on this device and changes nothing in the project.', show: 'bodyHair' },
   { id: 'flash', date: '2026-11-15', title: 'Split a flash sheet', how: 'Upload a flash sheet or a page of sketches with several separate designs on it. Tap Split them, or Split into designs in More controls, and each design becomes its own tattoo to place and size. Undo puts the sheet back.', show: 'flash' },
   { id: 'sharp', date: '2026-11-15', title: 'Small artwork warning', how: 'Open Ink check or Stencil for your artist in More controls. When the artwork file is too small to print sharp at the size it has on your body, it says so, and how many pixels wide a sharp file needs to be.', show: 'sharp' },

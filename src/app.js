@@ -37,7 +37,7 @@ import { placeLabels, sizeLabel, leader } from './size-labels.js';
 import { changeWords, undoToast } from './undo-words.js';
 import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
-import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
+import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG, catalogRotations } from './pose-catalog.js';
 import { AGES, ageInk } from './aging.js';
 import { skinSet, inkColours, swatchesFile } from './swatches.js';
 import { GUIDE_SIZE, areaExtent, drawGuide, inkBox, clearShare } from './procreate-draw.js';
@@ -48,7 +48,8 @@ import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
 import { SPOTS, spotAim, turnAlong, spotNote } from './spots.js';
-import { POSE_BONES, vertexBones } from './pose.js';
+import { POSE_BONES, vertexBones, skinPose } from './pose.js';
+import { stretchUnder, stretchText } from './stretch.js';
 import { posesFor } from './pose-pick.js';
 import { PART_NAMES } from './body-photo.js';
 import { stencilLines, stencilPixels, stencilScale, pngWithDpi, artSharpness } from './stencil.js';
@@ -2228,6 +2229,7 @@ const SHOW = {
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
   approval: () => { toggle('#share', true); return ['#cApprove', 'Tap to make a page for your artist or client. They tap Yes or Change for each tattoo and send it back.']; },
   inkCheck: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check shows colours that barely show on your skin, and lines too fine for this size.']; },
+  stretch: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#stretchRow', 'This line says how much the skin under the tattoo stretches and squeezes in the poses that move it most. Show that pose puts the body in the one that moves it most.']; },
   flash: () => { const t = sel(); if (t && !$('#bSplit').hidden) { $('#editorAdvanced').open = true; return ['#bSplit', 'Split this picture into one tattoo per design. The first stays where the picture was, the rest go to free spots. Undo puts it back.']; } return ['#add', 'Upload a flash sheet or a page of sketches. When the picture holds several separate designs, Split them gives each its own tattoo.']; },
   sharp: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check and Stencil for your artist now say when the artwork file is too small to print sharp at its size, and how big a file would.']; },
   planStencils: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Open Stencil for your artist. With two or more planned pieces, All planned pieces makes one PDF with every stencil at real size, at the Detail you set.']; },
@@ -3349,6 +3351,43 @@ async function splitFlash(id) {
   return made.length;
 }
 $('#bSplit').addEventListener('click', () => { const t = sel(); if (t) splitFlash(t.id); });
+/* ---------- How it stretches: the skin under a tattoo in the poses that move it most ---------- */
+const stretchCache = new Map(); // tattoo id -> { k, res }
+const STRETCH_SKIP = new Set(['neutral']);
+const stretchKey = (t) => [t.pos.join(','), t.width, t.aspect, t.rot || 0, t.wrap || 0, t.bend || 0, t.taper || 0, shapeKey].join('|');
+function stretchOf(t) {
+  const d = decals[t.id], tris = d && d.mesh.geometry.userData.tris; if (!tris || !tris.length) return null;
+  const k = stretchKey(t), c = stretchCache.get(t.id); if (c && c.k === k) return c.res;
+  let res = null;
+  try {
+    const pick = posesPicked(t), rest = poseView.restRig(), I = bodyGeo.index.array, A = bodyGeo.attributes.position.array, under = [...new Set(tris)];
+    const out = [];
+    for (const key of pick.keys) {
+      if (STRETCH_SKIP.has(key) || !POSE_CATALOG[key]) continue;
+      const B = skinPose(rest, catalogRotations(key), { muscle: state.muscle ?? 0.5 }).positions;
+      out.push({ key, label: POSE_CATALOG[key].label, ...stretchUnder(A, B, I, under) });
+    }
+    res = stretchText(out);
+  } catch (e) { res = null; }
+  stretchCache.set(t.id, { k, res }); return res;
+}
+let stretchShown = null, stretchTimer = 0;
+function stretchRender(t) {
+  clearTimeout(stretchTimer);
+  const row = $('#stretchRow'), c = t && stretchCache.get(t.id), fresh = c && c.k === stretchKey(t);
+  if (!t || t.hidden || !$('#editorAdvanced').open) { if (!t) { row.hidden = true; stretchShown = null; } return; }
+  const show = (res) => { if (sel() !== t) return; stretchShown = res; row.hidden = !res; $('#stretchText').textContent = res ? res.text : ''; $('#stretchShow').hidden = !res || res.top < 0.06; };
+  if (fresh) { show(c.res); return; }
+  // worked out a moment later, so opening the panel stays quick
+  row.hidden = true; stretchShown = null;
+  stretchTimer = setTimeout(() => { if (sel() === t) show(stretchOf(t)); }, 60);
+}
+$('#stretchShow').addEventListener('click', () => {
+  const t = sel(), r = stretchShown; if (!t || !r || !POSE_CATALOG[r.key]) return;
+  poseView.choose(r.key); renderPose(); markTried('stretch'); needsRender = true;
+  requestAnimationFrame(() => { if (sel() === t) focusTattoo(t); });
+  toast(`${POSE_CATALOG[r.key].label}. Preview, then Pose, then Standing puts you back.`);
+});
 function renderInfo() {
   clearTimeout(infoTimer);
   infoTimer = setTimeout(() => {
@@ -3362,6 +3401,7 @@ function renderInfo() {
     lineRender(t);
     readRender(t);
     flashRender(t);
+    stretchRender(t);
     const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv;
     const wr = wearOf(t); $('#wearLine').textContent = wr ? wr.text : ''; $('#wearLine').hidden = !wr;
     if (document.activeElement !== $('#estRate')) $('#estRate').value = readRate() || '';
@@ -4636,7 +4676,7 @@ window.__ink = {
   planMessage: () => planMessageText(),
   planSits: () => { planSitsRender(sel()); return planSitsShown; },
   spotNotes: () => spotNotesShown,
-  flashShown: () => flashShown, splitFlash: (id) => splitFlash(id),
+  flashShown: () => flashShown, splitFlash: (id) => splitFlash(id), stretchShown: () => stretchShown,
   labels: () => labelsLast,
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
