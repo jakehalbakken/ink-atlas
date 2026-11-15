@@ -9,7 +9,8 @@
 // both changing at once keeps both changes in one project (no copy); she cannot rename or remove
 // it and sees Leave; Jake takes her off and her screen says so; forgot password by emailed code.
 // Who is here now: each sees the other's initial, which tattoo the other has selected (in the
-// tray and the account panel), on a channel whose name does not give the project away.
+// tray and the account panel), on a channel whose name does not give the project away; Jake
+// follows Liv's view until he touches the body.
 import assert from 'node:assert/strict';
 import { startFakeSupabase } from '../fake-supabase.mjs';
 
@@ -104,6 +105,25 @@ export default async function (p) {
     await q.click('#account header .btn');
     await q.evaluate(() => window.__ink.select(null));
     await until(p, () => !document.querySelector('#trayItems b.peer'), null, 'the mark goes when she lets go', 10000);
+
+    // Jake follows Liv's view: her camera turns to the back and his goes with it; a touch on the body stops it
+    await until(p, () => window.__ink.peers().some((o) => o.name === 'Liv' && o.view), null, 'her view is shared', 10000);
+    await p.click('#hereNow');
+    await until(p, () => !!document.querySelector('#acctTogether .acct-follow'), null, 'Follow their view offered');
+    assert.ok(await p.$eval('#acctTogether .acct-follow', (e) => e.getBoundingClientRect().height >= 44), 'Follow big enough');
+    await p.click('#acctTogether .acct-follow');
+    await until(p, () => window.__ink.following() && !document.querySelector('#followBar').hidden, null, 'following her view');
+    assert.match(await p.$eval('#followText', (e) => e.textContent), /Following Liv.s view/);
+    assert.equal(await p.$eval('#account', (e) => e.hidden), true, 'the panel closes');
+    await q.evaluate(() => document.querySelector('[data-view="2"]').click());
+    await until(p, () => window.__ink.cam()[2] < -0.5, null, 'Jake\'s view turns to the back with hers', 15000);
+    await p.screenshot({ path: 'shots/t83-follow.png' });
+    await p.mouse.click(60, 600);
+    await until(p, () => !window.__ink.following() && document.querySelector('#followBar').hidden, null, 'a touch on the body stops following');
+    const camAfter = await p.evaluate(() => window.__ink.cam());
+    await q.evaluate(() => document.querySelector('[data-view="0"]').click()); await wait(2500);
+    assert.ok((await p.evaluate(() => window.__ink.cam()))[2] < -0.5, 'and her view no longer moves his');
+    assert.ok(camAfter[2] < -0.5);
 
     // her change reaches Jake by itself, and his view stays where it was
     const view0 = await p.evaluate(() => JSON.stringify(window.__ink.cam ? window.__ink.cam() : null));

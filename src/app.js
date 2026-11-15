@@ -157,6 +157,8 @@ const decals = {}; // id -> {mesh, outline, tex, texKey}
 /* ---------- camera rig ---------- */
 const cur = { theta: 0.35, phi: 1.45, roll: 0, r: 4.2, tx: 0, ty: 0.86, tz: 0 };
 const goal = { ...cur };
+// who else has a shared project open (account.js), and whose view this one follows
+let peersHere = [], followId = null;
 let glide = true; let needsRender = true;
 function fullBodyR() {
   const t = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
@@ -167,6 +169,7 @@ function fullBody(theta) {
   goal.roll = 0; goal.phi = 1.5; goal.r = fullBodyR(); goal.tx = 0; goal.ty = 0.73; goal.tz = 0.02; glide = true; needsRender = true;
 }
 function focusTattoo(t) {
+  if (followId) stopFollow();
   const spot = viewSpot(t);
   const n = new V3(...spot.normal);
   goal.theta = Math.atan2(n.x, n.z);
@@ -481,7 +484,25 @@ let exporting = false;
 /* ---------- persistence ---------- */
 // store.js does the writing. Here: when to save, telling the truth about whether it
 // worked, and keeping copies to go back to.
-let peersHere = [];
+// Following someone else's view on a project worked on together: the camera goes where theirs
+// goes until a touch on the body or Stop. Only the view follows; selection and edits stay yours.
+const myView = () => [goal.theta, goal.phi, goal.roll || 0, goal.r, goal.tx, goal.ty, goal.tz].map((x) => Math.round(x * 1000) / 1000);
+function followPeer(id) { followId = id; applyFollow(); renderFollow(); markTried('followView'); }
+function stopFollow(why) { if (!followId) return; followId = null; renderFollow(); if (why) toast(why); }
+function applyFollow() {
+  if (!followId) return;
+  const o = peersHere.find((x) => x.id === followId);
+  if (!o) { stopFollow('They closed the project, so you are no longer following their view.'); return; }
+  renderFollow();
+  if (!o.view) return;
+  const [theta, phi, roll, r, tx, ty, tz] = o.view;
+  Object.assign(goal, { theta, phi, roll, r, tx, ty, tz }); glide = true; needsRender = true;
+}
+function renderFollow() {
+  const bar = document.getElementById('followBar'); if (!bar) return;
+  const o = followId && peersHere.find((x) => x.id === followId);
+  bar.hidden = !o; if (o) $('#followText').textContent = `Following ${o.name || 'their'}${o.name ? '\u2019s' : ''} view`;
+}
 let account = null, store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
 function usedImages() { const o = {}; for (const k of imageKeysFor(state)) if (images[k]) o[k] = images[k]; return o; }
 function setSaved(text, bad) { const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad); }
@@ -625,6 +646,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
   clearLiveGuides(); if (!$('#lookMenu').hidden) showLook(false);
+  if (followId) stopFollow();
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pts.size === 1) {
     const t = sel();
@@ -1868,6 +1890,7 @@ const SHOW = {
   },
   commentInvite: () => (account && account.configured ? (account.showTogether(), ['#acctInvite', 'Tap Invite someone, then Comments only. They can comment, answer and add reference pictures, but your tattoos stay where you put them.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   changes: () => (account && account.configured ? (account.showTogether(), ['#acctChanges', 'On a project you work on together, this lists what the others changed since you last looked. Tap Show on a line to see it.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
+  followView: () => (account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else has this project open, Follow their view is on their row here. Your screen then turns with theirs until you touch the body.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   hereNow: () => (account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else on a project you work on together has it open, they are listed here, with the tattoo they are looking at. Their initial also shows by your account button.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   glance: () => (account && account.configured ? (account.showTogether(), ['#acctGlance', 'Every project you own or were invited to, with whose turn it is. Your turn shows only the ones waiting on you.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   refs: () => {
@@ -3869,18 +3892,23 @@ function startAccount() {
     rename(name) { state.projectName = name; commit(); },
     setSaved, toast, saveNow: () => save(), tried: (id = 'accounts') => markTried(id),
     // who else has the shared project open, and the tattoo each has selected
-    setPeers(list) { peersHere = Array.isArray(list) ? list : []; renderTray(); },
-    looking: () => selectedId, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
+    setPeers(list) { peersHere = Array.isArray(list) ? list : []; renderTray(); applyFollow(); },
+    looking: () => selectedId, view: myView, follow: followPeer, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
     setCommentOnly, showChange, inches: (w) => w * state.heightCm / 175 * 100 / 2.54,
     // in the middle of moving something or typing: changes from elsewhere wait a moment
     busy: () => !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
   });
   account.start();
 }
+$('#followStop').addEventListener('click', () => stopFollow());
+$('#views').addEventListener('click', () => stopFollow(), true);
+// tell anyone else here where this view went, once it settles
+let viewSent = '';
+setInterval(() => { if (!account || !account.nudge || !peersHere.length) return; const k = myView().join(); if (k !== viewSent) { viewSent = k; account.nudge(); } }, 700);
 $('#cLink').addEventListener('click', () => { toggle('#share', false); if (account) account.sendLink().catch(() => {}); });
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
-  state: () => state, ready: () => booted, peers: () => peersHere,
+  state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer,
   sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),

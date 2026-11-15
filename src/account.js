@@ -287,11 +287,14 @@ export function createAccount(api) {
     const names = liveOthers.map((o) => o.name || 'Someone');
     const label = names.length ? `${names.length === 1 ? names[0] + ' is' : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] + ' are'} here now` : '';
     hereBtn.setAttribute('aria-label', label); hereBtn.title = label;
-    if (view === 'home' && !root.hidden) renderHereRows();
+    const rowsKey = liveOthers.map((o) => [o.id, o.look, !!o.view].join()).join('|');
+    if (view === 'home' && !root.hidden && rowsKey !== hereRowsKey) { hereRowsKey = rowsKey; renderHereRows(); }
   }
   // "here now · looking at Rose" on the people in Work on it together
   // shown on each person's own row once the list of people is in, on their own row until then
+  let hereRowsKey = '';
   function renderHereRows() {
+    hereRowsKey = liveOthers.map((o) => [o.id, o.look, !!o.view].join()).join('|');
     const box = document.getElementById('acctHereNow'); if (!box) return;
     const together = document.getElementById('acctTogether');
     for (const e of together.querySelectorAll('.acct-here-line')) e.remove();
@@ -299,8 +302,11 @@ export function createAccount(api) {
     for (const o of liveOthers) {
       const n = nameOfLook(o.look), text = 'Here now' + (n ? ` · looking at ${n}` : '');
       const row = [...together.querySelectorAll('[data-uid]')].find((e) => e.dataset.uid === o.id) || together.querySelector('[data-owner]');
-      if (row) row.querySelector('.acct-name').append(h('small', { class: 'acct-turn yours acct-here-line', text }));
-      else loose.push(h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: o.name || 'Someone' }), h('small', { class: 'acct-turn yours acct-here-line', text }))));
+      const follow = o.view && api.follow ? h('button', { class: 'btn acct-here-line acct-follow', type: 'button', text: 'Follow their view', onclick: () => { close(); api.follow(o.id); } }) : null;
+      if (row) {
+        row.querySelector('.acct-name').append(h('small', { class: 'acct-turn yours acct-here-line', text }));
+        if (follow) { let acts = row.querySelector('.acct-actions'); if (!acts) { acts = h('div', { class: 'acct-actions' }); row.append(acts); } acts.prepend(follow); }
+      } else loose.push(h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('b', { text: o.name || 'Someone' }), h('small', { class: 'acct-turn yours acct-here-line', text })), follow ? h('div', { class: 'acct-actions' }, follow) : null));
     }
     box.replaceChildren(...loose); box.hidden = !loose.length;
   }
@@ -331,7 +337,7 @@ export function createAccount(api) {
   // what this person has open, told to the others when it changes
   function liveTrack(force) {
     const b = myBind(); if (!live || !b) return;
-    const meta = { name: cloud.displayName() || 'Someone', look: api.looking ? api.looking() : null, rev: b.rev || 0 };
+    const meta = { name: cloud.displayName() || 'Someone', look: api.looking ? api.looking() : null, rev: b.rev || 0, view: api.view ? api.view() : null };
     const key = JSON.stringify(meta);
     if (!force && key === lastTrack) return;
     lastTrack = key;

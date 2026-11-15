@@ -59,6 +59,11 @@ function client() {
 }
 const homeUrl = () => location.origin + location.pathname;
 
+// where someone's camera is: [turn, tilt, roll, distance, aim x, y, z], or null
+export function cleanView(v) {
+  if (!Array.isArray(v) || v.length !== 7 || !v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) < 100)) return null;
+  return v.map((x) => Math.round(x * 1000) / 1000);
+}
 async function sha256Hex(text) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
@@ -231,7 +236,7 @@ export async function openCloud() {
       const me = uid(), ch = sb.channel(topic, { config: { presence: { key: me } } });
       const others = () => Object.entries(ch.presenceState()).filter(([k]) => k !== me).map(([k, metas]) => {
         const m = metas[metas.length - 1] || {};
-        return { id: k, name: typeof m.name === 'string' ? m.name.slice(0, 60) : '', look: typeof m.look === 'string' ? m.look.slice(0, 80) : null, rev: Number.isFinite(m.rev) ? m.rev : 0, at: Number.isFinite(m.at) ? m.at : 0 };
+        return { id: k, name: typeof m.name === 'string' ? m.name.slice(0, 60) : '', look: typeof m.look === 'string' ? m.look.slice(0, 80) : null, rev: Number.isFinite(m.rev) ? m.rev : 0, at: Number.isFinite(m.at) ? m.at : 0, view: cleanView(m.view) };
       });
       ch.on('presence', { event: 'sync' }, () => onSync(others()));
       await new Promise((res, rej) => {
@@ -239,7 +244,7 @@ export async function openCloud() {
         ch.subscribe((s) => { if (s === 'SUBSCRIBED') { clearTimeout(t); res(); } else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') { clearTimeout(t); rej(new Error('Realtime ' + s)); } });
       }).catch((e) => { sb.removeChannel(ch); throw e; });
       return {
-        track: (meta) => ch.track({ name: String(meta.name || '').slice(0, 60), look: meta.look || null, rev: meta.rev || 0, at: Date.now() }),
+        track: (meta) => ch.track({ name: String(meta.name || '').slice(0, 60), look: meta.look || null, rev: meta.rev || 0, view: cleanView(meta.view), at: Date.now() }),
         others,
         leave: () => sb.removeChannel(ch),
       };

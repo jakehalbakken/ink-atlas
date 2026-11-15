@@ -191,6 +191,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .refFor{display:flex;align-items:center;gap:10px;min-height:44px}.refFor select{min-height:44px;flex:1;font-size:16px;border-radius:12px}
 #refsGrid:empty{display:none}
 .coach-comment{display:none!important}body.comment-only .coach-comment{display:flex!important}body.comment-only .coach-place,body.comment-only #bodyBtn,body.comment-only #add,body.comment-only #drawNew,body.comment-only #empty,body.comment-only .editor-quick,body.comment-only #editorAdvanced,body.comment-only #handles,body.comment-only #planMenu .card:not(#openNew):not(#openRefs),body.comment-only #cAnswers,body.comment-only #cPainted,body.comment-only #cRecover,body.comment-only #cSketch{display:none!important}
+#followBar{position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:7;display:flex;gap:12px;align-items:center;padding:6px 6px 6px 16px;border-radius:999px;font-weight:600}#followBar[hidden]{display:none}.acct-follow{min-height:44px}
 .here-now{min-width:44px;padding:0 4px;gap:0}.here-now[hidden]{display:none}.here-now i{display:inline-grid;place-items:center;width:30px;height:30px;margin-left:-8px;border-radius:15px;background:var(--accent,#2f7a5a);color:#fff;border:2px solid var(--bg,#fff);font:700 14px/1 var(--display);font-style:normal}.here-now i:first-child{margin-left:0}.here-now i.more{background:#666;font-size:12px}.chip b.peer{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:11px;background:var(--accent,#2f7a5a);color:#fff;font:700 12px/22px system-ui,sans-serif;text-align:center;pointer-events:none}.acct-here-now[hidden]{display:none}
 .acct-btn{position:relative}.acct-badge{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--danger);color:#fff;font:700 12px/20px system-ui,sans-serif;font-style:normal;text-align:center;pointer-events:none}.acct-badge[hidden]{display:none}
 .acct-turn{font-weight:600}.acct-name small.acct-turn.yours{color:var(--stencil)}.acct-name small.acct-turn.done{color:#5fcf8f}
@@ -226,7 +227,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 @media (max-width:900px){
   #views{top:82px}
   .pop,#toast{top:146px}
-  #tapPlaceBar,#tapeBar,#painBar,#roomBar,#pinBar{top:146px!important}
+  #tapPlaceBar,#tapeBar,#painBar,#roomBar,#pinBar,#followBar{top:146px!important}
   #procreateBar,#paintBar{top:146px}
 }
 @media (max-width:720px){
@@ -257,6 +258,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <div id="stage" aria-label="3D body. Drag to look around. Pinch, pan and twist the view with two fingers away from selected ink. Tap a tattoo to select it."></div>
 <div id="tapeBar" class="glass" role="group" aria-label="Tape measure" hidden><div class="row"><button class="btn" id="tapeAlong" type="button" aria-pressed="true">Along the skin</button><button class="btn" id="tapeAround" type="button" aria-pressed="false">Around</button><button class="btn" id="tapeDone" type="button">Done</button></div><p id="tapeText" aria-live="polite">Tap two points on the body.</p></div>
 <div id="tapeLabel" hidden></div>
+<div id="followBar" class="glass" role="status" hidden><span id="followText">Following their view</span><button class="btn" id="followStop" type="button">Stop</button></div>
 <div id="pinBar" class="glass" role="group" aria-label="Comments on the body" hidden><div class="row"><p id="pinText" aria-live="polite">Tap the body to pin a comment there. Tap a pin to read it.</p><button class="btn" id="pinListBtn" type="button" aria-expanded="false" hidden>List</button><button class="btn" id="pinsDone" type="button">Done</button></div>
   <div id="pinList" hidden><div class="row" role="group" aria-label="Which comments"><button class="btn" id="pinListOpen" type="button" aria-pressed="true">Open</button><button class="btn" id="pinListAll" type="button" aria-pressed="false">All</button></div><ol id="pinListItems"></ol><p class="tip" id="pinListEmpty" hidden>No open comments. Tap All to see the resolved ones.</p></div>
   <div id="pinEdit" hidden><textarea id="pinNote" maxlength="500" rows="2" aria-label="Comment" placeholder="Like: move this up an inch"></textarea><div class="row"><button class="btn primary" id="pinSave" type="button">Pin comment</button><button class="btn" id="pinCancel" type="button">Cancel</button></div></div>
