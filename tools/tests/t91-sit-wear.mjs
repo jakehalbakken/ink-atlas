@@ -1,6 +1,6 @@
 // What to wear to the sitting: moved to usual spots with Try other spots, a planned tattoo's
 // sittings show a line on what to wear so the spot is open (a T-shirt for a forearm, shorts for a
-// calf, a top you can take off for the chest) and which way to sleep for the first nights, the same words go in the calendar entries, ink
+// calf, a top you can take off for the chest) and which way to sleep for the first nights, each sitting's cost shows with an hourly rate, the same words go in the calendar entries, ink
 // already on shows none, and seeing it ticks it in New to try.
 import assert from 'node:assert/strict';
 export default async function (p) {
@@ -39,6 +39,12 @@ export default async function (p) {
   await p.screenshot({ path: 'shots/t91-sit-wear.png' });
   const tried = await p.evaluate(() => { try { return JSON.parse(localStorage.getItem('ia-tried') || '[]'); } catch { return []; } });
   assert.ok(tried.includes('sitWear'), 'seeing it ticks it');
+  // with an hourly rate, each sitting shows its cost too
+  await p.$eval('#estRate', (e) => { e.value = '150'; e.dispatchEvent(new Event('input', { bubbles: true })); }); await wait(400);
+  const items = await p.$$eval('#sitList li', (l) => l.map((x) => x.textContent));
+  assert.ok(items.length && items.every((x) => /, about \$[\d,]+( to \$[\d,]+)?$/.test(x)), 'cost on each sitting: ' + JSON.stringify(items));
+  await p.$eval('#estRate', (e) => { e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); }); await wait(300);
+  assert.ok((await p.$$eval('#sitList li', (l) => l.map((x) => x.textContent))).every((x) => !/\$/.test(x)), 'no rate, no cost');
   // the calendar entries carry it
   await p.$eval('#sitStart', (e) => { e.value = '2026-12-05'; e.dispatchEvent(new Event('change')); }); await wait(400);
   await p.click('#sitCal'); await wait(600);

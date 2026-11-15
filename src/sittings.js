@@ -80,3 +80,11 @@ export function sleepLine(pos, normal) {
   if (Math.abs(nx) > 0.5) return say(`on your ${nx > 0 ? 'right' : 'left'} side`);
   return other ? say(`on your ${other} side`) : '';
 }
+
+// "about $300 to $450" for one sitting at an hourly rate, on the same half hours as sittingHours
+export function sittingCost({ lo, hi }, rate) {
+  if (!(rate > 0)) return '';
+  const a = Math.max(0.5, Math.floor(lo * 2) / 2), b = Math.max(a + 0.5, Math.ceil(hi * 2) / 2);
+  const money = (n) => '$' + Math.round(n).toLocaleString('en-US');
+  return hi <= 1.1 ? `about ${money(rate)}` : `about ${money(a * rate)} to ${money(b * rate)}`;
+}

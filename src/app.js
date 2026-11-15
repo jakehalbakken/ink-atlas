@@ -58,7 +58,7 @@ import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, room
 import { whereItSits } from './where.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
-import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine } from './sittings.js';
+import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
 
 // a feature that needs the account's email sender is listed only once that is switched on
@@ -2990,7 +2990,8 @@ function sitRender(t) {
   const list = $('#sitList'); list.replaceChildren();
   for (const x of plan.sittings) {
     const li = document.createElement('li'), b = document.createElement('b');
-    b.textContent = x.what; li.append(b, `, ${sittingHours(x).toLowerCase()}${x.date ? ', ' + dayWords(x.date) : ''}`); list.append(li);
+    const cost = sittingCost(x, readRate());
+    b.textContent = x.what; li.append(b, `, ${sittingHours(x).toLowerCase()}${cost ? ', ' + cost : ''}${x.date ? ', ' + dayWords(x.date) : ''}`); list.append(li);
   }
   const s = t.sittings || {};
   if (document.activeElement !== $('#sitStart')) $('#sitStart').value = s.start || '';
@@ -3047,7 +3048,7 @@ function renderInfo() {
     if (document.activeElement !== $('#estRate')) $('#estRate').value = readRate() || '';
   }, 150);
 }
-$('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRate').value); writeRate(n > 0 ? n : 0); const t = sel(), hrs = t && hoursOf(t); if (hrs) $('#estLine').textContent = sessionText(hrs, readRate()); planRender(t); markTried('estimate'); });
+$('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRate').value); writeRate(n > 0 ? n : 0); const t = sel(), hrs = t && hoursOf(t); if (hrs) $('#estLine').textContent = sessionText(hrs, readRate()); planRender(t); if (t) sitRender(t); markTried('estimate'); });
 // opened by a Show me, it is only being pointed at, not tried yet
 $('#editorAdvanced').addEventListener('toggle', () => { if (!$('#editorAdvanced').open) infoByShow = false; else if (sel()) { renderInfo(); if (!infoByShow && performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); markTried('like'); } } });
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */

@@ -51,3 +51,10 @@ assert.equal(sleepLine(null, [0, 0, 1]), '');
 const icsTips = sittingsCalendar('Rose', planSittings({ lo: 2, hi: 3, sessions: 1 }, { start: '2026-12-05' }), new Date('2026-11-15T00:00:00Z'), 'Wear a T-shirt.');
 assert.ok(icsTips.replace(/\r\n /g, '').includes('Wear a T-shirt. Planned in Ink Atlas.'), 'tips in the calendar');
 console.log('sittings-unit: ok');
+// the cost of each sitting at an hourly rate
+import { sittingCost } from '../../src/sittings.js';
+assert.equal(sittingCost({ lo: 2.2, hi: 3.1 }, 150), 'about $300 to $525');
+assert.equal(sittingCost({ lo: 0.5, hi: 0.9 }, 150), 'about $150');
+assert.equal(sittingCost({ lo: 2, hi: 3 }, 0), '');
+assert.equal(sittingCost({ lo: 6, hi: 9 }, 200), 'about $1,200 to $1,800');
+console.log('sitting cost: ok');
