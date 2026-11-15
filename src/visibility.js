@@ -33,3 +33,17 @@ export function visibilityText(shares) {
   const prev = first - 1, how = shares[prev] > SHOWS ? 'partly shows' : 'shows', [a, b] = pair(OUTFITS[first], OUTFITS[prev]);
   return `Hidden by ${a}, ${how} in ${b}.`;
 }
+
+// What to wear to the sitting: the warmest everyday top and bottom that still leave the whole
+// tattoo open, said only for the part that matters. top: share covered by each top alone
+// ({ tank, tee, long }); bottom: by each bottom alone ({ swim, shorts, pants }).
+const TOP_WEAR = { tee: 'a T-shirt', tank: 'a tank top', none: 'a top you can take off or open, like a button-up' };
+const BOTTOM_WEAR = { shorts: 'shorts', swim: 'shorts you can roll up high, or bring a pair to change into', none: 'loose clothes you can move aside' };
+export function sittingWear(top, bottom) {
+  if (!top || !bottom) return '';
+  const open = (s) => s != null && s <= SHOWS;
+  const t = ['long', 'tee', 'tank'].find((k) => open(top[k])) || 'none', b = ['pants', 'shorts', 'swim'].find((k) => open(bottom[k])) || 'none';
+  const parts = [t !== 'long' && TOP_WEAR[t], b !== 'pants' && BOTTOM_WEAR[b]].filter(Boolean);
+  if (!parts.length) return 'For the sitting: any clothes leave it open.';
+  return `For the sitting: wear ${parts.join(parts[0].includes(',') ? ', and ' : ' and ')}, so the spot is open.`;
+}

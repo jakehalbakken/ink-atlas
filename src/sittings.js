@@ -55,7 +55,7 @@ export function sittingHours({ lo, hi }) {
 }
 
 // An .ics calendar file with one all-day event per sitting, to add to the phone's calendar.
-export function sittingsCalendar(name, plan, stamp = new Date()) {
+export function sittingsCalendar(name, plan, stamp = new Date(), wear = '') {
   const esc = (x) => String(x).replace(/[\\,;]/g, (c) => '\\' + c).replace(/\n/g, '\\n');
   const ymd = (s) => s.replace(/-/g, ''), next = (s) => iso(parse(s) + DAY).replace(/-/g, '');
   const now = stamp.toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
@@ -63,7 +63,7 @@ export function sittingsCalendar(name, plan, stamp = new Date()) {
     'BEGIN:VEVENT', `UID:${ymd(x.date)}-${x.n}-${esc(name).replace(/[^A-Za-z0-9]/g, '').slice(0, 20)}@ink-atlas`, `DTSTAMP:${now}`,
     `DTSTART;VALUE=DATE:${ymd(x.date)}`, `DTEND;VALUE=DATE:${next(x.date)}`,
     `SUMMARY:${esc(`${name}: sitting ${x.n} of ${plan.sittings.length} (${x.what})`)}`,
-    `DESCRIPTION:${esc(`${sittingHours(x)}. Keep it out of pools, the sea, baths and strong sun until ${dayWords(clearOn(x.date))}. Planned in Ink Atlas.`)}`, 'END:VEVENT'].join('\r\n'));
+    `DESCRIPTION:${esc(`${sittingHours(x)}. Keep it out of pools, the sea, baths and strong sun until ${dayWords(clearOn(x.date))}.${wear ? ' ' + wear : ''} Planned in Ink Atlas.`)}`, 'END:VEVENT'].join('\r\n'));
   // calendar lines fold at 75 characters, the rest going on after a space
   const fold = (l) => { let out = l.slice(0, 75); for (let i = 75; i < l.length; i += 74) out += '\r\n ' + l.slice(i, i + 74); return out; };
   return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ink Atlas//Sittings//EN', 'CALSCALE:GREGORIAN', ...ev, 'END:VCALENDAR'].join('\r\n').split('\r\n').map(fold).join('\r\n') + '\r\n';

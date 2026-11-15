@@ -30,7 +30,7 @@ import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
 import { createBeforeAfter } from './before-after.js';
 import { createPoseView } from './pose-view.js';
 import { createClothes, TOPS, BOTTOMS, HAIR, coverage as clothesCoverage } from './clothes.js';
-import { OUTFITS, visibilityText } from './visibility.js';
+import { OUTFITS, visibilityText, sittingWear } from './visibility.js';
 import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
@@ -1955,6 +1955,7 @@ const SHOW = {
   shows: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv; return [sv ? '#showsLine' : '#estRow', 'Under where it sits, a line says which everyday clothes hide this tattoo and which show it.']; },
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
+  sitWear: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls says what to wear to the sitting.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return [$('#sitWear').hidden ? '#sitBox' : '#sitWear', 'Under the sittings, a line says what to wear so the spot is open without undressing more than you need to.']; },
   reads: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; readRender(t); return [$('#readRow').hidden ? '#estRow' : '#readRow', 'This line says who the tattoo reads the right way up for: others, or you looking down at it. The button turns it round in one step you can undo.']; },
   trip: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings and checks them against a trip.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitAway', 'Pick the first sitting, then add a trip or beach day. If it lands while the ink is still fresh, it says so and moves the sittings in one tap.']; },
   sittings: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitBox', 'Pick the date of the first sitting and the weeks between. Each sitting gets its date, and the last line says when it is healed.']; },
@@ -2893,6 +2894,20 @@ function showsShares(t) {
   }
   return outfitCover.list.map((f) => { let n = 0; for (const v of sup) if (f(v)) n++; return n / sup.length; });
 }
+// what to wear to the sitting: each top alone and each bottom alone, on the rest body
+let wearCover = null;
+function sitWearOf(t) {
+  const d = t && !t.hidden && decals[t.id], sup = d && d.mesh.geometry.userData.supports; if (!sup || !sup.length) return '';
+  if (!wearCover || wearCover.key !== shapeKey) {
+    const P = bodyGeo.attributes.position.array, J = poseView.restRig().joints, top = {}, bottom = {};
+    for (const k of ['tank', 'tee', 'long']) { const c = clothesCoverage(P, J, k, 'none', 'none').top; top[k] = (v) => c[v] > 0; }
+    for (const k of ['swim', 'shorts', 'pants']) { const c = clothesCoverage(P, J, 'none', k, 'none').bottom; bottom[k] = (v) => c[v] > 0; }
+    wearCover = { key: shapeKey, top, bottom };
+  }
+  const share = (f) => { let n = 0; for (const v of sup) if (f(v)) n++; return n / sup.length; };
+  const each = (o) => Object.fromEntries(Object.entries(o).map(([k, f]) => [k, share(f)]));
+  return sittingWear(each(wearCover.top), each(wearCover.bottom));
+}
 // how it holds up here, from the place under most of the tattoo
 function wearOf(t) {
   if (!t || t.hidden) return null;
@@ -2981,6 +2996,8 @@ function sitRender(t) {
   const last = plan.sittings.at(-1);
   $('#sitDry').textContent = last.date ? `Keep it out of pools, the sea, baths and strong sun for two weeks after each sitting${plan.sittings.length > 1 ? `: after the last one, until ${dayWords(clearOn(last.date))}` : `, until ${dayWords(clearOn(last.date))}`}.` : '';
   $('#sitDry').hidden = !last.date;
+  const wear = sitWearOf(t); $('#sitWear').textContent = wear; $('#sitWear').hidden = !wear;
+  if (wear && $('#editorAdvanced').open && !infoByShow && performance.now() > infoQuietUntil) markTried('sitWear');
   const c = tripClash(plan, s.away, todayIso()); $('#sitClash').hidden = !c;
   if (c) {
     $('#sitClashText').textContent = `Your trip on ${dayWords(s.away)} is ${c.days === 0 ? 'the same day as' : c.days === 1 ? 'the day after' : c.days + ' days after'} ${plan.sittings.length > 1 ? 'sitting ' + c.n : 'the sitting'}, while the ink is still fresh. Move the first sitting so it heals first.`;
@@ -3001,7 +3018,7 @@ for (const id of ['#sitLater', '#sitEarlier']) $(id).addEventListener('click', (
 $('#sitCal').addEventListener('click', () => {
   const t = sel(), plan = sitPlan(t); if (!plan || !plan.healed) return;
   const name = (t.name || 'Tattoo').trim() || 'Tattoo';
-  saveFile((name.replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo') + '-sittings.ics', new Blob([sittingsCalendar(name, plan)], { type: 'text/calendar' }));
+  saveFile((name.replace(/[^\w -]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo') + '-sittings.ics', new Blob([sittingsCalendar(name, plan, new Date(), sitWearOf(t))], { type: 'text/calendar' }));
   markTried('sittings');
 });
 const readRate = () => { try { const n = +localStorage.getItem('ia-rate'); return n > 0 && n < 5000 ? n : 0; } catch { return 0; } };
@@ -4189,6 +4206,7 @@ window.__ink = {
   line: () => $('#lineRow').hidden ? '' : $('#lineText').textContent + ($('#lineFix').hidden ? '' : ' | Straighten'),
   reads: () => $('#readRow').hidden ? '' : $('#readText').textContent + ($('#readFix').hidden ? '' : ' | ' + $('#readFix').textContent),
   wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
+  sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
   shows: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: showsOf(t), shares: showsShares(t) } : null; },
   even: () => $('#evenRow').hidden ? '' : $('#evenLine').textContent + ($('#evenFix').hidden ? '' : ' | ' + $('#evenFix').textContent),
   sitShown: () => $('#sitBox').hidden ? null : [...$('#sitList').children].map((li) => li.textContent),
