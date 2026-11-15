@@ -868,7 +868,8 @@ function tap(x, y) {
   if (pins.on) { pinTap(x, y); return; }
   if(tapPlaceId){const t=sel(),h=hitBody(x,y);if(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'){tapPlaceId=null;renderSheet();return;}if(!h){toast('Tap directly on the body, or cancel tap-to-place.');return;}try{const placed=planTapPlacement(t,{pos:h.point.toArray(),normal:h.normal.toArray()});snapshot();Object.assign(t,placed);tapPlaceId=null;commit();toast('Tattoo placed.', 'Undo', undo);}catch(e){toast(e.message);}return;}
   const h = hitBody(x, y),ids=inkIdsAt(x,y,h),now=performance.now();const id=cycleInkHit(ids,lastInkTap,{x,y,time:now});
-  if(id){lastInkTap={ids,id,x,y,time:now};select(id,false);requestAnimationFrame(()=>{const t=sel();if(t&&t.id===id&&!gest)keepClearOfPanels(t);});lastTap={t:0,x,y,empty:false};return;}
+  if(id){lastInkTap={ids,id,x,y,time:now};select(id,false);lastInkTap.time=performance.now(); // a repeat tap counts from when the selection has shown, so a slow panel never eats it
+    const tapNow=lastInkTap,fresh=()=>{if(lastInkTap===tapNow)tapNow.time=Math.max(tapNow.time,performance.now());};requestAnimationFrame(()=>{fresh();const t=sel();if(t&&t.id===id&&!gest)keepClearOfPanels(t);requestAnimationFrame(fresh);});setTimeout(fresh,0);lastTap={t:0,x,y,empty:false};return;}
   lastInkTap=null;
   const dbl = lastTap.empty && now - lastTap.t < 380 && Math.hypot(x - lastTap.x, y - lastTap.y) < 40;
   lastTap = { t: now, x, y, empty: true };
