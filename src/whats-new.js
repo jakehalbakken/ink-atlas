@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'mention', date: '2026-11-15', title: 'Mention someone in a comment', how: 'On a project you work on together, open Preview > Comments and type @ in a comment or a reply. The names of the people on the project show under it: tap one to mention them. A mention of you stands out in the comment, and What changed lists it first.', show: 'pinReplies' },
   { id: 'ownCopy', date: '2026-11-15', title: 'Make your own copy of a shared project', how: 'On a project someone shared with you, open your account and tap Make my own copy. It goes into your own account as a separate project you can change freely, and the shared one stays as it is for everyone on it.', show: 'ownCopy' },
   { id: 'flash', date: '2026-11-15', title: 'Split a flash sheet', how: 'Upload a flash sheet or a page of sketches with several separate designs on it. Tap Split them, or Split into designs in More controls, and each design becomes its own tattoo to place and size. Undo puts the sheet back.', show: 'flash' },
   { id: 'sharp', date: '2026-11-15', title: 'Small artwork warning', how: 'Open Ink check or Stencil for your artist in More controls. When the artwork file is too small to print sharp at the size it has on your body, it says so, and how many pixels wide a sharp file needs to be.', show: 'sharp' },

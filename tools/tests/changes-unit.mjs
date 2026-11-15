@@ -39,4 +39,12 @@ assert.equal(changesBetween(after, later, { me: 'Jake' })[0].noteId, 'n2');
 assert.deepEqual(changesBetween(after, later, { me: 'Artist' }).map((c) => c.text), ['Jake replied to "move it up": "how much higher?"']);
 const reopened = JSON.parse(JSON.stringify(later)); delete reopened.notes[1].done;
 assert.deepEqual(changesBetween(later, reopened, { me: 'Artist' }).map((c) => c.text), ['Reopened "move it up"']);
+// mentions of me come first and say so
+{
+  const b = { tattoos: [], notes: [{ id: 'm1', text: 'old', by: 'Jake', replies: [] }] };
+  const a = { tattoos: [T('New')], notes: [{ id: 'm1', text: 'old', by: 'Jake', replies: [{ id: 'x', text: '@jake smaller?', by: 'Liv' }] }, { id: 'm2', text: 'hi @Liv', by: 'Mara' }] };
+  const c = changesBetween(b, a, { me: 'Jake H' });
+  assert.equal(c[0].mention, true); assert.match(c[0].text, /^Liv mentioned you on "old": "@jake smaller\?"$/);
+  assert.equal(c.find((x) => x.noteId === 'm2').mention, undefined, 'a mention of someone else is a comment');
+}
 console.log('changes-unit: ok');

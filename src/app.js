@@ -64,6 +64,7 @@ import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
 import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost, planCalendar, planCalendarText, planCalendarFile } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
+import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
 
 // a feature that needs the account's email sender is listed only once that is switched on
 const NEW_FEATURES = ALL_FEATURES.filter((f) => !f.needs || (f.needs === 'emailCodes' && emailCodes));
@@ -2351,17 +2352,17 @@ function renderPins() {
     $('#pinListEmpty').hidden = shown.length > 0;
     $('#pinListItems').replaceChildren(...shown.map(([n, i]) => {
       const t = n.tattooId && state.tattoos.find((x) => x.id === n.tattooId), r = Array.isArray(n.replies) ? n.replies.length : 0;
-      const b = el('button', { type: 'button' }); b.append(el('b', { text: `${i + 1}. ${n.text || ''}` }), el('small', { text: [n.by || 'You', t ? 'on ' + (t.name || 'a tattoo') : '', r ? `${r} ${r === 1 ? 'reply' : 'replies'}` : '', n.done ? 'resolved' : ''].filter(Boolean).join(' · ') }));
+      const b = el('button', { type: 'button' }); b.append(el('b', { text: `${i + 1}. ${n.text || ''}` }), el('small', { text: [n.by || 'You', t ? 'on ' + (t.name || 'a tattoo') : '', r ? `${r} ${r === 1 ? 'reply' : 'replies'}` : '', mentionsMeIn(n) ? 'mentions you' : '', n.done ? 'resolved' : ''].filter(Boolean).join(' · ') }));
       b.addEventListener('click', () => { pins.list = false; openPin(n.id); turnToPin(n.id); });
       const li = el('li'); li.classList.toggle('done', !!n.done); li.append(b); return li;
     }));
   }
   $('#pinText').textContent = pins.list && forT ? `Comments on ${forT.name || 'this tattoo'}` : pins.pending ? 'Type your comment for this spot.' : open ? `Comment ${list.indexOf(open) + 1} of ${list.length}` + (open.done ? ' · resolved' : '') : list.length ? 'Tap the body to pin a comment there. Tap a pin to read it.' : 'Tap the body to pin a comment there, like: move this up an inch.';
   if (open) {
-    $('#pinBody').textContent = open.text || '';
+    $('#pinBody').replaceChildren(...mentionNodes(open.text || ''));
     const t = open.tattooId && state.tattoos.find((x) => x.id === open.tattooId);
     $('#pinWho').textContent = [open.by || 'You', open.at ? fmtDay(open.at) : '', t ? 'on ' + (t.name || 'a tattoo') : ''].filter(Boolean).join(' · ') + (open.done ? `. Resolved by ${open.done.by || 'someone'}${open.done.at ? ' ' + fmtDay(open.done.at) : ''}.` : '');
-    $('#pinReplies').replaceChildren(...(Array.isArray(open.replies) ? open.replies : []).map((r) => { const li = el('li', { text: r.text }); li.append(el('small', { text: [r.by || 'Someone', r.at ? fmtDay(r.at) : ''].filter(Boolean).join(' · ') })); return li; }));
+    $('#pinReplies').replaceChildren(...(Array.isArray(open.replies) ? open.replies : []).map((r) => { const li = el('li'); li.append(...mentionNodes(r.text), el('small', { text: [r.by || 'Someone', r.at ? fmtDay(r.at) : ''].filter(Boolean).join(' · ') })); return li; }));
     $('#pinRead').classList.toggle('done', !!open.done);
     $('#pinResolve').textContent = open.done ? 'Reopen' : 'Resolve';
     $('#pinDelete').hidden = commentOnly && !(open.by && open.by === myName());
@@ -2456,11 +2457,36 @@ function renderTyping() {
   if (who.length) markTried('typing');
   $('#pinTyping').textContent = who.length ? `${who.join(' and ')} ${who.length === 1 ? 'is' : 'are'} typing a reply…` : '';
 }
+// @mentions: a mention of this person stands out, and typing @ offers the names on the project
+function mentionNodes(text) { return mentionPieces(text, myName()).map((p) => (p.me ? el('mark', { class: 'at-me', text: p.text }) : document.createTextNode(p.text))); }
+const mentionsMeIn = (n) => !!myName() && (mentionsMe(n.text, myName()) || (Array.isArray(n.replies) && n.replies.some((r) => mentionsMe(r.text, myName()))));
+function mentionNames() {
+  const out = [...((account && account.people && account.people()) || []), ...peersHere.map((o) => o.name)];
+  for (const n of state.notes || []) { out.push(n.by); for (const r of Array.isArray(n.replies) ? n.replies : []) out.push(r.by); }
+  for (const r of state.refs || []) out.push(r.by);
+  for (const t of state.tattoos) if (t.review) out.push(t.review.by);
+  return out.filter((x) => typeof x === 'string' && x.trim());
+}
+function mentionChips(input, box) {
+  const at = typingMention(input.value, input.selectionStart);
+  const names = at ? mentionOffer(at.partial, mentionNames(), myName()) : [];
+  box.hidden = !names.length;
+  box.replaceChildren(...names.map((n) => el('button', { class: 'btn', type: 'button', text: '@' + n, 'aria-label': 'Mention ' + n, onpointerdown: (e) => e.preventDefault(), onclick: () => {
+    const now = typingMention(input.value, input.selectionStart) || at, r = insertMention(input.value, now, n);
+    input.value = r.value; input.focus(); input.setSelectionRange(r.caret, r.caret); box.hidden = true; markTried('mention');
+    input.dispatchEvent(new Event('input'));
+  } })));
+}
+for (const [i, b] of [['#pinNote', '#pinNoteAt'], ['#pinReply', '#pinReplyAt']]) {
+  const input = $(i), box = $(b);
+  for (const ev of ['input', 'click', 'keyup']) input.addEventListener(ev, () => mentionChips(input, box));
+  input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) box.hidden = true; }, 200));
+}
 $('#pinReplySend').addEventListener('click', () => {
   const id = pins.open, text = $('#pinReply').value.trim(); if (!id) return;
   if (!text) { toast('Type the reply first.'); $('#pinReply').focus(); return; }
   if ((pinNotes().find((n) => n.id === id)?.replies || []).length >= 50) { toast('This comment has 50 replies. Start a new comment for more.'); return; }
-  if (changePin(id, (n) => { n.replies = [...(Array.isArray(n.replies) ? n.replies : []), { id: 'r' + Math.random().toString(36).slice(2, 10), text, by: myName(), at: todayIso() }]; })) { $('#pinReply').value = ''; markTried('pinReplies'); if (typingOn) { typingOn = null; if (account && account.nudge) account.nudge(); } }
+  if (changePin(id, (n) => { n.replies = [...(Array.isArray(n.replies) ? n.replies : []), { id: 'r' + Math.random().toString(36).slice(2, 10), text, by: myName(), at: todayIso() }]; })) { $('#pinReply').value = ''; $('#pinReplyAt').hidden = true; markTried('pinReplies'); if (typingOn) { typingOn = null; if (account && account.nudge) account.nudge(); } }
 });
 $('#pinResolve').addEventListener('click', () => {
   const id = pins.open, n = id && pinNotes().find((x) => x.id === id); if (!n) return;

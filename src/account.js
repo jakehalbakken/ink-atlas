@@ -526,6 +526,17 @@ export function createAccount(api) {
   // change freely (also for someone who can only comment on the shared one). The shared project
   // stays as it is for everyone else; this screen moves to the copy.
   const copyBtn = () => h('button', { class: 'btn', type: 'button', id: 'acctCopy', text: 'Make my own copy', onclick: () => run(makeCopy) });
+  // the names of the people on the shared project on screen, for @mentions; fetched now and then
+  let knownPeople = { id: null, names: [], at: 0 }, peopleAsking = false;
+  function people() {
+    const b = myBind(); if (!b || !(b.shared || b.mine === false)) return [];
+    if ((knownPeople.id !== b.id || Date.now() - knownPeople.at > 60000) && !peopleAsking && cloud) {
+      peopleAsking = true;
+      cloud.members(b.id).then((ms) => { if (myBind() && myBind().id === b.id) knownPeople = { id: b.id, names: [b.mine === false ? b.ownerName : '', ...ms.map((m) => m.name)].filter(Boolean), at: Date.now() }; })
+        .catch(() => { knownPeople = { id: b.id, names: knownPeople.id === b.id ? knownPeople.names : [], at: Date.now() }; }).finally(() => { peopleAsking = false; });
+    }
+    return knownPeople.id === b.id ? knownPeople.names : [];
+  }
   async function makeCopy() {
     const b = myBind(); if (!b) return;
     // bring in the newest shared version first, and send this screen's own changes, so the copy has everything
@@ -616,6 +627,7 @@ export function createAccount(api) {
     if (b && (b.shared || b.mine === false)) {
       try {
         const ms = await cloud.members(b.id);
+        knownPeople = { id: b.id, names: [b.mine === false ? b.ownerName : '', ...ms.map((m) => m.name)].filter(Boolean), at: Date.now() };
         if (view !== 'home') return;
         people.replaceChildren();
         if (b.mine === false) people.append(h('div', { class: 'acct-item', 'data-owner': '1' }, h('div', { class: 'acct-name' }, h('b', { text: b.ownerName || 'The owner' }), h('small', { text: 'owns this project' }))));
@@ -811,7 +823,7 @@ export function createAccount(api) {
     status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing }),
     push, pull, displayName: () => (user() && cloud ? cloud.displayName() : ''),
     // the selected tattoo changed: tell anyone else here
-    nudge: () => liveTrack(), here: () => liveOthers.slice(),
+    nudge: () => liveTrack(), here: () => liveOthers.slice(), people,
     // opens the panel at "Work on it together" (New to try's Show me)
     async showForgot() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); if (user()) { show('home'); return; } mode = 'signin'; show('signin'); },
     async showTogether() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'home' : 'signin'); return document.getElementById(user() ? 'acctTogether' : 'accountBtn'); },
