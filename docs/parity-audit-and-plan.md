@@ -574,6 +574,7 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - From a distance (Share): the selected tattoo close up, across a table, a room and a street, softened to what an eye makes out at each distance, with a line on how far its finest lines and gaps stay clear (also in Ink check). View only. Tested: `distance-unit.mjs` and t107. Not yet checked on iPad.
 - Aging fades by colour: light colours, pastels and yellow lose more ink over the years than black (`fadeExtra` in `aging.js`), in the Aging view and the How it ages picture. Tested: `aging-unit.mjs`, t46, t63. Not yet checked on iPad.
 - Does it fit there (Try other spots): each arm and leg spot measures round the limb and the length of limb to use, and says when the piece is too wide, too long, or wraps more than half way round at its size. View only. Tested: `spot-fit-unit.mjs` and t108. Not yet checked on iPad.
+- Go back several steps: press and hold Undo for the last 15 steps in plain words; a tap goes back to just before one, and Redo brings them back. Nothing stored. Tested: `undo-words-unit.mjs` and t109. Not yet checked on iPad (long press on a button).
 - Storage: optional fields cleaned in `cleanState`; older saves have none, so no migration. Not yet checked: whether the account sync carries these fields (asked the accounts side), and the .ics opening in the iPad's Calendar.
 
 ## What it shows in, how it holds up, even placement (2026-11-15, built, not live)

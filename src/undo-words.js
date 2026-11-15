@@ -54,3 +54,18 @@ export function changeWords(before, after) {
 export function undoToast(words, redo = false) {
   return words ? `${redo ? 'Redid' : 'Undid'} ${words}.` : redo ? 'Redone.' : 'Undone.';
 }
+
+// The steps Undo can go back through, newest first: [{ steps, words }] where steps is how many
+// undos reach the state before that change. stack: saved states oldest first (JSON strings);
+// now: the current state. At most `max` rows; a step whose change has no name says 'A change'.
+export function historyList(stack, now, max = 15) {
+  const out = [];
+  let after = typeof now === 'string' ? JSON.parse(now) : now;
+  for (let i = stack.length - 1, steps = 1; i >= 0 && out.length < max; i--, steps++) {
+    let before; try { before = JSON.parse(stack[i]); } catch { break; }
+    let w = ''; try { w = changeWords(before, after); } catch { w = ''; }
+    out.push({ steps, words: w ? w[0].toUpperCase() + w.slice(1) : 'A change' });
+    after = before;
+  }
+  return out;
+}

@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'history', date: '2026-11-15', title: 'Go back several steps', how: 'Press and hold Undo. A list shows your last steps in plain words, like Moving Rose or The body shape. Tap one to go back to just before it in one go; Redo brings them back.', show: 'history' },
   { id: 'spotFit', date: '2026-11-15', title: 'Does it fit there', how: 'Select a tattoo, open More controls, then Try other spots. Under each arm and leg spot it now also says when the piece is too long for that part of the limb at its size, or wraps more than half way round it.', show: 'spotCompare' },
   { id: 'colourFade', date: '2026-11-15', title: 'Light colours fade sooner', how: 'Aging and the How it ages picture now fade light colours, pastels and yellow faster than black, the way real ink does, so a colour piece at 20 years looks honest. Try Share, then How it ages, on a tattoo with colour.', show: 'agingSheet' },
   { id: 'distance', date: '2026-11-15', title: 'From a distance', how: 'Select a tattoo, then Share, then From a distance. One picture shows it close up, across a table, across a room and across the street, with the detail an eye can’t make out at each distance run together. Ink check also says from how far its finest lines blur.', show: 'distance' },

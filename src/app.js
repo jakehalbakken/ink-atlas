@@ -34,7 +34,7 @@ import { OUTFITS, visibilityText, sittingWear } from './visibility.js';
 import { sizeLikeText } from './size-like.js';
 import { planMessage } from './plan-text.js';
 import { placeLabels, sizeLabel, leader } from './size-labels.js';
-import { changeWords, undoToast } from './undo-words.js';
+import { changeWords, undoToast, historyList } from './undo-words.js';
 import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG, catalogRotations } from './pose-catalog.js';
@@ -646,6 +646,21 @@ function restore(json) { const asks = state.asks; state = JSON.parse(json); if (
 function stepWords(a, b) { try { return changeWords(a, b); } catch { return ''; } }
 function undo() { if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); }
 function redo() { if (!redoStack.length) return; const now = JSON.stringify(state), next = redoStack.pop(), words = stepWords(state, JSON.parse(next)); undoStack.push(now); restore(next); refreshUndo(); toast(undoToast(words, true)); }
+// Go back several steps at once (the history list): every step passed goes onto Redo, in order.
+function undoSteps(n) {
+  n = Math.min(n, undoStack.length); if (n < 1) return;
+  if (n === 1) { undo(); return; }
+  let now = JSON.stringify(state), words = '';
+  for (let i = 0; i < n; i++) { const back = undoStack.pop(); if (i === n - 1) words = stepWords(JSON.parse(back), JSON.parse(now)); redoStack.push(now); now = back; }
+  restore(now); refreshUndo(); markTried('history');
+  toast(words ? `Went back ${n} steps, to before ${words}.` : `Went back ${n} steps.`);
+}
+function renderHistory() {
+  const list = $('#historyList'), rows = historyList(undoStack, state);
+  list.replaceChildren(...rows.map((r) => el('button', { class: 'btn', type: 'button', 'data-steps': String(r.steps) }, el('span', { text: r.words }), el('span', { class: 'spotsub', text: r.steps === 1 ? 'Last step' : `${r.steps} steps back` }))));
+  $('#historyEmpty').hidden = rows.length > 0;
+}
+function openHistory() { cancelGesture(); renderHistory(); toggle('#historyPop', true); markTried('history'); }
 function refreshUndo() { $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
 function commit() { syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); }
 
@@ -1587,7 +1602,14 @@ $('#snapGuides').addEventListener('change',clearLiveGuides);
 $('#bTapPlace').addEventListener('click',()=>{if(tapPlaceId){tapPlaceId=null;renderSheet();return;}cancelGesture();const t=sel();if(!t||t.locked||t.hidden||t.status==='existing')return;tapPlaceId=t.id;renderSheet();toast('Tap the body to place it. Drag to adjust the view first.');});
 $('#cancelTapPlace').addEventListener('click',()=>{tapPlaceId=null;renderSheet();});
 $('#bDone').addEventListener('click', () => select(null));
-$('#undo').addEventListener('click', undo); $('#redo').addEventListener('click', redo);
+// press and hold Undo (or right-click it) for the list of steps to go back through
+let undoHold = 0, undoHeld = false;
+$('#undo').addEventListener('pointerdown', () => { undoHeld = false; clearTimeout(undoHold); undoHold = setTimeout(() => { undoHeld = true; openHistory(); }, 500); });
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('#undo').addEventListener(ev, () => clearTimeout(undoHold));
+$('#undo').addEventListener('contextmenu', (e) => { e.preventDefault(); clearTimeout(undoHold); undoHeld = true; openHistory(); });
+$('#historyList').addEventListener('click', (e) => { const b = e.target.closest('[data-steps]'); if (!b) return; toggle('#historyPop', false); undoSteps(+b.dataset.steps); });
+$('#undo').addEventListener('click', (e) => { if (undoHeld) { undoHeld = false; e.preventDefault(); return; } undo(); });
+$('#redo').addEventListener('click', redo);
 $('#full').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); select(null); fullBody(); });
 // Before / after: left of the line shows only ink already on the body, right shows the plans too.
 const beforeAfter = createBeforeAfter({ after: $('#stage'), onChange: () => { needsRender = true; $('#baBtn').setAttribute('aria-pressed', String(beforeAfter.on)); } });
@@ -2215,6 +2237,7 @@ const SHOW = {
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
+  history: () => { if (!$('#undo').disabled) openHistory(); return ['#undo', 'Press and hold Undo for a list of your last steps. Tap one to go back to just before it. Redo brings them back.']; },
   undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],
   labels: () => { toggle('#share', true); return ['#cLabels', 'A picture of this view with each tattoo’s name and size written beside it, to send to your artist.']; },
   centre: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; $('#preciseBox').open = true; return ['#snapLabel', 'Drag a tattoo on your chest, stomach or back across the middle and a line shows down the centre of the body. Turn on snapping here and it sits right on it.']; },
@@ -4781,7 +4804,7 @@ window.__ink = {
   planMessage: () => planMessageText(),
   planSits: () => { planSitsRender(sel()); return planSitsShown; },
   spotNotes: () => spotNotesShown,
-  spotFit: () => spotFitLast, flashShown: () => flashShown, splitFlash: (id) => splitFlash(id), stretchShown: () => stretchShown,
+  spotFit: () => spotFitLast, history: () => historyList(undoStack, state), undoSteps, flashShown: () => flashShown, splitFlash: (id) => splitFlash(id), stretchShown: () => stretchShown,
   labels: () => labelsLast,
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },

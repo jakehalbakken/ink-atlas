@@ -31,3 +31,18 @@ assert.equal(undoToast('moving Rose'), 'Undid moving Rose.');
 assert.equal(undoToast('moving Rose', true), 'Redid moving Rose.');
 assert.equal(undoToast(''), 'Undone.');
 console.log('PASS undo-words-unit');
+// the history list: newest first, each with how many undos reach before it
+{
+  const { historyList } = await import('../../src/undo-words.js');
+  const s0 = { tattoos: [{ id: 'a', name: 'Rose', pos: [0, 0, 0], width: 0.1 }] };
+  const s1 = { tattoos: [{ id: 'a', name: 'Rose', pos: [0, 1, 0], width: 0.1 }] };
+  const s2 = { tattoos: [{ id: 'a', name: 'Rose', pos: [0, 1, 0], width: 0.2 }] };
+  const s3 = { ...s2, fit: { waist: 0.3 } };
+  const h = historyList([s0, s1, s2].map((x) => JSON.stringify(x)), s3);
+  assert.deepEqual(h.map((x) => x.steps), [1, 2, 3]);
+  assert.deepEqual(h.map((x) => x.words), ['The body shape', 'Resizing Rose', 'Moving Rose']);
+  assert.equal(historyList([], s3).length, 0);
+  assert.equal(historyList(Array(30).fill(JSON.stringify(s0)), s0, 15).length, 15, 'at most 15');
+  assert.equal(historyList([JSON.stringify(s0)], s0)[0].words, 'A change');
+  console.log('history list ok');
+}
