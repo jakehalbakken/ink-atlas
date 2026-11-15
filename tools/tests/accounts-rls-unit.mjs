@@ -119,5 +119,41 @@ try {
   await q(A, `insert into public.invites (id, project_id, expires_at) values ($1, $2, now() - interval '1 minute')`, [expired, ps.id]);
   await fails(C, `select * from public.accept_invite($1, 'x')`, [expired], 'an invite that ran out');
   await fails(A, `insert into public.invites (id, project_id, expires_at) values ('invite_fffffffffffffffffffff', $1, now() + interval '1 year')`, [ps.id], 'an invite that never runs out');
+
+  // comment only: comments, answers and reference pictures, nothing else
+  const D = await mk('d@example.com');
+  const st = (o) => JSON.stringify({ tattoos: [{ id: 't1', img: 'k1', width: 0.1, pos: [0, 1, 0.1] }], ...o });
+  const [pc] = await q(A, `insert into public.projects (name, state, image_keys, tattoos, shared, owner_name) values ('Arm', $1, '{k1}', 1, true, 'Jake') returning id`, [st({})]);
+  const invC = 'invite_ggggggggggggggggggggg';
+  await fails(A, `insert into public.invites (id, project_id, role) values ('invite_hhhhhhhhhhhhhhhhhhhhh', $1, 'boss')`, [pc.id], 'an unknown role');
+  await q(A, `insert into public.invites (id, project_id, role) values ($1, $2, 'comment')`, [invC, pc.id]);
+  await q(D, `select * from public.accept_invite($1, 'Artist')`, [invC]);
+  assert.deepEqual(await q(D, 'select role from public.project_members where project_id = $1 and user_id = $2', [pc.id, D]), [{ role: 'comment' }], 'joined as comment only');
+  const save = (uid, state, keys) => q(uid, `update public.projects set state = $2, image_keys = $3, rev = rev + 1 where id = $1 returning rev`, [pc.id, state, keys]);
+  const review = { tattoos: [{ id: 't1', img: 'k1', width: 0.1, pos: [0, 1, 0.1], review: { verdict: 'changes', note: 'smaller', by: 'Artist' } }] };
+  assert.equal((await save(D, JSON.stringify({ ...review, notes: [{ id: 'c1', text: 'hi', by: 'Artist' }] }), '{k1}')).length, 1, 'comment only can answer and comment');
+  await fails(D, `update public.projects set state = $2, rev = rev + 1 where id = $1`, [pc.id, st({ notes: [{ id: 'c1', text: 'hi', by: 'Artist' }] }).replace('0.1,', '0.2,')], 'comment only resizing a tattoo');
+  await fails(D, `update public.projects set state = $2, rev = rev + 1 where id = $1`, [pc.id, JSON.stringify({ tattoos: [], notes: [] })], 'comment only removing a tattoo');
+  await fails(D, `update public.projects set state = $2, rev = rev + 1 where id = $1`, [pc.id, JSON.stringify({ ...review, skin: 3 })], 'comment only changing the skin');
+  assert.equal((await save(D, JSON.stringify({ ...review, refs: [{ id: 'r1', img: 'k9', by: 'Artist' }] }), '{k1,k9}')).length, 1, 'comment only adds a reference picture');
+  await fails(D, `update public.projects set image_keys = '{k1,k9,k8}', rev = rev + 1 where id = $1`, [pc.id], 'comment only adding other artwork');
+  await q(D, `insert into storage.objects (bucket_id, name) values ('artwork', $1)`, ['p/' + pc.id + '/k9']);
+  await fails(D, `update public.projects set name = 'x' where id = $1`, [pc.id], 'comment only renaming');
+  await fails(D, `select public.set_member_role($1, $2, 'edit')`, [pc.id, D], 'comment only giving themselves editing');
+  await fails(B, `select public.set_member_role($1, $2, 'edit')`, [pc.id, D], 'someone else changing roles');
+  assert.equal((await save(A, st({}), '{k1}')).length, 1, 'the owner still changes anything');
+  await q(A, `select public.set_member_role($1, $2, 'edit')`, [pc.id, D]);
+  assert.equal((await save(D, st({ skin: 3 }).replace('0.1,', '0.2,'), '{k1}')).length, 1, 'switched to edit: can change tattoos');
+  await q(A, `select public.set_member_role($1, $2, 'comment')`, [pc.id, D]);
+  await fails(D, `update public.projects set state = $2, rev = rev + 1 where id = $1`, [pc.id, st({})], 'switched back to comment only');
+  // every project at a glance
+  await save(A, JSON.stringify({ tattoos: [
+    { id: 'a', img: 'k1', review: { verdict: 'approved', by: 'Liv' } }, { id: 'b', img: 'k1', review: { verdict: 'changes', by: 'Artist' } },
+    { id: 'c', img: 'k1' }, { id: 'd', img: 'k1', status: 'existing' }, { id: 'e', img: 'k1', hidden: true }],
+    notes: [{ id: 'n1', text: 'first', by: 'Jake' }, { id: 'n2', text: 'move it up', by: 'Artist' }], refs: [{ id: 'r', img: 'k1' }] }), '{k1}');
+  const [sum] = await q(D, 'select public.summary(p) as s from public.projects p where id = $1', [pc.id]);
+  assert.deepEqual(sum.s, { planned: 3, approved: 1, changes: 1, change_by: ['Artist'], comments: 2, comment_by: 'Artist', comment_text: 'move it up', refs: 1 }, 'summary');
+  const [odd] = await q(A, `select public.summary(p) as s from public.projects p where id = $1`, [pa.id]);
+  assert.equal(odd.s.planned, 0, 'a project with odd contents still reads');
   console.log('accounts-rls-unit: ok');
 } finally { await fake.stop(); }

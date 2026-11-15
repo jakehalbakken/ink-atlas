@@ -15,8 +15,20 @@ export function makeRef(rand = Math.random) {
   return s;
 }
 
-// The page. items: [{ n, name, size, status, closeUp, art }] (pictures as data URLs).
-export function approvalHtml({ title, ref, items, date }) {
+// Reference pictures and open comments that go with a tattoo, or with the whole plan.
+// refs: [{ src, note? }] (JPEG or PNG data URLs); comments: [{ text, by?, replies?: [{ text, by? }] }].
+function extras(refs, comments, plan) {
+  const r = (Array.isArray(refs) ? refs : []).filter((x) => x && isImg(x.src)).slice(0, 8);
+  const c = (Array.isArray(comments) ? comments : []).filter((x) => x && typeof x.text === 'string' && x.text.trim()).slice(0, 12);
+  let out = '';
+  if (r.length) out += `<div class="refs"><h3>${plan ? 'Reference pictures for the whole plan' : 'Reference pictures'}</h3><div class="refgrid">${r.map((x) => `<figure><img src="${x.src}" alt="${esc(x.note || 'Reference picture')}">${x.note ? `<figcaption>${esc(String(x.note).slice(0, 300))}</figcaption>` : ''}</figure>`).join('')}</div></div>`;
+  if (c.length) out += `<div class="notes"><h3>${plan ? 'Comments on the whole plan' : 'Comments so far'}</h3><ul>${c.map((x) => `<li><b>${esc(x.by || 'Someone')}:</b> ${esc(String(x.text).slice(0, 500))}${(Array.isArray(x.replies) ? x.replies : []).slice(0, 12).map((y) => y && y.text ? `<div class="re"><b>${esc(y.by || 'Someone')}:</b> ${esc(String(y.text).slice(0, 500))}</div>` : '').join('')}</li>`).join('')}</ul></div>`;
+  return out;
+}
+
+// The page. items: [{ n, name, size, status, closeUp, art, refs?, comments? }] (pictures as data
+// URLs); refs and comments: the ones for the whole plan, shown before the end.
+export function approvalHtml({ title, ref, items, date, refs, comments }) {
   const cards = items.map((it) => `
 <section class="card" data-n="${it.n}">
   <h2><span class="n">${it.n}</span>${esc(it.name)}</h2>
@@ -26,8 +38,10 @@ export function approvalHtml({ title, ref, items, date }) {
     <label><input type="radio" name="v${it.n}" value="yes"><span>Yes, go ahead</span></label>
     <label><input type="radio" name="v${it.n}" value="change"><span>Change it</span></label>
   </div>
+  ${extras(it.refs, it.comments)}
   <textarea name="t${it.n}" rows="2" placeholder="What would you change? (optional)"></textarea>
 </section>`).join('');
+  const general = extras(refs, comments, true);
   const names = JSON.stringify(items.map((it) => String(it.name))).replace(/</g, '\\u003c');
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -46,10 +60,12 @@ textarea,input[type=text]{width:100%;font:inherit;padding:10px 12px;border:1px s
 button{font:inherit;font-weight:700;min-height:52px;width:100%;border:0;border-radius:14px;background:var(--accent);color:#fff;margin-top:12px;cursor:pointer}
 #out{display:none;white-space:pre-wrap;background:#f4f3ef;border-radius:12px;padding:12px;margin-top:12px;font-size:15px}#done{color:var(--muted);margin:10px 0 0}
 .plain{color:var(--muted);font-size:15px;margin:20px 4px 0}
+h3{font-size:15px;margin:12px 0 6px;color:var(--muted)}.refgrid{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px}.refgrid figure{margin:0;flex:0 0 auto;width:150px}.refgrid img{display:block;width:150px;height:150px;object-fit:cover;border-radius:10px;background:#eee}.refgrid figcaption{font-size:13px;color:var(--muted);margin-top:4px}.notes ul{list-style:none;margin:0;padding:0}.notes li{background:#f4f3ef;border-radius:10px;padding:8px 10px;margin:0 0 6px}.notes .re{margin:4px 0 0 14px;color:var(--muted)}.general{background:#fff;border:1px solid var(--line);border-radius:16px;padding:4px 16px 12px;margin:0 0 16px}
 </style></head><body><main>
 <h1>${esc(title)}: what do you think?</h1>
 <p class="sub">Tap Yes or Change for each tattoo, then Send my answers.${date ? ' Sent ' + esc(date) + '.' : ''}</p>
 ${cards}
+${general ? `<section class="general">${general}</section>` : ''}
 <section class="end">
   <label for="by">Your name</label><input type="text" id="by" autocomplete="name">
   <label for="also" style="margin-top:12px">Anything else?</label><textarea id="also" rows="3"></textarea>

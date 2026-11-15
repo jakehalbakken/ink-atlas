@@ -44,6 +44,8 @@ const plain = (e) => {
   if (/signups not allowed for otp|user not found/i.test(m)) return 'There is no account with that email yet. Make one with New here.';
   if (/invite no longer works/i.test(m)) return 'That invite no longer works. Ask for a new one.';
   if (/only the owner can do that/i.test(m)) return 'Only the person who owns this project can do that.';
+  if (/not change the tattoos/i.test(m)) return 'You can comment and answer on this project, but not change the tattoos.';
+  if (/column .*(role|summary)|summary.*(does not exist|not find)|could not find.*(role|summary)/i.test(m)) return 'This needs the latest account setup. Ask the owner of this Ink Atlas to run the setup step again.';
   return m;
 };
 export const plainError = plain;
@@ -120,15 +122,26 @@ export async function openCloud() {
 
     // Projects -------------------------------------------------------------
     // Each row says whether it is mine (I own it) or one I joined (shared by owner_name).
+    // summary (every project at a glance) comes from the server; an account set up before it
+    // existed still lists its projects, just without it
     async list() {
-      const me = uid();
-      const d = check(await sb.from('projects').select('id,name,tattoos,rev,updated_at,owner,shared,owner_name,edited_by').eq('archived', false).order('updated_at', { ascending: false }).limit(200));
-      return d.map((r) => ({ ...r, mine: r.owner === me }));
+      const me = uid(), cols = 'id,name,tattoos,rev,updated_at,owner,shared,owner_name,edited_by';
+      const get = (c) => sb.from('projects').select(c).eq('archived', false).order('updated_at', { ascending: false }).limit(200);
+      let res = await get(cols + ',summary');
+      if (res.error) res = await get(cols);
+      return check(res).map((r) => ({ ...r, mine: r.owner === me, summary: r.summary && typeof r.summary === 'object' ? r.summary : null }));
+    },
+    // 'edit' or 'comment' for someone who joined; the owner can always change everything
+    async roleIn(id) {
+      const { data, error } = await sb.from('project_members').select('role').eq('project_id', id).eq('user_id', uid()).limit(1);
+      return !error && data && data[0] && data[0].role === 'comment' ? 'comment' : 'edit';
     },
     async meta(id) {
       const me = uid();
       const d = check(await sb.from('projects').select('id,name,rev,archived,updated_at,owner,shared,owner_name,edited_by').eq('id', id).limit(1));
-      return d && d[0] && !d[0].archived ? { ...d[0], mine: d[0].owner === me } : null;
+      if (!(d && d[0] && !d[0].archived)) return null;
+      const mine = d[0].owner === me;
+      return { ...d[0], mine, role: mine ? 'edit' : await this.roleIn(id) };
     },
     folderFor(id, shared) { return shared ? 'p/' + id : uid(); },
     // done: the set of artwork keys known to be up already (kept by the caller per folder).
@@ -147,16 +160,27 @@ export async function openCloud() {
       const d = check(await sb.from('projects').update({ ...r, rev: rev + 1, edited_by: this.displayName() || null }).eq('id', id).eq('rev', rev).select('id,name,rev,updated_at,shared'));
       return d && d[0] ? d[0] : { conflict: true };
     },
-    async load(id) {
+    // have(key): artwork already on this device, which is not fetched again
+    async load(id, have) {
       const me = uid();
       const p = check(await sb.from('projects').select('id,name,state,image_keys,rev,updated_at,owner,shared,owner_name,edited_by').eq('id', id).single());
       const keys = Array.isArray(p.image_keys) ? p.image_keys.filter((k) => typeof k === 'string') : [];
       const mine = p.owner === me;
       const from = (folder) => async (path) => check(await sb.storage.from('artwork').download(folder + '/' + path));
-      let { images, missing } = await downloadArtwork(from(p.shared ? 'p/' + p.id : me), keys);
+      let { images, missing } = await downloadArtwork(from(p.shared ? 'p/' + p.id : me), have ? keys.filter((k) => !have(k)) : keys);
       // the owner's own folder still has anything that was saved before sharing was switched on
       if (p.shared && mine && missing.length) { const more = await downloadArtwork(from(me), missing); Object.assign(images, more.images); missing = more.missing; }
-      return { id: p.id, name: p.name, rev: p.rev, state: p.state, images, missing, keys, shared: !!p.shared, mine, ownerName: p.owner_name || '', editedBy: p.edited_by || '' };
+      return { id: p.id, name: p.name, rev: p.rev, state: p.state, images, missing, keys, shared: !!p.shared, mine, role: mine ? 'edit' : await this.roleIn(p.id), ownerName: p.owner_name || '', editedBy: p.edited_by || '' };
+    },
+    // Someone who can only comment: the project as the account has it with their comments,
+    // answers and reference pictures on it (src/merge.js commentsOnto). keys: the project's
+    // artwork as the account has it; only reference pictures are added to it.
+    async saveComments(id, rev, state, keys, images, done) {
+      const refKeys = (Array.isArray(state.refs) ? state.refs : []).map((r) => r && r.img).filter((k) => typeof k === 'string' && typeof images[k] === 'string');
+      await uploadArtwork('artwork', 'p/' + id, images, refKeys, done);
+      const image_keys = [...new Set([...keys, ...refKeys])];
+      const d = check(await sb.from('projects').update({ state, image_keys, rev: rev + 1, edited_by: this.displayName() || null }).eq('id', id).eq('rev', rev).select('id,name,rev,updated_at,shared'));
+      return d && d[0] ? d[0] : { conflict: true };
     },
     async rename(id, name) { check(await sb.from('projects').update({ name: String(name).trim().slice(0, 80) || 'My tattoos' }).eq('id', id).select('id')); },
     async remove(id) { check(await sb.from('projects').update({ archived: true }).eq('id', id).select('id')); },
@@ -169,11 +193,13 @@ export async function openCloud() {
       check(await sb.from('projects').update({ shared: true, owner_name: this.displayName() || null }).eq('id', id).select('id'));
     },
     // One link for one person, good for 14 days.
-    async invite(id) {
+    // role 'comment': they can comment, answer and add reference pictures, not change the tattoos
+    async invite(id, role = 'edit') {
       const token = linkId();
-      check(await sb.from('invites').insert({ id: token, project_id: id }));
+      check(await sb.from('invites').insert(role === 'comment' ? { id: token, project_id: id, role } : { id: token, project_id: id }));
       return token;
     },
+    async setRole(id, userId, role) { check(await sb.rpc('set_member_role', { pid: id, member: userId, new_role: role === 'comment' ? 'comment' : 'edit' })); },
     async acceptInvite(token) {
       if (!/^[A-Za-z0-9_-]{22,64}$/.test(token || '')) throw new Error('That invite link is not complete.');
       const d = check(await sb.rpc('accept_invite', { invite_id: token, my_name: this.displayName() || null }));
@@ -181,7 +207,12 @@ export async function openCloud() {
       if (!r) throw new Error('That invite no longer works. Ask for a new one.');
       return { id: r.project_id, name: r.name, ownerName: r.owner_name || '' };
     },
-    async members(id) { return check(await sb.from('project_members').select('user_id,name,added_at').eq('project_id', id).order('added_at', { ascending: true })); },
+    async members(id) {
+      const get = (c) => sb.from('project_members').select(c).eq('project_id', id).order('added_at', { ascending: true });
+      let res = await get('user_id,name,added_at,role');
+      if (res.error) res = await get('user_id,name,added_at');
+      return check(res).map((m) => ({ ...m, role: m.role === 'comment' ? 'comment' : 'edit' }));
+    },
     async removeMember(id, userId) { check(await sb.from('project_members').delete().eq('project_id', id).eq('user_id', userId)); },
     async leave(id) { check(await sb.from('project_members').delete().eq('project_id', id).eq('user_id', uid())); },
 

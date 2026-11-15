@@ -101,7 +101,7 @@ export async function startFakeSupabase({ port = 0, db = 'ink_fake_' + randomByt
       if (path === '/auth/v1/logout') return send(204);
 
       /* ---------- REST (only the shapes the app uses) ---------- */
-      const fn = /^\/rest\/v1\/rpc\/(get_share|accept_invite)$/.exec(path);
+      const fn = /^\/rest\/v1\/rpc\/(get_share|accept_invite|set_member_role)$/.exec(path);
       if (fn) {
         const b = json(), names = Object.keys(b).filter((k) => /^[a-z_]+$/.test(k));
         try { const rows = await as(uid, (c) => c.query(`select * from public.${fn[1]}(${names.map((k, i) => `${k} => $${i + 1}`).join(', ')})`, names.map((k) => b[k]))).then((r) => r.rows); return send(200, rows); }
@@ -118,7 +118,7 @@ export async function startFakeSupabase({ port = 0, db = 'ink_fake_' + randomByt
         try {
           rows = await as(uid, async (c) => {
             const w = where.length ? ' where ' + where.join(' and ') : '';
-            if (req.method === 'GET') return (await c.query(`select ${cols} from ${table}${w}${order ? ` order by ${order[1]} ${order[2]}` : ''}${limit ? ' limit ' + limit : ''}`, args)).rows;
+            if (req.method === 'GET') return (await c.query(`select ${cols.split(', ').map((c2) => 't.' + c2).join(', ')} from ${table} t${w}${order ? ` order by ${order[1]} ${order[2]}` : ''}${limit ? ' limit ' + limit : ''}`, args)).rows;
             const b = json(), keys = Object.keys(b).filter((k) => /^[a-z_]+$/.test(k));
             args.push(JSON.stringify(b)); const rec = `jsonb_populate_record(null::${table}, $${args.length}::jsonb)`;
             if (req.method === 'POST') return (await c.query(`insert into ${table} (${keys.join(', ')}) select ${keys.join(', ')} from ${rec} returning ${cols}`, args)).rows;

@@ -22,6 +22,18 @@ assert.equal((html.match(/<section class="card"/g) || []).length, 2);
 assert.ok(html.includes('Reference ' + ref), 'the plain reply fallback carries the reference');
 assert.ok(!/https?:\/\//.test(html), 'nothing loads from anywhere: no web addresses');
 assert.ok(html.includes('name="v1"') && html.includes('name="v2"') && html.includes('name="t2"'));
+assert.ok(!html.includes('Reference pictures') && !html.includes('Comments so far') && !html.includes('class="general"'), 'nothing extra when there is none');
+// reference pictures and open comments go with their tattoo, and the plan's own at the end
+const jpg = 'data:image/jpeg;base64,/9j/4AAQ';
+const items2 = [{ ...items[0], refs: [{ src: jpg, note: 'this <i>line</i>' }, { src: 'https://x.test/a.png' }], comments: [{ text: 'darker <script>', by: 'Mara', replies: [{ text: 'how much?', by: 'Jake' }] }, { text: '  ' }] }, items[1]];
+const html2 = approvalHtml({ title: 'Plan', ref, items: items2, refs: [{ src: jpg }], comments: [{ text: 'all good', by: 'Liv' }] });
+assert.equal((html2.match(/<figure>/g) || []).length, 2, 'only picture data, one on the tattoo and one for the plan');
+assert.ok(html2.includes('this &lt;i&gt;line&lt;/i&gt;') && html2.includes('darker &lt;script&gt;') && !html2.includes('<i>line'), 'notes and comments escaped');
+assert.ok(html2.includes('<b>Mara:</b>') && html2.includes('<b>Jake:</b> how much?'), 'comment with its reply');
+assert.equal((html2.match(/<li>/g) || []).length, 2, 'blank comments left out');
+assert.ok(html2.includes('Reference pictures for the whole plan') && html2.includes('Comments on the whole plan') && html2.includes('<b>Liv:</b> all good'));
+assert.ok(html2.indexOf('Comments so far') < html2.indexOf('data-n="2"'), 'a tattoo\'s comments sit on its own card');
+assert.ok(!/https?:\/\//.test(html2), 'still no web addresses');
 
 // run the page's own script on a pretend page: its answers text reads back exactly
 const field = (v) => ({ value: v });

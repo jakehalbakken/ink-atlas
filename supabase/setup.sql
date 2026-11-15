@@ -129,6 +129,26 @@ create table if not exists public.invites (
 );
 alter table public.invites enable row level security;
 
+-- Comment only (added 2026-11-15): an invite, and the person who joins with it, can be "edit"
+-- (change the tattoos, as before) or "comment" (pin comments, answer Looks good / Ask for a
+-- change, and add reference pictures, but not move, resize, add or remove tattoos).
+alter table public.invites add column if not exists role text not null default 'edit' check (role in ('edit', 'comment'));
+alter table public.project_members add column if not exists role text not null default 'edit' check (role in ('edit', 'comment'));
+create or replace function public.comment_only(pid uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.project_members m where m.project_id = pid and m.user_id = auth.uid() and m.role = 'comment');
+$$;
+-- A project without its comments, answers and reference pictures: what someone who can only
+-- comment must leave exactly as it was.
+create or replace function public.without_comments(s jsonb) returns jsonb
+language sql immutable set search_path = public as $$
+  select case
+    when jsonb_typeof(s) is distinct from 'object' then s
+    when jsonb_typeof(s->'tattoos') = 'array' then (s - 'notes' - 'refs') || jsonb_build_object('tattoos', coalesce(
+      (select jsonb_agg(case when jsonb_typeof(x) = 'object' then x - 'review' else x end order by i) from jsonb_array_elements(s->'tattoos') with ordinality e(x, i)), '[]'::jsonb))
+    else s - 'notes' - 'refs' end;
+$$;
+
 -- These look past row-level security on purpose (security definer), so the rules below can ask
 -- "is this my project?" without the tables' own rules going round in a circle. Each answers
 -- only for the person signed in.
@@ -152,8 +172,8 @@ begin
   if f is null or array_length(f, 1) <> 2 or f[1] <> 'p' or f[2] !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then return false; end if;
   return public.can_open_project(f[2]::uuid);
 end $$;
-revoke all on function public.owns_project(uuid), public.joined_project(uuid), public.can_open_project(uuid), public.can_open_project_folder(text[]) from public;
-grant execute on function public.owns_project(uuid), public.joined_project(uuid), public.can_open_project(uuid), public.can_open_project_folder(text[]) to authenticated;
+revoke all on function public.owns_project(uuid), public.joined_project(uuid), public.can_open_project(uuid), public.can_open_project_folder(text[]), public.comment_only(uuid) from public;
+grant execute on function public.owns_project(uuid), public.joined_project(uuid), public.can_open_project(uuid), public.can_open_project_folder(text[]), public.comment_only(uuid) to authenticated;
 
 -- Projects: the owner as before, plus people who joined can read and save it.
 drop policy if exists "projects: owner reads" on public.projects;
@@ -175,6 +195,13 @@ begin
      and (new.archived is distinct from old.archived or new.shared is distinct from old.shared
           or new.name is distinct from old.name or new.owner_name is distinct from old.owner_name) then
     raise exception 'Only the owner can do that' using errcode = '42501';
+  end if;
+  -- someone who can only comment: comments, answers and reference pictures, nothing else
+  if auth.uid() is not null and auth.uid() is distinct from old.owner and public.comment_only(old.id)
+     and (public.without_comments(new.state) is distinct from public.without_comments(old.state)
+          or exists (select unnest(new.image_keys) except select unnest(old.image_keys)
+                     except select r->>'img' from jsonb_array_elements(case when jsonb_typeof(new.state->'refs') = 'array' then new.state->'refs' else '[]'::jsonb end) r)) then
+    raise exception 'You can comment and answer on this project, not change the tattoos' using errcode = '42501';
   end if;
   return new;
 end $$;
@@ -214,8 +241,8 @@ begin
   select * into p from public.projects x where x.id = inv.project_id;
   if not found or p.archived then raise exception 'That invite no longer works. Ask for a new one.' using errcode = 'P0002'; end if;
   if p.owner <> me then
-    insert into public.project_members (project_id, user_id, name) values (p.id, me, left(nullif(trim(my_name), ''), 60))
-      on conflict on constraint project_members_pkey do update set name = coalesce(excluded.name, public.project_members.name);
+    insert into public.project_members (project_id, user_id, name, role) values (p.id, me, left(nullif(trim(my_name), ''), 60), inv.role)
+      on conflict on constraint project_members_pkey do update set name = coalesce(excluded.name, public.project_members.name), role = excluded.role;
     update public.invites set used_by = me, used_at = coalesce(used_at, now()) where id = inv.id;
   end if;
   return query select p.id, p.name, p.owner_name;
@@ -238,3 +265,39 @@ create policy "artwork: project people add" on storage.objects for insert to aut
   with check (bucket_id = 'artwork' and public.can_open_project_folder(storage.foldername(name)));
 
 grant select, insert, update, delete on public.project_members, public.invites to authenticated;
+
+-- The owner switching someone between "can change tattoos" and "comment only".
+create or replace function public.set_member_role(pid uuid, member uuid, new_role text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if new_role is null or new_role not in ('edit', 'comment') then raise exception 'Unknown role' using errcode = '22023'; end if;
+  if not public.owns_project(pid) then raise exception 'Only the owner can do that' using errcode = '42501'; end if;
+  update public.project_members set role = new_role where project_id = pid and user_id = member;
+end $$;
+revoke all on function public.set_member_role(uuid, uuid, text) from public;
+grant execute on function public.set_member_role(uuid, uuid, text) to authenticated;
+
+-- Every project at a glance (added 2026-11-15) ---------------------------------------
+-- Read with the project list as `summary`: how many planned tattoos are approved, have a
+-- change asked or are waiting on an answer, who asked, and the newest comment. Worked out
+-- from the saved project each time it is read, so nothing extra is stored.
+create or replace function public.summary(p public.projects) returns jsonb
+language sql stable set search_path = public as $$
+  with t as (
+    select x from jsonb_array_elements(case when jsonb_typeof(p.state->'tattoos') = 'array' then p.state->'tattoos' else '[]'::jsonb end) x
+    where jsonb_typeof(x) = 'object' and x->'status' is distinct from '"existing"'::jsonb and x->'hidden' is distinct from 'true'::jsonb
+  ), n as (
+    select x, i from jsonb_array_elements(case when jsonb_typeof(p.state->'notes') = 'array' then p.state->'notes' else '[]'::jsonb end) with ordinality e(x, i)
+    where jsonb_typeof(x) = 'object'
+  )
+  select jsonb_build_object(
+    'planned', (select count(*) from t),
+    'approved', (select count(*) from t where x->'review'->>'verdict' = 'approved'),
+    'changes', (select count(*) from t where x->'review'->>'verdict' = 'changes'),
+    'change_by', coalesce((select jsonb_agg(distinct left(x->'review'->>'by', 60)) from t where x->'review'->>'verdict' = 'changes' and coalesce(x->'review'->>'by', '') <> ''), '[]'::jsonb),
+    'comments', (select count(*) from n),
+    'comment_by', (select left(x->>'by', 60) from n order by i desc limit 1),
+    'comment_text', (select left(x->>'text', 80) from n order by i desc limit 1),
+    'refs', case when jsonb_typeof(p.state->'refs') = 'array' then jsonb_array_length(p.state->'refs') else 0 end);
+$$;
+grant execute on function public.summary(public.projects) to authenticated;

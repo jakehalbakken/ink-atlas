@@ -22,6 +22,12 @@ The invite links, live shared projects, answers on the tattoo and pinned comment
 
 That is all. It keeps everything already in the account and only adds what is new: who has joined which project, the invite links, and a shared artwork folder per project. Running it again is safe. Until it has been run, Invite someone says it could not reach the account and nothing else changes.
 
+## Update: comment-only invites and whose turn it is (2026-11-15)
+
+1. In Supabase open **SQL Editor**, then **New query**. Paste the whole of `supabase/setup.sql` from this repo (the newest version) and press **Run**. It should end with "Success".
+
+It keeps everything already in the account. It adds a role to each invite and each person on a project (everyone already on one keeps editing), the server rule that stops a comment-only person changing the tattoos, a short summary of each project for the list (whose turn it is), and the switch between Let them edit and Comments only. Running it again is safe. Until it has been run, a Comments only invite says the account needs the latest setup, and the project list shows no turn lines; everything else works as before.
+
 ## Optional: forgot password and emailed codes
 
 To let people reset a forgotten password themselves ("Forgot your password? Email me a code"), Supabase needs your own email sender, because its built-in one only delivers to your own address. The free way that needs no website of your own is your Gmail:
@@ -39,6 +45,6 @@ Until this is set up, you can reset someone's password for them in Supabase unde
 ## Things to know
 
 - Anyone who finds the site can make an account on your project. Each account only ever sees its own projects, plus projects someone invited it into.
-- An invite link is for one person and works for 14 days. Whoever opens it first while signed in joins that one project; nobody else can use it after that. People who join can change the tattoos but cannot rename, remove or share the project, and they never see the owner's other projects. Taking someone off (or them leaving) also stops their old link working. The free plan holds 500 MB of data and 1 GB of artwork, plenty for this.
+- An invite link is for one person and works for 14 days. Whoever opens it first while signed in joins that one project; nobody else can use it after that. People invited to edit can change the tattoos; people invited to comment can only pin comments, answer Looks good or Ask for a change and add reference pictures (the server refuses anything else from them). Neither can rename, remove or share the project, and they never see the owner's other projects. Taking someone off (or them leaving) also stops their old link working. The free plan holds 500 MB of data and 1 GB of artwork, plenty for this.
 - Supabase pauses a free project after a week with no use. Opening the dashboard and pressing **Restore** brings it back; nothing is lost.
 - Shared links ("Send to someone") are a frozen copy. Anyone with the link can open that copy. The link id is long and random, and copies cannot be listed.

@@ -40,7 +40,11 @@ await new Promise((r) => setTimeout(r, 2500));
 await p.evaluate(() => { const c = document.querySelector('#coachOk'); c && c.click(); });
 if (script) { const mod = await import(pathToFileURL(resolve(script)).href); await mod.default(p); }
 await new Promise((r) => setTimeout(r, 1500));
-await p.screenshot({ path: out });
-await b.close();
+// The checks have passed by now: a page that stalls the last picture (two signed-in pages under
+// software WebGL sometimes do) must not hang the run.
+const within = (pr, ms, what) => Promise.race([pr, new Promise((r) => setTimeout(() => { console.log('note: ' + what + ' took over ' + ms / 1000 + 's, skipped'); r(); }, ms))]);
+await within(p.screenshot({ path: out }), 30000, 'the last picture');
+await within(b.close(), 15000, 'closing the browser');
 server.close();
 console.log('shot', out, 'from', url);
+process.exit(0);

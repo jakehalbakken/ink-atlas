@@ -1,6 +1,6 @@
 // Two people's changes to one shared project put together (src/merge.js).
 import assert from 'node:assert/strict';
-import { mergeStates } from '../../src/merge.js';
+import { mergeStates, commentsOnto } from '../../src/merge.js';
 
 const T = (id, more) => ({ id, name: id, width: 0.1, rot: 0, pos: [0, 1, 0], ...more });
 const base = { skin: 1, heightCm: 175, tattoos: [T('a'), T('b'), T('c')], notes: [{ id: 'n1', text: 'hi' }] };
@@ -55,4 +55,43 @@ assert.equal(m.tattoos.find((t) => t.id === 'a').width, 0.4); assert.equal(m.tat
 // the same edit on both sides is not doubled
 l = clone(base); r = clone(base); l.tattoos.push(T('z')); r.tattoos.push(T('z'));
 assert.deepEqual(mergeStates(base, l, r).tattoos.map((t) => t.id), ['a', 'b', 'c', 'z']);
+// comment only: the account's project as it is, plus my comments, answers and reference pictures
+{
+  const b0 = clone(base), l0 = clone(base), r0 = clone(base);
+  l0.tattoos[0].width = 0.5; l0.skin = 3; // tried to change things they cannot: dropped
+  l0.tattoos[1].review = { verdict: 'changes', note: 'smaller', by: 'Artist', at: '2026-11-15' };
+  l0.notes.push({ id: 'n2', text: 'move up', by: 'Artist' });
+  l0.refs = [{ id: 'r1', img: 'k9', by: 'Artist' }];
+  r0.tattoos[2].pos = [0, 0.5, 0]; r0.notes.push({ id: 'n3', text: 'from Jake', by: 'Jake' });
+  r0.tattoos[0].review = { verdict: 'approved', by: 'Liv' };
+  const c = commentsOnto(b0, l0, r0);
+  assert.equal(c.tattoos[0].width, 0.1, 'their resize is not kept'); assert.equal(c.skin, 1, 'nor the skin');
+  assert.deepEqual(c.tattoos[2].pos, [0, 0.5, 0], 'the account\'s move kept');
+  assert.equal(c.tattoos[0].review.by, 'Liv', 'someone else\'s answer kept');
+  assert.equal(c.tattoos[1].review.note, 'smaller', 'my answer added');
+  assert.deepEqual(c.notes.map((n) => n.id), ['n1', 'n3', 'n2'], 'both comments kept');
+  assert.deepEqual(c.refs, [{ id: 'r1', img: 'k9', by: 'Artist' }], 'my reference picture added');
+  // taking my answer back, and deleting my comment
+  const b1 = clone(c), l1 = clone(c); delete l1.tattoos[1].review; l1.notes = l1.notes.filter((n) => n.id !== 'n2');
+  const c1 = commentsOnto(b1, l1, clone(c));
+  assert.equal(c1.tattoos[1].review, undefined, 'answer taken back'); assert.deepEqual(c1.notes.map((n) => n.id), ['n1', 'n3']);
+  // nothing of mine changed: exactly the account's
+  assert.deepEqual(commentsOnto(clone(base), clone(base), r0), r0);
+  // replies to the same comment on both sides: both kept, in order, and resolving keeps them
+  const b2 = clone(c), l2 = clone(c), r2 = clone(c);
+  l2.notes.find((n) => n.id === 'n3').replies = [{ id: 'ra', text: 'on it', by: 'Artist' }];
+  r2.notes.find((n) => n.id === 'n3').replies = [{ id: 'rb', text: 'thanks', by: 'Jake' }];
+  r2.notes.find((n) => n.id === 'n3').done = { by: 'Jake', at: '2026-11-15' };
+  const c2 = commentsOnto(b2, l2, r2), n3 = c2.notes.find((n) => n.id === 'n3');
+  assert.deepEqual(n3.replies.map((x) => x.id), ['rb', 'ra'], 'both replies kept');
+  assert.equal(n3.done.by, 'Jake', 'resolved kept');
+  const m2 = mergeStates(b2, l2, r2).notes.find((n) => n.id === 'n3');
+  assert.deepEqual(m2.replies.map((x) => x.id), ['rb', 'ra'], 'both replies kept when editing too');
+  // a later reply on one side only, after both had the first
+  const b3 = clone(c2), l3 = clone(c2); l3.notes.find((n) => n.id === 'n3').replies.push({ id: 'rc', text: 'done', by: 'Artist' });
+  assert.deepEqual(mergeStates(b3, l3, clone(c2)).notes.find((n) => n.id === 'n3').replies.map((x) => x.id), ['rb', 'ra', 'rc']);
+  // the same reply arriving from both sides is not doubled, and a reply taken back stays gone
+  const l4 = clone(c2); l4.notes.find((n) => n.id === 'n3').replies = l4.notes.find((n) => n.id === 'n3').replies.filter((x) => x.id !== 'ra');
+  assert.deepEqual(mergeStates(clone(c2), l4, clone(c2)).notes.find((n) => n.id === 'n3').replies.map((x) => x.id), ['rb']);
+}
 console.log('merge-unit: ok');
