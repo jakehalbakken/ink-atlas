@@ -522,6 +522,26 @@ export function createAccount(api) {
         h('button', { class: 'btn', type: 'button', text: 'Not now', onclick: () => { done(); status('Saved on this device only'); show('home'); } })));
   }
 
+  // A copy of the project on screen, as this person's own project in their account: theirs to
+  // change freely (also for someone who can only comment on the shared one). The shared project
+  // stays as it is for everyone else; this screen moves to the copy.
+  const copyBtn = () => h('button', { class: 'btn', type: 'button', id: 'acctCopy', text: 'Make my own copy', onclick: () => run(makeCopy) });
+  async function makeCopy() {
+    const b = myBind(); if (!b) return;
+    // bring in the newest shared version first, and send this screen's own changes, so the copy has everything
+    for (let i = 0; i < 100 && (pushing || pulling); i++) await new Promise((r) => setTimeout(r, 100));
+    await pull();
+    for (let i = 0; i < 100 && (pushing || pulling); i++) await new Promise((r) => setTimeout(r, 100));
+    if (b.role !== 'comment' && myBind() && myBind().sig !== currentSig()) await push();
+    const from = myBind() || b, snap = api.snapshot(), json = JSON.stringify(snap.state);
+    const name = (from.name.replace(/ \(my copy\)$/, '') + ' (my copy)').slice(0, 80);
+    const r = await cloud.create(JSON.parse(json), snap.images, name, doneSet());
+    markSeen();
+    setBind({ uid: user().id, id: r.id, rev: r.rev, sig: sigOf(json), name: r.name, shared: false, mine: true }); setBase(r.id, json); follow(true);
+    api.rename(r.name); // its own name inside too; saved with the next push
+    close(); api.toast(`"${r.name}" is your own copy, in your account. "${from.name}" stays as it is for everyone on it.`);
+    if (api.tried) api.tried('ownCopy');
+  }
   const hereRows = () => { const box = h('div', { class: 'acct-list acct-here-now', id: 'acctHereNow' }); box.hidden = true; queueMicrotask(renderHereRows); return box; };
   async function homeView() {
     const u = user(), b = myBind(), safe = b && b.sig === currentSig();
@@ -538,12 +558,12 @@ export function createAccount(api) {
           h('h3', { class: 'shHead', text: 'Working on it together' }),
           h('p', { class: 'muted', text: b.role === 'comment' ? 'You can pin comments, say yes or ask for a change on each tattoo, and add reference pictures. Only the people who can edit move the tattoos.' : 'You see each other\'s changes as they happen.' }), hereRows(), people,
           changedBtn ? h('div', { class: 'acct-row' }, changedBtn) : null,
-          h('div', { class: 'acct-row' }, h('button', { class: 'btn quiet danger', type: 'button', text: 'Leave this project', onclick: () => leaveRow(people, b) })))
+          h('div', { class: 'acct-row' }, copyBtn(), h('button', { class: 'btn quiet danger', type: 'button', text: 'Leave this project', onclick: () => leaveRow(people, b) })))
       : h('div', { class: 'acct-together', id: 'acctTogether' },
           h('h3', { class: 'shHead', text: 'Work on it together' }),
           h('p', { class: 'muted', text: b && b.shared ? 'Everyone here sees the same tattoos, and each other\'s changes as they happen.' : 'Invite Liv or your artist into this project. You both see the same tattoos and each other\'s changes as they happen.' }),
           hereRows(), people,
-          h('div', { class: 'acct-row' }, h('button', { class: 'btn primary', type: 'button', id: 'acctInvite', text: 'Invite someone', onclick: () => show('inviteRole') }), changedBtn));
+          h('div', { class: 'acct-row' }, h('button', { class: 'btn primary', type: 'button', id: 'acctInvite', text: 'Invite someone', onclick: () => show('inviteRole') }), changedBtn, b && b.shared ? copyBtn() : null));
     put(header('Your account'),
       h('p', { class: 'muted', text: `Signed in as ${cloud.displayName(u)}${u.email ? ' (' + u.email + ')' : ''}` }),
       here, together, h('h3', { class: 'shHead', text: 'Your projects' }), list,
