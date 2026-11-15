@@ -88,3 +88,37 @@ export function sittingCost({ lo, hi }, rate) {
   const money = (n) => '$' + Math.round(n).toLocaleString('en-US');
   return hi <= 1.1 ? `about ${money(rate)}` : `about ${money(a * rate)} to ${money(b * rate)}`;
 }
+
+// The whole plan's calendar: every planned piece's dated sittings in date order, and the ones that
+// land while another piece is still fresh from an earlier sitting (inside its two dry weeks).
+// pieces: [{ name, plan }]. Returns { all: [{ name, n, of, what, date }], fresh: [{ ...sitting, during }] }.
+export function planCalendar(pieces) {
+  const all = [];
+  for (const { name, plan } of pieces) for (const s of plan.sittings) if (s.date) all.push({ name, n: s.n, of: plan.sittings.length, what: s.what, date: s.date });
+  all.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.name.localeCompare(b.name) || a.n - b.n));
+  const fresh = [];
+  for (const x of all) {
+    const d = parse(x.date);
+    const during = all.filter((y) => y.name !== x.name && parse(y.date) < d && d < parse(y.date) + KEEP_DRY_DAYS * DAY).pop();
+    if (during) fresh.push({ ...x, during });
+  }
+  return { all, fresh };
+}
+
+// "Coming up: Sat, Dec 5 Rose, outline. Sat, Dec 12 Moth, outline." (the next few from today) and
+// one line per clash: "Moth on Sat, Dec 12 is while Rose is still fresh from Sat, Dec 5."
+export function planCalendarText(cal, today = '', max = 4) {
+  const t0 = parse(today), next = cal.all.filter((x) => t0 == null || parse(x.date) >= t0);
+  if (!next.length) return { next: '', clash: [] };
+  const part = (x) => `${dayWords(x.date)} ${x.name}${x.of > 1 ? `, ${x.what.toLowerCase()}` : ''}`;
+  const shown = next.slice(0, max), more = next.length - shown.length;
+  const text = `Coming up: ${shown.map(part).join('. ')}.${more > 0 ? ` And ${more} more.` : ''}`;
+  const clash = cal.fresh.filter((x) => t0 == null || parse(x.date) >= t0).map((x) => `${x.name} on ${dayWords(x.date)} is while ${x.during.name} is still fresh from ${dayWords(x.during.date)}.`);
+  return { next: text, clash };
+}
+
+// One calendar file for every piece's sittings: each piece's events from sittingsCalendar.
+export function planCalendarFile(pieces, stamp = new Date()) {
+  const ev = pieces.map(({ name, plan, wear = '' }) => { const c = sittingsCalendar(name, plan, stamp, wear); const a = c.indexOf('BEGIN:VEVENT'), b = c.lastIndexOf('END:VEVENT'); return a < 0 ? '' : c.slice(a, b + 'END:VEVENT'.length); }).filter(Boolean);
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Ink Atlas//Sittings//EN', 'CALSCALE:GREGORIAN', ...ev, 'END:VCALENDAR'].join('\r\n') + '\r\n';
+}

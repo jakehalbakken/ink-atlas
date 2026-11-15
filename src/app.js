@@ -61,7 +61,7 @@ import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, room
 import { whereItSits } from './where.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
-import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost } from './sittings.js';
+import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost, planCalendar, planCalendarText, planCalendarFile } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
 
 // a feature that needs the account's email sender is listed only once that is switched on
@@ -2000,6 +2000,7 @@ const SHOW = {
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
+  planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
   undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],
   labels: () => { toggle('#share', true); return ['#cLabels', 'A picture of this view with each tattoo’s name and size written beside it, to send to your artist.']; },
   centre: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; $('#preciseBox').open = true; return ['#snapLabel', 'Drag a tattoo on your chest, stomach or back across the middle and a line shows down the centre of the body. Turn on snapping here and it sits right on it.']; },
@@ -2932,7 +2933,26 @@ function planRender(t) {
   const list = t && t.status !== 'existing' ? state.tattoos.filter((q) => q.status !== 'existing' && !q.hidden).map(hoursOf).filter(Boolean) : [];
   const line = planText(list, readRate()); $('#planLine').textContent = line; $('#planLine').hidden = !line;
   if (line && $('#editorAdvanced').open && !infoByShow && performance.now() > infoQuietUntil) markTried('plan');
+  planSitsRender(t);
 }
+// every planned piece's sittings together: what is coming up, and any sitting while another is fresh
+function planPieces() {
+  return state.tattoos.filter((q) => q.status !== 'existing' && !q.hidden && q.sittings && q.sittings.start).map((q) => ({ t: q, name: (q.name || 'Tattoo').trim() || 'Tattoo', plan: sitPlan(q) })).filter((x) => x.plan);
+}
+function localToday() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+let planSitsShown = null;
+function planSitsRender(t) {
+  const pieces = t && t.status !== 'existing' ? planPieces() : [];
+  const words = pieces.length >= 2 ? planCalendarText(planCalendar(pieces), localToday()) : { next: '', clash: [] };
+  $('#planSits').hidden = !words.next; $('#planNext').textContent = words.next;
+  $('#planClash').textContent = words.clash.join(' '); $('#planClash').hidden = !words.clash.length;
+  planSitsShown = words.next ? words : null;
+}
+$('#planCal').addEventListener('click', () => {
+  const pieces = planPieces(); if (pieces.length < 2) return;
+  const file = planCalendarFile(pieces.map((x) => ({ name: x.name, plan: x.plan, wear: [sitWearOf(x.t), sleepLine(x.t.pos, x.t.normal)].filter(Boolean).join(' ') })), new Date());
+  saveFile('tattoo-plan-sittings.ics', new Blob([file], { type: 'text/calendar' })); markTried('planCal');
+});
 // what it shows in: the share of the tattoo's skin each everyday outfit covers, cut the same
 // way as Preview > Clothes, on the rest body (worked out once per body shape)
 let outfitCover = null;
@@ -4347,6 +4367,7 @@ window.__ink = {
   reads: () => $('#readRow').hidden ? '' : $('#readText').textContent + ($('#readFix').hidden ? '' : ' | ' + $('#readFix').textContent),
   wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
   planMessage: () => planMessageText(),
+  planSits: () => { planSitsRender(sel()); return planSitsShown; },
   labels: () => labelsLast,
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
