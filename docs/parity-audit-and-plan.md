@@ -599,4 +599,4 @@ Jake: "we have gone absolutely overboard on the tools and features. They need a 
 - Tokens for colour, type and radius; light and dark follow the device, the backdrop too.
 - Checked: t114 at 1180x820, 820x1180, 1024x768, 390x844, 1366x1024 in dark and light; full suite. Not yet checked on Jake's iPad.
 - Next stages: restyle the older panels that still use fixed cream and green colours (layouts and checkpoints, layers, line up tattoos, project shelf, photo references), and light mode on every panel.
-
+- Stuck ink fix (live 2026-11-15): Remove works on locked and already-on-me tattoos, a bin next to Done, Paint on skin chip in the tray, Body > Reset to plain body. Built and tested headless (t72, t114); not yet checked on the iPad.
