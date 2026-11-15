@@ -1190,6 +1190,39 @@ document.querySelectorAll('[data-nudge]').forEach(b => b.addEventListener('click
  const p=new V3(...t.pos).addScaledVector(f.right,x*.002*175/state.heightCm).addScaledVector(f.up,y*.002*175/state.heightCm).addScaledVector(f.n,.03);
  const h=surfaceAt(p,f.n.clone().negate()); if(!h) return; snapshot();t.pos=h.pos;t.normal=h.normal;commit();
 }));
+// With a keyboard (an iPad keyboard case): the arrows move the selected tattoo along the skin the
+// way they point on screen (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D
+// duplicates and Delete removes it. Presses of one kind close together are one undo step, and
+// nothing happens while typing in a field.
+let keyAt = 0, keyKind = '';
+function keyStep(kind) { const now = performance.now(); if (now - keyAt > 800 || keyKind !== kind) snapshot(); keyAt = now; keyKind = kind; }
+function keyMove(t, dx, dy) {
+  const n = new V3(...t.normal).normalize(), e = camera.matrixWorld.elements;
+  const right = new V3(e[0], e[1], e[2]), up = new V3(e[4], e[5], e[6]);
+  const dir = right.multiplyScalar(dx).add(up.multiplyScalar(dy)); dir.addScaledVector(n, -dir.dot(n));
+  if (dir.lengthSq() < 1e-12) return false;
+  dir.normalize().multiplyScalar(Math.hypot(dx, dy) * 0.002 * 175 / state.heightCm);
+  const h = surfaceAt(new V3(...t.pos).add(dir).addScaledVector(n, 0.03), n.clone().negate()); if (!h) return false;
+  keyStep('move'); t.pos = h.pos; t.normal = h.normal; commit(); return true;
+}
+document.addEventListener('keydown', (e) => {
+  if (e.altKey || e.defaultPrevented || document.querySelector('[aria-modal=true]')) return;
+  const tgt = e.target; if (tgt && tgt.closest && tgt.closest('input,textarea,select,[contenteditable],ink-slider')) return;
+  const t = sel(); if (!t || commentOnly) return;
+  const k = e.key, mod = e.metaKey || e.ctrlKey, big = e.shiftKey ? 5 : 1;
+  const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+  let used = true;
+  if (mod && k.toLowerCase() === 'd') $('#bDup').click();
+  else if (mod) used = false;
+  else if (k === 'Delete' || k === 'Backspace') $('#bDel').click();
+  else if (arrows[k] || k === '[' || k === ']' || k === '{' || k === '}' || k === '-' || k === '_' || k === '=' || k === '+') {
+    if (t.locked) toast('Unlock this tattoo first.');
+    else if (arrows[k]) keyMove(t, arrows[k][0] * big, arrows[k][1] * big);
+    else if ('[]{}'.includes(k)) { keyStep('turn'); t.rot = wrapAngle((t.rot || 0) + ('[{'.includes(k) ? -1 : 1) * (e.shiftKey ? 15 : 5) * Math.PI / 180); commit(); }
+    else { keyStep('size'); const f = '-_'.includes(k) ? 1 / (e.shiftKey ? 1.2 : 1.05) : (e.shiftKey ? 1.2 : 1.05); t.width = Math.min(0.9, Math.max(0.012, t.width * f)); commit(); }
+  } else used = false;
+  if (used) { e.preventDefault(); markTried('keys'); }
+});
 $('#resetTransform').addEventListener('click',()=>{const t=sel();if(!t || t.locked)return;snapshot();t.rot=0;t.wrap=0;t.bend=0;t.taper=0;commit();});
 async function cleanupSelected(linked=false) {
   const t = sel(); if (!t) return;
@@ -1959,6 +1992,7 @@ const SHOW = {
   shows: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv; return [sv ? '#showsLine' : '#estRow', 'Under where it sits, a line says which everyday clothes hide this tattoo and which show it.']; },
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
+  keys: () => { if (!needTattoo()) return null; return [null, 'With a keyboard: the arrows move the selected tattoo (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Undo puts any of it back.']; },
   like: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#likeLine', 'This line says the size as an everyday thing, like about the size of a credit card, so the numbers are easy to picture.']; },
   sitWear: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls says what to wear to the sitting.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return [$('#sitWear').hidden ? '#sitBox' : '#sitWear', 'Under the sittings, a line says what to wear so the spot is open without undressing more than you need to.']; },
   reads: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; readRender(t); return [$('#readRow').hidden ? '#estRow' : '#readRow', 'This line says who the tattoo reads the right way up for: others, or you looking down at it. The button turns it round in one step you can undo.']; },

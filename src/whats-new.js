@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'keys', date: '2026-11-15', title: 'Keyboard shortcuts', how: 'With a keyboard on the iPad, select a tattoo: the arrows move it the way they point (hold Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates it and Delete removes it. Undo puts any of it back.', show: 'keys' },
   { id: 'like', date: '2026-11-15', title: 'Size as an everyday thing', how: 'Select a tattoo and open More controls. The first line says its size as something you know, like about the size of a credit card or a bit smaller than a phone, and follows as you resize it.', show: 'like' },
   { id: 'sitWear', date: '2026-11-15', title: 'What to wear, and how to sleep after', how: 'Select a planned tattoo and open More controls. Under the sittings, a line says what to wear so the spot is open, like a T-shirt for a forearm or shorts for a calf, and another which way to sleep for the first nights. Both go in the calendar entries too. With your artist’s hourly rate set, each sitting shows its cost.', show: 'sitWear' },
   { id: 'covered', date: '2026-11-15', title: 'How covered each area is', how: 'Open Preview > Open skin. Under the summary, a line says how much of each arm, leg, your chest, back and so on is covered so far, and how much with your planned pieces. Handy for planning a sleeve.', show: 'covered' },
