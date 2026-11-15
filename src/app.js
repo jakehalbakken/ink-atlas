@@ -993,6 +993,45 @@ $('#rsCalDone').addEventListener('click', () => { try { localStorage.setItem(PPI
 // View only: the project never changes.
 const st = { id: null, detail: 0.5, timer: 0, run: 0, png: null, pdf: null, base: '' };
 const stReady = (on) => { $('#stShare').disabled = $('#stPrint').disabled = !on; };
+// one tattoo's stencil on a white canvas at print resolution: { S, c, r }
+function stencilCanvas(im, t, size, detail) {
+  const S = stencilScale(size.wCm / 2.54, size.hCm / 2.54), c = document.createElement('canvas'); c.width = S.w; c.height = S.h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.fillStyle = '#fff'; g.fillRect(0, 0, S.w, S.h);
+  g.save(); g.translate(t.flip ? S.w : 0, t.imageTopDown === false ? S.h : 0); g.scale(t.flip ? -1 : 1, t.imageTopDown === false ? -1 : 1); g.drawImage(im, 0, 0, S.w, S.h); g.restore();
+  const r = stencilLines(g.getImageData(0, 0, S.w, S.h).data, S.w, S.h, { detail, line: S.line, solid: S.solid });
+  g.putImageData(new ImageData(stencilPixels(r.lines, S.w, S.h), S.w, S.h), 0, 0);
+  return { S, c, r };
+}
+// every planned piece's stencil in one PDF at real size, at the Detail now set
+const planStencilList = () => state.tattoos.filter((q) => q.status !== 'existing' && !q.hidden);
+async function planStencils() {
+  const list = planStencilList(); if (list.length < 2) return null;
+  const P = await import('./print-size.js'), pieces = [], art = {};
+  for (const t of list) {
+    const size = P.pieceSize(t, state.heightCm), im = imgEls[t.img] || await loadImg(t.img); if (!im) continue;
+    const { S, c, r } = stencilCanvas(im, t, size, st.detail); if (!r.linePixels) continue;
+    const jpg = new Uint8Array(await (await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.95))).arrayBuffer());
+    const name = t.name || 'Tattoo', note = P.sizeNote(size) + ', stencil' + (t.flip ? ', mirrored as on the body' : '');
+    pieces.push({ id: t.id, w: size.w, h: size.h, labelW: (name.length + note.length + 2) * 4.6 });
+    art[t.id] = { name, note, jpeg: { width: S.w, height: S.h, data: jpg } };
+    await new Promise((res) => setTimeout(res, 0));
+  }
+  if (!pieces.length) return { count: 0 };
+  const pages = P.layoutPrint(pieces), pdf = P.buildPrintPdf(pages, art, { title: 'Stencils for the whole plan' });
+  return { count: pieces.length, of: list.length, pages: pages.length, pdf: new Blob([pdf], { type: 'application/pdf' }), bytes: pdf.length };
+}
+$('#stAll').addEventListener('click', async () => {
+  const b = $('#stAll'); if (b.disabled) return; b.disabled = true;
+  try {
+    const out = await planStencils();
+    window.__lastPlanStencils = out ? { count: out.count, of: out.of, pages: out.pages, bytes: out.bytes } : null;
+    if (!out) return;
+    if (!out.count) { toast('Nothing to trace at this detail. Slide Detail up and try again.'); return; }
+    saveFile('tattoo-plan-stencils.pdf', out.pdf); markTried('planStencils');
+    if (out.count < out.of) toast(`${out.count} of ${out.of} pieces had lines to trace at this detail.`);
+  } finally { b.disabled = false; }
+});
 async function makeStencil() {
   const t = state.tattoos.find((x) => x.id === st.id); if (!t) { showStencil(false); return; }
   const run = ++st.run; st.png = st.pdf = null; stReady(false);
@@ -1002,13 +1041,8 @@ async function makeStencil() {
   await new Promise((r) => setTimeout(r, 20)); // let the sheet show before the work
   if (run !== st.run) return;
   if (!im) { $('#stText').textContent = 'This artwork could not be read.'; return; }
-  const S = stencilScale(size.wCm / 2.54, size.hCm / 2.54), c = document.createElement('canvas'); c.width = S.w; c.height = S.h;
-  const g = c.getContext('2d', { willReadFrequently: true });
-  g.fillStyle = '#fff'; g.fillRect(0, 0, S.w, S.h);
-  g.save(); g.translate(t.flip ? S.w : 0, t.imageTopDown === false ? S.h : 0); g.scale(t.flip ? -1 : 1, t.imageTopDown === false ? -1 : 1); g.drawImage(im, 0, 0, S.w, S.h); g.restore();
-  const r = stencilLines(g.getImageData(0, 0, S.w, S.h).data, S.w, S.h, { detail: st.detail, line: S.line, solid: S.solid });
+  const { S, c, r } = stencilCanvas(im, t, size, st.detail);
   if (run !== st.run) return;
-  g.putImageData(new ImageData(stencilPixels(r.lines, S.w, S.h), S.w, S.h), 0, 0);
   const k = Math.min(1, 1600 / Math.max(S.w, S.h)), view = $('#stCanvas');
   view.width = Math.round(S.w * k); view.height = Math.round(S.h * k); view.getContext('2d').drawImage(c, 0, 0, view.width, view.height);
   const blob = (type, q) => new Promise((res) => c.toBlob(res, type, q));
@@ -1028,6 +1062,7 @@ function showStencil(on) {
   if (!on) return;
   const t = sel(); if (!t) { $('#stencil').hidden = true; toast('Select a tattoo first.'); return; }
   markTried('stencil'); st.id = t.id; makeStencil();
+  const n = planStencilList().length; $('#stAll').hidden = n < 2; $('#stAll').textContent = `All ${n} planned pieces`;
 }
 $('#bStencil').addEventListener('click', () => showStencil(true));
 $('#stClose').addEventListener('click', () => showStencil(false));
@@ -2078,6 +2113,7 @@ const SHOW = {
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
   approval: () => { toggle('#share', true); return ['#cApprove', 'Tap to make a page for your artist or client. They tap Yes or Change for each tattoo and send it back.']; },
   inkCheck: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bInkCheck', 'Ink check shows colours that barely show on your skin, and lines too fine for this size.']; },
+  planStencils: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Open Stencil for your artist. With two or more planned pieces, All planned pieces makes one PDF with every stencil at real size, at the Detail you set.']; },
   stencil: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bStencil', 'Stencil for your artist turns this tattoo into clean lines at its real size, to print or share.']; },
   realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },
   handles: () => { if (!needTattoo()) return null; return ['#hSize', 'Drag this corner to resize. Drag the dot above the tattoo to turn it.']; },
