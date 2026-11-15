@@ -47,7 +47,7 @@ import { toneColour, nearestTone, sampleSkin, skinCheck, hexToRgb } from './skin
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
-import { SPOTS, spotAim, turnAlong } from './spots.js';
+import { SPOTS, spotAim, turnAlong, spotNote } from './spots.js';
 import { POSE_BONES, vertexBones } from './pose.js';
 import { posesFor } from './pose-pick.js';
 import { PART_NAMES } from './body-photo.js';
@@ -1561,25 +1561,53 @@ function renderSpots() {
   const t = sel(); $('#spotTitle').textContent = t ? `Try ${t.name} on` : 'Try it on';
   document.querySelectorAll('#spotSide [data-side]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.side === spotSide)));
   document.querySelectorAll('#spotChoices [data-spot]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.spot === spotId)));
+  spotNotes(t);
+}
+// where a spot meets the skin on the standing body: { point, normal, aim }, or null
+function spotHit(spot, side) {
+  const aim = spotAim(spot, side, POSE_BONES, poseView.restRig().joints); if (!aim) return null;
+  const p = new V3(...aim.point), d = new V3(...aim.dir), from = p.clone().addScaledVector(d, 1.5);
+  ray.set(from, d.clone().negate());
+  // the last skin the ray meets before the bone is this limb's own skin, not an arm in the way
+  const hits = ray.intersectObject(body, false).filter((h) => h.distance < 1.5 + 1e-6);
+  const h = hits[hits.length - 1]; if (!h) return null;
+  return { point: h.point, normal: h.normal.clone().transformDirection(body.matrixWorld).normalize(), aim };
+}
+// compare spots: under each spot, how much it usually hurts there and what hides a piece this size
+let spotNotesKey = '', spotNotesShown = null;
+function spotNotes(t) {
+  const off = !t || poseView.active, key = off ? '' : `${shapeKey}|${spotSide}|${t.width.toFixed(4)}|${t.aspect.toFixed(3)}`;
+  if (key && key === spotNotesKey) return;
+  spotNotesKey = key; spotNotesShown = off ? null : {};
+  const d = off ? null : painData(), P = bodyGeo.attributes.position.array, list = off ? null : outfitList();
+  const r = t ? Math.max(0.01, Math.min(t.width, t.width / t.aspect) / 2) : 0, r2 = r * r;
+  document.querySelectorAll('#spotChoices [data-spot]').forEach((b) => {
+    const spot = SPOTS.find((x) => x.id === b.dataset.spot), sub = b.querySelector('.spotsub');
+    let note = '';
+    const h = !off && spot && spotHit(spot, spotSide);
+    if (h) {
+      const c = h.point.toArray(), u = painUnder({ pos: P, count: PAIN_N, level: d.smooth, place: d.place, centre: c, radius: r });
+      const near = []; for (let v = 0; v < PAIN_N; v++) { if (!d.place[v]) continue; const o = v * 3, x = P[o] - c[0], y = P[o + 1] - c[1], z = P[o + 2] - c[2]; if (x * x + y * y + z * z <= r2) near.push(v); }
+      const shares = near.length ? list.map((f) => { let n = 0; for (const v of near) if (f(v)) n++; return n / near.length; }) : null;
+      note = spotNote(u ? u.level : null, shares, /leg/.test(spot.bone));
+    }
+    if (sub) { sub.textContent = note; sub.hidden = !note; }
+    if (spotNotesShown) spotNotesShown[b.dataset.spot] = note;
+  });
 }
 function spotPlace(id) {
   const t = sel(), spot = SPOTS.find((s) => s.id === id); if (!t || !spot) return false;
   if (t.locked) { toast('Unlock this tattoo first.'); return false; }
   if (poseView.active) { toast('Turn off the pose first, then try spots.'); return false; }
-  const aim = spotAim(spot, spotSide, POSE_BONES, poseView.restRig().joints); if (!aim) return false;
-  const p = new V3(...aim.point), d = new V3(...aim.dir), from = p.clone().addScaledVector(d, 1.5);
-  ray.set(from, d.clone().negate());
-  // the last skin the ray meets before the bone is this limb's own skin, not an arm in the way
-  const hits = ray.intersectObject(body, false).filter((h) => h.distance < 1.5 + 1e-6);
-  const h = hits[hits.length - 1]; if (!h) { toast('That spot could not be found on this body.'); return false; }
-  const n = h.normal.clone().transformDirection(body.matrixWorld).normalize();
+  const hit = spotHit(spot, spotSide); if (!hit) { toast('That spot could not be found on this body.'); return false; }
+  const h = hit, aim = hit.aim, n = hit.normal;
   snapshot();
   t.pos = h.point.toArray(); t.normal = n.toArray(); t.rot = 0;
   const up0 = frameOf(t).up.toArray(); t.rot = turnAlong(up0, aim.along, t.normal);
-  spotId = id; markTried('spots'); commit(); focusTattoo(t); renderSpots();
+  spotId = id; markTried('spots'); if (spotNotesShown && spotNotesShown[id]) markTried('spotCompare'); commit(); focusTattoo(t); renderSpots();
   return true;
 }
-$('#spotChoices').innerHTML = SPOTS.map((s) => `<button class="btn" type="button" data-spot="${s.id}">${s.label}</button>`).join('');
+$('#spotChoices').innerHTML = SPOTS.map((s) => `<button class="btn" type="button" data-spot="${s.id}"><span>${s.label}</span><span class="spotsub" hidden></span></button>`).join('');
 $('#spotChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-spot]'); if (b) spotPlace(b.dataset.spot); });
 $('#spotSide').addEventListener('click', (e) => { const b = e.target.closest('[data-side]'); if (!b) return; spotSide = b.dataset.side; renderSpots(); const s = SPOTS.find((x) => x.id === spotId); if (s && !s.mid) spotPlace(spotId); });
 $('#bSpots').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#lightPop', false); toggle('#agePop', false); toggle('#posePop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); const t = sel(); if (t) spotSide = t.pos[0] >= 0 ? 'L' : 'R'; spotId = null; toggle('#spotPop'); renderSpots(); });
@@ -2045,6 +2073,7 @@ const SHOW = {
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
+  spotCompare: () => { const t = needTattoo(); if (!t) return null; if ($('#spotPop').hidden) $('#bSpots').click(); return ['#spotChoices [data-spot="forearm-front"]', 'Each spot says how much it usually hurts and the lightest clothes that hide this tattoo there. Tap one to move it.']; },
   spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
   approval: () => { toggle('#share', true); return ['#cApprove', 'Tap to make a page for your artist or client. They tap Yes or Change for each tattoo and send it back.']; },
@@ -2961,13 +2990,16 @@ $('#planCal').addEventListener('click', () => {
 // what it shows in: the share of the tattoo's skin each everyday outfit covers, cut the same
 // way as Preview > Clothes, on the rest body (worked out once per body shape)
 let outfitCover = null;
-function showsShares(t) {
-  const d = decals[t.id], sup = d && d.mesh.geometry.userData.supports; if (!sup || !sup.length) return null;
+function outfitList() {
   if (!outfitCover || outfitCover.key !== shapeKey) {
     const P = bodyGeo.attributes.position.array, J = poseView.restRig().joints;
     outfitCover = { key: shapeKey, list: OUTFITS.map((o) => { const c = clothesCoverage(P, J, o.top, o.bottom, 'none'); return (v) => (c.top[v] > 0) || (c.bottom[v] > 0); }) };
   }
-  return outfitCover.list.map((f) => { let n = 0; for (const v of sup) if (f(v)) n++; return n / sup.length; });
+  return outfitCover.list;
+}
+function showsShares(t) {
+  const d = decals[t.id], sup = d && d.mesh.geometry.userData.supports; if (!sup || !sup.length) return null;
+  return outfitList().map((f) => { let n = 0; for (const v of sup) if (f(v)) n++; return n / sup.length; });
 }
 // what to wear to the sitting: each top alone and each bottom alone, on the rest body
 let wearCover = null;
@@ -4373,6 +4405,7 @@ window.__ink = {
   wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
   planMessage: () => planMessageText(),
   planSits: () => { planSitsRender(sel()); return planSitsShown; },
+  spotNotes: () => spotNotesShown,
   labels: () => labelsLast,
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },

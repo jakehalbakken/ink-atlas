@@ -71,3 +71,19 @@ export function turnAlong(up0, along, n) {
   const x = [up0[1] * a[2] - up0[2] * a[1], up0[2] * a[0] - up0[0] * a[2], up0[0] * a[1] - up0[1] * a[0]];
   return Math.atan2(x[0] * n[0] + x[1] * n[1] + x[2] * n[2], c);
 }
+
+// Compare spots: one short line under each spot, how much it usually hurts and the lightest
+// everyday clothes that hide a piece this size there. level: the pain map's level (0..10) under
+// it; shares: the part each outfit covers, in visibility.js OUTFITS order; leg: a leg spot, where
+// the shorts do the hiding. Pure. Returns '' with nothing to say.
+const HIDE = 0.9;
+export function spotNote(level, shares, leg = false) {
+  const pain = level == null ? '' : level < 3.5 ? 'Low pain' : level < 6.5 ? 'Some pain' : level < 8 ? 'High pain' : 'Very high pain';
+  let hide = '';
+  if (shares && shares.length === 5) {
+    const i = shares.findIndex((s) => s >= HIDE);
+    hide = i < 0 ? 'always shows' : i === 0 ? 'hidden in swimwear' : i <= 2 && leg ? 'shorts hide it' : ['', 'a tank top hides it', 'a T-shirt hides it', 'long pants hide it', 'long sleeves hide it'][i];
+  }
+  if (!pain) return hide ? hide[0].toUpperCase() + hide.slice(1) : '';
+  return hide ? `${pain}, ${hide}` : pain;
+}

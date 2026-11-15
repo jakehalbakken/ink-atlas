@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'spotCompare', date: '2026-11-15', title: 'Compare spots', how: 'Select a tattoo and open Try other spots in More controls. Each spot now says how much it usually hurts there and the lightest clothes that hide a piece this size, so you can compare before you move it.', show: 'spotCompare' },
   { id: 'planCal', date: '2026-11-15', title: 'Every sitting in one list', how: 'Give two or more planned tattoos a first sitting date. More controls then lists what is coming up across the whole plan, warns when a sitting lands while another piece is still fresh, and Add every sitting to calendar saves them all at once.', show: 'planCal' },
   { id: 'undoWords', date: '2026-11-15', title: 'Undo says what it put back', how: 'Tap Undo or Redo and a short note says what changed back, like Undid moving Rose or Undid the body shape, so nothing changes out of sight.', show: 'undoWords' },
   { id: 'labels', date: '2026-11-15', title: 'Picture with sizes', how: 'Share > Picture with sizes takes this view with each tattoo’s name, size and where it sits written beside it, in inches and centimetres. Turn the body first so the tattoos you want face you.', show: 'labels' },
