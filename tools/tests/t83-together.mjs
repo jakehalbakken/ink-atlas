@@ -10,7 +10,7 @@
 // it and sees Leave; Jake takes her off and her screen says so; forgot password by emailed code.
 // Who is here now: each sees the other's initial, which tattoo the other has selected (in the
 // tray and the account panel), on a channel whose name does not give the project away; Jake
-// follows Liv's view until he touches the body.
+// follows Liv's view until he touches the body; Liv points at a spot and Jake sees it.
 import assert from 'node:assert/strict';
 import { startFakeSupabase } from '../fake-supabase.mjs';
 
@@ -126,6 +126,36 @@ export default async function (p) {
     assert.ok(camAfter[2] < -0.5);
     await p.evaluate(() => document.querySelector('[data-view="0"]').click()); // back to the front for the rest
     for (let i = 0, last = ''; i < 40; i++) { const c = JSON.stringify(await p.evaluate(() => window.__ink.cam())); if (c === last) break; last = c; await wait(400); } // let his view settle
+
+    // Liv points at a spot: a ring with her name shows there on Jake's screen, then fades
+    const settle = async (pg) => { for (let i = 0, last = ''; i < 40; i++) { const c = JSON.stringify(await pg.evaluate(() => window.__ink.cam())); if (c === last) break; last = c; await wait(400); } };
+    await settle(q);
+    assert.equal((await p.evaluate(() => window.__ink.points())).button, true, 'Point shows for Jake with Liv here');
+    assert.equal((await q.evaluate(() => window.__ink.points())).button, true, 'and for Liv');
+    await q.click('#showSpotBtn');
+    assert.equal((await q.evaluate(() => window.__ink.points())).on, true, 'Point mode on');
+    assert.match(await toastText(q), /Tap the body to show Jake a spot/);
+    const tPos = await q.evaluate(() => window.__ink.state().tattoos[0].pos);
+    const qSpot = await q.evaluate((pos) => window.__ink.screenOfPos(pos), tPos);
+    const selBefore = await q.evaluate(() => window.__ink.state().tattoos.map((t) => t.id));
+    await q.mouse.click(qSpot.x, qSpot.y);
+    let qs = await q.evaluate(() => window.__ink.points());
+    assert.ok(qs.mine, 'her spot is set'); assert.ok(qs.marks.some((m) => m.text === 'You' && m.shown), 'she sees her own ring');
+    assert.deepEqual(await q.evaluate(() => window.__ink.state().tattoos.map((t) => t.id)), selBefore, 'pointing changes nothing in the project');
+    await until(p, () => window.__ink.points().marks.some((m) => m.text === 'Liv' && m.shown), null, 'Jake sees her ring', 10000);
+    const pSpot = await p.evaluate((pos) => window.__ink.screenOfPos(pos), tPos), mark = (await p.evaluate(() => window.__ink.points())).marks.find((m) => m.text === 'Liv');
+    assert.ok(Math.hypot(mark.x - pSpot.x, mark.y - pSpot.y) < 30, 'on the same spot of the body on his screen: ' + JSON.stringify([mark, pSpot]));
+    await p.screenshot({ path: 'shots/t83-point.png' });
+    await until(p, () => !window.__ink.points().marks.length, null, 'the ring fades after a few seconds', 12000);
+    // pointing again while Jake looks at the back: he is offered a Show that turns him to it
+    await p.evaluate(() => document.querySelector('[data-view="2"]').click()); await settle(p);
+    await q.mouse.click(qSpot.x, qSpot.y + 4);
+    await until(p, () => /Liv is pointing at a spot/.test(document.querySelector('#toast').textContent), null, 'Jake told she is pointing somewhere out of sight', 10000);
+    await p.evaluate(() => [...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show').click());
+    await until(p, () => window.__ink.cam()[2] > 0.3, null, 'Show turns him to her spot', 10000);
+    await q.click('#showSpotBtn');
+    assert.equal((await q.evaluate(() => window.__ink.points())).on, false, 'Point mode off again');
+    await p.evaluate(() => document.querySelector('[data-view="0"]').click()); await settle(p);
 
     // her change reaches Jake by itself, and his view stays where it was
     const view0 = await p.evaluate(() => JSON.stringify(window.__ink.cam ? window.__ink.cam() : null));

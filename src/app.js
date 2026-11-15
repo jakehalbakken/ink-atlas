@@ -498,6 +498,73 @@ function applyFollow() {
   const [theta, phi, roll, r, tx, ty, tz] = o.view;
   Object.assign(goal, { theta, phi, roll, r, tx, ty, tz }); glide = true; needsRender = true;
 }
+/* Pointing at a spot for the others on a shared project: in Point mode a tap on the body puts a
+   pulsing ring there on everyone's screen, with the name of who pointed, for a few seconds.
+   Nothing is saved; it travels with who is here now. */
+const POINT_MS = 8000;
+const pointing = { on: false, mine: null, mineAt: 0, seq: 0, seen: new Map(), els: [] };
+const myPoint = () => (pointing.mine && performance.now() - pointing.mineAt < 30000 ? pointing.mine : null);
+function pointMode(on) {
+  pointing.on = !!on && peersHere.length > 0;
+  if (pointing.on) { if (tape.on) tapeOff(); if (pain.on) painOff(); if (room.on) roomDone(); if (pins.on) pinsOff(); toast(`Tap the body to show ${peerNames()} a spot.`); }
+  renderPoints();
+}
+const peerNames = () => { const n = peersHere.map((o) => o.name || 'Someone'); return n.length < 2 ? (n[0] || 'them') : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1]; };
+function pointTap(x, y) {
+  const h = hitBody(x, y);
+  if (!h || h.faceIndex == null || !h.barycoord) { toast('Tap directly on the body.'); return; }
+  pointing.mine = [h.faceIndex, h.barycoord.x, h.barycoord.y, h.barycoord.z, ++pointing.seq]; pointing.mineAt = performance.now();
+  renderPoints(); if (account && account.nudge) account.nudge(); markTried('pointAt');
+}
+function turnToSurface(s, r) {
+  goal.theta = Math.atan2(s.n.x, s.n.z); goal.phi = THREE.MathUtils.clamp(Math.acos(THREE.MathUtils.clamp(s.n.y, -1, 1)), 0.75, 2.0); goal.roll = 0;
+  goal.tx = s.pos.x; goal.ty = s.pos.y; goal.tz = s.pos.z; goal.r = THREE.MathUtils.clamp(r ?? cur.r, 1.1, 2.2);
+  glide = true; needsRender = true;
+}
+const pointVisible = (s) => {
+  const rc = canvas.getBoundingClientRect(), sc = screenOf(s.pos), dist = camera.position.distanceTo(s.pos);
+  ray.set(camera.position, s.pos.clone().sub(camera.position).normalize());
+  const hit = poseView.active ? poseView.withPosed(() => ray.intersectObject(body, false)[0]) : ray.intersectObject(body, false)[0];
+  return { sc, shown: !(hit && hit.distance < dist - 0.012) && sc.x > rc.left && sc.x < rc.right && sc.y > rc.top && sc.y < rc.bottom };
+};
+// a new spot from someone here: shown for a few seconds; if it is out of sight, a Show to turn to it
+function peerPoints() {
+  const now = performance.now();
+  for (const o of peersHere) {
+    if (!o.point) continue;
+    const key = o.id + ':' + o.point[4];
+    if (pointing.seen.has(key)) continue;
+    pointing.seen.set(key, now);
+    const s = pinSpot({ tri: o.point[0], w: o.point.slice(1, 4) });
+    if (s && !followId && !pointVisible(s).shown) toast(`${o.name || 'Someone'} is pointing at a spot.`, 'Show', () => turnToSurface(s));
+  }
+  if (pointing.seen.size > 200) for (const k of [...pointing.seen.keys()].slice(0, 100)) pointing.seen.delete(k);
+  if (!peersHere.length && pointing.on) pointing.on = false;
+  renderPoints();
+}
+function shownPoints() {
+  const now = performance.now(), out = [];
+  if (pointing.mine && now - pointing.mineAt < POINT_MS) out.push({ who: 'You', p: pointing.mine, mine: true });
+  for (const o of peersHere) if (o.point) { const t = pointing.seen.get(o.id + ':' + o.point[4]); if (t != null && now - t < POINT_MS) out.push({ who: o.name || 'Someone', p: o.point }); }
+  return out;
+}
+let pointTimer = 0;
+function renderPoints() {
+  const btn = $('#showSpotBtn');
+  btn.hidden = !peersHere.length; btn.setAttribute('aria-pressed', String(pointing.on)); btn.classList.toggle('on', pointing.on);
+  const layer = $('#spotLayer'), list = shownPoints();
+  pointing.els = list.map((x) => { const d = el('div', { class: 'spotMark' + (x.mine ? ' mine' : '') }); d.append(el('i'), el('span', { text: x.who })); return { d, p: x.p }; });
+  layer.replaceChildren(...pointing.els.map((e) => e.d));
+  placePoints();
+  clearTimeout(pointTimer); if (list.length) pointTimer = setTimeout(renderPoints, 600);
+}
+function placePoints() {
+  for (const e of pointing.els) {
+    const s = pinSpot({ tri: e.p[0], w: e.p.slice(1, 4) }); if (!s) { e.d.hidden = true; continue; }
+    const v = pointVisible(s); e.d.hidden = !v.shown; if (!v.shown) continue;
+    e.d.style.left = v.sc.x + 'px'; e.d.style.top = v.sc.y + 'px';
+  }
+}
 function renderFollow() {
   const bar = document.getElementById('followBar'); if (!bar) return;
   const o = followId && peersHere.find((x) => x.id === followId);
@@ -731,6 +798,7 @@ window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
+  if (pointing.on) { pointTap(x, y); return; }
   if (tape.on) { tapeTap(x, y); return; }
   if (pain.on) { painTap(x, y); return; }
   if (room.on) { roomTap(x, y); return; }
@@ -1890,6 +1958,7 @@ const SHOW = {
   },
   commentInvite: () => (account && account.configured ? (account.showTogether(), ['#acctInvite', 'Tap Invite someone, then Comments only. They can comment, answer and add reference pictures, but your tattoos stay where you put them.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   changes: () => (account && account.configured ? (account.showTogether(), ['#acctChanges', 'On a project you work on together, this lists what the others changed since you last looked. Tap Show on a line to see it.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
+  pointAt: () => (peersHere.length ? ['#showSpotBtn', 'Tap Point, then the spot on the body you want to show them.'] : account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else has this project open, a Point button shows at the top. Tap it, then the body, to show them a spot.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   followView: () => (account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else has this project open, Follow their view is on their row here. Your screen then turns with theirs until you touch the body.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   hereNow: () => (account && account.configured ? (account.showTogether(), ['#acctTogether', 'When someone else on a project you work on together has it open, they are listed here, with the tattoo they are looking at. Their initial also shows by your account button.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   glance: () => (account && account.configured ? (account.showTogether(), ['#acctGlance', 'Every project you own or were invited to, with whose turn it is. Your turn shows only the ones waiting on you.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
@@ -3817,7 +3886,7 @@ function tick(now) {
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) $('#size').textContent = sizeText(t); }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
-  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (tape.on) placeTape(); if (pins.on) placePins(); }
+  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (tape.on) placeTape(); if (pins.on) placePins(); if (pointing.els.length) placePoints(); }
   requestAnimationFrame(tick);
 }
 
@@ -3892,8 +3961,8 @@ function startAccount() {
     rename(name) { state.projectName = name; commit(); },
     setSaved, toast, saveNow: () => save(), tried: (id = 'accounts') => markTried(id),
     // who else has the shared project open, and the tattoo each has selected
-    setPeers(list) { peersHere = Array.isArray(list) ? list : []; renderTray(); applyFollow(); },
-    looking: () => selectedId, view: myView, follow: followPeer, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
+    setPeers(list) { peersHere = Array.isArray(list) ? list : []; renderTray(); applyFollow(); peerPoints(); },
+    looking: () => selectedId, view: myView, follow: followPeer, point: myPoint, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
     setCommentOnly, showChange, inches: (w) => w * state.heightCm / 175 * 100 / 2.54,
     // in the middle of moving something or typing: changes from elsewhere wait a moment
     busy: () => !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
@@ -3901,6 +3970,7 @@ function startAccount() {
   account.start();
 }
 $('#followStop').addEventListener('click', () => stopFollow());
+$('#showSpotBtn').addEventListener('click', () => pointMode(!pointing.on));
 $('#views').addEventListener('click', () => stopFollow(), true);
 // tell anyone else here where this view went, once it settles
 let viewSent = '';
@@ -3908,7 +3978,7 @@ setInterval(() => { if (!account || !account.nudge || !peersHere.length) return;
 $('#cLink').addEventListener('click', () => { toggle('#share', false); if (account) account.sendLink().catch(() => {}); });
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
 window.__ink = {
-  state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer,
+  state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
   sizes: () => sizesLast, sizeSteps, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible }),

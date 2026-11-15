@@ -337,7 +337,7 @@ export function createAccount(api) {
   // what this person has open, told to the others when it changes
   function liveTrack(force) {
     const b = myBind(); if (!live || !b) return;
-    const meta = { name: cloud.displayName() || 'Someone', look: api.looking ? api.looking() : null, rev: b.rev || 0, view: api.view ? api.view() : null };
+    const meta = { name: cloud.displayName() || 'Someone', look: api.looking ? api.looking() : null, rev: b.rev || 0, view: api.view ? api.view() : null, point: api.point ? api.point() : null };
     const key = JSON.stringify(meta);
     if (!force && key === lastTrack) return;
     lastTrack = key;

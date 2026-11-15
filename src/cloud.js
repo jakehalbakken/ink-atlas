@@ -64,6 +64,13 @@ export function cleanView(v) {
   if (!Array.isArray(v) || v.length !== 7 || !v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) < 100)) return null;
   return v.map((x) => Math.round(x * 1000) / 1000);
 }
+// a spot someone is pointing at: [body triangle, three weights, a count that goes up each time], or null
+export function cleanPoint(v) {
+  if (!Array.isArray(v) || v.length !== 5 || !Number.isInteger(v[0]) || v[0] < 0 || v[0] > 1e6 || !Number.isInteger(v[4]) || v[4] < 0) return null;
+  const w = v.slice(1, 4);
+  if (!w.every((x) => typeof x === 'number' && Number.isFinite(x) && x > -0.01 && x < 1.01)) return null;
+  return [v[0], ...w.map((x) => Math.round(x * 10000) / 10000), v[4]];
+}
 async function sha256Hex(text) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 40);
@@ -236,7 +243,7 @@ export async function openCloud() {
       const me = uid(), ch = sb.channel(topic, { config: { presence: { key: me } } });
       const others = () => Object.entries(ch.presenceState()).filter(([k]) => k !== me).map(([k, metas]) => {
         const m = metas[metas.length - 1] || {};
-        return { id: k, name: typeof m.name === 'string' ? m.name.slice(0, 60) : '', look: typeof m.look === 'string' ? m.look.slice(0, 80) : null, rev: Number.isFinite(m.rev) ? m.rev : 0, at: Number.isFinite(m.at) ? m.at : 0, view: cleanView(m.view) };
+        return { id: k, name: typeof m.name === 'string' ? m.name.slice(0, 60) : '', look: typeof m.look === 'string' ? m.look.slice(0, 80) : null, rev: Number.isFinite(m.rev) ? m.rev : 0, at: Number.isFinite(m.at) ? m.at : 0, view: cleanView(m.view), point: cleanPoint(m.point) };
       });
       ch.on('presence', { event: 'sync' }, () => onSync(others()));
       await new Promise((res, rej) => {
@@ -244,7 +251,7 @@ export async function openCloud() {
         ch.subscribe((s) => { if (s === 'SUBSCRIBED') { clearTimeout(t); res(); } else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') { clearTimeout(t); rej(new Error('Realtime ' + s)); } });
       }).catch((e) => { sb.removeChannel(ch); throw e; });
       return {
-        track: (meta) => ch.track({ name: String(meta.name || '').slice(0, 60), look: meta.look || null, rev: meta.rev || 0, view: cleanView(meta.view), at: Date.now() }),
+        track: (meta) => ch.track({ name: String(meta.name || '').slice(0, 60), look: meta.look || null, rev: meta.rev || 0, view: cleanView(meta.view), point: cleanPoint(meta.point), at: Date.now() }),
         others,
         leave: () => sb.removeChannel(ch),
       };
