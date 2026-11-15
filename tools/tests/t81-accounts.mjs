@@ -55,7 +55,7 @@ export default async function (p) {
     await until(p, () => document.querySelectorAll('#account .acct-item').length === 1, null, 'listed');
     await p.screenshot({ path: 'shots/t81-home.png' });
     assert.equal(await p.$eval('#accountBtn', (e) => e.classList.contains('signed') && e.textContent.trim()), 'J');
-    await p.click('#account header .btn');
+    await p.click('#account header .acct-close');
 
     // a change on A goes up
     await p.evaluate(() => { window.__ink.state().tattoos[0].name = 'Changed on A'; window.__ink.commitTest(); });
@@ -109,7 +109,7 @@ export default async function (p) {
     await q.click('#acctPrefs'); assert.equal(await q.$eval('#acctPrefs', (b) => b.getAttribute('aria-pressed')), 'false');
     await q.evaluate(() => document.querySelector('#lightChoices [data-light="sun"]').click()); await wait(3500);
     assert.equal((await metaOf()).prefs.s.light, 'warm', 'off: B\'s light stays on B');
-    await q.click('#acctPrefs'); await q.click('#account header .btn');
+    await q.click('#acctPrefs'); await q.click('#account header .acct-close');
     // B changes it; A picks it up on coming back
     await q.evaluate(() => { window.__ink.state().tattoos[0].name = 'Changed on B'; window.__ink.commitTest(); });
     await until(q, () => window.__ink.account().text === 'Saved to your account' && window.__ink.account().bind.rev === 3, null, 'B saved up');
@@ -133,7 +133,7 @@ export default async function (p) {
     const link = await p.$eval('#account .acct-link', (e) => e.value);
     assert.match(link, /\?share=[A-Za-z0-9_-]{22}$/);
     await p.screenshot({ path: 'shots/t81-link.png' });
-    await p.click('#account header .btn');
+    await p.click('#account header .acct-close');
 
     // Liv opens it on her phone, signed out
     const r = await openPage(); await r.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });

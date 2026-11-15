@@ -297,8 +297,7 @@ export function createAccount(api) {
       rows.append(h('div', { class: 'acct-item' }, h('div', { class: 'acct-name' }, h('span', { text: it.text })),
         go ? h('div', { class: 'acct-actions' }, h('button', { class: 'btn', type: 'button', text: 'Show', onclick: () => { close(); if (api.showChange) api.showChange(it); } })) : null));
     }
-    put(header('What changed'), c ? h('p', { class: 'muted', text: `In "${myBind().name}" since you last looked, seen ${when(c.at)}.` }) : null, rows, msgEl,
-      h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+    put(header('What changed', () => show('home')), c ? h('p', { class: 'muted', text: `In "${myBind().name}" since you last looked, seen ${when(c.at)}.` }) : null, rows, msgEl);
   }
   setInterval(() => { const b = myBind(); if (b && b.shared && !document.hidden && navigator.onLine !== false) pull(); liveSync(); }, LIVE_MS);
 
@@ -462,7 +461,10 @@ export function createAccount(api) {
   // focus the first field, unless the person is already typing in one
   const focusSoon = (el) => setTimeout(() => { const a = document.activeElement; if (!(a && a.tagName === 'INPUT' && panel.contains(a))) el.focus(); }, 60);
   const put = (...kids) => panel.append(...kids.flat().filter((k) => k != null && k !== false));
-  const header = (title) => h('header', {}, h('h2', { id: 'acctTitle', text: title }), h('button', { class: 'btn', type: 'button', text: 'Close', onclick: () => { if (!busy) close(); } }));
+  // back: a leading Back in the sheet's own bar, like a navigation bar, in place of a Back at the bottom
+  const header = (title, back) => h('header', { class: back ? 'acct-bar' : null },
+    back ? h('button', { class: 'btn quiet acct-back', type: 'button', text: 'Back', onclick: () => { if (!busy) back(); } }) : null,
+    h('h2', { id: 'acctTitle', text: title }), h('button', { class: 'btn acct-close', type: 'button', text: 'Close', onclick: () => { if (!busy) close(); } }));
   const msg = (text, good) => { if (msgEl) { msgEl.textContent = text || ''; msgEl.classList.toggle('good', !!good); } };
   const run = async (fn, buttons) => {
     if (busy) return; busy = true; msg('');
@@ -492,7 +494,7 @@ export function createAccount(api) {
     const email = h('input', { type: 'email', autocomplete: 'email', autocapitalize: 'none', spellcheck: 'false', placeholder: 'Email', 'aria-label': 'Email', inputmode: 'email' });
     const pass = h('input', { type: 'password', autocomplete: mode === 'create' ? 'new-password' : 'current-password', placeholder: mode === 'create' ? 'Make a password (6 or more characters)' : 'Password', 'aria-label': 'Password', minlength: '6' });
     const go = h('button', { class: 'btn primary', type: 'submit', text: mode === 'create' ? 'Create account' : 'Sign in' });
-    const tabs = h('div', { class: 'acct-tabs', role: 'group' },
+    const tabs = h('div', { class: 'acct-seg', role: 'group', 'aria-label': 'New or returning' },
       h('button', { class: 'btn', type: 'button', 'aria-pressed': mode === 'create' ? 'true' : 'false', text: 'New here', onclick: () => { mode = 'create'; show('signin', note); } }),
       h('button', { class: 'btn', type: 'button', 'aria-pressed': mode === 'signin' ? 'true' : 'false', text: 'I have an account', onclick: () => { mode = 'signin'; show('signin', note); } }));
     const form = h('form', { class: 'acct-form', onsubmit: (e) => {
@@ -620,11 +622,12 @@ export function createAccount(api) {
       }) })),
       msgEl,
       h('details', { class: 'acct-more' }, h('summary', { text: 'Account settings' }),
-        h('div', { class: 'acct-row' },
-          h('button', { class: 'btn', type: 'button', text: 'Set a password', onclick: () => passwordView() }),
-          h('button', { class: 'btn', type: 'button', text: 'Change my name', onclick: () => nameView() })),
-        h('p', { class: 'muted', text: 'Your hair, beard, body hair, eye colour, light and hourly rate follow you to every device you sign in on. Your face photo stays on the device it was taken on.' }),
-        h('div', { class: 'acct-row' }, (() => { const b2 = h('button', { class: 'btn', type: 'button', id: 'acctPrefs' }); const paint = () => { const on = !ls.get(PREFS_OFF); b2.textContent = on ? 'Same on every device: on' : 'Same on every device: off'; b2.setAttribute('aria-pressed', String(on)); }; paint(); b2.addEventListener('click', () => { setPrefsOn(!!ls.get(PREFS_OFF)); paint(); msg(ls.get(PREFS_OFF) ? 'Settings on this device stay here now.' : 'Settings follow you again.', true); }); return b2; })())),
+        h('div', { class: 'acct-group' },
+          h('button', { class: 'btn acct-nav', type: 'button', text: 'Set a password', onclick: () => passwordView() }),
+          h('button', { class: 'btn acct-nav', type: 'button', text: 'Change my name', onclick: () => nameView() })),
+        // a switch row, like Settings: the label on the left, the switch on the right, the footnote under it
+        (() => { const b2 = h('button', { class: 'btn acct-switch', type: 'button', id: 'acctPrefs' }, h('span', { text: 'Same on every device' }), h('i', { 'aria-hidden': 'true' })); const paint = () => { b2.setAttribute('aria-pressed', String(!ls.get(PREFS_OFF))); }; paint(); b2.addEventListener('click', () => { setPrefsOn(!!ls.get(PREFS_OFF)); paint(); msg(ls.get(PREFS_OFF) ? 'Settings on this device stay here now.' : 'Settings follow you again.', true); }); return b2; })(),
+        h('p', { class: 'muted', text: 'Your hair, beard, body hair, eye colour, light and hourly rate follow you to every device you sign in on. Your face photo stays on the device it was taken on.' })),
       h('div', { class: 'acct-row' }, h('button', { class: 'btn danger', type: 'button', text: 'Sign out', onclick: () => signOutView() })));
     try {
       const rows = await cloud.list();
@@ -637,10 +640,12 @@ export function createAccount(api) {
       setBadge(rows.filter((r) => r.turn && r.turn.yours).length);
       const yours = rows.filter((r) => r.turn && r.turn.yours).length, theirs = rows.filter((r) => r.turn && r.turn.waiting).length;
       if (yours || theirs) {
-        const pick = (f) => () => { homeFilter = homeFilter === f ? 'all' : f; show('home'); };
-        list.append(h('div', { class: 'acct-glance', id: 'acctGlance', role: 'group', 'aria-label': 'Show projects' },
-          h('button', { class: 'btn', type: 'button', 'aria-pressed': homeFilter === 'yours' ? 'true' : 'false', text: `${yours} need${yours === 1 ? 's' : ''} you`, onclick: pick('yours') }),
-          h('button', { class: 'btn', type: 'button', 'aria-pressed': homeFilter === 'theirs' ? 'true' : 'false', text: `${theirs} waiting on others`, onclick: pick('theirs') })));
+        const pick = (f) => () => { if (homeFilter !== f) { homeFilter = f; show('home'); } };
+        const seg = (f, text, label) => h('button', { class: 'btn', type: 'button', 'aria-pressed': homeFilter === f ? 'true' : 'false', 'aria-label': label, text, onclick: pick(f) });
+        list.append(h('div', { class: 'acct-seg acct-glance', id: 'acctGlance', role: 'group', 'aria-label': 'Show projects' },
+          seg('all', 'All', `All ${rows.length} projects`),
+          seg('yours', `Needs you · ${yours}`, `${yours} need${yours === 1 ? 's' : ''} you`),
+          seg('theirs', `Waiting · ${theirs}`, `${theirs} waiting on others`)));
       }
       const shown = rows.filter((r) => homeFilter === 'yours' ? r.turn && r.turn.yours : homeFilter === 'theirs' ? r.turn && r.turn.waiting : true)
         .sort((a, b) => (b.turn && b.turn.yours ? 1 : 0) - (a.turn && a.turn.yours ? 1 : 0));
@@ -714,18 +719,17 @@ export function createAccount(api) {
   }
   function inviteRoleView() {
     view = 'inviteRole';
-    put(header('Invite someone'),
+    put(header('Invite someone', () => show('home')),
       h('p', { text: `Who are you inviting into "${api.projectName()}"?` }),
-      h('div', { class: 'cards' },
+      h('div', { class: 'acct-choices' },
         h('button', { class: 'card', type: 'button', id: 'acctInviteEdit', onclick: () => run(() => makeInvite('edit')) }, h('b', { text: 'Someone who can change the tattoos' }), h('span', { text: 'Like Liv. You both move, resize and add tattoos, and see each other\'s changes as they happen.' })),
         h('button', { class: 'card', type: 'button', id: 'acctInviteComment', onclick: () => run(() => makeInvite('comment')) }, h('b', { text: 'Someone who comments and answers' }), h('span', { text: 'Like your artist or a client. They pin comments, say yes or ask for a change on each tattoo and add reference pictures, but can\'t move anything.' }))),
-      msgEl,
-      h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+      msgEl);
   }
   function inviteView({ url, role }) {
     const box = h('input', { type: 'text', readonly: true, value: url, 'aria-label': 'Invite link', class: 'acct-link' });
     const canShare = !!navigator.share;
-    put(header('Invite someone'),
+    put(header('Invite someone', () => show('inviteRole')),
       h('p', { text: role === 'comment'
         ? `Send this link to one person, like your artist. When they open it and sign in, they join "${api.projectName()}" to comment and answer. They see your changes as they happen.`
         : `Send this link to one person, like Liv. When they open it and sign in, they join "${api.projectName()}". You both see the same tattoos and each other's changes as they happen.` }),
@@ -734,8 +738,7 @@ export function createAccount(api) {
         canShare ? h('button', { class: 'btn primary', type: 'button', text: 'Share link', onclick: () => navigator.share({ title: 'Join my Ink Atlas project', url }).catch(() => {}) }) : null,
         h('button', { class: canShare ? 'btn' : 'btn primary', type: 'button', text: 'Copy link', onclick: async () => { try { await navigator.clipboard.writeText(url); msg('Link copied.', true); } catch (e) { box.select(); msg('Select the link and copy it.'); } } })),
       msgEl,
-      h('p', { class: 'muted', text: role === 'comment' ? 'Each link is for one person and works for 14 days. They can comment, answer and add reference pictures, not change the tattoos. You can let them edit, or take them off, any time.' : 'Each link is for one person and works for 14 days. They can change the tattoos; only you can rename or remove the project. You can take them off any time.' }),
-      h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+      h('p', { class: 'muted', text: role === 'comment' ? 'Each link is for one person and works for 14 days. They can comment, answer and add reference pictures, not change the tattoos. You can let them edit, or take them off, any time.' : 'Each link is for one person and works for 14 days. They can change the tattoos; only you can rename or remove the project. You can take them off any time.' }));
   }
   function renameRow(item, r) {
     const input = h('input', { type: 'text', value: r.name, maxlength: '80', 'aria-label': 'New name' });
@@ -755,17 +758,17 @@ export function createAccount(api) {
     view = reset ? 'reset' : 'password'; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status' });
     const pass = h('input', { type: 'password', autocomplete: 'new-password', placeholder: 'New password (6 or more characters)', 'aria-label': 'New password' });
     const after = () => { resetting = false; if (reset && !asked() && !myBind() && !following()) { show('move'); msg('New password saved.', true); } else { show('home'); msg(reset ? 'New password saved. You are signed in.' : 'Password saved.', true); } };
-    put(header(reset ? 'Set a new password' : 'Set a password'), h('p', { class: 'muted', text: reset ? 'You are signed in. Choose a new password to use from now on, on any device.' : 'Sign in with it on any device, no email needed.' }),
+    put(header(reset ? 'Set a new password' : 'Set a password', reset ? null : () => show('home')), h('p', { class: 'muted', text: reset ? 'You are signed in. Choose a new password to use from now on, on any device.' : 'Sign in with it on any device, no email needed.' }),
       h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); if (pass.value.length < 6) { msg('Use at least 6 characters.'); return; } run(async () => { await cloud.setPassword(pass.value); after(); }); } }, pass, h('button', { class: 'btn primary', type: 'submit', text: 'Save password' })),
-      msgEl, h('button', { class: 'btn quiet', type: 'button', text: reset ? 'Not now' : 'Back', onclick: () => { resetting = false; show('home'); } }));
+      msgEl, reset ? h('button', { class: 'btn quiet', type: 'button', text: 'Not now', onclick: () => { resetting = false; show('home'); } }) : null);
     focusSoon(pass);
   }
   function nameView() {
     view = 'name'; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status' });
     const name = h('input', { type: 'text', autocomplete: 'name', value: cloud.displayName(), maxlength: '60', 'aria-label': 'Your name' });
-    put(header('Your name'), h('p', { class: 'muted', text: 'Shown to people you send a link to.' }),
+    put(header('Your name', () => show('home')), h('p', { class: 'muted', text: 'Shown to people you send a link to.' }),
       h('form', { class: 'acct-form', onsubmit: (e) => { e.preventDefault(); const v = name.value.trim(); if (!v) return; run(async () => { await cloud.setName(v); renderBtn(); show('home'); msg('Name saved.', true); }); } }, name, h('button', { class: 'btn primary', type: 'submit', text: 'Save' })),
-      msgEl, h('button', { class: 'btn quiet', type: 'button', text: 'Back', onclick: () => show('home') }));
+      msgEl);
   }
   function signOutView() {
     view = 'signout'; panel.replaceChildren(); msgEl = h('p', { class: 'acct-msg', role: 'status' });
