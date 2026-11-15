@@ -246,8 +246,10 @@ function applyCam() {
   camera.rotateZ(cur.roll || 0);
   camera.updateMatrixWorld(true);
 }
+// with Reduce Motion on in the device's settings, the view goes straight to a new spot instead of gliding
+const reduceMotion = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
 function stepCam(dt) {
-  const k = 1 - Math.exp(-dt * (glide ? 5 : 18));
+  const k = glide && reduceMotion.matches ? 1 : 1 - Math.exp(-dt * (glide ? 5 : 18));
   let d = 0;
   for (const p of ['phi', 'r', 'tx', 'ty', 'tz']) { const dv = goal[p] - cur[p]; cur[p] += dv * k; d += Math.abs(dv); }
   let dth = goal.theta - cur.theta; dth = Math.atan2(Math.sin(dth), Math.cos(dth)); cur.theta += dth * k; d += Math.abs(dth);
