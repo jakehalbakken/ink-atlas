@@ -31,6 +31,7 @@ import { createBeforeAfter } from './before-after.js';
 import { createPoseView } from './pose-view.js';
 import { createClothes, TOPS, BOTTOMS, HAIR, coverage as clothesCoverage } from './clothes.js';
 import { OUTFITS, visibilityText, sittingWear } from './visibility.js';
+import { sizeLikeText } from './size-like.js';
 import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
@@ -555,6 +556,9 @@ let tried = readTried(); // features from New to try that were tried on this dev
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
 function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
+// the size said as an everyday thing: about the size of a credit card
+function likeOf(t) { if (!t) return ''; const k = (state.heightCm || 175) / 175, w = t.width * 100 * k / 2.54; return sizeLikeText(w, w / t.aspect); }
+function likeRender(t) { const lk = likeOf(t); $('#likeLine').textContent = lk; $('#likeLine').hidden = !lk; }
 function sizeText(t) {
   const k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
   return `≈ ${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in  ·  ${w.toFixed(0)} × ${h.toFixed(0)} cm`;
@@ -847,7 +851,7 @@ function toast(msg, action, fn) {
   t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 5200);
 }
 let slideSnap = false;
-function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t || t.locked) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); renderGap(); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
+function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t || t.locked) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); likeRender(t); renderGap(); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
 slider('#rSize', (t, v) => { t.width = 0.012 * Math.pow(0.9 / 0.012, v / 1000); });
 slider('#rTurn', (t, v) => { t.rot = v * Math.PI / 180; });
 slider('#rFade', (t, v) => { t.opacity = v / 100; });
@@ -1955,6 +1959,7 @@ const SHOW = {
   shows: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv; return [sv ? '#showsLine' : '#estRow', 'Under where it sits, a line says which everyday clothes hide this tattoo and which show it.']; },
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
+  like: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#likeLine', 'This line says the size as an everyday thing, like about the size of a credit card, so the numbers are easy to picture.']; },
   sitWear: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls says what to wear to the sitting.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return [$('#sitWear').hidden ? '#sitBox' : '#sitWear', 'Under the sittings, a line says what to wear so the spot is open without undressing more than you need to.']; },
   reads: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; readRender(t); return [$('#readRow').hidden ? '#estRow' : '#readRow', 'This line says who the tattoo reads the right way up for: others, or you looking down at it. The button turns it round in one step you can undo.']; },
   trip: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings and checks them against a trip.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitAway', 'Pick the first sitting, then add a trip or beach day. If it lands while the ink is still fresh, it says so and moves the sittings in one tap.']; },
@@ -3028,6 +3033,7 @@ function renderInfo() {
   clearTimeout(infoTimer);
   infoTimer = setTimeout(() => {
     const t = sel(); if (!t) return;
+    likeRender(t);
     const w = whereOf(t); $('#whereLine').textContent = w ? w.line : ''; $('#whereLine').hidden = !w;
     const hrs = hoursOf(t); $('#estLine').textContent = hrs ? sessionText(hrs, readRate()) : '';
     planRender(t);
@@ -3042,7 +3048,7 @@ function renderInfo() {
 }
 $('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRate').value); writeRate(n > 0 ? n : 0); const t = sel(), hrs = t && hoursOf(t); if (hrs) $('#estLine').textContent = sessionText(hrs, readRate()); planRender(t); markTried('estimate'); });
 // opened by a Show me, it is only being pointed at, not tried yet
-$('#editorAdvanced').addEventListener('toggle', () => { if (!$('#editorAdvanced').open) infoByShow = false; else if (sel()) { renderInfo(); if (!infoByShow && performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); } } });
+$('#editorAdvanced').addEventListener('toggle', () => { if (!$('#editorAdvanced').open) infoByShow = false; else if (sel()) { renderInfo(); if (!infoByShow && performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); markTried('like'); } } });
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */
 function showLook(open) { const m = $('#lookMenu'); m.hidden = open == null ? !m.hidden : !open; $('#lookBtn').setAttribute('aria-expanded', String(!m.hidden)); }
 function renderLook() {
@@ -4101,7 +4107,7 @@ let last = performance.now();
 let camMoving = false, booted = false;
 function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) $('#size').textContent = sizeText(t); }
+  if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) { $('#size').textContent = sizeText(t); likeRender(t); } }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
   if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (tape.on) placeTape(); if (pins.on) placePins(); }
@@ -4206,6 +4212,7 @@ window.__ink = {
   line: () => $('#lineRow').hidden ? '' : $('#lineText').textContent + ($('#lineFix').hidden ? '' : ' | Straighten'),
   reads: () => $('#readRow').hidden ? '' : $('#readText').textContent + ($('#readFix').hidden ? '' : ' | ' + $('#readFix').textContent),
   wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
+  like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
   shows: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: showsOf(t), shares: showsShares(t) } : null; },
   even: () => $('#evenRow').hidden ? '' : $('#evenLine').textContent + ($('#evenFix').hidden ? '' : ' | ' + $('#evenFix').textContent),
