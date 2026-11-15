@@ -171,11 +171,24 @@ export default async function (p) {
     await q.evaluate((id) => window.__ink.select(id), t0); await wait(300);
     assert.equal(await q.evaluate(() => window.__ink.answerShown()), true, 'Looks good / Ask for a change show on a shared project');
     assert.ok(await q.$eval('#bApprove', (e) => e.getBoundingClientRect().height >= 44), 'answer buttons big enough');
+    // Looks good on all: a yes to every planned tattoo nobody has answered, one undo step
+    const nPlanned = await q.evaluate(() => window.__ink.state().tattoos.filter((t) => t.status !== 'existing' && !t.hidden && !t.review).length);
+    if (nPlanned >= 2) {
+      assert.equal(await q.$eval('#bApproveAll', (e) => !e.hidden && e.textContent), `Looks good on all ${nPlanned}`);
+      await q.click('#bApproveAll'); await wait(200);
+      const all = await q.evaluate(() => window.__ink.state().tattoos.filter((t) => t.status !== 'existing').map((t) => t.review && t.review.verdict + '|' + t.review.by));
+      assert.ok(all.every((x) => x === 'approved|Liv'), 'all said yes by Liv: ' + all);
+      assert.match(await q.$eval('#toast', (e) => e.textContent), new RegExp(`yes to ${nPlanned} tattoos`));
+      assert.equal(await q.$eval('#bApproveAll', (e) => e.hidden), true, 'gone once all are answered');
+      await q.click('#undo'); await wait(200);
+      assert.equal(await q.evaluate(() => window.__ink.state().tattoos.filter((t) => t.review).length), 0, 'one undo takes them all back');
+    } else console.log('note: fewer than two planned tattoos, Looks good on all not checked');
     await q.click('#bAskChange'); await wait(150);
     await q.type('#changeNote', 'Move it up an inch');
     await q.screenshot({ path: 'shots/t83-ask-change.png' });
     await q.click('#bSendChange'); await wait(200);
     const rv = await q.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).review, t0);
+    if (nPlanned === 2) assert.equal(await q.$eval('#bApproveAll', (e) => e.hidden), true, 'a single unanswered one needs no all');
     assert.equal(rv.verdict, 'changes'); assert.equal(rv.note, 'Move it up an inch'); assert.equal(rv.by, 'Liv'); assert.match(rv.at, /^\d{4}-\d{2}-\d{2}$/);
     await until(p, (id) => { const t = window.__ink.state().tattoos.find((x) => x.id === id); return t && t.review && t.review.by === 'Liv'; }, t0, 'her answer reaches Jake', 15000);
     await until(p, () => /Liv asked for a change/.test(document.querySelector('#toast').textContent), null, 'Jake is told who asked what');

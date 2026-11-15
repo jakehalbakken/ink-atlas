@@ -68,12 +68,13 @@ import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
 import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost, planCalendar, planCalendarText, planCalendarFile } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
+import { matchesComment } from './comment-find.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
 
 // a feature that needs the account's email sender is listed only once that is switched on
 const NEW_FEATURES = ALL_FEATURES.filter((f) => !f.needs || (f.needs === 'emailCodes' && emailCodes));
 // comments pinned to the body, and the tattoo whose "Ask for a change" box is open (used early by renderUI)
-const pins = { on: false, pending: null, open: null, els: new Map(), ids: '', list: false, filter: 'open', forTattoo: null };
+const pins = { on: false, pending: null, open: null, els: new Map(), ids: '', list: false, filter: 'open', forTattoo: null, find: '' };
 let changeFor = null;
 const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
@@ -665,7 +666,7 @@ function renderHistory() {
 }
 function openHistory() { cancelGesture(); renderHistory(); toggle('#historyPop', true); markTried('history'); }
 function refreshUndo() { $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
-function commit() { syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); }
+function commit() { if (spotPeek) peekSpot(false); syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); }
 
 /* ---------- tattoo ops ---------- */
 const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
@@ -2231,6 +2232,7 @@ const SHOW = {
     toggle('#planMenu', true); return ['#openRefs', sel() ? 'Tap Reference board to add pictures for the selected tattoo or the whole project. Everyone on a shared project sees them.' : 'Tap Reference board, then Add pictures. Select a tattoo first to pin pictures to it.'];
   },
   pins: () => { showLook(true); return ['#pinsBtn', 'Tap Comments, then the spot on the body the comment is about.']; },
+  pinFind: () => { if (pinNotes().length >= 4) { pinsOn(); pins.open = null; pins.forTattoo = null; pins.list = true; renderPins(); return ['#pinListFind', 'Type a word, a name or a tattoo to find the comments about it.']; } showLook(true); return ['#pinsBtn', 'Once there are a few comments, tap Comments, then List, and type in Find a comment.']; },
   pinReplies: () => { const n = pinNotes()[0]; if (n) { pinsOn(); openPin(n.id); return ['#pinResolve', 'Reply under the comment, or tap Resolve when it is sorted.']; } showLook(true); return ['#pinsBtn', 'Tap Comments and pin one first. Tap its pin to reply or resolve it.']; },
   forgot: () => (account && account.configured ? (account.showForgot(), ['#acctForgot', 'Type your email, then tap here. We email you a code to sign in and set a new password.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   room: () => { showLook(true); return ['#roomBtn', 'Tap Open skin to see where you still have room, and how big a piece fits there.']; },
@@ -2377,6 +2379,18 @@ function renderAnswer(t) {
   $('#bApprove').setAttribute('aria-pressed', String(!!(r && r.verdict === 'approved' && mine)));
   $('#bUnreview').hidden = !(r && mine);
   $('#bSuggest').hidden = !commentOnly || t.status === 'existing' || t.locked || !!suggesting;
+  const left = unansweredPlanned(); $('#bApproveAll').hidden = left.length < 2;
+  $('#bApproveAll').textContent = `Looks good on all ${left.length}`;
+}
+// Planned tattoos on show that nobody has answered yet, so a yes to all never covers up
+// someone's ask for a change or their name on an answer.
+function unansweredPlanned() { return state.tattoos.filter((x) => x.status !== 'existing' && !x.hidden && !x.review); }
+function approveAll() {
+  const left = unansweredPlanned(); if (left.length < 2) return;
+  snapshot(); const at = todayIso(), by = myName(); changeFor = null;
+  for (const x of left) x.review = { verdict: 'approved', note: '', by, at };
+  markTried('approveAll'); commit();
+  toast(`You said yes to ${left.length} tattoos.`, 'Undo', undo);
 }
 function setReview(verdict, note) {
   const t = sel(); if (!t) return;
@@ -2390,6 +2404,7 @@ $('#bAskChange').addEventListener('click', () => { const t = sel(); if (!t) retu
 $('#bSendChange').addEventListener('click', () => { const v = $('#changeNote').value.trim(); if (!v) { toast('Say what should change, like: move it up an inch.'); $('#changeNote').focus(); return; } setReview('changes', v); });
 $('#bCancelChange').addEventListener('click', () => { changeFor = null; renderAnswer(sel()); });
 $('#bUnreview').addEventListener('click', () => setReview(null));
+$('#bApproveAll').addEventListener('click', approveAll);
 
 /* ---------- suggest a new spot ---------- */
 // Someone who can only comment moves, sizes or turns a tattoo to show where they think it should
@@ -2433,6 +2448,29 @@ function suggestUse(n) {
   toast(`Moved ${t.name || 'it'} to ${n.by || 'their'}${n.by ? "'s" : ''} spot.`, 'Undo', undo);
 }
 $('#bSuggest').addEventListener('click', suggestStart);
+// Hold to see it there: while the finger is down the tattoo shows at the suggested spot, and it
+// goes back the moment it lifts. Nothing is saved, so there is nothing to undo.
+let spotPeek = null;
+function peekSpot(on) {
+  if (on && !spotPeek) {
+    const n = pins.open && pinNotes().find((x) => x.id === pins.open), g = n && n.suggest, t = g && state.tattoos.find((x) => x.id === g.tattooId);
+    if (!t) return;
+    spotPeek = { id: t.id, before: JSON.stringify(t) };
+    for (const k of SUGGEST_KEYS) { if (g[k] !== undefined) t[k] = JSON.parse(JSON.stringify(g[k])); else if (k === 'wrap' || k === 'bend' || k === 'taper') delete t[k]; }
+    syncDecals(); needsRender = true; $('#pinSuggestPeek').setAttribute('aria-pressed', 'true'); markTried('suggestSpot');
+  } else if (!on && spotPeek) {
+    const i = state.tattoos.findIndex((x) => x.id === spotPeek.id); if (i >= 0) state.tattoos[i] = JSON.parse(spotPeek.before);
+    spotPeek = null; syncDecals(); needsRender = true; $('#pinSuggestPeek').setAttribute('aria-pressed', 'false');
+  }
+}
+{
+  const b = $('#pinSuggestPeek');
+  b.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); try { b.setPointerCapture(e.pointerId); } catch { /* fine */ } peekSpot(true); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => peekSpot(false));
+  b.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); peekSpot(true); } });
+  b.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') peekSpot(false); });
+  b.addEventListener('blur', () => peekSpot(false));
+}
 $('#pinSuggestUse').addEventListener('click', () => { const n = pins.open && pinNotes().find((x) => x.id === pins.open); if (n) suggestUse(n); });
 $('#suggestSend').addEventListener('click', () => suggestEnd(true));
 $('#suggestCancel').addEventListener('click', () => suggestEnd(false));
@@ -2488,8 +2526,12 @@ function renderPins() {
     const anyMine = list.some(mentionsMeIn); if (!anyMine && pins.filter === 'me') pins.filter = 'open';
     $('#pinListMe').hidden = !anyMine;
     for (const [b, f] of [['#pinListOpen', 'open'], ['#pinListAll', 'all'], ['#pinListMe', 'me']]) $(b).setAttribute('aria-pressed', String((pins.filter || 'all') === f));
-    const shown = list.map((n, i) => [n, i]).filter(([n]) => (pins.filter !== 'open' || !n.done) && (pins.filter !== 'me' || mentionsMeIn(n)) && (!forT || n.tattooId === forT.id));
+    const findOn = list.length >= 4 && !forT; $('#pinListFind').hidden = !findOn; if (!findOn) pins.find = '';
+    if ($('#pinListFind').value !== (pins.find || '')) $('#pinListFind').value = pins.find || '';
+    const tName = (n) => { const t = n.tattooId && state.tattoos.find((x) => x.id === n.tattooId); return t ? t.name || '' : ''; };
+    const shown = list.map((n, i) => [n, i]).filter(([n]) => (pins.filter !== 'open' || !n.done) && (pins.filter !== 'me' || mentionsMeIn(n)) && (!forT || n.tattooId === forT.id) && matchesComment(n, pins.find, tName(n)));
     $('#pinListEmpty').hidden = shown.length > 0;
+    $('#pinListEmpty').textContent = (pins.find || '').trim() ? `No ${pins.filter === 'open' ? 'open ' : ''}comments mention "${pins.find.trim()}".${pins.filter === 'open' ? ' Tap All to look in resolved ones too.' : ''}` : 'No open comments. Tap All to see the resolved ones.';
     $('#pinListItems').replaceChildren(...shown.map(([n, i]) => {
       const t = n.tattooId && state.tattoos.find((x) => x.id === n.tattooId), r = Array.isArray(n.replies) ? n.replies.length : 0;
       const b = el('button', { type: 'button' }); b.append(el('b', { text: `${i + 1}. ${n.text || ''}` }), el('small', { text: [n.by || 'You', t ? 'on ' + (t.name || 'a tattoo') : '', r ? `${r} ${r === 1 ? 'reply' : 'replies'}` : '', mentionsMeIn(n) ? 'mentions you' : '', pinUnread(n) ? 'new' : '', n.done ? 'resolved' : ''].filter(Boolean).join(' · ') }));
@@ -2510,6 +2552,7 @@ function renderPins() {
       const inch = (w) => (w * state.heightCm / 175 * 100 / 2.54).toFixed(1);
       $('#pinSuggestText').textContent = !gt ? 'A suggested spot for a tattoo that is no longer on the body.' : `${open.by || 'Someone'} suggests this spot for ${gt.name || 'a tattoo'}: ${inch(g.width)} in wide${Math.abs(g.width - gt.width) > 0.002 ? ` (it is ${inch(gt.width)} in now)` : ''}. The pin shows where.`;
       $('#pinSuggestUse').hidden = !gt || commentOnly || !!open.done;
+      $('#pinSuggestPeek').hidden = !gt;
     }
     $('#pinRead').classList.toggle('done', !!open.done);
     $('#pinResolve').textContent = open.done ? 'Reopen' : 'Resolve';
@@ -2572,6 +2615,7 @@ $('#pinListBtn').addEventListener('click', () => { pins.list = !pins.list; rende
 $('#pinListOpen').addEventListener('click', () => { pins.filter = 'open'; renderPins(); });
 $('#pinListAll').addEventListener('click', () => { pins.filter = 'all'; renderPins(); });
 $('#pinListMe').addEventListener('click', () => { pins.filter = 'me'; renderPins(); markTried('mention'); });
+$('#pinListFind').addEventListener('input', (e) => { pins.find = e.target.value.slice(0, 80); renderPins(); if (pins.find.trim()) markTried('findComment'); });
 $('#pinsBtn').addEventListener('click', () => { showLook(false); if (pins.on) pinsOff(); else pinsOn(); });
 $('#pinsDone').addEventListener('click', pinsOff);
 $('#pinCancel').addEventListener('click', () => { pins.pending = null; renderPins(); });
@@ -5103,8 +5147,8 @@ function startAccount() {
     looking: () => selectedId, view: myView, follow: followPeer, point: myPoint, typing: myTyping, tattooName: (id) => (state.tattoos.find((x) => x.id === id) || {}).name || '',
     setCommentOnly, showChange, inches: (w) => w * state.heightCm / 175 * 100 / 2.54,
     // in the middle of moving something or typing: changes from elsewhere wait a moment
-    holding: () => !!suggesting,
-    busy: () => !!suggesting || !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
+    holding: () => !!suggesting || !!spotPeek,
+    busy: () => !!suggesting || !!spotPeek || !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
   });
   account.start();
 }
@@ -5177,6 +5221,6 @@ window.__ink = {
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
-  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   decalReach: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry, P = g && g.attributes.position ? g.attributes.position.array : []; let max = 0; for (let i = 0; i < P.length; i += 3) { const dist = Math.hypot(P[i] - t.pos[0], P[i + 1] - t.pos[1], P[i + 2] - t.pos[2]); if (dist > max) max = dist; } return { name: t.name, tris: P.length / 9, max, w: t.width, h: t.width / t.aspect }; }),
 };

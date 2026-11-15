@@ -246,6 +246,15 @@ export default async function (p) {
     assert.equal(await shown(p, '#pinSuggestUse'), true, 'Use this spot offered');
     assert.match(await p.$eval('#pinSuggestText', (e) => e.textContent), /Mara suggests this spot for/);
     await p.screenshot({ path: 'shots/t84-suggest.png' });
+    // Hold to see it there: shows her size while held, back the moment it lifts, nothing saved
+    assert.equal(await shown(p, '#pinSuggestPeek'), true, 'Hold to see it there offered');
+    const undo0 = await p.evaluate(() => window.__ink.undoLen ? window.__ink.undoLen() : -1);
+    const pb = await p.$eval('#pinSuggestPeek', (e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+    await p.mouse.move(pb.x, pb.y); await p.mouse.down(); await wait(250);
+    assert.ok(Math.abs(await p.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0) - w1) < 1e-6, 'her size while held');
+    await p.mouse.up(); await wait(250);
+    assert.ok(Math.abs(await p.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0) - w0) < 1e-9, 'back when let go');
+    assert.equal(await p.evaluate(() => window.__ink.undoLen ? window.__ink.undoLen() : -1), undo0, 'peeking adds no undo step');
     await p.click('#pinSuggestUse'); await wait(300);
     assert.ok(Math.abs(await p.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).width, t0) - w1) < 1e-6, 'moved to her spot');
     assert.ok((await p.evaluate((id) => window.__ink.state().notes.find((n) => n.id === id), sug.id)).done, 'her suggestion marked done');
