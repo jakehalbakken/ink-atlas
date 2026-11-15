@@ -44,6 +44,7 @@ export default async function (p) {
   assert.ok(by.legL.roundCm > by.armL.roundCm * 1.3, 'a leg is wider round than an arm');
   assert.ok(Math.abs(by.armL.lengthCm - by.armR.lengthCm) < 1 && Math.abs(by.legL.roundCm - by.legR.roundCm) < 3, 'left and right match');
   assert.equal(by.armL.inked, 1, 'the forearm tattoo is on the left arm map');
+  assert.equal(by.armL.labels.length, 1, 'with its name');
   assert.equal(by.armR.inked + by.legL.inked + by.legR.inked, 0, 'and on no other');
   for (const x of r.per) assert.ok(x.skin > 500, 'skin drawn for ' + x.key);
   const pl = Object.fromEntries(r.per.map((x) => [x.key, x]));

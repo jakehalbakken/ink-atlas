@@ -4056,7 +4056,7 @@ function limbPicture(m, pxPerUnit) {
   const I = bodyGeo.index.array, triN = I.length / 3, skin = [];
   for (let t = 0; t < triN; t++) for (const tri of mapTriangle(m, I[t * 3], I[t * 3 + 1], I[t * 3 + 2])) put(skin, tri);
   add(skin, new THREE.MeshBasicMaterial({ color: new THREE.Color(skinColor()), side: THREE.DoubleSide, toneMapped: false }), 0);
-  let inked = 0;
+  let inked = 0; const labels = [];
   state.tattoos.forEach((t, order) => {
     const d = decals[t.id]; if (t.hidden || !d || !d.tex) return;
     const tris = d.mesh.geometry.userData.tris, uv = d.mesh.geometry.getAttribute('uv'); if (!tris || !uv) return;
@@ -4069,6 +4069,10 @@ function limbPicture(m, pxPerUnit) {
     const mat = d.mesh.material.clone(); mat.side = THREE.DoubleSide; mat.depthTest = false; mat.polygonOffset = false;
     mat.blending = THREE.CustomBlending; mat.blendEquation = THREE.AddEquation; mat.blendSrc = THREE.ZeroFactor; mat.blendDst = THREE.SrcColorFactor; mat.blendSrcAlpha = THREE.ZeroFactor; mat.blendDstAlpha = THREE.OneFactor;
     add(pos, mat, 10 + order, tex); inked++;
+    // where to write its name: under the middle of its ink (median across, lowest point down)
+    const xs = [], ys = []; for (let i = 0; i < pos.length; i += 3) { xs.push(pos[i] * pxPerUnit + W / 2); ys.push(2 - pos[i + 1] * pxPerUnit); }
+    xs.sort((a, b) => a - b);
+    labels.push({ id: t.id, name: t.name || 'Tattoo', x: xs[xs.length >> 1], y: Math.max(...ys), w: t.width });
   });
   const target = new THREE.WebGLRenderTarget(W, H, { colorSpace: THREE.SRGBColorSpace, depthBuffer: false, samples: 4 });
   target.texture.colorSpace = THREE.SRGBColorSpace;
@@ -4086,7 +4090,7 @@ function limbPicture(m, pxPerUnit) {
   const im = new ImageData(W, H), row = W * 4;
   for (let y = 0; y < H; y++) im.data.set(raw.subarray((H - 1 - y) * row, (H - y) * row), y * row);
   c.getContext('2d').putImageData(im, 0, 0);
-  return { canvas: c, W, H, inked, half: b.half, length: b.length };
+  return { canvas: c, W, H, inked, labels, half: b.half, length: b.length };
 }
 function sleeveMap() {
   if (!bodyGeo.index) return null;
@@ -4119,13 +4123,22 @@ function sleeveMap() {
     const [l, r] = mp.L.side === 'L' ? ['Front', 'Back'] : ['Back', 'Front'];
     g.textAlign = 'left'; g.fillText(l, x0, head - 28); g.textAlign = 'center'; g.fillText('Outside', x0 + W / 2, head - 28); g.textAlign = 'right'; g.fillText(r, x0 + W, head - 28);
     g.textAlign = 'center'; g.fillText('Inside edges meet', x0 + W / 2, head + H + 26);
+    // each tattoo's name and size under it, kept inside this limb's column
+    for (const lb of mp.labels) {
+      const t = state.tattoos.find((x) => x.id === lb.id), wcm = t.width * 100 * k, hcm = wcm / t.aspect;
+      const text = `${lb.name}  ${wcm.toFixed(0)} × ${hcm.toFixed(0)} cm`;
+      g.font = '600 20px -apple-system, system-ui, sans-serif'; const tw = g.measureText(text).width + 20;
+      const cx = Math.min(x0 + W - tw / 2, Math.max(x0 + tw / 2, x0 + lb.x)), cy = Math.min(head + H - 18, head + lb.y + 24);
+      g.fillStyle = 'rgba(22,23,28,0.82)'; g.beginPath(); g.roundRect(cx - tw / 2, cy - 16, tw, 32, 16); g.fill();
+      g.fillStyle = '#f2f2f5'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, cx, cy);
+    }
     x0 += W + gap;
   }
   g.fillStyle = '#f2f2f5'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '600 40px -apple-system, system-ui, sans-serif';
   g.fillText('Arms and legs, unrolled', out.width / 2, 56);
   g.fillStyle = '#9a9cab'; g.font = '22px -apple-system, system-ui, sans-serif';
   g.fillText('Each limb’s skin laid flat, cut along the inside, as seen from the outside. Grid squares are 5 cm (about 2 in).', out.width / 2, 104);
-  sleeveLast = { maps: maps.map((x) => ({ key: x.L.key, W: x.W, H: x.H, inked: x.inked, lengthCm: x.length / unitsPerCm, roundCm: typicalRound(x.m) / unitsPerCm })), head, pad, gap, w: out.width, h: out.height };
+  sleeveLast = { maps: maps.map((x) => ({ key: x.L.key, W: x.W, H: x.H, inked: x.inked, labels: x.labels.map((l) => l.name), lengthCm: x.length / unitsPerCm, roundCm: typicalRound(x.m) / unitsPerCm })), head, pad, gap, w: out.width, h: out.height };
   return out.toDataURL('image/png');
 }
 function jointDown(L) {
