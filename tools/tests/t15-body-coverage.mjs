@@ -11,7 +11,7 @@ export default async function(p){
  await p.click('[data-mode=measure]');await p.mouse.click(r.x+r.w*.5,r.y+r.h*.38);await p.mouse.click(r.x+r.w*.5,r.y+r.h*.46);await wait();
  assert((await p.$eval('.bt-measure',e=>e.textContent)).includes('cm'),'ruler reports cm');
  await p.screenshot({path:'shots/body-ruler.png'});await p.click('#ink-body-tools [data-close]');
- const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));await open('#openClothing');
+ const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));await p.click('#lookBtn');await p.click('#clothesBtn');await wait(900);
  assert(await p.$eval('#clothesPop',e=>!e.hidden),'Plan > Clothes opens the clothes panel');
  await p.click('#clothesTop [data-top=long]');await p.click('#clothesBottom [data-bottom=shorts]');await p.click('#clothesHair [data-hair=neck]');await wait(300);
  const c=await p.evaluate(()=>window.__ink.clothes());assert.deepEqual([c.top,c.bottom,c.hair],['long','shorts','neck']);assert(c.meshes.every(m=>m.visible&&m.tris>0));

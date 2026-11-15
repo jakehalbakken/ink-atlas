@@ -104,15 +104,20 @@ const canvas = renderer.domElement;
 canvas.style.touchAction = 'none';
 
 const scene = new THREE.Scene();
-{
+// the studio backdrop: a soft pool of light, dark or light with the device's appearance
+function paintBackdrop() {
+  const css = getComputedStyle(document.documentElement), v = (k, d) => css.getPropertyValue(k).trim() || d;
   const c = document.createElement('canvas'); c.width = c.height = 512;
   const g = c.getContext('2d');
   const gr = g.createRadialGradient(256, 215, 20, 256, 256, 380);
-  gr.addColorStop(0, '#474b59'); gr.addColorStop(0.55, '#2a2d37'); gr.addColorStop(1, '#17181d');
+  gr.addColorStop(0, v('--stage-a', '#474b59')); gr.addColorStop(0.55, v('--stage-b', '#2a2d37')); gr.addColorStop(1, v('--stage-c', '#17181d'));
   g.fillStyle = gr; g.fillRect(0, 0, 512, 512);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
-  scene.background = tex;
+  const old = scene.background; scene.background = tex; if (old && old.dispose) old.dispose();
+  const meta = document.querySelector('meta[name=theme-color]'); if (meta) meta.content = v('--bg', '#17181d');
 }
+paintBackdrop();
+try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { paintBackdrop(); needsRender = true; }); } catch (_) { /* older browsers: keeps the first look */ }
 const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 50);
 scene.add(camera);
 const hemi = new THREE.HemisphereLight(0xffffff, 0x4a4652, 1.15); scene.add(hemi);
@@ -207,6 +212,19 @@ function focusTattoo(t) {
   glide = true; needsRender = true;
 }
 // The part of the screen that no panel covers: below the top bar, above (or left of) the dock.
+function placeChrome() {
+  const body = document.body, v = $('#views'), tb = $('#top .toolbar'), br = $('#top .brand');
+  body.classList.remove('views-low');
+  const vr = v.getBoundingClientRect(), tr = tb.getBoundingClientRect(), b = br.getBoundingClientRect();
+  const fits = vr.right <= tr.left - 8 && tr.right <= innerWidth - 4 && vr.left >= 0 && (!b.width || vr.left >= b.right + 4) && Math.abs(vr.top - tr.top) < 30;
+  if (!fits) { body.classList.add('views-low'); document.documentElement.style.setProperty('--views-top', Math.round($('#top').getBoundingClientRect().bottom - 4) + 'px'); }
+  const bottom = Math.max($('#top').getBoundingClientRect().bottom, fits ? 0 : v.getBoundingClientRect().bottom + 8);
+  document.documentElement.style.setProperty('--below', Math.round(bottom) + 'px');
+}
+addEventListener('resize', placeChrome);
+new ResizeObserver(placeChrome).observe($('#top .toolbar'));
+if (document.fonts) document.fonts.ready.then(placeChrome);
+placeChrome();
 function freeArea() {
   const b = canvas.getBoundingClientRect(), d = $('#dock').getBoundingClientRect();
   const top = Math.max(b.top, $('#top').getBoundingClientRect().bottom, $('#views').getBoundingClientRect().bottom) + 12;
@@ -2241,6 +2259,7 @@ const SHOW = {
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
+  layout: () => ['#top .toolbar', 'Everything starts here: Body, Preview, Plan and Share, with Undo and Redo as the arrows. Select a tattoo for its own controls.'],
   history: () => { if (!$('#undo').disabled) openHistory(); return ['#undo', 'Press and hold Undo for a list of your last steps. Tap one to go back to just before it. Redo brings them back.']; },
   undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],
   labels: () => { toggle('#share', true); return ['#cLabels', 'A picture of this view with each tattoo’s name and size written beside it, to send to your artist.']; },
@@ -3498,7 +3517,11 @@ $('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRat
 // opened by a Show me, it is only being pointed at, not tried yet
 $('#editorAdvanced').addEventListener('toggle', () => { if (!$('#editorAdvanced').open) infoByShow = false; else if (sel()) { renderInfo(); if (!infoByShow && performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); markTried('like'); } } });
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */
-function showLook(open) { const m = $('#lookMenu'); m.hidden = open == null ? !m.hidden : !open; $('#lookBtn').setAttribute('aria-expanded', String(!m.hidden)); }
+function showLook(open) {
+  const m = $('#lookMenu'); m.hidden = open == null ? !m.hidden : !open; $('#lookBtn').setAttribute('aria-expanded', String(!m.hidden));
+  // it drops from its button in the toolbar
+  if (!m.hidden) { const r = $('#lookBtn').getBoundingClientRect(); const w = m.offsetWidth; m.style.right = Math.max(8, Math.min(Math.round(innerWidth - r.right - 4), innerWidth - w - 8)) + 'px'; }
+}
 function renderLook() {
   const on = [];
   if ($('#baBtn').getAttribute('aria-pressed') === 'true') on.push('Before / after');
@@ -3670,7 +3693,6 @@ function onUpdateReady() {
 document.addEventListener('visibilitychange', () => { if (document.hidden && updateReady) reloadForUpdate(); });
 if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) onUpdateReady(); }); }
 $('#projectsBtn').addEventListener('click', () => {cancelGesture();toggle('#planMenu',true);});
-$('#openPose').addEventListener('click',()=>{cancelGesture();toggle('#planMenu',false);toggle('#posePop',true);renderPose();});
 function previewInput() {return {THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden).map(t=>decals[t.id]).filter(d=>d && d.tex).map(d=>({geometry:d.mesh.geometry,material:d.mesh.material}))};}
 $('#openBodyTools').addEventListener('click',async()=>{
   cancelGesture();toggle('#planMenu',false);let originalNotes=JSON.stringify({notes:state.notes,drawings:state.drawings});
@@ -3688,9 +3710,6 @@ $('#openPhotoFit').addEventListener('click',async()=>{
   if(JSON.stringify(state)!==before)throw new Error('The project changed. Its earlier copy is safely kept, but fitting was not applied.');
   snapshot();reshape(()=>{for(const k of ['figure','muscle','weight','heightCm','fit'])state[k]=proposed[k];});state.projectName=(state.projectName||'My tattoos')+' · fitted copy';if(account)account.unbind();commit();fullBody();toast('Fitted copy opened. The original is kept in Projects.');
  }});}catch(e){toast('Could not open photo fitting: '+e.message);}
-});
-$('#openClothing').addEventListener('click',()=>{
-  cancelGesture();toggle('#planMenu',false);toggle('#posePop',false);toggle('#clothesPop',true);
 });
 $('#openNotes').addEventListener('click',async()=>{
   toggle('#planMenu',false);
@@ -3756,7 +3775,6 @@ async function openDraftEditor(){
   await flushSave();while(saving)await new Promise(r=>setTimeout(r,20));await store.save(next,usedImages());snapshot();state=next;commit();
  }});}catch(e){toast('Placement draft: '+e.message);}
 }
-$('#openDraft').addEventListener('click',openDraftEditor);
 $('#bDraft').addEventListener('click',openDraftEditor);
 $('#openPlacement').addEventListener('click',async()=>{
  toggle('#planMenu',false);cancelGesture();const baseline=JSON.stringify(state);

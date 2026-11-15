@@ -7,7 +7,7 @@ export default async function(p){
  await p.click('#ink-body-notes [data-act=close]');await p.reload({waitUntil:'load'});await wait(1500);
  assert.equal(await p.evaluate(()=>window.__ink.state().notes.length),1,'notes survive reload');
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
- await open('#openPose');await p.waitForSelector('#posePop:not([hidden])');
+ await p.click('#lookBtn');await p.click('#poseBtn');await wait(1000);await p.waitForSelector('#posePop:not([hidden])');
  for(const pose of ['elbow','raised','twist','neutral']){
   await p.click(`#poseList [data-pose=${pose}]`);await wait(600);
   const x=await p.evaluate(()=>window.__ink.pose());assert.equal(x.key,pose);assert.equal(x.active,pose!=='neutral');

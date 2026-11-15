@@ -16,29 +16,48 @@
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  /* one visual world: a dim studio with stencil-violet as the working colour. Canvas fills the screen; chrome floats. */
-  --bg:#17181d; --panel:rgba(27,29,36,.86); --panel-solid:#1f2129; --line:rgba(255,255,255,.11);
-  --text:#f0f1f5; --muted:#a3a8b6; --stencil:#8474ff; --stencil-soft:rgba(132,116,255,.18); --danger:#ff8f86;
+  /* One visual system. Dark is a dim studio, light a paper desk; the working colour is stencil violet.
+     The canvas fills the screen and the chrome floats over it. Spacing 4/8/12/16/24, type 12/13/15/17/22. */
+  --bg:#121318; --surface:rgba(25,27,34,.82); --surface-solid:#1b1d24; --surface-raised:#23252e;
+  --fill:var(--fill); --fill-soft:rgba(255,255,255,.035); --fill-strong:rgba(255,255,255,.12);
+  --line:var(--fill-strong); --line-strong:rgba(255,255,255,.2);
+  --text:#f1f2f6; --muted:#a0a5b3; --faint:#6f7382;
+  --stencil:#8474ff; --accent:var(--stencil); --stencil-soft:rgba(132,116,255,.2); --on-accent:#fff; --danger:#ff8f86; --good:#5fcf8f;
+  --shadow:0 12px 34px rgba(0,0,0,.34); --hairline:inset 0 1px 0 var(--fill-soft);
+  --r-sm:10px; --r-md:14px; --r-lg:20px;
+  --panel:var(--surface); --panel-solid:var(--surface-solid);
+  --stage-a:#474b59; --stage-b:#2a2d37; --stage-c:#17181d;
+  --below:84px;
   --display:"Bricolage Grotesque",system-ui,sans-serif; --body:"Figtree",system-ui,-apple-system,sans-serif;
   color-scheme:dark;
 }
+@media (prefers-color-scheme:light){:root{
+  --bg:#e9e7e3; --surface:rgba(251,250,248,.86); --surface-solid:#fbfaf8; --surface-raised:#ffffff;
+  --fill:rgba(24,26,34,.055); --fill-soft:rgba(24,26,34,.03); --fill-strong:rgba(24,26,34,.1);
+  --line:rgba(24,26,34,.11); --line-strong:rgba(24,26,34,.22);
+  --text:#1b1c22; --muted:#5d6170; --faint:#8b8f9c;
+  --stencil:#6b59f2; --stencil-soft:rgba(107,89,242,.14); --danger:#cf3f36; --good:#1f9a5a;
+  --shadow:0 10px 30px rgba(40,36,30,.14); --hairline:inset 0 1px 0 rgba(255,255,255,.6);
+  --stage-a:#fbfaf7; --stage-b:#e6e3de; --stage-c:#cfcbc4;
+  color-scheme:light;
+}}
 *{box-sizing:border-box}
 /* The page itself can never pan, bounce or zoom: only the canvas and the panels below take gestures. */
 html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:none}
 body{background:var(--bg);color:var(--text);font:500 15px/1.35 var(--body);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
 #inkCheck{position:fixed;inset:0;z-index:9;background:#16171c;overflow:hidden;touch-action:none}#inkCheck[hidden]{display:none}#icView{position:absolute;inset:76px 16px 220px;display:flex;align-items:center;justify-content:center}#icCanvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 2px 14px rgba(0,0,0,.4)}#icTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#icBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-width:640px;margin:0 auto;max-height:190px;overflow:auto}#icList{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}#icList li{display:flex;gap:10px;align-items:flex-start;line-height:1.3}#icList .key{flex:none;width:14px;height:14px;margin-top:3px;border-radius:4px;border:1px solid #fff6}#icBar .row{display:flex;gap:8px}#icBar .row .btn{flex:1}#icBar .row[hidden],#icResize[hidden]{display:none}
-#answers textarea{width:100%;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:inherit;resize:vertical;min-height:140px}#answers .row{display:flex;gap:8px}#answers .row .btn{flex:1}#ansNote{min-height:1.4em;margin:8px 0}#review{margin:2px 4px 8px;font-weight:600;line-height:1.35}#review[hidden]{display:none}#review.ok{color:#5fd39a}#review.chg{color:#ffb35c}.chip .lock.rv-ok{color:#5fd39a}.chip .lock.rv-chg{color:#ffb35c}
-#roomBar{position:fixed;left:50%;top:82px;transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#roomBar[hidden]{display:none}#roomCover{margin:0 6px;text-align:center;font-size:14px;color:var(--text)}#roomCover[hidden]{display:none}#roomBar .row{display:flex;gap:8px;align-items:center}.roomKey{flex:1;display:flex;align-items:center;gap:8px;font-size:14px;margin-left:6px}.roomKey[hidden]{display:none}#roomKeyAll i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#8c858c,#ccedda 11%,#73d9b3 29%,#1aa39e 57%,#0a5c85)}.roomKey b{width:16px;height:16px;border-radius:4px;flex:none}.roomKey b.fit{background:#29bd70}.roomKey b.tight{background:#99949a}#roomText{margin:0 6px;text-align:center;font-weight:600}#roomText:empty{display:none}#roomNote{margin:0 6px 2px;text-align:center}@media (max-width:520px){#roomText,#roomNote{font-size:13px}}#likeLine,#whereLine,#estLine,#evenLine,#showsLine,#wearLine{font-size:14px;color:var(--text)}#likeLine[hidden]{display:none}#evenRow,#lineRow,#readRow{align-items:center}#stretchRow{align-items:center}#stretchRow[hidden],#stretchShow[hidden]{display:none}#stretchText{flex:1;font-size:14px;color:var(--text)}#stretchShow{flex:none}#evenRow[hidden],#evenFix[hidden],#lineRow[hidden],#lineFix[hidden],#readRow[hidden],#readFix[hidden]{display:none}#evenLine,#lineText,#readText{flex:1;font-size:14px;color:var(--text)}#evenFix,#lineFix,#readFix{flex:none}#verBox{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--muted)}#verBox[hidden],#verActs[hidden]{display:none}#verBox small{font-size:13px}#verList{display:flex;gap:8px;overflow-x:auto;padding:2px}#verList button{flex:none;width:64px;min-height:84px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px;border-radius:12px;border:1px solid var(--line);background:#fff1;color:var(--text);font:600 13px Figtree,system-ui,sans-serif}#verList button img{width:54px;height:54px;object-fit:contain;background:#fff;border-radius:8px}#verList button[aria-pressed=true]{border-color:var(--stencil);box-shadow:0 0 0 2px var(--stencil)}#verActs .btn{flex:1}#sitBox{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--muted)}#sitBox[hidden],#sitHealed[hidden],#sitDry[hidden],#sitWear[hidden],#sitSleep[hidden],#sitCal[hidden],#sitClash[hidden],#sitClash [hidden]{display:none}#sitClash{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:12px;background:rgba(253,204,56,.14);border:1px solid rgba(253,204,56,.5)}#sitClashText{margin:0;color:var(--text)}#sitClash .btn{flex:1}#sitBox small{font-size:13px}#sitList{margin:0;padding:0 0 0 22px;color:var(--text);display:flex;flex-direction:column;gap:4px}#sitList b{font-weight:600}#sitBox .row{display:flex;gap:8px;flex-wrap:wrap}#sitBox label{display:flex;flex-direction:column;gap:4px;flex:1 1 140px}#sitStart,#sitGap,#sitAway{min-height:44px;font:16px Figtree,system-ui,sans-serif;color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:8px 12px}#noteBox,#madeBox{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}#madeBox[hidden]{display:none}#madeBox .row{display:flex;gap:8px;flex-wrap:wrap}#tNote,#madeBox input{min-height:44px;font:16px Figtree,system-ui,sans-serif;color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:10px 12px;-webkit-user-select:text;user-select:text}#tNote{resize:vertical;width:100%}#madeArtist,#madeStudio{flex:1 1 120px;min-width:0}#madeWhen{flex:0 1 170px}#estRow{align-items:center}#estRow label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}
-#approveRow[hidden],#changeBox[hidden]{display:none}#approveRow{margin:0 0 6px}#approveRow .btn{flex:1}#changeBox{margin:0 0 8px}#changeBox textarea,#pinNote{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:inherit;resize:vertical;min-height:60px;margin-bottom:6px;touch-action:auto}
-#pinBar{position:fixed;left:50%;top:82px;transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#pinBar[hidden],#pinBar [hidden]{display:none}#pinBar .row{display:flex;gap:6px;align-items:center}#pinBar .row .btn{flex:1;padding:0 10px}#pinText{flex:3;margin:0 6px;font-weight:600}#pinBody{margin:2px 6px;font-weight:600;white-space:pre-wrap;word-break:break-word;max-height:30vh;overflow:auto}#pinWho{margin:0 6px 4px}#pinReplies{list-style:none;margin:0 6px 6px;padding:0;max-height:24vh;overflow:auto;display:flex;flex-direction:column;gap:6px}#pinReplies:empty{display:none}#pinList .row .btn[aria-pressed="true"]{background:var(--accent,#8b7cf6);color:#fff}#pinListItems{list-style:none;margin:0;padding:0;max-height:40vh;overflow:auto;display:flex;flex-direction:column;gap:6px}#pinListItems button{width:100%;min-height:44px;text-align:left;padding:8px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:inherit;font:inherit;cursor:pointer}#pinListItems button b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#pinListItems button small{display:block;opacity:.7;font-size:13px}#pinListItems li.done button{opacity:.6}#pinReplies li{padding:6px 10px;border-radius:10px;background:rgba(255,255,255,.06);white-space:pre-wrap;word-break:break-word}#pinReplies li small{display:block;opacity:.7;font-size:13px}#pinReply{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:inherit;resize:vertical;min-height:44px;touch-action:auto}#pinRead.done #pinBody{opacity:.6}#pinTyping{margin:0 6px 4px;font-style:italic}.mention-chips{display:flex;flex-wrap:wrap;gap:6px}.mention-chips[hidden]{display:none}.mention-chips .btn{flex:0 0 auto;min-height:44px;padding:0 14px}mark.at-me{background:rgba(139,124,246,.35);color:inherit;border-radius:4px;padding:0 2px}#pinTyping[hidden]{display:none}
-#pinLayer{position:fixed;inset:0;z-index:4;pointer-events:none}#pinLayer button{position:fixed;width:44px;height:44px;margin:-35px 0 0 -9px;border:0;padding:0;background:none;pointer-events:auto;touch-action:none;cursor:pointer}#pinLayer button[hidden]{display:none}#pinLayer button i{display:flex;align-items:center;justify-content:center;width:26px;height:26px;margin:9px;border-radius:50% 50% 50% 4px;background:#ffc83d;color:#1b1b1f;font:700 13px system-ui;font-style:normal;box-shadow:0 2px 8px rgba(0,0,0,.45);border:2px solid #1b1b1f}#pinLayer button.on i{background:var(--stencil)}#pinLayer button.done i{background:#7d8088;opacity:.75}body.hands-on #pinLayer{opacity:.5}
-#painBar{position:fixed;left:50%;top:82px;transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#painBar[hidden]{display:none}#painBar .row{display:flex;gap:8px;align-items:center}#painKey{flex:1;display:flex;align-items:center;gap:8px;font-size:14px;margin-left:6px}#painKey i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#29bd70,#9ed64d 33%,#fdcc38 55%,#e6332e)}#painText{margin:0 6px;text-align:center;font-weight:600}#painText:empty{display:none}#painNote{margin:0 6px 2px;text-align:center}@media (max-width:520px){#painText,#painNote{font-size:13px}#painNote{margin-top:-2px}}#tapeBar{position:fixed;left:50%;top:82px;transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#tapeBar[hidden]{display:none}#tapeBar .row{display:flex;gap:6px}#tapeBar .row .btn{flex:1;padding:0 10px}#tapeBar .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#tapeText{margin:0 6px 2px;text-align:center;font-weight:600}#tapeLabel{position:fixed;z-index:4;transform:translate(-50%,-140%);padding:4px 10px;border-radius:10px;background:#ffc83d;color:#1b1b1f;font-weight:700;font-size:15px;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}#tapeLabel[hidden]{display:none}body.hands-on #tapeLabel{opacity:.5}
+#answers textarea{width:100%;font:inherit;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:inherit;resize:vertical;min-height:140px}#answers .row{display:flex;gap:8px}#answers .row .btn{flex:1}#ansNote{min-height:1.4em;margin:8px 0}#review{margin:2px 4px 8px;font-weight:600;line-height:1.35}#review[hidden]{display:none}#review.ok{color:#5fd39a}#review.chg{color:#ffb35c}.chip .lock.rv-ok{color:#5fd39a}.chip .lock.rv-chg{color:#ffb35c}
+#roomBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#roomBar[hidden]{display:none}#roomCover{margin:0 6px;text-align:center;font-size:14px;color:var(--text)}#roomCover[hidden]{display:none}#roomBar .row{display:flex;gap:8px;align-items:center}.roomKey{flex:1;display:flex;align-items:center;gap:8px;font-size:14px;margin-left:6px}.roomKey[hidden]{display:none}#roomKeyAll i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#8c858c,#ccedda 11%,#73d9b3 29%,#1aa39e 57%,#0a5c85)}.roomKey b{width:16px;height:16px;border-radius:4px;flex:none}.roomKey b.fit{background:#29bd70}.roomKey b.tight{background:#99949a}#roomText{margin:0 6px;text-align:center;font-weight:600}#roomText:empty{display:none}#roomNote{margin:0 6px 2px;text-align:center}@media (max-width:520px){#roomText,#roomNote{font-size:13px}}#likeLine,#whereLine,#estLine,#evenLine,#showsLine,#wearLine{font-size:14px;color:var(--text)}#likeLine[hidden]{display:none}#evenRow,#lineRow,#readRow{align-items:center}#stretchRow{align-items:center}#stretchRow[hidden],#stretchShow[hidden]{display:none}#stretchText{flex:1;font-size:14px;color:var(--text)}#stretchShow{flex:none}#evenRow[hidden],#evenFix[hidden],#lineRow[hidden],#lineFix[hidden],#readRow[hidden],#readFix[hidden]{display:none}#evenLine,#lineText,#readText{flex:1;font-size:14px;color:var(--text)}#evenFix,#lineFix,#readFix{flex:none}#verBox{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--muted)}#verBox[hidden],#verActs[hidden]{display:none}#verBox small{font-size:13px}#verList{display:flex;gap:8px;overflow-x:auto;padding:2px}#verList button{flex:none;width:64px;min-height:84px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:var(--text);font:600 13px Figtree,system-ui,sans-serif}#verList button img{width:54px;height:54px;object-fit:contain;background:#fff;border-radius:8px}#verList button[aria-pressed=true]{border-color:var(--stencil);box-shadow:0 0 0 2px var(--stencil)}#verActs .btn{flex:1}#sitBox{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--muted)}#sitBox[hidden],#sitHealed[hidden],#sitDry[hidden],#sitWear[hidden],#sitSleep[hidden],#sitCal[hidden],#sitClash[hidden],#sitClash [hidden]{display:none}#sitClash{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:12px;background:rgba(253,204,56,.14);border:1px solid rgba(253,204,56,.5)}#sitClashText{margin:0;color:var(--text)}#sitClash .btn{flex:1}#sitBox small{font-size:13px}#sitList{margin:0;padding:0 0 0 22px;color:var(--text);display:flex;flex-direction:column;gap:4px}#sitList b{font-weight:600}#sitBox .row{display:flex;gap:8px;flex-wrap:wrap}#sitBox label{display:flex;flex-direction:column;gap:4px;flex:1 1 140px}#sitStart,#sitGap,#sitAway{min-height:44px;font:16px Figtree,system-ui,sans-serif;color:var(--text);background:var(--fill);border:1px solid var(--line);border-radius:12px;padding:8px 12px}#noteBox,#madeBox{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}#madeBox[hidden]{display:none}#madeBox .row{display:flex;gap:8px;flex-wrap:wrap}#tNote,#madeBox input{min-height:44px;font:16px Figtree,system-ui,sans-serif;color:var(--text);background:var(--fill);border:1px solid var(--line);border-radius:12px;padding:10px 12px;-webkit-user-select:text;user-select:text}#tNote{resize:vertical;width:100%}#madeArtist,#madeStudio{flex:1 1 120px;min-width:0}#madeWhen{flex:0 1 170px}#estRow{align-items:center}#estRow label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}
+#approveRow[hidden],#changeBox[hidden]{display:none}#approveRow{margin:0 0 6px}#approveRow .btn{flex:1}#changeBox{margin:0 0 8px}#changeBox textarea,#pinNote{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:inherit;resize:vertical;min-height:60px;margin-bottom:6px;touch-action:auto}
+#pinBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#pinBar[hidden],#pinBar [hidden]{display:none}#pinBar .row{display:flex;gap:6px;align-items:center}#pinBar .row .btn{flex:1;padding:0 10px}#pinText{flex:3;margin:0 6px;font-weight:600}#pinBody{margin:2px 6px;font-weight:600;white-space:pre-wrap;word-break:break-word;max-height:30vh;overflow:auto}#pinWho{margin:0 6px 4px}#pinReplies{list-style:none;margin:0 6px 6px;padding:0;max-height:24vh;overflow:auto;display:flex;flex-direction:column;gap:6px}#pinReplies:empty{display:none}#pinList .row .btn[aria-pressed="true"]{background:var(--accent,#8b7cf6);color:#fff}#pinListItems{list-style:none;margin:0;padding:0;max-height:40vh;overflow:auto;display:flex;flex-direction:column;gap:6px}#pinListItems button{width:100%;min-height:44px;text-align:left;padding:8px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:inherit;font:inherit;cursor:pointer}#pinListItems button b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#pinListItems button small{display:block;opacity:.7;font-size:13px}#pinListItems li.done button{opacity:.6}#pinReplies li{padding:6px 10px;border-radius:10px;background:var(--fill);white-space:pre-wrap;word-break:break-word}#pinReplies li small{display:block;opacity:.7;font-size:13px}#pinReply{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:inherit;resize:vertical;min-height:44px;touch-action:auto}#pinRead.done #pinBody{opacity:.6}#pinTyping{margin:0 6px 4px;font-style:italic}.mention-chips{display:flex;flex-wrap:wrap;gap:6px}.mention-chips[hidden]{display:none}.mention-chips .btn{flex:0 0 auto;min-height:44px;padding:0 14px}mark.at-me{background:rgba(139,124,246,.35);color:inherit;border-radius:4px;padding:0 2px}#pinTyping[hidden]{display:none}
+#pinLayer{position:fixed;inset:0;z-index:4;pointer-events:none}#pinLayer button{position:fixed;width:44px;height:44px;margin:-35px 0 0 -9px;border:0;padding:0;background:none;pointer-events:auto;touch-action:none;cursor:pointer}#pinLayer button[hidden]{display:none}#pinLayer button i{display:flex;align-items:center;justify-content:center;width:26px;height:26px;margin:9px;border-radius:50% 50% 50% 4px;background:#ffc83d;color:var(--on-accent);font:700 13px system-ui;font-style:normal;box-shadow:0 2px 8px rgba(0,0,0,.45);border:2px solid #1b1b1f}#pinLayer button.on i{background:var(--stencil)}#pinLayer button.done i{background:#7d8088;opacity:.75}body.hands-on #pinLayer{opacity:.5}
+#painBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#painBar[hidden]{display:none}#painBar .row{display:flex;gap:8px;align-items:center}#painKey{flex:1;display:flex;align-items:center;gap:8px;font-size:14px;margin-left:6px}#painKey i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#29bd70,#9ed64d 33%,#fdcc38 55%,#e6332e)}#painText{margin:0 6px;text-align:center;font-weight:600}#painText:empty{display:none}#painNote{margin:0 6px 2px;text-align:center}@media (max-width:520px){#painText,#painNote{font-size:13px}#painNote{margin-top:-2px}}#tapeBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#tapeBar[hidden]{display:none}#tapeBar .row{display:flex;gap:6px}#tapeBar .row .btn{flex:1;padding:0 10px}#tapeBar .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#tapeText{margin:0 6px 2px;text-align:center;font-weight:600}#tapeLabel{position:fixed;z-index:4;transform:translate(-50%,-140%);padding:4px 10px;border-radius:10px;background:#ffc83d;color:var(--on-accent);font-weight:700;font-size:15px;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}#tapeLabel[hidden]{display:none}body.hands-on #tapeLabel{opacity:.5}
 #handles{position:fixed;inset:0;pointer-events:none}#handles[hidden]{display:none}.hnd{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;pointer-events:auto;touch-action:none;cursor:grab}.hnd[hidden]{display:none}.hnd::after{content:"";position:absolute;left:12px;top:12px;width:20px;height:20px;box-sizing:border-box;background:#fff;border:2.5px solid var(--stencil);box-shadow:0 1px 5px rgba(0,0,0,.4)}#hSize::after{border-radius:5px}#hTurn::after{border-radius:50%}.hnd.on::after{background:var(--stencil)}body.hands-on #handles{opacity:0}
 #tryOn{position:fixed;inset:0;z-index:9;background:#0d0e12;overflow:hidden;touch-action:none}#tryOn[hidden]{display:none}#toVideo,#toPhoto{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}#toVideo.mirror{transform:scaleX(-1)}#toPhoto[hidden],#toVideo[hidden]{display:none}#toArt{position:absolute;left:0;top:0;transform-origin:50% 50%;mix-blend-mode:multiply;pointer-events:none}#toTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#toBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#toBar .row{display:flex;gap:8px;flex-wrap:wrap}#toBar .row[hidden]{display:none}#toBar .row .btn{flex:1;min-width:120px}
 #realSize{position:fixed;inset:0;z-index:9;background:var(--rs-skin,#e0b394);overflow:hidden;touch-action:none}#realSize[hidden]{display:none}#rsArt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#rsImg{display:block;width:100%;height:100%;mix-blend-mode:multiply}#rsTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#rsCal{position:absolute;left:16px;right:16px;bottom:16px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}#rsCal p{margin:0}#rsCard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px dashed #2b2f38;border-radius:12px;pointer-events:none}#rsCard[hidden]{display:none}#stencil{position:fixed;inset:0;z-index:9;background:#f4f4f2;overflow:hidden;touch-action:none}#stencil[hidden]{display:none}#stView{position:absolute;inset:76px 16px 168px;display:flex;align-items:center;justify-content:center}#stCanvas{max-width:100%;max-height:100%;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.18)}#stTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#stBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#stBar .row{display:flex;gap:8px;flex-wrap:wrap}#stBar .row .btn{flex:1;min-width:140px}#stBar .row .btn[hidden]{display:none}
 #rsCheck{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;background:rgba(20,22,28,.7)}
-#paintBar{position:fixed;top:82px;left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}#paintBar[hidden]{display:none}#paintBar p{margin:0}body.painting #newBtn,body.painting #dock,body.painting #lookBtn,body.painting #full{display:none}
+#paintBar{position:fixed;top:var(--below);left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}#paintBar[hidden]{display:none}#paintBar p{margin:0}body.painting #newBtn,body.painting #dock,body.painting #lookBtn,body.painting #full{display:none}
 #stage{position:fixed;inset:0}
 #stage canvas{display:block;outline:none}
 button,input{font:inherit;color:inherit}
@@ -46,60 +65,82 @@ input,textarea,select{font-size:16px}
 button{cursor:pointer;-webkit-tap-highlight-color:transparent}
 button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outline-offset:2px}
 [hidden]{display:none!important}
-.glass{background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border-radius:18px;box-shadow:0 10px 30px rgba(0,0,0,.28)}
-.btn{min-height:44px;min-width:44px;padding:0 16px;border-radius:14px;border:1px solid var(--line);background:rgba(255,255,255,.06);display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:600;white-space:nowrap}
-.btn:active{background:rgba(255,255,255,.14)}
+.glass{background:var(--surface);border:1px solid var(--line);backdrop-filter:blur(22px) saturate(1.4);-webkit-backdrop-filter:blur(22px) saturate(1.4);border-radius:var(--r-lg);box-shadow:var(--shadow),var(--hairline)}
+.btn{min-height:44px;min-width:44px;padding:0 14px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--fill);display:inline-flex;align-items:center;justify-content:center;gap:8px;font:600 15px/1.2 var(--body);letter-spacing:-.005em;white-space:nowrap;transition:background .15s ease,border-color .15s ease}
+@media (hover:hover){.btn:hover{background:var(--fill-strong)}.btn.primary:hover{filter:brightness(1.08);background:var(--stencil)}}
+.btn:active{background:var(--fill-strong)}
+.btn.primary:active{filter:brightness(.92)}
 .btn:disabled{opacity:.35}
-.btn.primary{background:var(--stencil);border-color:transparent;color:#fff}
+.btn.primary{background:var(--stencil);border-color:transparent;color:var(--on-accent);box-shadow:0 4px 14px rgba(108,90,255,.32)}
+[class*=" i-"]::before,[class^="i-"]::before{content:"";flex:none;width:20px;height:20px;background:currentColor;-webkit-mask:center/contain no-repeat;mask:center/contain no-repeat}
+.i-undo::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%2014%204%209l5-5%22/%3E%3Cpath%20d%3D%22M4%209h10.5a5.5%205.5%200%200%201%200%2011H11%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%2014%204%209l5-5%22/%3E%3Cpath%20d%3D%22M4%209h10.5a5.5%205.5%200%200%201%200%2011H11%22/%3E%3C/svg%3E")}
+.i-redo::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m15%2014%205-5-5-5%22/%3E%3Cpath%20d%3D%22M20%209H9.5a5.5%205.5%200%200%200%200%2011H13%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m15%2014%205-5-5-5%22/%3E%3Cpath%20d%3D%22M20%209H9.5a5.5%205.5%200%200%200%200%2011H13%22/%3E%3C/svg%3E")}
+.i-body::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%224.5%22%20r%3D%222.2%22/%3E%3Cpath%20d%3D%22M5%208.5c2.3.9%204.6%201.3%207%201.3s4.7-.4%207-1.3%22/%3E%3Cpath%20d%3D%22M12%209.8V15m0%200-3%206m3-6%203%206%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%224.5%22%20r%3D%222.2%22/%3E%3Cpath%20d%3D%22M5%208.5c2.3.9%204.6%201.3%207%201.3s4.7-.4%207-1.3%22/%3E%3Cpath%20d%3D%22M12%209.8V15m0%200-3%206m3-6%203%206%22/%3E%3C/svg%3E")}
+.i-eye::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M2.5%2012S6%205.5%2012%205.5%2021.5%2012%2021.5%2012%2018%2018.5%2012%2018.5%202.5%2012%202.5%2012Z%22/%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%223%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M2.5%2012S6%205.5%2012%205.5%2021.5%2012%2021.5%2012%2018%2018.5%2012%2018.5%202.5%2012%202.5%2012Z%22/%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%223%22/%3E%3C/svg%3E")}
+.i-plan::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2216%22%20height%3D%2217%22%20rx%3D%222.5%22/%3E%3Cpath%20d%3D%22M8%209h8M8%2013h8M8%2017h5%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2216%22%20height%3D%2217%22%20rx%3D%222.5%22/%3E%3Cpath%20d%3D%22M8%209h8M8%2013h8M8%2017h5%22/%3E%3C/svg%3E")}
+.i-share::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%2015V3.5m0%200-4%204m4-4%204%204%22/%3E%3Cpath%20d%3D%22M7%2011H6a2%202%200%200%200-2%202v6a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2v-6a2%202%200%200%200-2-2h-1%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%2015V3.5m0%200-4%204m4-4%204%204%22/%3E%3Cpath%20d%3D%22M7%2011H6a2%202%200%200%200-2%202v6a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2v-6a2%202%200%200%200-2-2h-1%22/%3E%3C/svg%3E")}
+.i-spark::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v4M12%2017v4M3%2012h4M17%2012h4M6%206l2.5%202.5M15.5%2015.5%2018%2018M18%206l-2.5%202.5M8.5%2015.5%206%2018%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v4M12%2017v4M3%2012h4M17%2012h4M6%206l2.5%202.5M15.5%2015.5%2018%2018M18%206l-2.5%202.5M8.5%2015.5%206%2018%22/%3E%3C/svg%3E")}
+.i-plus::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%205v14M5%2012h14%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%205v14M5%2012h14%22/%3E%3C/svg%3E")}
+.i-pencil::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%2020l1-4.5L15.5%205a2.1%202.1%200%200%201%203%203L8%2018.5%204%2020Z%22/%3E%3Cpath%20d%3D%22m13.5%207%203%203%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%2020l1-4.5L15.5%205a2.1%202.1%200%200%201%203%203L8%2018.5%204%2020Z%22/%3E%3Cpath%20d%3D%22m13.5%207%203%203%22/%3E%3C/svg%3E")}
+.i-full::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%209V4h5M20%209V4h-5M4%2015v5h5M20%2015v5h-5%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%209V4h5M20%209V4h-5M4%2015v5h5M20%2015v5h-5%22/%3E%3C/svg%3E")}
 .btn.quiet{border-color:transparent;background:transparent;color:var(--muted)}
 .btn[aria-pressed="true"]{background:var(--stencil-soft);border-color:var(--stencil)}
 .btn.danger{color:var(--danger)}
-#top{position:fixed;top:0;left:0;right:0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px;pointer-events:none}
+#top{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;padding:calc(12px + env(safe-area-inset-top,0px)) 16px 12px;pointer-events:none;z-index:3}
+#top .toolbar{margin-left:auto}
 #top>*{pointer-events:auto}
-.brand{display:flex;flex-direction:column;gap:2px;padding:4px 2px}
-.brand b{font:700 22px/1 var(--display);letter-spacing:-.01em}
-.brand small{color:var(--muted);font-size:12.5px}
+.brand{display:flex;flex-direction:column;justify-content:center;gap:1px;min-height:52px;padding:0 14px;border-radius:var(--r-lg);flex:none}
+.brand b{font:700 19px/1.05 var(--display);letter-spacing:-.015em}
+.brand small{color:var(--muted);font-size:12px;font-weight:500}
 .brand small.bad{color:var(--danger);font-weight:600}
-.cluster{display:flex;gap:8px;align-items:center;padding:6px}
-#views{position:fixed;top:14px;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:5px}
-#views .btn{min-width:62px;padding:0 10px;border-color:transparent;background:transparent;color:var(--muted)}
-#views .btn:active{color:var(--text);background:rgba(255,255,255,.1)}
+.cluster{display:flex;gap:4px;align-items:center;padding:4px;flex:none}
+.toolbar .btn{border-color:transparent;background:transparent;padding:0 12px}
+.toolbar .btn.primary{background:var(--stencil);margin-left:4px}
+.toolbar .btn.ico{padding:0;width:44px;color:var(--text)}
+.toolbar .btn.ico:disabled{opacity:.3}
+.toolbar .btn[aria-expanded=true],.toolbar .btn.active{background:var(--stencil-soft);color:var(--text)}
+.tb-sep{flex:none;width:1px;height:24px;margin:0 4px;background:var(--line)}
+#lookBtn{max-width:230px;overflow:hidden;text-overflow:ellipsis;display:inline-flex;justify-content:flex-start}
+#newBtn{padding:0 12px 0 10px;gap:6px;color:var(--stencil)}#newBtn .count-badge{margin:0}
+#views{display:flex;align-items:center;gap:2px;padding:4px;flex:none}
+body.views-low #views{position:fixed;left:50%;transform:translateX(-50%);top:var(--views-top,76px)}
+#views .btn{min-width:52px;padding:0 11px;border-color:transparent;background:transparent;color:var(--muted)}
+#views #full{color:var(--text);gap:6px;padding:0 12px 0 10px}
+#views .btn:active{color:var(--text);background:var(--fill-strong)}
+@media (hover:hover){#views .btn:hover{color:var(--text)}}
 #dock{position:fixed;left:0;right:0;bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
 #dock>*{pointer-events:auto}
-#full{position:fixed;top:82px;left:16px;z-index:4}
 /* fingers on the body: everything floating fades almost away until they lift */
-#top,#views,#full,#lookBtn,#newBtn,#lookMenu,#dock,.pop{transition:opacity .25s ease}
-body.hands-on #top,body.hands-on #views,body.hands-on #full,body.hands-on #lookBtn,body.hands-on #newBtn,body.hands-on #lookMenu,body.hands-on #dock,body.hands-on .pop{opacity:.08;transition:opacity .12s ease}
-#procreateBar{position:fixed;top:82px;left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+#top,#views,#lookMenu,#dock,.pop{transition:opacity .25s ease}
+body.hands-on #top,body.hands-on #views,body.hands-on #lookMenu,body.hands-on #dock,body.hands-on .pop{opacity:.08;transition:opacity .12s ease}
+#procreateBar{position:fixed;top:var(--below);left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 #procreateBar[hidden]{display:none}
 #procreateBar p{margin:0;font-size:14px;line-height:1.35;color:var(--muted)}#procreateBar p b{color:var(--text)}
 #procreateBar .row{gap:8px}#procreateBar #pcPaste{flex:1}
-#lookBtn{position:fixed;top:136px;left:16px;z-index:4;max-width:min(260px,calc(100% - 32px));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#lookBtn.active{border-color:var(--stencil)}
-#lookBtn[aria-expanded=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
-#newBtn{position:fixed;top:190px;left:16px;z-index:4}#newBtn[hidden]{display:none}.count-badge{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--stencil);color:#1b1b1f;font-weight:700;font-size:13px;margin-left:6px}
-#newPop{left:16px;right:auto;top:82px;z-index:6;width:400px;max-height:calc(100% - 110px)}
-.newrow{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid rgba(255,255,255,.08)}.newrow b{display:block;font-size:15px}.newrow small{display:block;font-size:13px;color:var(--muted);line-height:1.35;margin-top:2px}.newrow.done b{color:var(--muted);text-decoration:line-through}
-.tick{width:44px;height:44px;border-radius:12px;border:2px solid rgba(255,255,255,.35);background:none;color:#1b1b1f;font-size:22px;font-weight:800;padding:0}.tick[aria-checked=true]{background:var(--stencil);border-color:var(--stencil)}.tick[aria-checked=true]::after{content:"\2713"}
+#newBtn[hidden]{display:none}.count-badge{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--stencil);color:var(--on-accent);font-weight:700;font-size:13px;margin-left:6px}
+#newPop{z-index:6;width:400px;max-height:calc(100% - var(--below) - 24px)}
+.newrow{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}.newrow b{display:block;font-size:15px}.newrow small{display:block;font-size:13px;color:var(--muted);line-height:1.35;margin-top:2px}.newrow.done b{color:var(--muted);text-decoration:line-through}
+.tick{width:44px;height:44px;border-radius:12px;border:2px solid var(--line-strong);background:none;color:var(--on-accent);font-size:22px;font-weight:800;padding:0}.tick[aria-checked=true]{background:var(--stencil);border-color:var(--stencil)}.tick[aria-checked=true]::after{content:"\2713"}
 #pointRing{position:fixed;z-index:30;pointer-events:none;border:3px solid var(--stencil);border-radius:14px;box-shadow:0 0 0 4px rgba(132,116,255,.35),0 0 24px rgba(132,116,255,.6);animation:coachPulse 1.1s ease-in-out infinite}#pointRing[hidden],#pointTip[hidden]{display:none}@keyframes coachPulse{50%{box-shadow:0 0 0 10px rgba(132,116,255,.15),0 0 30px rgba(132,116,255,.75)}}
 #pointTip{position:fixed;z-index:30;max-width:min(320px,calc(100% - 32px));padding:10px 14px;pointer-events:none;font-size:14px;line-height:1.35}
-#lookMenu{position:fixed;top:190px;left:16px;z-index:5;display:flex;flex-direction:column;gap:6px;padding:8px;width:220px}
+#lookMenu{position:fixed;top:var(--below);right:16px;z-index:5;display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:8px;width:300px;max-width:calc(100vw - 16px)}
 #lookMenu[hidden]{display:none}
-#lookMenu .btn{justify-content:flex-start;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#lookMenu #baBtn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
-#bodyMatch{left:16px;right:auto;top:82px;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#bmPic{display:block;width:auto;height:auto;max-width:100%;max-height:44vh;border-radius:12px;background:#0003;margin:4px auto 6px}#bmActions{display:flex;flex-direction:column;gap:8px}#bmText{min-height:2.6em}#bmInk{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;padding:10px;border-radius:12px;background:#7ee0b014;border:1px solid #7ee0b040}#bmInkText{margin:0}#bmMirror[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#spotPop{left:16px;right:auto;top:82px;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#spotPop .posegrid{grid-template-columns:repeat(2,1fr)}#spotPop .posegrid .btn{font-size:14px;padding:0 6px}#spotPop .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#spotSide{display:flex;gap:8px;margin:0 0 8px}#spotChoices .btn{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 6px;min-height:44px}.spotsub{font-size:11.5px;opacity:.72;font-weight:400;line-height:1.15}#spotSide .btn{flex:1}
-#undo{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}#historyPop{left:auto;right:16px;top:82px;z-index:6;width:340px;max-height:calc(100% - 190px);overflow:auto}#historyList{display:flex;flex-direction:column;gap:6px}#historyList .btn{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;text-align:left}#historyList .spotsub{font-size:12px;opacity:.7;flex:none}@media (max-width:600px){#historyPop{left:16px;right:16px;width:auto}}#agePop,#lightPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
-#agePop .posegrid,#lightPop .posegrid{grid-template-columns:repeat(4,1fr)}#lightPop .posegrid .btn{padding:0 4px;font-size:13px}#lightPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}#agePop .posegrid .btn{padding:0 4px;font-size:13px}#agePop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
-#clothesPop{left:16px;right:auto;top:82px;z-index:5;width:360px;max-height:calc(100% - 190px)}
+#lookMenu .btn{justify-content:flex-start;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-color:transparent;background:transparent;padding:0 12px}
+#lookMenu .menu-head{grid-column:1/-1;margin:6px 10px 2px;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}#lookMenu .menu-head:first-child{margin-top:2px}
+#lookMenu #baBtn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
+#bodyMatch{left:16px;right:auto;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#bmPic{display:block;width:auto;height:auto;max-width:100%;max-height:44vh;border-radius:12px;background:#0003;margin:4px auto 6px}#bmActions{display:flex;flex-direction:column;gap:8px}#bmText{min-height:2.6em}#bmInk{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;padding:10px;border-radius:12px;background:#7ee0b014;border:1px solid #7ee0b040}#bmInkText{margin:0}#bmMirror[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#spotPop{left:16px;right:auto;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#spotPop .posegrid{grid-template-columns:repeat(2,1fr)}#spotPop .posegrid .btn{font-size:14px;padding:0 6px}#spotPop .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#spotSide{display:flex;gap:8px;margin:0 0 8px}#spotChoices .btn{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 6px;min-height:44px}.spotsub{font-size:11.5px;opacity:.72;font-weight:400;line-height:1.15}#spotSide .btn{flex:1}
+#undo{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}#historyPop{left:auto;right:16px;z-index:6;width:340px;max-height:calc(100% - 190px);overflow:auto}#historyList{display:flex;flex-direction:column;gap:6px}#historyList .btn{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;text-align:left}#historyList .spotsub{font-size:12px;opacity:.7;flex:none}@media (max-width:600px){#historyPop{left:16px;right:16px;width:auto}}#agePop,#lightPop{z-index:5;width:360px}
+#agePop .posegrid,#lightPop .posegrid{grid-template-columns:repeat(4,1fr)}#lightPop .posegrid .btn{padding:0 4px;font-size:13px}#lightPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#agePop .posegrid .btn{padding:0 4px;font-size:13px}#agePop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
+#clothesPop{z-index:5;width:360px}
 #clothesPop .posegrid{grid-template-columns:repeat(4,1fr)}#clothesPop .posegrid .btn{padding:0 4px;font-size:13px}
 #clothesPop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
-#clothesPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
+#clothesPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
 #clothesShow{margin:0;font-size:14px;line-height:1.4}
-#posePop{left:16px;right:auto;top:82px;z-index:5;width:320px;max-height:calc(100% - 190px)}
+#posePop{z-index:5;width:340px}
 #posePop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
 .posegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.posegrid .btn{padding:0 8px;font-size:14px;line-height:1.15}
-.posegrid .btn[aria-pressed=true],#posePop .seg .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:var(--stencil)}
-#motionKind{flex:1;min-height:44px;border-radius:12px;background:rgba(255,255,255,.06);color:inherit;border:1px solid var(--line);padding:0 10px}
+.posegrid .btn[aria-pressed=true],#posePop .seg .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
+#motionKind{flex:1;min-height:44px;border-radius:12px;background:var(--fill);color:inherit;border:1px solid var(--line);padding:0 10px}
 #beforeAfter{position:absolute;inset:0;pointer-events:none}
 #beforeAfter .ba-line{position:absolute;top:0;bottom:0;width:44px;margin-left:-22px;pointer-events:auto;touch-action:none;cursor:ew-resize;outline:none}
 #beforeAfter .ba-line::before{content:"";position:absolute;top:0;bottom:0;left:21px;width:2px;background:#fff;box-shadow:0 0 6px rgba(0,0,0,.55)}
@@ -108,46 +149,52 @@ body.hands-on #top,body.hands-on #views,body.hands-on #full,body.hands-on #lookB
 #beforeAfter .ba-grip::before{left:6px;border-right-color:#333}
 #beforeAfter .ba-grip::after{right:6px;border-left-color:#333}
 #beforeAfter .ba-line:focus-visible .ba-grip{outline:2px solid var(--stencil);outline-offset:2px}
-#beforeAfter .ba-label{position:absolute;top:248px;background:rgba(0,0,0,.45);color:#fff;font-size:13px;font-weight:600;padding:5px 10px;border-radius:999px;white-space:nowrap}
+#beforeAfter .ba-label{position:absolute;top:calc(var(--below) + 64px);background:rgba(0,0,0,.45);color:#fff;font-size:13px;font-weight:600;padding:5px 10px;border-radius:999px;white-space:nowrap}
 #hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
-#hint{background:rgba(0,0,0,.28);padding:6px 12px;border-radius:999px;pointer-events:none}
+#hint{background:var(--surface);border:1px solid var(--line);padding:6px 14px;border-radius:999px;pointer-events:none;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
 body.panel-open #hint{visibility:hidden}
-#sheet{max-height:55vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:10px 14px;display:flex;flex-direction:column;gap:8px}
-#editorAdvanced>summary{min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600}#editorAdvanced>summary::before{content:"+";font-size:20px}#editorAdvanced[open]>summary::before{content:"−"}#editorAdvanced>summary span{font-weight:400;color:var(--muted);font-size:12px}#editorAdvanced .editor-advanced-content{display:flex;flex-direction:column;gap:12px;padding-top:8px}.editor-quick{gap:8px}.editor-quick .btn{flex:1;white-space:nowrap}#sheet #moveTip{font-size:12px;line-height:1.35}@media(orientation:landscape) and (max-height:650px){#sheet{max-height:50vh;padding:8px 12px;gap:5px}#sheet #moveTip{display:none}#dock{gap:6px;padding-bottom:8px}#editorAdvanced>summary span{display:none}}
+#sheet{max-height:55vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.sec{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--line)}.sec:first-child{border-top:0;padding-top:0}
+.sec>h5{margin:0;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.sec .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px}.sec .grid .btn{justify-content:flex-start;padding:0 12px}
+.sec .info{display:flex;flex-direction:column;gap:6px}.sec .info:empty{display:none}
+#editorAdvanced>summary{min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;list-style:none;padding:0 12px;border-radius:var(--r-md);background:var(--fill-soft)}#editorAdvanced>summary::-webkit-details-marker{display:none}#editorAdvanced>summary::before{content:"+";font-size:20px;color:var(--muted);width:14px}#editorAdvanced[open]>summary::before{content:"−"}#editorAdvanced>summary span{font-weight:400;color:var(--muted);font-size:12px}#editorAdvanced .editor-advanced-content{display:flex;flex-direction:column;gap:14px;padding:12px 2px 2px}.editor-quick{gap:6px}.editor-quick .btn{flex:1;white-space:nowrap;padding:0 10px}#sheet #moveTip{font-size:12px;line-height:1.35}@media(orientation:landscape) and (max-height:650px){#sheet{max-height:50vh;padding:8px 12px;gap:5px}#sheet #moveTip{display:none}#dock{gap:6px;padding-bottom:8px}#editorAdvanced>summary span{display:none}}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-#name{flex:1 1 160px;min-height:44px;background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
+#name{flex:1 1 160px;min-height:44px;background:var(--fill);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
 #size{font-variant-numeric:tabular-nums;color:var(--text);font-size:14px;white-space:pre}
 #gap{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;flex-basis:100%;order:4}
 .sliders{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .sliders .lbl{font-size:12.5px}
 ink-slider{display:block;position:relative;height:44px;touch-action:pan-y;cursor:pointer;outline:none;-webkit-tap-highlight-color:transparent}
-ink-slider .sl-track{position:absolute;left:0;right:0;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:rgba(255,255,255,.16);pointer-events:none}
+ink-slider .sl-track{position:absolute;left:0;right:0;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:var(--fill-strong);pointer-events:none}
 ink-slider .sl-fill{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--stencil)}
 ink-slider .sl-thumb{position:absolute;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.45);pointer-events:none}
 ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offset:2px}
 #fitGroups{display:flex;flex-direction:column;gap:6px}
-#fitGroups details{border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.04)}
+#fitGroups details{border:1px solid var(--line);border-radius:14px;background:var(--fill-soft)}
 #fitGroups summary{min-height:44px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;font-weight:600;cursor:pointer;list-style:none;-webkit-tap-highlight-color:transparent}
 #fitGroups summary::-webkit-details-marker{display:none}
 #fitGroups summary::after{content:"+";color:var(--muted);font-size:20px;font-weight:400}
 #fitGroups details[open] summary::after{content:"\2212"}
 #fitGroups summary i{font-style:normal;font-size:12px;color:var(--stencil);margin:0 8px 0 auto}
-#wrapBox{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.04)}
+#wrapBox,#preciseBox{border:1px solid var(--line);border-radius:12px;background:var(--fill-soft);margin-top:8px}
 #preciseBox summary,#wrapBox summary{min-height:44px;padding:0 14px;display:flex;align-items:center;font-weight:600;cursor:pointer;list-style:none;-webkit-tap-highlight-color:transparent}
-#wrapBox summary::-webkit-details-marker{display:none}
-#wrapBox summary::after{content:"+";margin-left:auto;color:var(--muted);font-size:20px}
-#wrapBox[open] summary::after{content:"\2212"}
+#wrapBox summary::-webkit-details-marker,#preciseBox summary::-webkit-details-marker{display:none}
+#wrapBox summary::after,#preciseBox summary::after{content:"+";margin-left:auto;color:var(--muted);font-size:20px}
+#wrapBox[open] summary::after,#preciseBox[open] summary::after{content:"\2212"}
 #wrapBox i{font-style:normal;font-size:12px;color:var(--stencil);margin-left:8px}
 #wrapBox .grp{padding:2px 14px 10px;display:flex;flex-direction:column;gap:4px}
+#preciseBox>.row,#preciseBox>.tip{padding:0 14px}#preciseBox[open]{padding-bottom:10px}#preciseBox .row{flex-wrap:wrap}
 #fitGroups .grp{padding:0 14px 10px;display:flex;flex-direction:column;gap:4px}
 #fitGroups .grp .btn{align-self:flex-start;margin-bottom:4px}
 .tip{color:var(--muted);font-size:13px;margin:0}
-.pophead{display:flex;align-items:center;justify-content:space-between;position:sticky;top:-16px;margin:-16px -16px 0;padding:12px 16px;background:var(--panel-solid);border-radius:18px 18px 0 0;z-index:1}
-#tray{width:min(760px,100%);display:flex;gap:10px;align-items:center;padding:10px}
+.pophead{display:flex;align-items:center;justify-content:space-between;position:sticky;top:-16px;margin:-16px -16px 0;padding:10px 10px 10px 18px;background:var(--surface-solid);border-bottom:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0;z-index:1}
+#tray{width:min(760px,100%);display:flex;gap:8px;align-items:center;padding:8px}
+#tray>.btn{gap:6px;padding:0 14px 0 10px}
 #add{flex:none}
 #trayItems{display:flex;gap:8px;overflow-x:auto;flex:1;scrollbar-width:none;padding:2px;touch-action:pan-x;overscroll-behavior:contain}
 #trayItems::-webkit-scrollbar{display:none}
-.chip{flex:none;display:flex;align-items:center;gap:9px;min-height:52px;padding:5px 12px 5px 5px;border-radius:14px;border:1.5px solid transparent;background:rgba(255,255,255,.06);max-width:210px;position:relative}
+.chip{flex:none;display:flex;align-items:center;gap:9px;min-height:52px;padding:5px 12px 5px 5px;border-radius:var(--r-md);border:1.5px solid transparent;background:var(--fill);max-width:210px;position:relative;font:500 14px/1.2 var(--body)}
 .chip img{width:42px;height:42px;border-radius:10px;object-fit:contain;background:#f4f1ec}
 .chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
 .chip.on{border-color:var(--stencil);background:var(--stencil-soft)}
@@ -157,21 +204,23 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #empty{padding:10px 14px;display:flex;gap:12px;align-items:center}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.seg .btn{padding:0 8px}.lbl{color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
 
-.pop{position:fixed;z-index:3;top:74px;right:16px;width:320px;max-width:calc(100% - 32px);max-height:calc(100% - 184px);overflow-x:hidden;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.pop{position:fixed;z-index:3;top:var(--below);right:16px;width:340px;max-width:calc(100% - 32px);max-height:calc(100% - var(--below) - 110px);overflow-x:hidden;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .pop>*{flex:none}
-.pop h3,.modal h2{margin:0;font:700 17px/1.2 var(--display)}
+.pop h3,.modal h2{margin:0;font:700 18px/1.2 var(--display);letter-spacing:-.01em}
+.pop h4{margin:6px 0 -2px;font:650 11.5px/1.2 var(--body)!important;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 #skins,#hairCols,#eyeCols{display:flex;flex-wrap:wrap;gap:4px}#skins .sw,#hairCols .sw,#eyeCols .sw{flex:none}#eyeCols .sw.photo,#hairCols .sw.photo{box-shadow:inset 0 0 0 3px rgba(255,255,255,.35)}#hairCols[hidden]{display:none}
 .sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent}
 .sw.on{border-color:#fff;box-shadow:0 0 0 3px var(--stencil)}.sw.own{background:conic-gradient(#f6e2d3,#d37d5f,#6a422a,#45291a,#b99d7a,#f6e2d3);display:grid;place-items:center;color:#20232c;font-weight:700;font-size:20px;line-height:1}.sw.own.set{font-size:0}#skinOwn{display:flex;flex-direction:column;gap:8px;margin-top:6px}#skinOwn[hidden]{display:none}
 #skinPick{position:fixed;inset:0;z-index:9;background:#0d0e12;touch-action:none}#skinPick[hidden]{display:none}#spImg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}#spTop{position:absolute;top:16px;left:16px;right:16px;padding:10px 16px}#spTop p{margin:0}#spRing{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.6);pointer-events:none}#spRing[hidden]{display:none}#spBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}#spSwatch{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.7);flex:none}#spMsg{flex:1;min-width:160px}
 .acct-btn svg{flex:none}.acct-btn.signed{padding:0;width:44px;border-radius:22px;background:var(--stencil);border-color:transparent;color:#fff}.acct-btn.signed svg{display:none}.acct-btn.signed span{font:700 18px/1 var(--display)}
-@media (max-width:720px){.acct-btn:not(.signed) span{display:none}.acct-btn:not(.signed){padding:0}}
+@media (max-width:720px){
+  .cards{grid-template-columns:1fr}.acct-btn:not(.signed) span{display:none}.acct-btn:not(.signed){padding:0}}
 /* phones: the whole top bar fits, Share and the account button included */
-@media (max-width:520px){#top{padding:10px 8px}#top .brand{display:none}#top .cluster{gap:4px;padding:4px;max-width:100%}#top .cluster .btn{padding:0 9px;font-size:15px}}
+@media (max-width:620px){#top{padding:calc(8px + env(safe-area-inset-top,0px)) 8px 8px}#top .brand{display:none}#top .toolbar{margin:0 auto;max-width:100%}#top .toolbar .btn{padding:0 9px}#top .toolbar .tb{font-size:0;gap:0;width:44px;padding:0;justify-content:center}#top .toolbar .tb[class*=" i-"]::before{width:22px;height:22px}}
 #linkCards:has(#cLink[hidden]){display:none}
 .acct{width:min(560px,100%)}.acct p{margin:0;line-height:1.45}.acct .muted{color:var(--muted);font-size:14px}
 .acct-form{display:flex;flex-direction:column;gap:10px}.acct-form.inline{flex-direction:row;flex-wrap:wrap;width:100%}.acct-form.inline input{flex:1;min-width:160px}
-.acct input[type=text],.acct input[type=email],.acct input[type=password]{min-height:48px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:inherit;width:100%;box-sizing:border-box}
+.acct input[type=text],.acct input[type=email],.acct input[type=password]{min-height:48px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:inherit;width:100%;box-sizing:border-box}
 .acct input:focus{outline:2px solid var(--stencil);outline-offset:1px}
 .acct-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .acct-row{display:flex;flex-wrap:wrap;gap:8px}.acct-col{display:flex;flex-direction:column;gap:8px}
@@ -184,29 +233,31 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .acct-more summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--muted)}.acct-more .acct-row{padding-top:6px}
 .acct-link{font-size:15px!important}
 #refsGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:12px 0}
-.refTile{display:flex;flex-direction:column;gap:4px;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:rgba(255,255,255,.05);color:inherit;text-align:left;min-height:44px}
+.refTile{display:flex;flex-direction:column;gap:4px;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--fill-soft);color:inherit;text-align:left;min-height:44px}
 .refTile img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:#222}.refTile span{font-size:13px;padding:2px 8px 8px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #refImg{width:100%;max-height:52vh;object-fit:contain;border-radius:12px;background:#111}
-#refText{width:100%;box-sizing:border-box;min-height:64px;border-radius:12px;border:1px solid var(--line);background:rgba(255,255,255,.07);color:inherit;padding:10px;font:inherit;margin:8px 0}
+#refText{width:100%;box-sizing:border-box;min-height:64px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:inherit;padding:10px;font:inherit;margin:8px 0}
 .refFor{display:flex;align-items:center;gap:10px;min-height:44px}.refFor select{min-height:44px;flex:1;font-size:16px;border-radius:12px}
 #refsGrid:empty{display:none}
 .coach-comment{display:none!important}body.comment-only .coach-comment{display:flex!important}body.comment-only .coach-place,body.comment-only #bodyBtn,body.comment-only #add,body.comment-only #drawNew,body.comment-only #empty,body.comment-only .editor-quick,body.comment-only #editorAdvanced,body.comment-only #handles,body.comment-only #planMenu .card:not(#openNew):not(#openRefs),body.comment-only #cAnswers,body.comment-only #cPainted,body.comment-only #cRecover,body.comment-only #cSketch{display:none!important}
 #showSpotBtn[hidden]{display:none}#showSpotBtn.on{background:var(--stencil);color:#fff}#spotLayer{position:fixed;inset:0;z-index:4;pointer-events:none}.spotMark{position:fixed;width:0;height:0}.spotMark[hidden]{display:none}.spotMark i{position:absolute;left:-18px;top:-18px;width:36px;height:36px;border-radius:50%;border:3px solid #ffb648;box-shadow:0 0 0 3px rgba(0,0,0,.35);animation:spotPulse 1s ease-out infinite}.spotMark.mine i{border-color:#fff}.spotMark span{position:absolute;left:22px;top:-12px;padding:2px 8px;border-radius:10px;background:rgba(20,20,26,.85);color:#fff;font:600 13px/20px system-ui,sans-serif;white-space:nowrap}@keyframes spotPulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.4);opacity:.35}}
-#followBar{position:fixed;left:50%;top:84px;transform:translateX(-50%);z-index:7;display:flex;gap:12px;align-items:center;padding:6px 6px 6px 16px;border-radius:999px;font-weight:600}#followBar[hidden]{display:none}.acct-follow{min-height:44px}
+#followBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:7;display:flex;gap:12px;align-items:center;padding:6px 6px 6px 16px;border-radius:999px;font-weight:600}#followBar[hidden]{display:none}.acct-follow{min-height:44px}
 .here-now{min-width:44px;padding:0 4px;gap:0}.here-now[hidden]{display:none}.here-now i{display:inline-grid;place-items:center;width:30px;height:30px;margin-left:-8px;border-radius:15px;background:var(--accent,#2f7a5a);color:#fff;border:2px solid var(--bg,#fff);font:700 14px/1 var(--display);font-style:normal}.here-now i:first-child{margin-left:0}.here-now i.more{background:#666;font-size:12px}.chip b.peer{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:11px;background:var(--accent,#2f7a5a);color:#fff;font:700 12px/22px system-ui,sans-serif;text-align:center;pointer-events:none}.acct-here-now[hidden]{display:none}
 .acct-btn{position:relative}.acct-badge{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--danger);color:#fff;font:700 12px/20px system-ui,sans-serif;font-style:normal;text-align:center;pointer-events:none}.acct-badge[hidden]{display:none}
 .acct-turn{font-weight:600}.acct-name small.acct-turn.yours{color:var(--stencil)}.acct-name small.acct-turn.done{color:#5fcf8f}
-.acct-glance{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 10px}.acct-glance .btn[aria-pressed=true]{background:var(--stencil);color:#1b1b1f;border-color:transparent}
-.scrim{position:fixed;inset:0;background:rgba(8,9,12,.62);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
-.modal{width:min(720px,100%);max-height:100%;overflow-x:hidden;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;background:var(--panel-solid);touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.acct-glance{display:flex;flex-wrap:wrap;gap:8px;padding:4px 0 10px}.acct-glance .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:transparent}
+.scrim{position:fixed;inset:0;background:rgba(8,9,12,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
+.modal{width:min(760px,100%);max-height:100%;overflow-x:hidden;overflow-y:auto;padding:20px 22px 24px;display:flex;flex-direction:column;gap:14px;background:var(--surface-solid);touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .modal header{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.modal h2{font-size:24px}
-.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-.card{min-height:96px;text-align:left;padding:16px;border-radius:16px;border:1px solid var(--line);background:rgba(255,255,255,.05);display:flex;flex-direction:column;gap:6px}
+.modal h2{font-size:22px}
+.modal header{position:sticky;top:-20px;margin:-20px -22px 0;padding:14px 14px 14px 22px;background:var(--surface-solid);border-bottom:1px solid var(--line);z-index:1}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.card{min-height:84px;text-align:left;padding:14px 16px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--fill-soft);display:flex;flex-direction:column;justify-content:flex-start;gap:4px;transition:background .15s ease,border-color .15s ease}
+@media (hover:hover){.card:hover{background:var(--fill);border-color:var(--line-strong)}}
 .card:active{background:var(--stencil-soft);border-color:var(--stencil)}
-.card b{font:700 18px/1.2 var(--display)}
-.card span{color:var(--muted);font-size:14px}
-.shHead{margin:4px 0 -4px;font:650 13px/1.2 var(--body);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.card b{font:650 16px/1.25 var(--body);letter-spacing:-.005em}
+.card span{color:var(--muted);font-size:13px;line-height:1.35}
+.shHead{margin:10px 0 -4px;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 #shMore summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--muted)}#shMore[open] summary{margin-bottom:12px}
 .pmPaint{padding:12px 16px;border-radius:16px;border:1px solid var(--stencil);background:var(--stencil-soft)}.pmPaint p{margin:0 0 10px}.pmPaint .row{display:flex;flex-wrap:wrap;gap:8px}
 .card.slim{min-height:64px;padding:12px 16px;gap:2px;width:100%}
@@ -219,24 +270,15 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #coach ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
 #coach li{display:flex;gap:12px;align-items:baseline}
 #coach li b{flex:none;width:118px;color:var(--stencil);font-weight:600}
-#toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);padding:10px 14px;display:flex;gap:12px;align-items:center;z-index:6;border-radius:999px}
+#toast{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);padding:10px 14px;display:flex;gap:12px;align-items:center;z-index:6;border-radius:999px}
 #toast button{background:none;border:0;color:var(--stencil);font-weight:600;min-height:44px;min-width:44px;padding:0 6px}
 /* Keep turn controls clear of the right-hand actions on tablet widths. */
-@media (min-width:901px) and (max-width:1199px){
-  #views{left:144px;transform:none}
-}
-@media (max-width:900px){
-  #views{top:82px}
-  .pop,#toast{top:146px}
-  #tapPlaceBar,#tapeBar,#painBar,#roomBar,#pinBar,#followBar{top:146px!important}
-  #procreateBar,#paintBar{top:146px}
-}
+#tapPlaceBar{top:var(--below)!important}
+@media (max-width:900px){.brand small{display:none}.brand{min-height:44px;padding:0 4px;background:none!important;border:0!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}}
 @media (max-width:720px){
-  .brand small{display:none}
   .sliders{grid-template-columns:1fr 1fr}
   .cards{grid-template-columns:1fr}
   #count{display:none}
-  .pop{top:146px}
 }
 /* Wide landscape: the tattoo list and the edit panel stand in a column at the right, so the
    middle of the screen, where the body is, stays clear. */
@@ -249,7 +291,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   .editor-quick{flex-wrap:wrap}.editor-quick .btn{flex:1 1 40%;min-width:0;padding:0 8px;font-size:14px}
   #tray{flex-wrap:wrap}#tray #trayItems{flex-basis:100%;order:3}#tray #count{margin-left:auto}
   #hint{align-self:center;text-align:center}
-  #procreateBar{left:136px;transform:none;width:min(520px,calc(100% - 572px))}#paintBar{width:min(560px,calc(100% - 160px))}
+  #procreateBar{width:min(520px,calc(100% - 472px))}#paintBar{width:min(560px,calc(100% - 160px))}
 }
 /* Phones: the pain map and open skin bars take the tattoo list's place at the bottom while they
    are on, so the head, neck and chest stay in view. */
@@ -279,24 +321,28 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <div id="tapPlaceBar" hidden style="position:absolute;left:50%;top:82px;transform:translateX(-50%);z-index:8;background:var(--panel,#f4f1eb);color:var(--text,#222);border-radius:12px;padding:8px 12px;max-width:90%;text-align:center;box-shadow:0 2px 12px #0003"><span>Tap the body to place the selected tattoo</span> <button id="cancelTapPlace" class="btn" style="min-height:44px">Cancel</button></div>
 
 <div id="top">
-  <div class="brand"><b>Ink Atlas</b><small id="saved">Loading</small></div>
-  <div class="cluster glass">
-    <button class="btn quiet" id="undo" type="button" disabled>Undo</button>
-    <button class="btn quiet" id="redo" type="button" disabled>Redo</button>
-    <button class="btn" id="projectsBtn" type="button">Plan</button>
-    <button class="btn" id="bodyBtn" type="button">Body</button>
-    <button class="btn primary" id="shareBtn" type="button">Share</button>
+  <div class="brand glass"><b>Ink Atlas</b><small id="saved">Loading</small></div>
+  <div id="views" class="glass" role="group" aria-label="Turn the body">
+    <button class="btn i-full" id="full" type="button">Full body</button>
+    <span class="tb-sep" aria-hidden="true"></span>
+    <button class="btn" type="button" data-view="0">Front</button>
+    <button class="btn" type="button" data-view="1">Left</button>
+    <button class="btn" type="button" data-view="2">Back</button>
+    <button class="btn" type="button" data-view="3">Right</button>
+  </div>
+  <div class="cluster glass toolbar">
+    <button class="btn quiet ico i-undo" id="undo" type="button" aria-label="Undo" title="Undo (hold for more)" disabled></button>
+    <button class="btn quiet ico i-redo" id="redo" type="button" aria-label="Redo" title="Redo" disabled></button>
+    <span class="tb-sep" aria-hidden="true"></span>
+    <button class="btn i-spark" id="newBtn" type="button" aria-expanded="false" aria-controls="newPop" title="New to try" hidden><span id="newCount" class="count-badge">0</span></button>
+    <button class="btn tb i-body" id="bodyBtn" type="button">Body</button>
+    <button class="btn tb i-eye" id="lookBtn" type="button" aria-expanded="false" aria-controls="lookMenu">Preview</button>
+    <button class="btn tb i-plan" id="projectsBtn" type="button">Plan</button>
+    <button class="btn primary tb i-share" id="shareBtn" type="button">Share</button>
     <button class="btn" id="showSpotBtn" type="button" aria-pressed="false" hidden>Point</button>
     <button class="btn here-now" id="hereNow" type="button" hidden></button>
     <button class="btn acct-btn" id="accountBtn" type="button" aria-label="Sign in" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Sign in</span></button>
   </div>
-</div>
-
-<div id="views" class="glass" role="group" aria-label="Turn the body">
-  <button class="btn" type="button" data-view="0">Front</button>
-  <button class="btn" type="button" data-view="1">Left</button>
-  <button class="btn" type="button" data-view="2">Back</button>
-  <button class="btn" type="button" data-view="3">Right</button>
 </div>
 
 <div id="bodyPop" class="pop glass" hidden>
@@ -341,9 +387,6 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <button class="btn quiet" id="fitReset" type="button">Reset body shape</button>
 </div>
 
-<button class="btn glass" id="full" type="button">Full body</button>
-<button class="btn glass" id="lookBtn" type="button" aria-expanded="false" aria-controls="lookMenu">Preview</button>
-<button class="btn glass" id="newBtn" type="button" aria-expanded="false" aria-controls="newPop" hidden>New to try <span id="newCount" class="count-badge">0</span></button>
 <div id="newPop" class="pop glass" hidden>
   <div class="pophead"><h3>New to try</h3><button class="btn" type="button" data-close="newPop">Done</button></div>
   <p class="tip">The newest features and where to find them. Tick each one once you have tried it. Using a feature ticks it for you.</p>
@@ -351,11 +394,13 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </div>
 <div id="pointRing" hidden></div><div id="pointTip" class="glass" hidden></div>
 <div id="lookMenu" class="glass" role="group" aria-label="Preview" hidden>
+  <p class="menu-head">See it</p>
   <button class="btn" id="baBtn" type="button" aria-pressed="false">Before / after</button>
   <button class="btn" id="poseBtn" type="button" aria-expanded="false">Pose</button>
   <button class="btn" id="clothesBtn" type="button" aria-expanded="false">Clothes</button>
   <button class="btn" id="ageBtn" type="button" aria-expanded="false">Aging</button>
   <button class="btn" id="lightBtn" type="button" aria-expanded="false">Light</button>
+  <p class="menu-head">Check the body</p>
   <button class="btn" id="tapeBtn" type="button" aria-pressed="false">Tape measure</button>
   <button class="btn" id="painBtn" type="button" aria-pressed="false">Pain map</button><button class="btn" id="roomBtn" type="button" aria-pressed="false">Open skin</button>
   <button class="btn" id="pinsBtn" type="button" aria-pressed="false">Comments</button>
@@ -436,19 +481,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <button class="btn" id="bLock" type="button">Lock in place</button>
       <button class="btn" id="bProcreate" type="button">Edit in Procreate</button>
     </div>
-    <details id="editorAdvanced"><summary>More controls <span>size, turn, wrap & actions</span></summary><div class="editor-advanced-content">
-    <p id="likeLine" hidden></p><p id="whereLine" hidden></p>
-    <p id="showsLine" hidden></p>
-    <p id="wearLine" hidden></p>
-    <div class="row" id="stretchRow" hidden><span id="stretchText"></span><button class="btn" id="stretchShow" type="button" hidden>Show that pose</button></div>
-    <div class="row" id="lineRow" hidden><span id="lineText"></span><button class="btn" id="lineFix" type="button" hidden>Straighten</button></div><div class="row" id="readRow" hidden><span id="readText"></span><button class="btn" id="readFix" type="button" hidden>Turn it to face me</button></div>
-    <div class="row" id="evenRow" hidden><span id="evenLine"></span><button class="btn" id="evenFix" type="button" hidden>Centre it</button></div>
-    <div class="row" id="estRow"><span id="estLine"></span><label for="estRate">Artist's rate $<input id="estRate" type="number" inputmode="decimal" min="0" max="2000" step="5" placeholder="per hour" style="width:100px;min-height:44px;font-size:16px"></label></div>
-    <p id="planLine" class="tip" hidden></p><div id="planSits" hidden><p id="planNext" class="tip"></p><p id="planClash" class="tip" hidden></p><button class="btn" id="planCal" type="button">Add every sitting to calendar</button></div>
-    <div id="sitBox" hidden><span>Sittings <small>with time to heal between them</small></span><ol id="sitList"></ol><div class="row"><label for="sitStart">First sitting<input id="sitStart" type="date"></label><label for="sitGap">Weeks between<select id="sitGap"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select></label><label for="sitAway">Trip or beach day<input id="sitAway" type="date"></label></div><p id="sitHealed" class="tip" hidden></p><p id="sitDry" class="tip" hidden></p><p id="sitWear" class="tip" hidden></p><p id="sitSleep" class="tip" hidden></p><div id="sitClash" hidden><p id="sitClashText"></p><div class="row"><button class="btn" id="sitLater" type="button">Start after it</button><button class="btn" id="sitEarlier" type="button">Finish before it</button></div></div><button class="btn" id="sitCal" type="button" hidden>Add to calendar</button></div>
-    <div id="verBox" hidden><span>Versions <small>tap one to see it on the body</small></span><div id="verList" role="group" aria-label="Versions"></div><p id="verText" class="tip" aria-live="polite"></p><div class="row" id="verActs" hidden><button class="btn" id="verUse" type="button">Use this one</button><button class="btn" id="verSide" type="button">Side by side</button></div></div>
-    <label id="noteBox" for="tNote">Note for your artist<textarea id="tNote" maxlength="500" rows="2" placeholder="Like: fine lines, black and grey only"></textarea></label>
-    <div id="madeBox" hidden><span>Who did it and when</span><div class="row"><input id="madeArtist" type="text" maxlength="60" autocomplete="off" placeholder="Artist" aria-label="Artist"><input id="madeStudio" type="text" maxlength="60" autocomplete="off" placeholder="Studio" aria-label="Studio"><input id="madeWhen" type="month" aria-label="Month it was done"></div></div>
+    <details id="editorAdvanced"><summary>More controls <span>size, checks, plan and actions</span></summary><div class="editor-advanced-content">
+    <section class="sec"><h5>Size and shape</h5>
     <div class="sliders">
       <div class="lbl">Size<ink-slider id="rSize" min="0" max="1000" aria-label="Size"></ink-slider></div>
       <div class="lbl">Turn<ink-slider id="rTurn" min="-180" max="180" aria-label="Turn"></ink-slider></div>
@@ -471,23 +505,44 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
         <div class="lbl">Taper<ink-slider id="rTaper" min="-75" max="75" default="0" aria-label="Taper"></ink-slider></div>
       </div>
     </details>
-    <div class="row">
-      <button class="btn" id="bCleanupLinked" type="button" hidden>Clean up linked copies</button>
+    </section>
+    <section class="sec"><h5>About this spot</h5><div class="info">
+    <p id="likeLine" hidden></p><p id="whereLine" hidden></p>
+    <p id="showsLine" hidden></p>
+    <p id="wearLine" hidden></p>
+    <div class="row" id="stretchRow" hidden><span id="stretchText"></span><button class="btn" id="stretchShow" type="button" hidden>Show that pose</button></div>
+    <div class="row" id="lineRow" hidden><span id="lineText"></span><button class="btn" id="lineFix" type="button" hidden>Straighten</button></div><div class="row" id="readRow" hidden><span id="readText"></span><button class="btn" id="readFix" type="button" hidden>Turn it to face me</button></div>
+    <div class="row" id="evenRow" hidden><span id="evenLine"></span><button class="btn" id="evenFix" type="button" hidden>Centre it</button></div>
+    </div></section>
+    <section class="sec"><h5>Check it</h5><div class="grid">
+      <button class="btn" id="bInkCheck" type="button">Ink check</button>
+      <button class="btn" id="bSpots" type="button">Try other spots</button>
+      <button class="btn" id="bRoom" type="button">Find room for it</button>
+      <button class="btn" id="bRealSize" type="button">Real size on screen</button>
+      <button class="btn" id="bTryOn" type="button">Try on with camera</button>
+    </div></section>
+    <section class="sec"><h5>Plan it</h5>
+    <div class="row" id="estRow"><span id="estLine"></span><label for="estRate">Artist's rate $<input id="estRate" type="number" inputmode="decimal" min="0" max="2000" step="5" placeholder="per hour" style="width:100px;min-height:44px;font-size:16px"></label></div>
+    <p id="planLine" class="tip" hidden></p><div id="planSits" hidden><p id="planNext" class="tip"></p><p id="planClash" class="tip" hidden></p><button class="btn" id="planCal" type="button">Add every sitting to calendar</button></div>
+    <div id="sitBox" hidden><span>Sittings <small>with time to heal between them</small></span><ol id="sitList"></ol><div class="row"><label for="sitStart">First sitting<input id="sitStart" type="date"></label><label for="sitGap">Weeks between<select id="sitGap"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select></label><label for="sitAway">Trip or beach day<input id="sitAway" type="date"></label></div><p id="sitHealed" class="tip" hidden></p><p id="sitDry" class="tip" hidden></p><p id="sitWear" class="tip" hidden></p><p id="sitSleep" class="tip" hidden></p><div id="sitClash" hidden><p id="sitClashText"></p><div class="row"><button class="btn" id="sitLater" type="button">Start after it</button><button class="btn" id="sitEarlier" type="button">Finish before it</button></div></div><button class="btn" id="sitCal" type="button" hidden>Add to calendar</button></div>
+    <div id="verBox" hidden><span>Versions <small>tap one to see it on the body</small></span><div id="verList" role="group" aria-label="Versions"></div><p id="verText" class="tip" aria-live="polite"></p><div class="row" id="verActs" hidden><button class="btn" id="verUse" type="button">Use this one</button><button class="btn" id="verSide" type="button">Side by side</button></div></div>
+    <label id="noteBox" for="tNote">Note for your artist<textarea id="tNote" maxlength="500" rows="2" placeholder="Like: fine lines, black and grey only"></textarea></label>
+    <div id="madeBox" hidden><span>Who did it and when</span><div class="row"><input id="madeArtist" type="text" maxlength="60" autocomplete="off" placeholder="Artist" aria-label="Artist"><input id="madeStudio" type="text" maxlength="60" autocomplete="off" placeholder="Studio" aria-label="Studio"><input id="madeWhen" type="month" aria-label="Month it was done"></div></div>
+    </section>
+    <section class="sec"><h5>Copy and arrange</h5><div class="grid">
       <button class="btn" id="bFlip" type="button">Mirror</button>
       <button class="btn" id="bFlipVertical" type="button">Flip vertical</button>
       <button class="btn" id="bDup" type="button">Duplicate</button>
       <button class="btn" id="bOtherSide" type="button">Copy to other side</button>
-      <button class="btn" id="bRealSize" type="button">Real size on screen</button>
-      <button class="btn" id="bStencil" type="button">Stencil for your artist</button>
-      <button class="btn" id="bInkCheck" type="button">Ink check</button>
-      <button class="btn" id="bTryOn" type="button">Try on with camera</button>
-      <button class="btn" id="bSpots" type="button">Try other spots</button>
       <button class="btn" id="bSplit" type="button" hidden>Split into designs</button>
-      <button class="btn" id="bRoom" type="button">Find room for it</button>
+      <button class="btn" id="bCleanupLinked" type="button" hidden>Clean up linked copies</button>
+      <button class="btn" id="bStencil" type="button">Stencil for your artist</button>
+    </div></section>
+    <section class="sec"><h5>This tattoo</h5><div class="grid">
       <button class="btn" id="bStatus" type="button">Planned</button>
       <button class="btn" id="bHide" type="button">Hide</button>
       <button class="btn danger" id="bDel" type="button">Remove</button>
-    </div>
+    </div></section>
     </div></details>
     <p id="moveTip"></p>
   </div>
@@ -496,8 +551,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     <button class="btn primary" id="emptyAdd" type="button">Upload tattoo</button>
   </div>
   <div id="tray" class="glass">
-    <button class="btn primary" id="add" type="button">+ Upload tattoo</button>
-    <button class="btn" id="drawNew" type="button" aria-haspopup="dialog">Procreate</button>
+    <button class="btn primary i-plus" id="add" type="button">Add tattoo</button>
+    <button class="btn i-pencil" id="drawNew" type="button" aria-haspopup="dialog">Procreate</button>
     <div id="trayItems"></div>
     <span id="count"></span>
   </div>
@@ -522,45 +577,58 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <h3 class="shHead">Draw on one spot</h3>
 <div class="cards"><button class="card" id="pmSpot" type="button"><b>Draw on a spot you paint</b><span>Paint a spot on the body, draw on a flat guide in Procreate, then Copy All and Paste here.</span></button></div>
 </div></div>
-<div id="planMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="planTitle"><header><h2 id="planTitle">Plan your tattoos</h2><button class="btn" data-close="planMenu">Close</button></header><div class="cards">
-<button class="card" id="openNew"><b>New to try</b><span>The newest features, how to try each one and where it is.</span></button>
-<button class="card" id="openRefs"><b>Reference board</b><span>Inspiration pictures for the whole project or one tattoo. Everyone on a shared project sees them.</span></button>
+<div id="planMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="planTitle"><header><h2 id="planTitle">Plan</h2><button class="btn" data-close="planMenu">Close</button></header>
+<h3 class="shHead">This project</h3><div class="cards">
 <button class="card" id="openProjects"><b>Projects</b><span>Keep separate projects and recoverable copies on this device.</span></button>
+<button class="card" id="openPlanning"><b>Layouts and saved views</b><span>Try other layouts with the same tattoos, save versions and camera spots, and compare them.</span></button>
+<button class="card" id="openLayers"><b>Layers and groups</b><span>Order, hide, solo and group tattoos, and move a group together.</span></button>
+<button class="card" id="openArtworkLibrary"><b>Artwork library</b><span>Every picture in the project. Place it again, linked or as its own copy.</span></button>
 <button class="card" id="openUnplaced" hidden><b>Saved artwork to place</b><span>Imported artwork kept without an invented body position.</span></button>
-<button class="card" id="openPlanning"><b>Layouts, checkpoints & views</b><span>Save alternatives, named versions and camera bookmarks.</span></button>
-<button class="card" id="openPose"><b>Poses</b><span>Bend, turn and move the body. Your tattoos move with it, and you can keep placing them.</span></button>
-<button class="card" id="openBodyTools"><b>Body pins & ruler</b><span>Pin notes, draw on the body, or compare chord and approximate mesh-edge distance.</span></button>
-<button class="card" id="openPhotoFit"><b>Fit with photo references</b><span>Compare local photos and manually adjust a separate project copy.</span></button>
-<button class="card" id="openClothing"><b>Clothes</b><span>Put a T-shirt, tank top, shorts, pants or hair on the body to see which tattoos show.</span></button>
+</div>
+<h3 class="shHead">Notes and references</h3><div class="cards">
+<button class="card" id="openRefs"><b>Reference board</b><span>Inspiration pictures for the whole project or one tattoo. Everyone on a shared project sees them.</span></button>
 <button class="card" id="openNotes"><b>Artist notes</b><span>Keep instructions with the plan or individual pieces.</span></button>
-<button class="card" id="openArtworkLibrary"><b>Artwork library</b><span>Place linked artwork or an independent copy; originals are retained.</span></button>
-<button class="card" id="openDraft"><b>Try exact numbers</b><span>Type a size, angle or wrap and save it only when it looks right.</span></button>
-<button class="card" id="openPlacement"><b>Align & body symmetry</b><span>Preview alignment to another tattoo or create an opposite-side copy.</span></button>
-<button class="card" id="openLayers"><b>Layers & groups</b><span>Organize artwork, visibility and groups.</span></button>
-</div></div></div>
+<button class="card" id="openBodyTools"><b>Pins and drawing on the body</b><span>Pin notes to the skin or sketch a rough line on it.</span></button>
+</div>
+<h3 class="shHead">Fit and line up</h3><div class="cards">
+<button class="card" id="openPhotoFit"><b>Line up with your photos</b><span>Set a photo of you beside the body and adjust a copy of the project to match.</span></button>
+<button class="card" id="openPlacement"><b>Line up tattoos</b><span>Line one tattoo up with another, or with the middle of the body.</span></button>
+</div>
+<h3 class="shHead">Help</h3><div class="cards">
+<button class="card" id="openNew"><b>New to try</b><span>The newest features, how to try each one and where it is.</span></button>
+</div>
+</div></div>
 <div id="share" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="shTitle">
     <header><h2 id="shTitle">Share</h2><button class="btn" type="button" data-close="share">Close</button></header>
     <div class="cards" id="linkCards"><button class="card" id="cLink" type="button" hidden><b>Send to someone</b><span>A link to a copy of this project. They open it and can save it in their own account.</span></button></div>
+    <h3 class="shHead">Ask and agree</h3>
+    <div class="cards">
+      <button class="card" id="cApprove" type="button"><b>Ask for approval</b><span>A page your artist or client opens to say yes, or what to change, for each planned tattoo.</span></button>
+      <button class="card" id="cAnswers" type="button"><b>Bring in answers</b><span>Paste the reply you got back. Each tattoo shows who said yes or what to change.</span></button>
+      <button class="card" id="cMessage" type="button"><b>Plan as a message</b><span>Every planned tattoo in a few lines: size, where it sits, time and notes, to paste into a text to your artist.</span></button>
+    </div>
     <h3 class="shHead">For your artist</h3>
     <div class="cards">
-      <button class="card" id="cView" type="button"><b>Picture of this view</b><span>Exactly what is on screen now, tattoos included.</span></button><button class="card" id="cLabels" type="button"><b>Picture with sizes</b><span>This view with each tattoo’s name and size written beside it.</span></button>
+      <button class="card" id="cPacket" type="button"><b>Full artist packet</b><span>Front, back and side views, every tattoo and its size. Prints well.</span></button>
+      <button class="card" id="cSheet" type="button"><b>Artist sheet</b><span>This view and up to seven of your tattoos on one page.</span></button>
+      <button class="card" id="cLabels" type="button"><b>Picture with sizes</b><span>This view with each tattoo’s name and size written beside it.</span></button>
+      <button class="card" id="cPrint" type="button"><b>Print at real size</b><span>Each tattoo at its true size, to print, cut out and hold against your skin.</span></button>
+    </div>
+    <h3 class="shHead">Pictures</h3>
+    <div class="cards">
+      <button class="card" id="cView" type="button"><b>Picture of this view</b><span>Exactly what is on screen now, tattoos included.</span></button>
       <button class="card" id="cCompare" type="button"><b>Before and after</b><span>This view now and with your planned tattoos, side by side.</span></button>
-      <button class="card" id="cMirror" type="button"><b>In a mirror</b><span>This view beside how it looks when you check it in a mirror, where lettering reads backwards.</span></button>
-      <button class="card" id="cPoses" type="button"><b>As you move</b><span>Your tattoo in four poses that stretch and turn it, in one picture.</span></button>
       <button class="card" id="cSizes" type="button"><b>Three sizes</b><span>Your tattoo smaller, as it is and bigger, side by side on the body.</span></button>
+      <button class="card" id="cPoses" type="button"><b>As you move</b><span>Your tattoo in four poses that stretch and turn it, in one picture.</span></button>
+      <button class="card" id="cMirror" type="button"><b>In a mirror</b><span>This view beside how it looks when you check it in a mirror, where lettering reads backwards.</span></button>
       <button class="card" id="cSleeve" type="button"><b>Arms and legs, unrolled</b><span>Each limb’s skin laid flat with your tattoos on it, to plan a sleeve and see the gaps.</span></button>
-      <button class="card" id="cBodyChange" type="button"><b>If your body changes</b><span>Your tattoo on a slimmer, heavier and more muscular you, grown or shrunk with the skin.</span></button>
       <button class="card" id="cDistance" type="button"><b>From a distance</b><span>Your tattoo close up, across a table, a room and a street: which details still show.</span></button>
       <button class="card" id="cAging" type="button"><b>How it ages</b><span>Your tattoo fresh, healed, at 10 and 20 years, in one picture.</span></button>
-      <button class="card" id="cSheet" type="button"><b>Artist sheet</b><span>This view and up to seven of your tattoos on one page.</span></button>
-      <button class="card" id="cPacket" type="button"><b>Full artist packet</b><span>Front, back and side views, every tattoo and its size. Prints well.</span></button>
-      <button class="card" id="cMessage" type="button"><b>Plan as a message</b><span>Every planned tattoo in a few lines: size, where it sits, time and notes, to paste into a text to your artist.</span></button><button class="card" id="cApprove" type="button"><b>Ask for approval</b><span>A page your artist or client opens to say yes, or what to change, for each planned tattoo.</span></button>
-      <button class="card" id="cAnswers" type="button"><b>Bring in answers</b><span>Paste the reply you got back. Each tattoo shows who said yes or what to change.</span></button>
-      <button class="card" id="cPrint" type="button"><b>Print at real size</b><span>Each tattoo at its true size, to print, cut out and hold against your skin.</span></button>
+      <button class="card" id="cBodyChange" type="button"><b>If your body changes</b><span>Your tattoo on a slimmer, heavier and more muscular you, grown or shrunk with the skin.</span></button>
       <button class="card" id="cSpin" type="button"><b>Spin video</b><span>A few seconds of the body turning once with your tattoos.</span></button>
     </div>
-    <h3 class="shHead">Draw in Procreate</h3>
+    <h3 class="shHead">Procreate</h3>
     <div class="cards">
       <button class="card" id="cSketch" type="button"><b>Sketch on a body patch</b><span>A flat square of skin to draw on. Send back the PNG and it lands on the same spot.</span></button>
       <button class="card" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink. Open it in Procreate and draw on top.</span></button>

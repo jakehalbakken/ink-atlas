@@ -33,6 +33,8 @@ await mkdir(dirname(resolve(out)), { recursive: true });
 const b = await puppeteer.launch({ executablePath: process.env.CHROME || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', headless: 'new', args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const p = await b.newPage();
 await p.setViewport({ width: 1180, height: 820, deviceScaleFactor: 1 });
+// the checks run in the dark look unless a test asks for light (INK_THEME=light)
+await p.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: process.env.INK_THEME === 'light' ? 'light' : 'dark' }]);
 p.on('console', (m) => { const t = m.text(); if (!/GPU stall|fonts\.g|ERR_/.test(t)) console.log('console:', t); });
 p.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await p.goto(url, { waitUntil: 'load' });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 export default async function(p){
  const wait=(n=500)=>new Promise(r=>setTimeout(r,n));
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
- await p.click('#projectsBtn');await p.click('#openPose');await p.waitForSelector('#posePop:not([hidden])');await p.click('#motionPlay');await wait(800);
+ await p.click('#lookBtn');await p.click('#poseBtn');await p.waitForSelector('#posePop:not([hidden])');await p.click('#motionPlay');await wait(800);
  let d=await p.evaluate(()=>window.__ink.pose());assert(d.playing);assert(d.active);assert(d.phase>0);
  await p.click('#motionPlay');d=await p.evaluate(()=>window.__ink.pose());assert(!d.playing);
  await p.click('#poseList [data-pose=neutral]');await wait(500);assert.equal((await p.evaluate(()=>window.__ink.pose())).active,false);

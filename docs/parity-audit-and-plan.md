@@ -588,3 +588,15 @@ Jake asked (16:48Z, 16:49Z) for photo matching that works from mirror selfies an
 - Straighten (More controls): how far the tattoo is turned off the line of the upper arm, forearm, thigh or shin, or off upright on the torso, with Straighten (keeps it upside down if it was). One undo step. Tested: symmetry-unit, t87.
 - Who it reads for (More controls, `readsFor` in `symmetry.js`): on a limb, art with its top towards the body reads the right way up for others while the arm hangs (or you stand) and upside down when you look down at it; top towards the hand or foot is the other way round; across the limb reads sideways. The front of the body reads for others, the back for others or in a mirror. Turn it to face me (or others, or upright on the back) turns it half way round as one undo step. View only, nothing stored. Tested: symmetry-unit, t89 (forearm, turned, undo, sideways, chest, upper back, 44 pt button).
 - Storage: none (these only read the project or change existing fields).
+
+## Organisation and design pass, stage 1 (2026-11-15, built, tested headless)
+
+Jake: "we have gone absolutely overboard on the tools and features. They need a massive organization and design haul." No new features in this pass. `docs/ui-structure.md` is the map.
+
+- Main screen: one toolbar (Undo, Redo, New to try, Body, Preview, Plan, Share), view switcher beside it or under it, the left-hand Full body, Preview and New to try buttons gone. Panels open just under the chrome.
+- More controls in six headed sections; Plan in four; Share's cards in Ask and agree, For your artist, Pictures.
+- Duplicates removed: Plan > Poses, Plan > Clothes, Plan > Try exact numbers (same panels live under Preview and Precise placement).
+- Tokens for colour, type and radius; light and dark follow the device, the backdrop too.
+- Checked: t114 at 1180x820, 820x1180, 1024x768, 390x844, 1366x1024 in dark and light; full suite. Not yet checked on Jake's iPad.
+- Next stages: restyle the older panels that still use fixed cream and green colours (layouts and checkpoints, layers, line up tattoos, project shelf, photo references), and light mode on every panel.
+
