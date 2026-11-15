@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'covered', date: '2026-11-15', title: 'How covered each area is', how: 'Open Preview > Open skin. Under the summary, a line says how much of each arm, leg, your chest, back and so on is covered so far, and how much with your planned pieces. Handy for planning a sleeve.', show: 'covered' },
   { id: 'reads', date: '2026-11-15', title: 'Who it reads for', how: 'Select a tattoo and open More controls. A line says who it reads the right way up for: others while your arm hangs, or you looking down at it. Turn it to face me (or others) turns it round, one step you can undo.', show: 'reads' },
   { id: 'trip', date: '2026-11-15', title: 'Plan around a trip', how: 'Select a planned tattoo, open More controls and pick the first sitting. Add a trip or beach day: if it lands while the ink is still fresh, it says so and moves the sittings in one tap. The calendar file now says when each sitting can go in the water again.', show: 'trip' },
   { id: 'straight', date: '2026-11-15', title: 'Straighten along the limb', how: 'Select a tattoo and open More controls. A line says how far it is turned off the line of the arm or leg, or off upright on the body. Straighten lines it up, one step you can undo.', show: 'straight' },

@@ -53,7 +53,7 @@ import { inkCheck, inkCheckPixels, widthForLines } from './ink-check.js';
 import { makeRef, approvalHtml, parseAnswers } from './approval.js';
 import { coverByArt, coverText } from './cover.js';
 import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
-import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, roomByRegion, roomColour, roomSummary, inchWords } from './room.js';
+import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, roomByRegion, roomColour, roomSummary, inchWords, coveredArea, coveredByArea, coveredText } from './room.js';
 import { whereItSits } from './where.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
@@ -1954,6 +1954,7 @@ const SHOW = {
   wear: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const wr = wearOf(t); $('#wearLine').textContent = wr ? wr.text : ''; $('#wearLine').hidden = !wr; return [wr ? '#wearLine' : '#estRow', 'This line says how the spot treats a tattoo over the years, like sun, rubbing or creases.']; },
   shows: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; const sv = showsOf(t); $('#showsLine').textContent = sv; $('#showsLine').hidden = !sv; return [sv ? '#showsLine' : '#estRow', 'Under where it sits, a line says which everyday clothes hide this tattoo and which show it.']; },
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
+  covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   reads: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; readRender(t); return [$('#readRow').hidden ? '#estRow' : '#readRow', 'This line says who the tattoo reads the right way up for: others, or you looking down at it. The button turns it round in one step you can undo.']; },
   trip: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings and checks them against a trip.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitAway', 'Pick the first sitting, then add a trip or beach day. If it lands while the ink is still fresh, it says so and moves the sittings in one tap.']; },
   sittings: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitBox', 'Pick the date of the first sitting and the weeks between. Each sitting gets its date, and the last line says when it is healed.']; },
@@ -2781,12 +2782,30 @@ function roomSummaryText() {
   const r = roomData(), d = painData();
   return roomSummary({ ...inkShares(), regions: roomByRegion(r.across, d.place, (v) => !roomOff(v)), toInches });
 }
+// how much of each area (left arm, chest, back...) is covered so far, and with the plans
+function coverList() {
+  const r = roomData(), d = painData(), P = bodyGeo.attributes.position.array, n = r.areas.length;
+  if (r.coverAreaKey !== shapeKey) { r.coverAreaOf = new Array(n); for (let v = 0; v < n; v++) r.coverAreaOf[v] = isEye(v) || !d.place[v] ? null : coveredArea(d.place[v], P[v * 3]); r.coverAreaKey = shapeKey; }
+  const tattoos = [];
+  for (const t of state.tattoos) {
+    if (t.hidden) continue; const st = artStats(t); if (!st) continue;
+    tattoos.push({ pts: inkPoints(t), inkArea: t.width * (t.width / t.aspect) * st.fill, planned: t.status !== 'existing' });
+  }
+  return coveredByArea(P, n, (v) => r.coverAreaOf[v], r.areas, tattoos);
+}
+function coverRender() {
+  const el = $('#roomCover'); if (!room.on || room.fitId) { el.hidden = true; return; }
+  const key = room.key + '|' + (room.inks || []).length + '|' + state.tattoos.map((t) => t.id + (t.hidden ? 'h' : '') + t.status + t.width).join(',');
+  if (room.coverKey !== key) { room.coverKey = key; room.coverWords = coveredText(coverList()); }
+  el.textContent = room.coverWords; el.hidden = !room.coverWords;
+}
 function roomFitText(t) { return `Green is where ${t.name || 'it'} fits with half an inch to spare. Tap a green spot to move it there.`; }
 function roomRender() {
   $('#roomBtn').setAttribute('aria-pressed', String(room.on)); $('#roomBar').hidden = !room.on;
   document.body.classList.toggle('wash-on', pain.on || room.on);
   $('#roomText').textContent = room.text;
   $('#roomKeyAll').hidden = !!room.fitId; $('#roomKeyFit').hidden = !room.fitId; $('#roomAll').hidden = !room.fitId;
+  coverRender();
   if (room.mesh) room.mesh.visible = room.on;
   canvas.style.cursor = room.on || pain.on || tape.on || tapPlaceId ? 'crosshair' : '';
   needsRender = true;
@@ -2821,8 +2840,9 @@ function roomTap(x, y) {
     toast(`Moved ${fit.name || 'it'}.`, 'Undo', undo);
   } catch (e) { room.text = e.message; roomRender(); }
 }
+const ROOM_ASK = ' Tap a planned tattoo to see where it fits.';
 let roomTimer = 0;
-function roomRefresh() { if (!room.on) return; clearTimeout(roomTimer); roomTimer = setTimeout(() => { if (!room.on) return; const fit = room.fitId && state.tattoos.find((q) => q.id === room.fitId); if (room.fitId && !fit) room.fitId = null; roomData(); roomRender(); }, 60); }
+function roomRefresh() { if (!room.on) return; clearTimeout(roomTimer); roomTimer = setTimeout(() => { if (!room.on) return; const fit = room.fitId && state.tattoos.find((q) => q.id === room.fitId); if (room.fitId && !fit) room.fitId = null; roomData(); if (!room.fitId && room.text.endsWith(ROOM_ASK)) room.text = roomSummaryText() + ROOM_ASK; roomRender(); }, 60); }
 function roomOn(fitId = null) {
   if (tape.on) tapeOff(); if (pain.on) painOff(); if (pins.on) pinsOff();
   cancelGesture(); closePanels(); tapPlaceId = null;
@@ -2831,14 +2851,14 @@ function roomOn(fitId = null) {
   if (!room.mesh) room.mesh = makeWash('room', roomOff);
   roomData(); roomColours();
   const t = fitId && state.tattoos.find((q) => q.id === fitId);
-  room.text = t ? roomFitText(t) : roomSummaryText() + ' Tap a planned tattoo to see where it fits.';
+  room.text = t ? roomFitText(t) : roomSummaryText() + ROOM_ASK;
   if (t) markTried('roomFit');
   roomRender();
 }
 function roomDone() { room.on = false; room.fitId = null; roomRender(); }
-$('#roomBtn').addEventListener('click', () => { showLook(false); if (room.on) roomDone(); else roomOn(); });
+$('#roomBtn').addEventListener('click', () => { showLook(false); if (room.on) roomDone(); else { roomOn(); if (room.coverWords) markTried('covered'); } });
 $('#roomDone').addEventListener('click', roomDone);
-$('#roomAll').addEventListener('click', () => { room.fitId = null; roomData(); room.text = roomSummaryText() + ' Tap a planned tattoo to see where it fits.'; roomRender(); });
+$('#roomAll').addEventListener('click', () => { room.fitId = null; roomData(); room.text = roomSummaryText() + ROOM_ASK; roomRender(); });
 $('#bRoom').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.status === 'existing') { toast('Already on you, so it stays where it is.'); return; } if (t.locked) { toast('Unlock this tattoo first.'); return; } roomOn(t.id); });
 /* ---------- where it sits and time to tattoo, in More controls ---------- */
 function whereOf(t) {
@@ -4156,6 +4176,7 @@ window.__ink = {
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   cover: () => { const t = sel(); return t ? coverOf(t) : null; },
+  covered: () => ({ text: $('#roomCover').hidden ? '' : $('#roomCover').textContent, list: room.on ? coverList() : null }),
   room: () => ({ on: room.on, fitId: room.fitId, text: $('#roomText').textContent, shown: !!(room.mesh && room.mesh.visible), need: room.need ? toInches(room.need * 2) : 0, at: (v) => { roomData(); return { across: toInches(room.across[v]), clear: toInches(room.clear[v]), cap: toInches(room.cap[v]), off: roomOff(v), fits: room.fitId ? roomFits(v) : null, place: painData().place[v] }; }, shares: () => inkShares(), summary: () => roomSummaryText(), regions: () => roomByRegion(roomData().across, painData().place, (v) => !roomOff(v)).map((r) => ({ region: r.region, across: toInches(r.across) })), fitsCount: () => { roomData(); let n = 0; for (let v = 0; v < PAIN_N; v++) if (room.fitId && roomFits(v)) n++; return n; }, pick: (id) => roomPick(state.tattoos.find((t) => t.id === id)), under: (x, y) => { const h = hitBody(x, y); if (!h || !h.face) return null; roomData(); const P = bodyGeo.attributes.position.array, vs = [h.face.a, h.face.b, h.face.c]; let v = vs[0], bd = Infinity; for (const u of vs) { const d = (P[u * 3] - h.point.x) ** 2 + (P[u * 3 + 1] - h.point.y) ** 2 + (P[u * 3 + 2] - h.point.z) ** 2; if (d < bd) { bd = d; v = u; } } return { v, off: roomOff(v), fits: room.fitId ? roomFits(v) : null, across: toInches(room.across[v]), place: painData().place[v], point: h.point.toArray() }; }, drawnAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null, colourAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.color.array.slice(v * 3, v * 3 + 3)) : null }),
   where: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? whereOf(t) : null; },
   estimate: (id) => { const t = state.tattoos.find((q) => q.id === id); const h = t && hoursOf(t); return h ? { ...h, text: sessionText(h, readRate()), stats: artStats(t) } : null; },

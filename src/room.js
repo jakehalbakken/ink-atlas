@@ -162,3 +162,64 @@ export function roomSummary({ inkShare, planShare, regions, toInches }) {
   if (top.length) line += ' Most room: ' + top.map((r, i) => `${r.region.toLowerCase()} (${i ? '' : 'up to '}${inchWords(toInches(r.across))}${i ? '' : ' across'})`).join(', ') + '.';
   return line;
 }
+
+// How much of each area is covered, for planning a sleeve or a back piece. Areas follow the
+// pain map's place names, with arms and legs split into left and right (the body's own left is
+// +x). Hands, feet, face, scalp and groin are not counted.
+const ARM = /^(Armpit|Back of arm|Bicep|Elbow|Forearm|Inner arm|Inner elbow|Shoulder|Upper arm|Wrist)/;
+const LEG = /^(Ankle|Back of knee|Back of thigh|Calf|Hip|Inner thigh|Knee|Shin|Thigh)/;
+export function coveredArea(place, x) {
+  if (ARM.test(place)) return x > 0 ? 'left arm' : 'right arm';
+  if (LEG.test(place)) return x > 0 ? 'left leg' : 'right leg';
+  if (/^(Chest|Collarbone|Sternum)$/.test(place)) return 'chest';
+  if (place === 'Stomach') return 'stomach';
+  if (place === 'Ribs') return 'ribs';
+  if (/^(Upper back|Lower back|Spine)$/.test(place)) return 'back';
+  if (/neck|Throat/.test(place)) return 'neck';
+  return null;
+}
+
+// Share each tattoo's ink area among the areas its ink points fall in (nearest vertex), and
+// compare with each area's skin. areaOfV: vertex -> area name or null; vArea: skin per vertex;
+// tattoos: [{ pts, inkArea, planned }]. Returns [{ area, ink, plan }] as shares of that area's skin,
+// biggest first, leaving out areas with no ink.
+export function coveredByArea(pos, count, areaOfV, vArea, tattoos, cell = 0.03) {
+  const skin = new Map(), grid = new Map(), key = (x, y, z) => x * 73856093 ^ y * 19349663 ^ z * 83492791;
+  for (let v = 0; v < count; v++) {
+    const a = areaOfV(v); if (!a) continue;
+    skin.set(a, (skin.get(a) || 0) + vArea[v]);
+    const o = v * 3, k = key(Math.floor(pos[o] / cell), Math.floor(pos[o + 1] / cell), Math.floor(pos[o + 2] / cell));
+    let g = grid.get(k); if (!g) grid.set(k, (g = [])); g.push(v);
+  }
+  const got = new Map();
+  for (const t of tattoos) {
+    if (!t.pts || !t.pts.length || !(t.inkArea > 0)) continue;
+    const n = new Map(); let all = 0;
+    for (let i = 0; i < t.pts.length; i += 3) {
+      const x = t.pts[i], y = t.pts[i + 1], z = t.pts[i + 2], cx = Math.floor(x / cell), cy = Math.floor(y / cell), cz = Math.floor(z / cell);
+      let best = -1, bd = Infinity;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const g = grid.get(key(cx + dx, cy + dy, cz + dz)); if (!g) continue;
+        for (const v of g) { const d = (pos[v * 3] - x) ** 2 + (pos[v * 3 + 1] - y) ** 2 + (pos[v * 3 + 2] - z) ** 2; if (d < bd) { bd = d; best = v; } }
+      }
+      all++; if (best < 0) continue;
+      const a = areaOfV(best); n.set(a, (n.get(a) || 0) + 1);
+    }
+    for (const [a, c] of n) { const r = got.get(a) || { ink: 0, plan: 0 }; r[t.planned ? 'plan' : 'ink'] += t.inkArea * c / all; got.set(a, r); }
+  }
+  return [...got].filter(([a]) => skin.get(a) > 0).map(([area, r]) => ({ area, ink: Math.min(1, r.ink / skin.get(area)), plan: Math.min(1, r.plan / skin.get(area)) }))
+    .sort((a, b) => b.ink + b.plan - a.ink - a.plan);
+}
+
+// "Covered so far: left arm about 34% (52% with your plans), chest 12%." Up to three areas.
+export function coveredText(list) {
+  const pc = (s) => (s < 0.01 ? 'under 1%' : Math.round(s * 100) + '%');
+  const top = list.filter((r) => r.ink + r.plan >= 0.005).slice(0, 3);
+  if (!top.length) return '';
+  const part = (r, i) => {
+    const first = r.ink ? r.ink : r.plan, lead = `${r.area} ${i || first < 0.01 ? '' : 'about '}`;
+    if (!r.ink) return `${lead}${pc(r.plan)} planned`;
+    return r.plan >= 0.005 ? `${lead}${pc(r.ink)} (${pc(Math.min(1, r.ink + r.plan))} with your plans)` : lead + pc(r.ink);
+  };
+  return 'Covered so far: ' + top.map(part).join(', ') + '.';
+}
