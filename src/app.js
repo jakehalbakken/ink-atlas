@@ -33,6 +33,7 @@ import { createClothes, TOPS, BOTTOMS, HAIR, coverage as clothesCoverage } from 
 import { OUTFITS, visibilityText, sittingWear } from './visibility.js';
 import { sizeLikeText } from './size-like.js';
 import { planMessage } from './plan-text.js';
+import { placeLabels, sizeLabel, leader } from './size-labels.js';
 import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
@@ -1996,6 +1997,7 @@ const SHOW = {
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
+  labels: () => { toggle('#share', true); return ['#cLabels', 'A picture of this view with each tattoo’s name and size written beside it, to send to your artist.']; },
   centre: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; $('#preciseBox').open = true; return ['#snapLabel', 'Drag a tattoo on your chest, stomach or back across the middle and a line shows down the centre of the body. Turn on snapping here and it sits right on it.']; },
   keys: () => { if (!needTattoo()) return null; return [null, 'With a keyboard: the arrows move the selected tattoo (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Undo puts any of it back.']; },
   like: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#likeLine', 'This line says the size as an everyday thing, like about the size of a credit card, so the numbers are easy to picture.']; },
@@ -3443,6 +3445,68 @@ function compareShot() {
   return out.toDataURL('image/png');
 }
 let compareLast = null;
+// Picture with sizes: this view, with each tattoo that faces the camera labelled with its name
+// and size just under it (or over it), the labels kept apart. Returns null with no tattoo shown,
+// and '' when none faces the camera.
+function labelsShot() {
+  const list = state.tattoos.filter((t) => !t.hidden); if (!list.length) return null;
+  const inset = curInset; curInset = 0; applyInset();
+  exporting = true; syncDecals();
+  const W = canvas.width, H = canvas.height, out = document.createElement('canvas'); out.width = W; out.height = H;
+  const g = out.getContext('2d'), found = []; let span = null;
+  try {
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk()); g.drawImage(canvas, 0, 0);
+    camera.updateMatrixWorld(); const eye = camera.position.clone();
+    const toPx = (p) => { const v = p.clone().project(camera); return v.z < 1 ? [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H] : null; };
+    for (const t of list) {
+      const s = viewSpot(t), c = new V3(...s.pos), n = new V3(...s.normal).normalize(), to = c.clone().sub(eye), dist = to.length();
+      if (n.dot(to) >= 0) continue; // facing away
+      ray.set(eye, to.clone().normalize());
+      const h = poseView.active ? poseView.withPosed(() => ray.intersectObject(body, false)[0]) : ray.intersectObject(body, false)[0];
+      if (h && h.distance < dist - 0.02) continue; // behind another part of the body
+      const f = frameOf({ ...t, pos: s.pos, normal: s.normal }), hw = t.width / 2, hh = t.width / t.aspect / 2;
+      const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => toPx(c.clone().addScaledVector(f.right, a * hw).addScaledVector(f.up, b * hh)));
+      if (pts.some((q) => !q)) continue;
+      const box = [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))];
+      if (box[2] < 0 || box[0] > W || box[3] < 0 || box[1] > H) continue;
+      found.push({ t, box });
+    }
+    // the body's span across the picture, so the labels can sit beside it
+    const geo = (poseView.active && poseView.geometry) || bodyGeo, P = geo.attributes.position.array, v = new V3();
+    let lo = Infinity, hi = -Infinity;
+    for (let i = 0; i < P.length; i += 21) { v.set(P[i], P[i + 1], P[i + 2]).project(camera); if (v.z < 1 && v.y > -1 && v.y < 1) { const x = (v.x + 1) / 2 * W; lo = Math.min(lo, x); hi = Math.max(hi, x); } }
+    span = hi > lo ? [Math.max(0, lo), Math.min(W, hi)] : null;
+  } finally { exporting = false; syncDecals(); curInset = inset; applyInset(); needsRender = true; }
+  if (!found.length) return '';
+  const fs = Math.max(12, Math.round(Math.min(W, H) * 0.024)), pad = Math.round(fs * 0.55), lh = Math.round(fs * 1.25);
+  const bold = `600 ${fs}px -apple-system, system-ui, sans-serif`, plain = `${fs}px -apple-system, system-ui, sans-serif`;
+  const items = found.map(({ t, box }) => {
+    const w = toInches(t.width), lines = [t.name || 'Tattoo', sizeLabel(w, w / t.aspect)];
+    g.font = bold; const a = g.measureText(lines[0]).width; g.font = plain; const b = g.measureText(lines[1]).width;
+    return { t, box, lines, w: Math.ceil(Math.max(a, b) + pad * 2), h: lh * 2 + pad * 2 };
+  });
+  const spots = placeLabels(items, W, H, Math.round(fs * 0.4), span);
+  // every line first, then the labels over them, so no line crosses a label's words
+  g.strokeStyle = 'rgba(242,242,245,0.9)'; g.lineWidth = Math.max(1.5, fs * 0.09); g.fillStyle = 'rgba(242,242,245,0.95)';
+  items.forEach((it, i) => {
+    const [a, b] = leader(it.box, spots[i], it.w, it.h);
+    g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+    g.beginPath(); g.arc(b[0], b[1], Math.max(2.5, fs * 0.16), 0, Math.PI * 2); g.fill();
+    // a thin box round the tattoo so it is clear which one the label means
+    g.save(); g.setLineDash([fs * 0.3, fs * 0.25]); g.strokeRect(it.box[0], it.box[1], it.box[2] - it.box[0], it.box[3] - it.box[1]); g.restore();
+  });
+  items.forEach((it, i) => {
+    const { x, y } = spots[i];
+    g.fillStyle = 'rgba(22,23,28,0.86)'; const r = Math.round(fs * 0.5);
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + it.w, y, x + it.w, y + it.h, r); g.arcTo(x + it.w, y + it.h, x, y + it.h, r); g.arcTo(x, y + it.h, x, y, r); g.arcTo(x, y, x + it.w, y, r); g.closePath(); g.fill();
+    g.fillStyle = '#f2f2f5'; g.textBaseline = 'middle'; g.textAlign = 'left';
+    g.font = bold; g.fillText(it.lines[0], x + pad, y + pad + lh / 2);
+    g.font = plain; g.fillStyle = '#c9cad3'; g.fillText(it.lines[1], x + pad, y + pad + lh * 1.5);
+  });
+  labelsLast = items.map((it, i) => ({ id: it.t.id, box: it.box.map(Math.round), ...spots[i], w: it.w, h: it.h, lines: it.lines, span }));
+  return out.toDataURL('image/png');
+}
+let labelsLast = null;
 // How it ages, as one picture: the selected tattoo (or the first one showing) close up, fresh,
 // healed, at 10 and at 20 years, in a two by two grid with a label on each.
 function agingSheet() {
@@ -3690,6 +3754,7 @@ $('#cMessage').addEventListener('click', async () => {
 });
 $('#cSizes').addEventListener('click', () => { const url = sizesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('sizes-sheet'); showPreview(url, 'ink-atlas-sizes.png', 'Three sizes'); });
 $('#cAging').addEventListener('click', () => { const url = agingSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('aging-sheet'); showPreview(url, 'ink-atlas-aging.png', 'How it may age'); });
+$('#cLabels').addEventListener('click', () => { const url = labelsShot(); if (url === null) { toast('Add a tattoo first, then try this.'); return; } if (!url) { toast('Turn the body so a tattoo faces you, then try this.'); return; } markTried('labels'); showPreview(url, 'ink-atlas-sizes-labelled.png', 'Picture with sizes'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
 // Procreate colour palette: skin tone, its shade and highlight, then the project's ink colours.
@@ -4274,6 +4339,7 @@ window.__ink = {
   reads: () => $('#readRow').hidden ? '' : $('#readText').textContent + ($('#readFix').hidden ? '' : ' | ' + $('#readFix').textContent),
   wear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? wearOf(t) : null; },
   planMessage: () => planMessageText(),
+  labels: () => labelsLast,
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
   shows: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: showsOf(t), shares: showsShares(t) } : null; },
