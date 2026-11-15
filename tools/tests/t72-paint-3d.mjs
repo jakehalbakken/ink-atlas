@@ -156,6 +156,23 @@ export default async function (p) {
   await p.click('#pmPaintHide'); await wait(300);
   assert.equal(await p.evaluate(() => window.__ink.paintShown()), true, 'shown again');
   await p.keyboard.press('Escape'); await wait(200);
+  // the paint is its own item in the tattoo list, with hide and remove beside it
+  assert.ok(await p.$('#paintChip'), 'Paint on skin shows in the tattoo list');
+  await p.click('#paintChip'); await wait(300);
+  assert.equal(await p.$eval('#paintPop', (e) => e.hidden), false, 'its panel opens');
+  await p.click('#ppHide'); await wait(300);
+  assert.equal(await p.evaluate(() => window.__ink.paintShown()), false, 'hidden from the list');
+  assert.equal(await p.$eval('#paintChip .lock', (e) => e.textContent), 'Hidden');
+  await p.click('#ppHide'); await wait(300);
+  assert.equal(await p.evaluate(() => window.__ink.paintShown()), true, 'shown again from the list');
+  const nTat = await p.evaluate(() => window.__ink.state().tattoos.length);
+  await p.click('#ppRemove'); await wait(400);
+  assert.equal(await p.evaluate(() => !!window.__ink.state().paint), false, 'Remove paint gives the plain body');
+  assert.equal(await p.evaluate(() => window.__ink.state().tattoos.length), nTat, 'tattoos stay');
+  assert.equal(await p.$('#paintChip'), null, 'the item goes with it');
+  await p.click('#undo'); await wait(400);
+  assert.ok(await p.evaluate(() => !!window.__ink.state().paint), 'Undo brings the paint back');
+  await p.waitForFunction(() => window.__ink.paintShown(), { timeout: 10000 });
 
   // kept after a reload
   await p.evaluate(() => window.__ink.flush()); await wait(500);

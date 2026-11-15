@@ -200,6 +200,9 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .chip.on{border-color:var(--stencil);background:var(--stencil-soft)}
 .chip.off{opacity:.45}
 .chip .lock{font-style:normal;font-size:11px;color:var(--muted)}
+.chip .pchip{width:42px;height:42px;border-radius:10px;display:grid;place-items:center;background:var(--stencil-soft);color:var(--stencil);flex:none}
+.chip .pchip::before{width:22px;height:22px}
+.ppActs{display:flex;flex-direction:column;gap:8px}.ppActs .btn{flex-direction:column;align-items:flex-start;text-align:left;height:auto;min-height:56px;padding:10px 14px;gap:2px}.ppActs small{font-weight:500;font-size:12.5px;color:var(--muted);line-height:1.35}
 #count{flex:none;color:var(--muted);font-size:12.5px;padding-right:6px}
 #empty{padding:10px 14px;display:flex;gap:12px;align-items:center}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.seg .btn{padding:0 8px}.lbl{color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
@@ -454,6 +457,15 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <div class="pophead"><h3>Light</h3><button class="btn" type="button" data-close="lightPop">Done</button></div>
   <p class="tip">Ink looks different in different light. Check your design in the light you will see it in most. This only changes the view.</p>
   <div class="posegrid" id="lightChoices"></div>
+</div>
+<div id="paintPop" class="pop glass" hidden>
+  <div class="pophead"><h3>Paint on skin</h3><button class="btn" type="button" data-close="paintPop">Done</button></div>
+  <p class="tip">What you painted on the 3D body in Procreate lies on the skin as one layer. It is not a tattoo yet, so it can't be moved or deleted on its own. Your tattoos are not part of it.</p>
+  <div class="ppActs">
+    <button class="btn" id="ppSplit" type="button">Make movable tattoos<small>Each separate drawing becomes its own tattoo you can move, resize or delete.</small></button>
+    <button class="btn" id="ppHide" type="button">Hide paint<small>See the plain body with your tattoos, keep the paint for later.</small></button>
+    <button class="btn danger" id="ppRemove" type="button">Remove paint<small>Back to the plain body. Your tattoos stay. Undo brings the paint back.</small></button>
+  </div>
 </div>
 <div id="agePop" class="pop glass" hidden>
   <div class="pophead"><h3>Aging</h3><button class="btn" type="button" data-close="agePop">Done</button></div>

@@ -926,6 +926,14 @@ for (const [b, kind] of [[hSize, 'size'], [hTurn, 'turn']]) {
 function el(tag, props = {}, ...kids) { const n = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else if (v !== false && v != null) n.setAttribute(k, v === true ? '' : v); } for (const c of kids) if (c) n.append(c); return n; }
 function renderTray() {
   const tray = $('#trayItems'); tray.replaceChildren();
+  // paint brought back from Procreate lies on the skin as one layer: show it as its own item,
+  // so it can be found, hidden, made into tattoos or removed
+  if (state.paint) {
+    const b = el('button', { id: 'paintChip', class: 'chip' + (state.paint.hidden ? ' off' : ''), type: 'button', 'aria-haspopup': 'dialog', 'aria-label': 'Paint on skin', onclick: () => openPaintPop() },
+      el('i', { class: 'pchip i-pencil', 'aria-hidden': 'true' }), el('span', { text: 'Paint on skin' }));
+    if (state.paint.hidden) b.append(el('i', { class: 'lock', text: 'Hidden' }));
+    tray.append(b);
+  }
   for (const t of state.tattoos) {
     const b = el('button', { class: 'chip' + (t.id === selectedId ? ' on' : '') + (t.hidden ? ' off' : ''), type: 'button', 'aria-label': 'Select ' + t.name, 'aria-pressed': t.id === selectedId ? 'true' : 'false', onclick: () => { if (t.id === selectedId) focusTattoo(t); else select(t.id, true); } },
       el('img', { src: images[t.img], alt: '' }), el('span', { text: t.name }));
@@ -1547,6 +1555,11 @@ $('#pm3dSend').addEventListener('click', () => { toggle('#pcMenu', false); expor
 $('#pm3dBack').addEventListener('click', () => { toggle('#pcMenu', false); $('#paintedFile').click(); });
 $('#pmPaintHide').addEventListener('click', () => { if (!state.paint) return; snapshot(); state.paint.hidden = !state.paint.hidden; commit(); renderPcMenu(); });
 $('#pmPaintSplit').addEventListener('click', () => paintToTattoos());
+function renderPaintPop() { const p = state.paint; if (!p) { toggle('#paintPop', false); return; } $('#ppHide').firstChild.textContent = p.hidden ? 'Show paint' : 'Hide paint'; $('#ppHide small').textContent = p.hidden ? 'Put the paint back on the body.' : 'See the plain body with your tattoos, keep the paint for later.'; }
+function openPaintPop() { cancelGesture(); for (const id of ['#bodyPop', '#lightPop', '#posePop', '#clothesPop', '#agePop', '#newPop']) toggle(id, false); toggle('#paintPop'); renderPaintPop(); renderTray(); }
+$('#ppHide').addEventListener('click', () => { if (!state.paint) return; snapshot(); state.paint.hidden = !state.paint.hidden; commit(); renderPaintPop(); renderPcMenu(); });
+$('#ppSplit').addEventListener('click', () => { toggle('#paintPop', false); paintToTattoos(); });
+$('#ppRemove').addEventListener('click', () => { if (!state.paint) return; snapshot(); delete state.paint; toggle('#paintPop', false); commit(); renderPcMenu(); toast('Paint removed: the plain body is back with your tattoos. Undo brings the paint back.'); });
 $('#pmPaintRemove').addEventListener('click', () => { if (!state.paint) return; snapshot(); delete state.paint; commit(); renderPcMenu(); toast('Paint removed. Undo brings it back.'); });
 $('#paintCancel').addEventListener('click', endPaint);
 $('#paintClear').addEventListener('click', () => { if (!paint) return; paint.tris.clear(); showPaint(); });
@@ -2259,6 +2272,7 @@ const SHOW = {
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
+  paintChip: () => [state.paint ? '#paintChip' : null, state.paint ? 'Paint you brought back from Procreate shows here in the tattoo list. Tap it to make it movable tattoos, hide it, or remove it.' : 'Paint you bring back from Procreate now shows in the tattoo list as Paint on skin. Tap it to make it movable tattoos, hide it, or remove it for the plain body.'],
   layout: () => ['#top .toolbar', 'Everything starts here: Body, Preview, Plan and Share, with Undo and Redo as the arrows. Select a tattoo for its own controls.'],
   history: () => { if (!$('#undo').disabled) openHistory(); return ['#undo', 'Press and hold Undo for a list of your last steps. Tap one to go back to just before it. Redo brings them back.']; },
   undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],

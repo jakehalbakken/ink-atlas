@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'paintChip', date: '2026-11-15', title: 'Paint on skin in the tattoo list', how: 'After you bring a painted body back from Procreate, the paint shows in the tattoo list as Paint on skin. Tap it to make each drawing a movable tattoo, hide it, or remove it for the plain body. Your tattoos stay either way.', show: 'paintChip' },
   { id: 'layout', date: '2026-11-15', title: 'A calmer screen', how: 'Everything now starts from one bar at the top: Body, Preview, Plan and Share, with Undo and Redo as the arrows and the ways to turn the body beside it. Select a tattoo and More controls opens in short sections: size and shape, this spot, checks, planning, copies and the tattoo itself. Plan and Share are sorted the same way. Light or dark follows your iPad.', show: 'layout' },
   { id: 'mirror', date: '2026-11-15', title: 'In a mirror', how: 'Share, then In a mirror. This view sits beside how it looks when you check it in a mirror, so you can see lettering and one-sided designs the way you will see them every morning.', show: 'mirror' },
   { id: 'bodyChange', date: '2026-11-15', title: 'If your body changes', how: 'Select a tattoo, then Share, then If your body changes. One picture shows it on a slimmer, a heavier and a more muscular you, grown or shrunk with the skin under it, with how much in centimetres.', show: 'bodyChange' },
