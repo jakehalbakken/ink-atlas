@@ -38,7 +38,106 @@ export function buildAdjacency(index) {
 // geo must have up-to-date position and normal attributes and an index.
 // frame is { right, up, n } from the anchor. startTri is the triangle under the anchor.
 // Returns { positions: Float32Array, uvs: Float32Array } ready for a BufferGeometry.
-export function buildDecal(geo, adj, t, frame, startTri) {
+// A band round an arm or leg: the skin is laid flat like a sleeve, each vertex placed by its
+// distance along the limb's line and its angle round it times the limb's typical radius at that
+// height, so a wide piece closes on itself round the limb with no holes, tears or loose pieces.
+// limb: { joints: [[x,y,z], ...] down the limb in the standing body, keep: Uint8Array per vertex
+// (the limb's own skin, for its radius), rest: the standing positions }. Returns null when the
+// piece is small enough for the stencil unfold below, which follows bumps more closely.
+function limbFlat(geo, t, frame, startTri, limb) {
+  const P = geo.attributes.position.array, Q = limb.rest, I = geo.index.array, verts = (P.length / 3) | 0;
+  const J = limb.joints, segs = [];
+  let total = 0;
+  for (let i = 0; i < J.length - 1; i++) {
+    const d = [J[i + 1][0] - J[i][0], J[i + 1][1] - J[i][1], J[i + 1][2] - J[i][2]], len = Math.hypot(...d) || 1e-9;
+    segs.push({ a: J[i], dir: d.map((x) => x / len), len, start: total }); total += len;
+  }
+  // stretch the line past both ends, so a band at the wrist or ankle still has a line to wrap round
+  const ext = 0.15, f = segs[0], l = segs[segs.length - 1];
+  f.a = f.a.map((x, i) => x - f.dir[i] * ext); f.len += ext; for (const g of segs) if (g !== f) g.start += ext; l.len += ext; total += 2 * ext;
+  // one "outside" direction carried down the limb so angles agree between its parts
+  const o0 = (() => { let o = [1, 0, 0]; if (Math.abs(f.dir[0]) > 0.8) o = [0, 0, 1]; const k = o[0] * f.dir[0] + o[1] * f.dir[1] + o[2] * f.dir[2]; o = o.map((x, i) => x - f.dir[i] * k); const n = Math.hypot(...o); return o.map((x) => x / n); })();
+  let prev = o0;
+  for (const g of segs) {
+    const k = prev[0] * g.dir[0] + prev[1] * g.dir[1] + prev[2] * g.dir[2];
+    let o = prev.map((x, i) => x - g.dir[i] * k); const n = Math.hypot(...o) || 1; o = o.map((x) => x / n);
+    g.o = o; g.side = [g.dir[1] * o[2] - g.dir[2] * o[1], g.dir[2] * o[0] - g.dir[0] * o[2], g.dir[0] * o[1] - g.dir[1] * o[0]]; prev = o;
+  }
+  // each vertex: distance down the line, and its offset square to the line in that part's frame
+  const S = new Float64Array(verts), Wo = new Float64Array(verts), Ws = new Float64Array(verts);
+  const place = (x, y, z) => {
+    let best = null, bd = Infinity;
+    for (const g of segs) {
+      const px = x - g.a[0], py = y - g.a[1], pz = z - g.a[2], tt = Math.max(0, Math.min(g.len, px * g.dir[0] + py * g.dir[1] + pz * g.dir[2]));
+      const wx = px - g.dir[0] * tt, wy = py - g.dir[1] * tt, wz = pz - g.dir[2] * tt, d = Math.hypot(wx, wy, wz);
+      if (d < bd) { bd = d; best = [g, tt, wx, wy, wz]; }
+    }
+    const [g, tt, wx, wy, wz] = best;
+    return [g.start + tt, wx * g.o[0] + wy * g.o[1] + wz * g.o[2], wx * g.side[0] + wy * g.side[1] + wz * g.side[2], g];
+  };
+  for (let v = 0; v < verts; v++) { const r = place(Q[v * 3], Q[v * 3 + 1], Q[v * 3 + 2]); S[v] = r[0]; Wo[v] = r[1]; Ws[v] = r[2]; }
+  // The limb is not round and its bones are not in its middle (the Achilles sits far behind the
+  // ankle joint), so each height gets the middle of its own skin, and the way round is measured
+  // as real length round that cross-section, from a table of radius by height and angle.
+  const bin = 0.01, nb = Math.ceil(total / bin) + 1, NA = 48, own = (v) => v < limb.keep.length && limb.keep[v] === 1;
+  const sb = (s) => Math.min(nb - 1, Math.max(0, Math.round(s / bin)));
+  const smooth = (arr, reach) => { const out = new Float64Array(nb).fill(NaN); for (let b = 0; b < nb; b++) { let a = 0, c = 0; for (let k = -reach; k <= reach; k++) { const j = b + k; if (j >= 0 && j < nb && arr[j] === arr[j]) { a += arr[j]; c++; } } if (c) out[b] = a / c; } for (let b = 1; b < nb; b++) if (!(out[b] === out[b])) out[b] = out[b - 1]; for (let b = nb - 2; b >= 0; b--) if (!(out[b] === out[b])) out[b] = out[b + 1]; return out; };
+  const so = new Float64Array(nb), ss = new Float64Array(nb), sc = new Float64Array(nb);
+  for (let v = 0; v < Math.min(verts, limb.keep.length); v++) if (own(v)) { const b = sb(S[v]); so[b] += Wo[v]; ss[b] += Ws[v]; sc[b]++; }
+  const mo = smooth(so.map((x, b) => sc[b] ? x / sc[b] : NaN), 2), ms = smooth(ss.map((x, b) => sc[b] ? x / sc[b] : NaN), 2);
+  const ang = new Float64Array(verts), Rv = new Float64Array(verts);
+  for (let v = 0; v < verts; v++) { const b = sb(S[v]), x = Wo[v] - (mo[b] || 0), y = Ws[v] - (ms[b] || 0); ang[v] = Math.atan2(y, x); Rv[v] = Math.hypot(x, y); }
+  const ab = (a) => ((Math.floor((a + Math.PI) / (2 * Math.PI) * NA) % NA) + NA) % NA;
+  const rsum = new Float64Array(nb * NA), rc = new Float64Array(nb * NA);
+  for (let v = 0; v < Math.min(verts, limb.keep.length); v++) if (own(v)) { const b = sb(S[v]); for (let k = -2; k <= 2; k++) { const j = b + k; if (j < 0 || j >= nb) continue; const c = j * NA + ab(ang[v]); rsum[c] += Rv[v]; rc[c]++; } }
+  // radius per height and angle bin, gaps filled round the ring, rows with nothing copied from nearby
+  const RT = new Float64Array(nb * NA).fill(NaN);
+  for (let b = 0; b < nb; b++) {
+    const row = []; for (let a = 0; a < NA; a++) { const c = b * NA + a; row.push(rc[c] ? rsum[c] / rc[c] : NaN); }
+    if (!row.some((x) => x === x)) continue;
+    for (let a = 0; a < NA; a++) if (!(row[a] === row[a])) { let l = 1, r = 1; while (!(row[(a - l + NA) % NA] === row[(a - l + NA) % NA])) l++; while (!(row[(a + r) % NA] === row[(a + r) % NA])) r++; RT[b * NA + a] = (row[(a - l + NA) % NA] * r + row[(a + r) % NA] * l) / (l + r); } else RT[b * NA + a] = row[a];
+  }
+  for (let b = 1; b < nb; b++) if (!(RT[b * NA] === RT[b * NA])) for (let a = 0; a < NA; a++) RT[b * NA + a] = RT[(b - 1) * NA + a];
+  for (let b = nb - 2; b >= 0; b--) if (!(RT[b * NA] === RT[b * NA])) for (let a = 0; a < NA; a++) RT[b * NA + a] = RT[(b + 1) * NA + a];
+  // cumulative length round each ring, from angle -PI
+  const CT = new Float64Array(nb * (NA + 1)), da = 2 * Math.PI / NA;
+  for (let b = 0; b < nb; b++) for (let a = 0; a < NA; a++) CT[b * (NA + 1) + a + 1] = CT[b * (NA + 1) + a] + (RT[b * NA + a] || 0) * da;
+  const cum = (b, t) => { const f = (t + Math.PI) / da, i = Math.max(0, Math.min(NA - 1, Math.floor(f))), r = f - i; return CT[b * (NA + 1) + i] + (CT[b * (NA + 1) + i + 1] - CT[b * (NA + 1) + i]) * r; };
+  const perim = (b) => CT[b * (NA + 1) + NA];
+  // length round the ring at this height from angle a0 by turn (-PI..PI, plus whole turns)
+  const along = (b, a0, turn) => { const a1 = a0 + turn; let L = cum(b, Math.atan2(Math.sin(a1), Math.cos(a1))) - cum(b, a0); const k = Math.round((a1 - Math.atan2(Math.sin(a1), Math.cos(a1))) / (2 * Math.PI)); return L + k * perim(b); };
+  // the anchor in the standing body, through its triangle's barycentric weights
+  const ia = I[startTri * 3], ib = I[startTri * 3 + 1], ic = I[startTri * 3 + 2];
+  const vec = (A, i, j) => [A[j * 3] - A[i * 3], A[j * 3 + 1] - A[i * 3 + 1], A[j * 3 + 2] - A[i * 3 + 2]];
+  const dt = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const e1 = vec(P, ia, ib), e2 = vec(P, ia, ic), q1 = vec(Q, ia, ib), q2 = vec(Q, ia, ic);
+  const g11 = dt(e1, e1), g12 = dt(e1, e2), g22 = dt(e2, e2), det = g11 * g22 - g12 * g12 || 1e-12;
+  const inPlane = (x) => { const b1 = dt(x, e1), b2 = dt(x, e2); return [(g22 * b1 - g12 * b2) / det, (g11 * b2 - g12 * b1) / det]; };
+  const toRest = (x) => { const [al, be] = inPlane(x); return [q1[0] * al + q2[0] * be, q1[1] * al + q2[1] * be, q1[2] * al + q2[2] * be]; };
+  const off = toRest([t.pos[0] - P[ia * 3], t.pos[1] - P[ia * 3 + 1], t.pos[2] - P[ia * 3 + 2]]);
+  const A0 = place(Q[ia * 3] + off[0], Q[ia * 3 + 1] + off[1], Q[ia * 3 + 2] + off[2]), b0 = sb(A0[0]);
+  const s0 = A0[0], g0 = A0[3], ang0 = Math.atan2(A0[2] - ms[b0], A0[1] - mo[b0]), rr = perim(b0) / (2 * Math.PI);
+  // round and down the limb at the anchor, and the artwork's own right and up in those terms
+  const eRound = [0, 1, 2].map((i) => -Math.sin(ang0) * g0.o[i] + Math.cos(ang0) * g0.side[i]), eDown = g0.dir;
+  const nrm = (x) => { const n = Math.hypot(...x) || 1; return x.map((y) => y / n); };
+  const Rr = nrm(toRest([frame.right.x, frame.right.y, frame.right.z])), Ur = nrm(toRest([frame.up.x, frame.up.y, frame.up.z]));
+  const rx = dt(Rr, eRound), rs = dt(Rr, eDown), ux = dt(Ur, eRound), us = dt(Ur, eDown);
+  const w = t.width, h = t.width / t.aspect, round = Math.abs(rx) * w + Math.abs(ux) * h;
+  if (!(rr > 0) || round < 0.45 * 2 * Math.PI * rr) return null;
+  const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  return {
+    // flat x, y of vertex v with its angle shifted by k turns (for triangles across the back)
+    at: (v, k = 0) => { const X = along(sb(S[v]), ang0, wrapA(ang[v] - ang0) + 2 * Math.PI * k), Y = S[v] - s0; return [X * rx + Y * rs, X * ux + Y * us]; },
+    turn: (v) => wrapA(ang[v] - ang0),
+    // the limb's own skin and the hand or foot below it, never the body it hangs from
+    // (or skin weighted to the shoulder or hip that still lies on the limb's own ring)
+    on: (v) => v < limb.keep.length && (limb.keep[v] > 0 || Rv[v] < 1.2 * perim(sb(S[v])) / (2 * Math.PI)),
+  };
+}
+
+export function buildDecal(geo, adj, t, frame, startTri, limb) {
+  const sleeve = limb ? limbFlat(geo, t, frame, startTri, limb) : null;
+  if (sleeve) return buildSleeve(geo, adj, t, startTri, sleeve);
   const P = geo.attributes.position.array, N = geo.attributes.normal.array, I = geo.index.array;
   const tris = (I.length / 3) | 0, verts = (P.length / 3) | 0;
   const w = t.width, h = t.width / t.aspect;
@@ -114,5 +213,43 @@ export function buildDecal(geo, adj, t, frame, startTri) {
     for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !seen[nb]) { seen[nb] = 1; parent[nb] = tri; queue.push(nb); } }
   }
   // tris: the body triangle each decal triangle copies (used to bake ink into the skin texture).
+  return { positions: new Float32Array(pos), uvs: new Float32Array(uv), supports: new Uint32Array(supports), tris: new Uint32Array(from) };
+}
+
+// The band version: walk out from the anchor over connected skin, each triangle drawn with its
+// sleeve coordinates; one that crosses the back of the limb (opposite the anchor) is drawn twice,
+// once from each side, so the two ends of the artwork meet there with no gap.
+function buildSleeve(geo, adj, t, startTri, sleeve) {
+  const P = geo.attributes.position.array, N = geo.attributes.normal.array, I = geo.index.array;
+  const tris = (I.length / 3) | 0, w = t.width, h = t.width / t.aspect;
+  const bend = clamp(t.bend || 0, -1, 1), taper = clamp(t.taper || 0, -0.75, 0.75), m = UV_MARGIN, span = 1 - 2 * m, edge = 0.05;
+  const rect = ([x, y]) => {
+    const halfW = Math.max(1e-4, (w / 2) * (1 + taper * clamp(2 * y / h, -1, 1)));
+    const yb = y - 0.35 * w * bend * (x / (w / 2)) * (x / (w / 2));
+    return [0.5 + x / (2 * halfW), 0.5 - yb / h];
+  };
+  const pos = [], uv = [], supports = [], from = [], seen = new Uint8Array(tris), queue = [startTri | 0];
+  seen[startTri | 0] = 1;
+  let head = 0;
+  while (head < queue.length && head < 20000) {
+    const tri = queue[head++], o = tri * 3, vs = [I[o], I[o + 1], I[o + 2]];
+    if (!sleeve.on(vs[0]) || !sleeve.on(vs[1]) || !sleeve.on(vs[2])) continue;
+    const turns = vs.map((v) => sleeve.turn(v)), across = Math.max(...turns) - Math.min(...turns) > Math.PI;
+    let inside = false;
+    for (const k of across ? [1, -1] : [0]) {
+      const rs = vs.map((v, i) => rect(sleeve.at(v, k && turns[i] * k < 0 ? k : 0)));
+      const minU = Math.min(rs[0][0], rs[1][0], rs[2][0]), maxU = Math.max(rs[0][0], rs[1][0], rs[2][0]), minV = Math.min(rs[0][1], rs[1][1], rs[2][1]), maxV = Math.max(rs[0][1], rs[1][1], rs[2][1]);
+      if (maxU < -edge || minU > 1 + edge || maxV < -edge || minV > 1 + edge) continue;
+      inside = true;
+      for (let i = 0; i < 3; i++) {
+        const vi = vs[i];
+        pos.push(P[vi * 3] + N[vi * 3] * 0.0004, P[vi * 3 + 1] + N[vi * 3 + 1] * 0.0004, P[vi * 3 + 2] + N[vi * 3 + 2] * 0.0004);
+        supports.push(vi); uv.push(m + rs[i][0] * span, m + rs[i][1] * span);
+      }
+      from.push(tri);
+    }
+    if (!inside) continue;
+    for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !seen[nb]) { seen[nb] = 1; queue.push(nb); } }
+  }
   return { positions: new Float32Array(pos), uvs: new Float32Array(uv), supports: new Uint32Array(supports), tris: new Uint32Array(from) };
 }

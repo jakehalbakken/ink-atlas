@@ -408,8 +408,24 @@ function startTriangle(t) {
   for (let tri = 0; tri < I.length / 3; tri++) { const a = I[tri * 3] * 3, b = I[tri * 3 + 1] * 3, c = I[tri * 3 + 2] * 3; const cx = (P[a] + P[b] + P[c]) / 3 - t.pos[0], cy = (P[a + 1] + P[b + 1] + P[c + 1]) / 3 - t.pos[1], cz = (P[a + 2] + P[b + 2] + P[c + 2]) / 3 - t.pos[2]; const d = cx * cx + cy * cy + cz * cz; if (d < bd) { bd = d; best = tri; } }
   return best;
 }
+// The arm or leg a tattoo's anchor triangle is on, for a band that wraps right round it.
+const limbKeep = new Map();
+function decalLimb(tri) {
+  const I = bodyGeo.index.array, v = I[tri * 3];
+  if (!(v < COUNTS.body)) return null;
+  let bone = '', bw = -1; for (const [n, x] of vertexBones(v)) if (x > bw) { bw = x; bone = n; }
+  const L = LIMBS.find((q) => q.keep.test(bone)); if (!L) return null;
+  if (!limbKeep.has(L.key)) {
+    const k = new Uint8Array(COUNTS.body);
+    for (let i = 0; i < COUNTS.body; i++) { let b = '', w = -1; for (const [n, x] of vertexBones(i)) if (x > w) { w = x; b = n; } k[i] = L.keep.test(b) ? 1 : L.end.test(b) ? 2 : 0; }
+    limbKeep.set(L.key, k);
+  }
+  const J = poseView.restRig().joints;
+  const at = (n) => { const b = POSE_BONES.find((x) => x.name === `${n}.${L.side}`); return [0, 1, 2].map((i) => J[b.head * 3 + i]); };
+  return { joints: L.bones.map(at), keep: limbKeep.get(L.key), rest: (bodyGeo.attributes.rest || bodyGeo.attributes.position).array };
+}
 function decalGeometry(t) {
-  const { positions, uvs, supports, tris } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), startTriangle(t));
+  const st = startTriangle(t), { positions, uvs, supports, tris } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), st, decalLimb(st));
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   out.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
@@ -4313,10 +4329,10 @@ async function bodyChangeSheet() {
 }
 /* ---------- Sleeve map: each arm and leg's skin laid flat, with the tattoos on it ---------- */
 const LIMBS = [
-  { key: 'armL', label: 'Left arm', side: 'L', bones: ['upperarm01', 'lowerarm01', 'wrist'], keep: /^(upperarm|lowerarm)0[12]\.L$/, joint: 'Elbow' },
-  { key: 'armR', label: 'Right arm', side: 'R', bones: ['upperarm01', 'lowerarm01', 'wrist'], keep: /^(upperarm|lowerarm)0[12]\.R$/, joint: 'Elbow' },
-  { key: 'legL', label: 'Left leg', side: 'L', bones: ['upperleg01', 'lowerleg01', 'foot'], keep: /^(upperleg|lowerleg)0[12]\.L$/, joint: 'Knee' },
-  { key: 'legR', label: 'Right leg', side: 'R', bones: ['upperleg01', 'lowerleg01', 'foot'], keep: /^(upperleg|lowerleg)0[12]\.R$/, joint: 'Knee' },
+  { key: 'armL', label: 'Left arm', side: 'L', bones: ['upperarm01', 'lowerarm01', 'wrist'], keep: /^(upperarm|lowerarm)0[12]\.L$/, end: /^(wrist|metacarpal|finger|thumb)[^.]*\.L$/, joint: 'Elbow' },
+  { key: 'armR', label: 'Right arm', side: 'R', bones: ['upperarm01', 'lowerarm01', 'wrist'], keep: /^(upperarm|lowerarm)0[12]\.R$/, end: /^(wrist|metacarpal|finger|thumb)[^.]*\.R$/, joint: 'Elbow' },
+  { key: 'legL', label: 'Left leg', side: 'L', bones: ['upperleg01', 'lowerleg01', 'foot'], keep: /^(upperleg|lowerleg)0[12]\.L$/, end: /^(foot|toe)[^.]*\.L$/, joint: 'Knee' },
+  { key: 'legR', label: 'Right leg', side: 'R', bones: ['upperleg01', 'lowerleg01', 'foot'], keep: /^(upperleg|lowerleg)0[12]\.R$/, end: /^(foot|toe)[^.]*\.R$/, joint: 'Knee' },
 ];
 function limbUnrolled(L) {
   const geo = bodyGeo, P = (geo.attributes.rest || geo.attributes.position).array, J = poseView.restRig().joints;
@@ -5119,7 +5135,7 @@ function adoptState() {
 let last = performance.now();
 let camMoving = false, booted = false;
 function tick(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const dt = Math.min(0.1, (now - last) / 1000); last = now; // slow frames still glide in about the same time
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) { $('#size').textContent = sizeText(t); likeRender(t); } }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
@@ -5296,7 +5312,7 @@ window.__ink = {
   surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)
-  decalCover: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry; if (!g || !g.attributes.uv) return { name: t.name, cover: 0, stretch: 0 };
+  decalSpan: (axis = [0, 1, 0]) => state.tattoos.map((t) => { const d = decals[t.id], P = d && d.mesh.geometry.attributes.position.array, UV = d && d.mesh.geometry.attributes.uv.array; let lo = Infinity, hi = -Infinity; if (P) for (let f = 0; f < P.length / 9; f++) { const u = (UV[f * 6] + UV[f * 6 + 2] + UV[f * 6 + 4]) / 3, v = (UV[f * 6 + 1] + UV[f * 6 + 3] + UV[f * 6 + 5]) / 3; if (u < UV_MARGIN || u > 1 - UV_MARGIN || v < UV_MARGIN || v > 1 - UV_MARGIN) continue; let y = 0; for (let k = 0; k < 3; k++) { const i = f * 9 + k * 3; y += (P[i] * axis[0] + P[i + 1] * axis[1] + P[i + 2] * axis[2]) / 3; } lo = Math.min(lo, y); hi = Math.max(hi, y); } return { name: t.name, lo, hi, y: t.pos[1], tris: P ? P.length / 9 : 0 }; }), restJoint: (n) => { const J = poseView.restRig().joints, b = POSE_BONES.find((x) => x.name === n); return b ? [0, 1, 2].map((i) => J[b.head * 3 + i]) : null; }, decalCover: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry; if (!g || !g.attributes.uv) return { name: t.name, cover: 0, stretch: 0 };
     const P = g.attributes.position.array, UV = g.attributes.uv.array, n = 64, grid = new Uint8Array(n * n), m = UV_MARGIN, sp = 1 - 2 * m, scale = t.width * (t.width / t.aspect), ratios = [];
     for (let i = 0; i < UV.length / 2; i += 3) { const u = [0, 1, 2].map((k) => (UV[(i + k) * 2] - m) / sp), v = [0, 1, 2].map((k) => (UV[(i + k) * 2 + 1] - m) / sp);
       const ua = Math.abs((u[1] - u[0]) * (v[2] - v[0]) - (u[2] - u[0]) * (v[1] - v[0])) / 2; const A = [0, 1, 2].map((k) => [P[(i + k) * 3], P[(i + k) * 3 + 1], P[(i + k) * 3 + 2]]);
