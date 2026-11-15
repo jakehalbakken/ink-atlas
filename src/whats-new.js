@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'undoWords', date: '2026-11-15', title: 'Undo says what it put back', how: 'Tap Undo or Redo and a short note says what changed back, like Undid moving Rose or Undid the body shape, so nothing changes out of sight.', show: 'undoWords' },
   { id: 'labels', date: '2026-11-15', title: 'Picture with sizes', how: 'Share > Picture with sizes takes this view with each tattoo’s name, size and where it sits written beside it, in inches and centimetres. Turn the body first so the tattoos you want face you.', show: 'labels' },
   { id: 'centre', date: '2026-11-15', title: 'Centre line while you drag', how: 'Drag a tattoo on your chest, stomach, back or neck across the middle and a guide line shows down the centre of the body. With Snap to guides on (More controls > Precise placement) it sits exactly in the middle.', show: 'centre' },
   { id: 'message', date: '2026-11-15', title: 'Plan as a message', how: 'Share > Plan as a message puts every planned tattoo into a few lines: its size, where it sits the way an artist measures, the time it takes, the first sitting and your note. Send it, or paste it into a text to your artist.', show: 'message' },

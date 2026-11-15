@@ -34,6 +34,7 @@ import { OUTFITS, visibilityText, sittingWear } from './visibility.js';
 import { sizeLikeText } from './size-like.js';
 import { planMessage } from './plan-text.js';
 import { placeLabels, sizeLabel, leader } from './size-labels.js';
+import { changeWords, undoToast } from './undo-words.js';
 import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG } from './pose-catalog.js';
@@ -547,8 +548,10 @@ function whenText(at) {
 function snapshot() { undoStack.push(JSON.stringify(state)); if (undoStack.length > 40) undoStack.shift(); redoStack.length = 0; refreshUndo(); }
 // The record of approval pages sent is not undone, so replies still match.
 function restore(json) { const asks = state.asks; state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); }
-function undo() { if (!undoStack.length) return; redoStack.push(JSON.stringify(state)); restore(undoStack.pop()); refreshUndo(); }
-function redo() { if (!redoStack.length) return; undoStack.push(JSON.stringify(state)); restore(redoStack.pop()); refreshUndo(); }
+// each undo and redo says in a toast what it put back, so a tap never changes something unseen
+function stepWords(a, b) { try { return changeWords(a, b); } catch { return ''; } }
+function undo() { if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); }
+function redo() { if (!redoStack.length) return; const now = JSON.stringify(state), next = redoStack.pop(), words = stepWords(state, JSON.parse(next)); undoStack.push(now); restore(next); refreshUndo(); toast(undoToast(words, true)); }
 function refreshUndo() { $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
 function commit() { syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); }
 
@@ -1997,6 +2000,7 @@ const SHOW = {
   even: () => { const t = state.tattoos.find((q) => !q.hidden && evenOf(q)); if (!t) { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side makes a mirrored twin. Then More controls says how closely the two match, and Match the other side lines them up.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; evenRender(t); return ['#evenRow', 'This line says how far it is off the centre line, or how closely it matches its twin. The button lines it up in one step you can undo.']; },
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
+  undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],
   labels: () => { toggle('#share', true); return ['#cLabels', 'A picture of this view with each tattoo’s name and size written beside it, to send to your artist.']; },
   centre: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; $('#preciseBox').open = true; return ['#snapLabel', 'Drag a tattoo on your chest, stomach or back across the middle and a line shows down the centre of the body. Turn on snapping here and it sits right on it.']; },
   keys: () => { if (!needTattoo()) return null; return [null, 'With a keyboard: the arrows move the selected tattoo (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Undo puts any of it back.']; },
