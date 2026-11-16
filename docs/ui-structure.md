@@ -42,7 +42,7 @@ Figure (Male, Neutral, Female) and Reset to plain body stay at the top. Then sec
 
 ## The older Plan panels
 
-Layers and groups shows its group and selection buttons only once a tattoo is ticked or a group exists. Layouts and saved views shows Compare only with two saved, and Show archived only when something is archived. Words are plain everywhere (no "tangent frame", "chord", "identity"). The full-screen pins and photo tools take the backdrop colour from `--stage-b`, so they follow light and dark.
+Layers and groups shows its group and selection buttons only once a tattoo is ticked or a group exists. Layouts and views (`planning.js`) and Projects (`shelf.js`) follow the list pattern every saved-things sheet should use (2026-11-16): the app's `.modal` sheet with Done, a `.seg` switch where there are kinds, one inset Save row (name field plus one primary button), then one inset group with a line per saved item (picture or glyph, name, date and count, one trailing primary action such as Open, and a ⋯ button that opens Rename, Archive and the like under that line), then Show archived (n) as a text link only when something is archived. Compare two and Try a size are their own short headed groups and only show when they can be used. The wipe between two layouts (`layout-compare.js`) is the body full screen with two glass bars: title and Done at the top, the two names at the ends of the slider with Reset view at the bottom. Words are plain everywhere (no "tangent frame", "chord", "identity"). The full-screen pins and photo tools take the backdrop colour from `--stage-b`, so they follow light and dark.
 
 ## Removed duplicates
 
