@@ -610,3 +610,16 @@ Jake: "Imagine you're designing an apple native app. It should feel flawless." T
 - Stage 3, sheets as lists: every row in Share, Plan and Procreate leads with a glyph and has a one-line description, grouped on inset cards with hairlines (`.modal .cards`, `.modal .card.i-NAME`).
 - Stage 4, framing and first run: Front, Left, Back and Right with a tattoo selected fit the whole body beside the right-hand column in landscape and above the panel in portrait (`fullBody` in `app.js`, only while the edit sheet is open, so the overview with nothing selected is unchanged); the empty state is a title and one line over the tray's own Add tattoo and Procreate; the first-run card uses the system font and a glyph per move.
 - Checked: t114 and t55 on each stage, full suite on the four together, screenshots in dark and light at 1180x820 and 820x1180. Not yet checked on Jake's iPad.
+
+## Measured wrap round the ankle, stage 1 (2026-11-16, built, tested headless)
+
+Jake's spec "Measured Ankle Wraps, Procreate Editing, and Stencil Export": a continuous cactus garden round the ankle from tape measurements (9 in round at the bottom, 12.5 in at the top, 4 in long), around the cactus already on the back of the right lower leg, with a second focal point at the front. Priority: registration, measured calibration, masks, linked 3D and flat editing, the Procreate round trip, stencils, fitting check.
+
+- Geometry (`wrap-geometry.js`, pure, unit tested): each pair of measured rings is a cone frustum developed exactly onto an annular sector. Ankle: arcs 228.6, 273.05 and 317.5 mm within 0.1 mm, box 307.47 x 126.21 mm along the skin and 307.66 x 126.96 mm measured straight up, bulge included, never stretched to 12.5 in. Equal rings give a rectangle. The flat template, the optional rectangle view and the 3D body each have an explicit mapping.
+- Measurements panel: rings, lengths along the skin or straight up, a separate "I measured it this way" confirmation, the cut side, in or mm. A change once the tattoo is traced asks first.
+- Existing tattoo (`wrap-register.js`, pure, unit tested): photos kept unchanged, four-corner straightening, six named landmarks, scale from the known 4 in (vertical or along the skin, converted), base on the bottom ring at the back, extra photos fitted through landmarks, ink and gap masks found and fixable with brushes, a buffer, Lock.
+- Design: full-resolution plant pieces on the flat template, overlap warnings against ink, buffer and gaps (area shown), a front focal point (first piece goes there), saved versions with hold to see before. Undo covers every change.
+- Shown on the body as a per-pixel overlay on the leg, in step with the flat view.
+- Stored as optional `state.regions`; tattoos are never touched. t117 covers it end to end, including reopen.
+- Not checked: a real photo of the cactus, the real iPad and Pencil, and how closely the body overlay matches the real leg (it is a guide; the flat template is the measured truth).
+- Still to come: stage 2 (layered PSD to Procreate and back, with sessions and a review before applying), stage 3 (tiled stencil and placement guide PDFs on any paper, printer profiles, fitting confirmation and approval).
