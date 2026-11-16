@@ -464,7 +464,7 @@ export function createAccount(api) {
   // back: a leading Back in the sheet's own bar, like a navigation bar, in place of a Back at the bottom
   const header = (title, back) => h('header', { class: back ? 'acct-bar' : null },
     back ? h('button', { class: 'btn quiet acct-back', type: 'button', text: 'Back', onclick: () => { if (!busy) back(); } }) : null,
-    h('h2', { id: 'acctTitle', text: title }), h('button', { class: 'btn acct-close', type: 'button', text: 'Close', onclick: () => { if (!busy) close(); } }));
+    h('h2', { id: 'acctTitle', text: title }), h('button', { class: 'btn acct-close', type: 'button', text: 'Done', onclick: () => { if (!busy) close(); } }));
   const msg = (text, good) => { if (msgEl) { msgEl.textContent = text || ''; msgEl.classList.toggle('good', !!good); } };
   const run = async (fn, buttons) => {
     if (busy) return; busy = true; msg('');
@@ -622,9 +622,9 @@ export function createAccount(api) {
       }) })),
       msgEl,
       h('details', { class: 'acct-more' }, h('summary', { text: 'Account settings' }),
-        h('div', { class: 'acct-group' },
-          h('button', { class: 'btn acct-nav', type: 'button', text: 'Set a password', onclick: () => passwordView() }),
-          h('button', { class: 'btn acct-nav', type: 'button', text: 'Change my name', onclick: () => nameView() })),
+        h('div', { class: 'cards acct-group' },
+          h('button', { class: 'card slim acct-go i-lock', type: 'button', onclick: () => passwordView() }, h('b', { text: 'Set a password' })),
+          h('button', { class: 'card slim acct-go i-person', type: 'button', onclick: () => nameView() }, h('b', { text: 'Change my name' }))),
         // a switch row, like Settings: the label on the left, the switch on the right, the footnote under it
         (() => { const b2 = h('button', { class: 'btn acct-switch', type: 'button', id: 'acctPrefs' }, h('span', { text: 'Same on every device' }), h('i', { 'aria-hidden': 'true' })); const paint = () => { b2.setAttribute('aria-pressed', String(!ls.get(PREFS_OFF))); }; paint(); b2.addEventListener('click', () => { setPrefsOn(!!ls.get(PREFS_OFF)); paint(); msg(ls.get(PREFS_OFF) ? 'Settings on this device stay here now.' : 'Settings follow you again.', true); }); return b2; })(),
         h('p', { class: 'muted', text: 'Your hair, beard, body hair, eye colour, light and hourly rate follow you to every device you sign in on. Your face photo stays on the device it was taken on.' })),
@@ -721,9 +721,9 @@ export function createAccount(api) {
     view = 'inviteRole';
     put(header('Invite someone', () => show('home')),
       h('p', { text: `Who are you inviting into "${api.projectName()}"?` }),
-      h('div', { class: 'acct-choices' },
-        h('button', { class: 'card', type: 'button', id: 'acctInviteEdit', onclick: () => run(() => makeInvite('edit')) }, h('b', { text: 'Someone who can change the tattoos' }), h('span', { text: 'Like Liv. You both move, resize and add tattoos, and see each other\'s changes as they happen.' })),
-        h('button', { class: 'card', type: 'button', id: 'acctInviteComment', onclick: () => run(() => makeInvite('comment')) }, h('b', { text: 'Someone who comments and answers' }), h('span', { text: 'Like your artist or a client. They pin comments, say yes or ask for a change on each tattoo and add reference pictures, but can\'t move anything.' }))),
+      h('div', { class: 'cards acct-choices' },
+        h('button', { class: 'card acct-go i-pencil', type: 'button', id: 'acctInviteEdit', onclick: () => run(() => makeInvite('edit')) }, h('b', { text: 'Someone who can change the tattoos' }), h('span', { text: 'Like Liv. You both move, resize and add tattoos, and see each other\'s changes as they happen.' })),
+        h('button', { class: 'card acct-go i-chat', type: 'button', id: 'acctInviteComment', onclick: () => run(() => makeInvite('comment')) }, h('b', { text: 'Someone who comments and answers' }), h('span', { text: 'Like your artist or a client. They pin comments, say yes or ask for a change on each tattoo and add reference pictures, but can\'t move anything.' }))),
       msgEl);
   }
   function inviteView({ url, role }) {
