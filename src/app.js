@@ -74,6 +74,8 @@ import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOff
 const newSeen = readSeen();
 // Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
 const TAUGHT_KEY = 'ia-taught', taught = (() => { try { return new Set(JSON.parse(localStorage.getItem(TAUGHT_KEY) || '[]')); } catch (_) { return new Set(); } })();
+// the fine print under the pain map and open skin is read once, then the bars stay slim
+let painSeen = false, roomSeen = false;
 function learnt(k) { taught.add(k); try { localStorage.setItem(TAUGHT_KEY, JSON.stringify([...taught])); } catch (_) { /* private mode: lasts until reload */ } }
 
 // a feature that needs the account's email sender is listed only once that is switched on
@@ -243,9 +245,13 @@ function placeChrome() {
   if (!fits) { body.classList.add('views-low'); document.documentElement.style.setProperty('--views-top', Math.round($('#top').getBoundingClientRect().bottom - 4) + 'px'); }
   const bottom = Math.max($('#top').getBoundingClientRect().bottom, fits ? 0 : v.getBoundingClientRect().bottom + 8);
   document.documentElement.style.setProperty('--below', Math.round(bottom) + 'px');
+  // panels at the right stop above the tray wherever the tray sits under them
+  const tr2 = $('#tray').getBoundingClientRect(), popLeft = innerWidth - 356;
+  const gap = tr2.height && tr2.right > popLeft ? Math.max(24, Math.round(innerHeight - tr2.top + 12)) : 24;
+  document.documentElement.style.setProperty('--tray-gap', gap + 'px');
 }
 addEventListener('resize', () => { placeChrome(); requestAnimationFrame(placeChrome); setTimeout(placeChrome, 300); });
-{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); ro.observe($('#top .toolbar')); ro.observe($('#top')); }
+{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); ro.observe($('#top .toolbar')); ro.observe($('#top')); ro.observe($('#tray')); }
 if (document.fonts) document.fonts.ready.then(placeChrome);
 placeChrome();
 function freeArea() {
@@ -3238,7 +3244,7 @@ function painOfTattoo(t) {
   return line;
 }
 function painRender() {
-  $('#painBtn').setAttribute('aria-pressed', String(pain.on)); $('#painBar').hidden = !pain.on;
+  $('#painBtn').setAttribute('aria-pressed', String(pain.on)); $('#painBar').hidden = !pain.on; $('#painNote').hidden = taught.has('painNote'); if (!pain.on && !$('#painNote').hidden && painSeen) learnt('painNote'); if (pain.on) painSeen = true;
   document.body.classList.toggle('wash-on', pain.on || room.on);
   $('#painText').textContent = pain.text;
   if (pain.mesh) pain.mesh.visible = pain.on;
@@ -3374,7 +3380,7 @@ function coverRender() {
 }
 function roomFitText(t) { return `Green is where ${t.name || 'it'} fits with half an inch to spare. Tap a green spot to move it there.`; }
 function roomRender() {
-  $('#roomBtn').setAttribute('aria-pressed', String(room.on)); $('#roomBar').hidden = !room.on;
+  $('#roomBtn').setAttribute('aria-pressed', String(room.on)); $('#roomBar').hidden = !room.on; $('#roomNote').hidden = taught.has('roomNote'); if (!room.on && !$('#roomNote').hidden && roomSeen) learnt('roomNote'); if (room.on) roomSeen = true;
   document.body.classList.toggle('wash-on', pain.on || room.on);
   $('#roomText').textContent = room.text;
   $('#roomKeyAll').hidden = !!room.fitId; $('#roomKeyFit').hidden = !room.fitId; $('#roomAll').hidden = !room.fitId;
