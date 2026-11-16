@@ -193,6 +193,23 @@ function fullBodyR() {
 function fullBody(theta) {
   if (theta != null) goal.theta = theta;
   goal.roll = 0; goal.phi = 1.5; goal.r = fullBodyR(); goal.tx = 0; goal.ty = 0.73; goal.tz = 0.02; glide = true; needsRender = true;
+  // In wide landscape with the edit panel open as a column at the right, the whole body is framed in
+  // the space left of it rather than centred on the screen behind the column.
+  if (!$('#sheet').hidden) try {
+    const b = canvas.getBoundingClientRect(), { top, bottom, left, right } = freeArea(), w = right - left, h = bottom - top;
+    const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    if (b.width > 0 && w < b.width * 0.8 && w > 240) {
+      const availW = w / b.width;
+      goal.r = Math.max(goal.r, 1.35 / (2 * tn * camera.aspect * availW));
+      const side = 2 * goal.r * tn * camera.aspect * ((left + right) / 2 - b.left - b.width / 2) / b.width;
+      goal.tx = -Math.cos(goal.theta) * side; goal.tz = 0.02 + Math.sin(goal.theta) * side;
+    }
+    // and in portrait, above the edit panel when it is open, so the feet are not behind it
+    if (b.height > 0 && h < b.height * 0.7 && h > 200) {
+      goal.r = Math.max(goal.r, 2.0 / (2 * tn * (h / b.height)));
+      goal.ty = 0.73 - 2 * goal.r * tn * (0.5 - ((top + bottom) / 2 - b.top) / b.height);
+    }
+  } catch (_) {}
 }
 function focusTattoo(t) {
   if (followId) stopFollow();
@@ -3730,7 +3747,6 @@ new MutationObserver(renderLook).observe($('#lookMenu'), { subtree: true, childL
 renderLook();
 document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => fullBody(+b.dataset.view * Math.PI / 2)));
 $('#add').addEventListener('click', () => $('#file').click());
-$('#emptyAdd').addEventListener('click', () => $('#file').click());
 $('#file').addEventListener('change', async (e) => {
   const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
   snapshot(); let last = null; let first = true;
