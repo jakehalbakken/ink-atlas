@@ -18,7 +18,9 @@ let C = null; // what the app gives the studio (see initWrapStudio)
 const ui = { printKind: 'stencil', printOut: null, cutDrag: null, ppi: 300, pkgFormat: 'psd', pkg: null, review: null, busy: '', step: 'measure', view: 'all', sub: 'photos', sel: null, mode: null, brush: 4, holdBefore: false, open: false, fitted: false, lmKey: null };
 const $s = (q) => root && root.querySelector(q);
 let root = null, cv = null, ctx2 = null, side = null, insp = null;
-const view = { s: 1, cx: 0, cy: 0, W: 1, H: 1, fitFor: '' };
+// user: the view was zoomed or moved by hand. A change of the canvas size (a warning line coming
+// or going above it, the keyboard) keeps the view as it is; turning the iPad fits it again.
+const view = { s: 1, cx: 0, cy: 0, W: 1, H: 1, fitFor: '', user: false };
 const units = () => { try { return localStorage.getItem('ia-units') === 'mm' ? 'mm' : 'in'; } catch (_) { return 'in'; } };
 const setUnits = (u) => { try { localStorage.setItem('ia-units', u); } catch (_) { /* ignore */ } };
 const nowIso = () => new Date().toISOString().slice(0, 19) + 'Z';
@@ -44,13 +46,13 @@ function change(fn) { C.snapshot(); fn(); C.commit(); }
 
 /* ---------------- style (uses the app's tokens only) ---------------- */
 const CSS = `
-#wrapStudio{position:fixed;left:0;right:0;bottom:0;height:min(66vh,760px);z-index:30;display:flex;flex-direction:column;background:var(--surface-solid);border-top:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0;box-shadow:var(--shadow);padding-bottom:env(safe-area-inset-bottom);color:var(--text)}
+#wrapStudio{position:fixed;left:0;right:0;bottom:0;height:min(66%,760px);z-index:5;overscroll-behavior:none;display:flex;flex-direction:column;background:var(--surface-solid);border-top:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0;box-shadow:var(--shadow);padding-bottom:env(safe-area-inset-bottom);color:var(--text)}
 #wrapStudio[hidden]{display:none}
 #wrapStudio.tall{height:calc(100% - var(--below,64px))}
 @media (orientation:landscape) and (min-width:960px){#wrapStudio{left:auto;top:var(--below,64px);height:auto;width:min(60vw,860px);border-radius:var(--r-lg) 0 0 0;border-left:1px solid var(--line)}#wrapStudio.tall{width:calc(100% - 16px);height:auto}}
 #wrapStudio header{display:flex;align-items:center;gap:10px;padding:10px 12px 6px 18px}
 #wrapStudio header h2{font-size:19px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#wsTabs{display:flex;gap:4px;padding:0 12px 6px;overflow-x:auto;scrollbar-width:none}
+#wsTabs{display:flex;gap:4px;padding:0 12px 6px;overflow-x:auto;scrollbar-width:none;touch-action:pan-x;overscroll-behavior:contain}
 #wsTabs .btn{flex:1 0 auto;min-width:96px}
 #wsTabs .btn[aria-selected=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
 #wsInsp{margin:0 12px 6px;padding:6px 10px;border-radius:var(--r-md);background:var(--fill-soft);font-size:13px;line-height:1.35;color:var(--muted)}
@@ -58,13 +60,13 @@ const CSS = `
 #wsInsp .warn{color:#e8a33d}
 #wsMain{flex:1;min-height:0;display:flex;flex-direction:column}
 @media (min-aspect-ratio:5/4){#wsMain{flex-direction:row}}
-#wsFlat{position:relative;flex:1 1 55%;min-height:180px;min-width:0;margin:0 12px;border-radius:var(--r-md);overflow:hidden;background:var(--fill-soft)}
+#wsFlat{position:relative;flex:1 1 55%;min-height:180px;min-width:0;margin:0 12px;border-radius:var(--r-md);overflow:hidden;background:var(--fill-soft);touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 #wsFlat canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
 #wsViews{position:absolute;left:8px;top:8px;display:flex;gap:4px;flex-wrap:wrap;max-width:calc(100% - 16px)}
 #wsViews .btn{min-height:44px;padding:0 10px;font-size:13px;background:var(--surface)}
 #wsViews .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
 #wsFlatHint{position:absolute;left:8px;right:8px;bottom:8px;font-size:13px;text-align:center;color:var(--text);pointer-events:none;text-shadow:0 1px 2px var(--surface-solid)}
-#wsSide{flex:1 1 45%;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:8px 12px 16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y}
+#wsSide{flex:1 1 45%;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:8px 12px 16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y}
 @media (min-aspect-ratio:5/4){#wsSide{flex:0 0 330px}}
 #wsSide .shHead{margin:4px 2px -4px}
 #wsSide .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -98,7 +100,9 @@ export function initWrapStudio(ctx) {
   C = ctx;
   const st = document.createElement('style'); st.textContent = CSS; document.head.append(st);
   root = h('section', { id: 'wrapStudio', role: 'dialog', 'aria-label': 'Measured wrap', hidden: true });
-  document.body.append(root);
+  // inside #viewport, which the app keeps fitted to the visible screen (keyboard, zoom), like
+  // every other panel; on the body it stayed put while the rest moved
+  (document.getElementById('viewport') || document.body).append(root);
   return { open, close, refresh, isOpen: () => ui.open, tapBody, overlay: () => overlay, api: testApi() };
 }
 
@@ -120,15 +124,15 @@ function build() {
     h('header', {}, h('h2', { id: 'wsTitle', text: r ? r.name : 'Measured wrap' }),
       h('button', { class: 'btn', type: 'button', id: 'wsTall', 'aria-pressed': String(root.classList.contains('tall')), text: root.classList.contains('tall') ? 'Show body' : 'Bigger', onclick: () => { root.classList.toggle('tall'); build(); refresh(); } }),
       h('button', { class: 'btn', type: 'button', id: 'wsDone', text: 'Done', onclick: close })),
-    h('div', { id: 'wsTabs', role: 'tablist' }, ...[['measure', 'Measurements'], ['existing', 'Existing tattoo'], ['design', 'Design'], ['procreate', 'Procreate'], ['print', 'Print']].map(([k, label]) =>
-      h('button', { class: 'btn', type: 'button', role: 'tab', 'data-step': k, 'aria-selected': String(ui.step === k), text: label, onclick: () => { ui.step = k; ui.mode = null; ui.sel = null; build(); refresh(); if (k === 'design') aimAt(90); if (k === 'existing') aimAt(270); } }))),
+    h('div', { id: 'wsTabs', role: 'tablist', 'data-scroll': '' }, ...[['measure', 'Measurements'], ['existing', 'Existing tattoo'], ['design', 'Design'], ['procreate', 'Procreate'], ['print', 'Print']].map(([k, label]) =>
+      h('button', { class: 'btn', type: 'button', role: 'tab', 'data-step': k, 'aria-selected': String(ui.step === k), text: label, onclick: () => { if (ui.step !== k) side.scrollTop = 0; ui.step = k; ui.mode = null; ui.sel = null; refresh(); if (k === 'design') aimAt(90); if (k === 'existing') aimAt(270); } }))),
     h('div', { id: 'wsInsp', 'aria-live': 'polite' }),
     h('div', { id: 'wsMain' },
       h('div', { id: 'wsFlat' }, h('canvas', { id: 'wsCanvas', 'aria-label': 'The measured wrap laid flat' }),
         h('div', { id: 'wsViews', role: 'group', 'aria-label': 'Show' }, ...[['all', 'Together'], ['existing', 'Existing ink'], ['new', 'New art'], ['protected', 'Protected']].map(([k, label]) =>
           h('button', { class: 'btn', type: 'button', 'data-view': k, 'aria-pressed': String(ui.view === k), text: label, onclick: () => { ui.view = k; refreshViews(); draw(); syncOverlay(); } }))),
         h('div', { id: 'wsFlatHint' })),
-      h('div', { id: 'wsSide' })),
+      h('div', { id: 'wsSide', 'data-scroll': '' })),
     h('div', { id: 'wsAsk', hidden: true }));
   cv = $s('#wsCanvas'); ctx2 = cv.getContext('2d'); side = $s('#wsSide'); insp = $s('#wsInsp');
   bindCanvas(); view.fitFor = '';
@@ -988,7 +992,7 @@ function photoMode() { return ui.step === 'existing' && (ui.sub === 'straighten'
 async function drawNow() {
   if (!cv || !ui.open) return;
   const box = cv.getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
-  if (cv.width !== Math.round(box.width * dpr) || cv.height !== Math.round(box.height * dpr)) { cv.width = Math.round(box.width * dpr); cv.height = Math.round(box.height * dpr); view.fitFor = ''; }
+  if (cv.width !== Math.round(box.width * dpr) || cv.height !== Math.round(box.height * dpr)) { cv.width = Math.round(box.width * dpr); cv.height = Math.round(box.height * dpr); }
   view.W = box.width; view.H = box.height; view.dpr = dpr;
   const g = ctx2, r = reg(); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cv.width, cv.height);
   if (!r) return;
@@ -1013,7 +1017,7 @@ function fitView(b, tag) {
   const pad = 20, top = 64, bottom = 36, w = b[2] - b[0], hh = b[3] - b[1];
   view.s = Math.min((view.W - pad * 2) / Math.max(1, w), (view.H - top - bottom) / Math.max(1, hh));
   view.cx = (b[0] + b[2]) / 2; const midY = (b[1] + b[3]) / 2, shift = ((top - bottom) / 2) / view.s;
-  view.cy = tag === 'photo' ? midY - shift : midY + shift; view.fitFor = tag;
+  view.cy = tag === 'photo' ? midY - shift : midY + shift; view.fitFor = tag; view.user = false;
 }
 // The template and everything on it, drawn through M (template mm -> canvas pixels). Used for the
 // screen and for the texture the body wears.
@@ -1117,11 +1121,19 @@ const photoToScreen = (x, y) => [(x - view.cx) * view.s + view.W / 2, (y - view.
 
 /* ---------------- touch on the flat view ---------------- */
 function bindCanvas() {
-  const pts = new Map(); let gest = null, lastTap = 0;
+  // pts: the fingers (or the Pencil) on the flat view. While the Pencil is down it is the only
+  // input: a palm or finger that lands is ignored, and a Pencil that lands on top of a resting
+  // palm takes over from it. Fingers alone: one moves, two pinch and turn.
+  const pts = new Map(); let gest = null, lastTap = 0, pen = null;
   const local = (e) => { const b = cv.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
+  // the Pencil landed on a resting palm: what the palm started is dropped, never taken as a tap
+  const drop = () => { const g = gest; gest = null; pts.clear(); if (g) { if (g.kind === 'brush') { g.kind = 'cancelled'; mask.key = ''; draw(); } else if (g.moved) finish(g); } };
   cv.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (pen != null && e.pointerType !== 'pen') return; // the palm under a Pencil
+    if (e.pointerType === 'pen') { if (pen != null) return; drop(); pen = e.pointerId; }
     try { cv.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-    pts.set(e.pointerId, local(e));
+    pts.set(e.pointerId, local(e)); ui.touching = true;
     if (pts.size === 1) gest = startOne(local(e), e); else if (pts.size === 2) gest = startTwo([...pts.values()], gest);
   });
   cv.addEventListener('pointermove', (e) => {
@@ -1130,14 +1142,26 @@ function bindCanvas() {
     if (pts.size >= 2 && gest.two) moveTwo(gest, [...pts.values()]); else if (pts.size === 1 && !gest.two) moveOne(gest, local(e));
   });
   const end = (e) => {
+    if (e.pointerId === pen) pen = null;
     if (!pts.has(e.pointerId)) return; pts.delete(e.pointerId);
+    if (pts.size === 0) { ui.touching = false; syncOverlay(); }
     if (pts.size === 0 && gest) {
-      const g = gest; gest = null; finish(g, e);
+      const g = gest; gest = null;
+      // a finger brush stroke the system took away (a gesture, an alert) is not kept half drawn
+      if (g.kind === 'brush' && e.type === 'pointercancel') { g.kind = 'cancelled'; mask.key = ''; draw(); }
+      finish(g, e);
       if (!g.moved && e.type === 'pointerup') { const now = performance.now(); if (now - lastTap < 320) { view.fitFor = ''; draw(); } lastTap = now; }
-    } else if (pts.size === 1 && gest && gest.two) { finish(gest, e); gest = { kind: 'pan', start: [...pts.values()][0], v0: { ...view }, moved: true }; }
+    } else if (pts.size === 1 && gest && gest.two) {
+      // one of two fingers lifted: a plant being sized carries on moving with the finger left,
+      // a pinch of the view carries on as a pan
+      const rest = [...pts.values()][0], was = gest; finish(was, e);
+      if (was.kind === 'pieceTwo' && selPiece()) { const pc = selPiece(); gest = { kind: 'piece', id: pc.id, start: rest, v0: { ...view }, moved: true, p0: { x: pc.x, y: pc.y } }; }
+      else gest = { kind: 'pan', start: rest, v0: { ...view }, moved: true };
+    }
   };
-  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
-  cv.addEventListener('wheel', (e) => { e.preventDefault(); const p = local(e), before = fromS(p); view.s *= Math.exp(-e.deltaY * 0.0015); const after = fromS(p); view.cx += before[0] - after[0]; view.cy += photoMode() ? before[1] - after[1] : before[1] - after[1]; draw(); }, { passive: false });
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end); cv.addEventListener('lostpointercapture', end);
+  cv.addEventListener('contextmenu', (e) => e.preventDefault());
+  cv.addEventListener('wheel', (e) => { e.preventDefault(); const p = local(e), before = fromS(p); view.s *= Math.exp(-e.deltaY * 0.0015); const after = fromS(p); view.cx += before[0] - after[0]; view.cy += before[1] - after[1]; view.user = true; draw(); }, { passive: false });
 }
 const fromS = (p) => (photoMode() ? photoFromScreen(...p) : fromScreen(...p));
 function startOne(p, e) {
@@ -1178,7 +1202,7 @@ function moveOne(g, p) {
   const dx = p[0] - g.start[0], dy = p[1] - g.start[1];
   if (!g.moved && Math.hypot(dx, dy) < 4) return; g.moved = true;
   const r = reg();
-  if (g.kind === 'pan') { view.cx = g.v0.cx - dx / view.s; view.cy = photoMode() ? g.v0.cy - dy / view.s : g.v0.cy + dy / view.s; draw(); return; }
+  if (g.kind === 'pan') { view.cx = g.v0.cx - dx / view.s; view.cy = photoMode() ? g.v0.cy - dy / view.s : g.v0.cy + dy / view.s; view.user = true; draw(); return; }
   if (g.kind === 'corner') { beginEdit(); const ph = activePhoto(r), q = g.q0.map((c) => c.slice()); q[g.i] = [Math.max(0, Math.min(ph.pw, g.q0[g.i][0] + dx / view.s)), Math.max(0, Math.min(ph.ph, g.q0[g.i][1] + dy / view.s))]; if (K.quadOk(q)) { ph.quad = q; } draw(); return; }
   if (g.kind === 'lm') { beginEdit(); const ph = activePhoto(r), l = r.existing.landmarks.find((x) => x.id === g.id); l.src[ph.id] = photoFromScreen(...p); draw(); return; }
   if (g.kind === 'brush') { g.stroke.push(fromScreen(...p)); brushPreview(g); return; }
@@ -1187,8 +1211,10 @@ function moveOne(g, p) {
 }
 function startTwo(ps, prev) {
   const r = reg(), mid = [(ps[0][0] + ps[1][0]) / 2, (ps[0][1] + ps[1][1]) / 2], d = Math.hypot(ps[1][0] - ps[0][0], ps[1][1] - ps[0][1]), a = Math.atan2(ps[1][1] - ps[0][1], ps[1][0] - ps[0][0]);
-  if (prev && prev.kind === 'brush') prev.kind = 'cancelled';
+  // a second finger turns a finger brush stroke into a view move: the half stroke is taken back
+  if (prev && prev.kind === 'brush') { prev.kind = 'cancelled'; mask.key = ''; }
   const g = { two: true, mid, d, a, v0: { ...view }, moved: true, kind: 'view' };
+  C.markTried && C.markTried('wrapTouch');
   if (ui.step === 'design' && prev && prev.kind === 'piece') { const pc = selPiece(r); return { ...g, kind: 'pieceTwo', w0: pc.w, r0: pc.rot || 0 }; }
   return g;
 }
@@ -1198,7 +1224,7 @@ function moveTwo(g, ps) {
   const k = d / g.d, s = Math.max(0.05, Math.min(80, g.v0.s * k));
   // keep the spot under the fingers' middle under it
   const at = photoMode() ? [(g.mid[0] - view.W / 2) / g.v0.s + g.v0.cx, (g.mid[1] - view.H / 2) / g.v0.s + g.v0.cy] : [(g.mid[0] - view.W / 2) / g.v0.s + g.v0.cx, g.v0.cy - (g.mid[1] - view.H / 2) / g.v0.s];
-  view.s = s;
+  view.s = s; view.user = true;
   if (photoMode()) { view.cx = at[0] - (mid[0] - view.W / 2) / s; view.cy = at[1] - (mid[1] - view.H / 2) / s; }
   else { view.cx = at[0] - (mid[0] - view.W / 2) / s; view.cy = at[1] + (mid[1] - view.H / 2) / s; }
   draw();
@@ -1369,9 +1395,13 @@ function buildOverlay(r) {
   overlay.tris = idx.length / 3; overlay.uOf = uOf; overlay.hs = hs;
 }
 let overlayQueued = false;
+// While a finger drags on the flat view the leg's copy is redrawn about ten times a second, not
+// every frame: the full-size picture upload each frame made the drag stutter on the iPad.
+let overlayLast = 0;
 function syncOverlay() {
   if (overlayQueued) return; overlayQueued = true;
-  requestAnimationFrame(() => { overlayQueued = false; syncOverlayNow().catch((e) => console.warn(e)); });
+  const wait = ui.touching ? Math.max(0, 100 - (performance.now() - overlayLast)) : 0;
+  setTimeout(() => requestAnimationFrame(() => { overlayQueued = false; overlayLast = performance.now(); syncOverlayNow().catch((e) => console.warn(e)); }), wait);
 }
 async function syncOverlayNow() {
   const r = reg(); if (!ui.open || !r || !tpl(r)) { if (overlay) overlay.set(null, false); return; }
