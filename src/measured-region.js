@@ -69,7 +69,7 @@ export function cleanRegion(raw, hasImage = () => true) {
   const fo = raw.focal;
   if (fo && typeof fo === 'object' && num(fo.deg) && num(fo.at) && num(fo.w) && num(fo.h)) r.focal = { deg: ((fo.deg % 360) + 360) % 360, at: Math.min(1, Math.max(0, fo.at)), w: Math.min(400, Math.max(10, fo.w)), h: Math.min(400, Math.max(10, fo.h)) };
   // approved for printing at a calibration, and the separate fitting check on the real leg
-  if (raw.approved && typeof raw.approved === 'object' && Number.isInteger(raw.approved.calib) && typeof raw.approved.at === 'string') r.approved = { calib: raw.approved.calib, at: raw.approved.at.slice(0, 30) };
+  if (raw.approved && typeof raw.approved === 'object' && Number.isInteger(raw.approved.calib) && typeof raw.approved.at === 'string') { r.approved = { calib: raw.approved.calib, at: raw.approved.at.slice(0, 30) }; if (typeof raw.approved.sig === 'string' && /^[a-z0-9]{1,16}$/.test(raw.approved.sig)) r.approved.sig = raw.approved.sig; }
   if (raw.fitted && typeof raw.fitted === 'object' && typeof raw.fitted.at === 'string') { r.fitted = { at: raw.fitted.at.slice(0, 30), ok: !!raw.fitted.ok }; const n = text(raw.fitted.note, 300); if (n) r.fitted.note = n; }
   return r;
 }
@@ -171,7 +171,7 @@ export function cleanSession(s) {
   if (Array.isArray(s.layers)) o.layers = s.layers.filter((n) => typeof n === 'string').slice(0, 12).map((n) => n.slice(0, 60));
   if (Array.isArray(s.sources)) o.sources = s.sources.filter((n) => typeof n === 'string' && n.length <= 80).slice(0, 50);
   if (typeof s.name === 'string') o.name = s.name.slice(0, 80);
-  if (s.returned && typeof s.returned === 'object' && typeof s.returned.at === 'string') o.returned = { at: s.returned.at.slice(0, 30), how: s.returned.how === 'registered' ? 'registered' : 'exact' };
+  if (s.returned && typeof s.returned === 'object' && typeof s.returned.at === 'string') o.returned = { at: s.returned.at.slice(0, 30), how: ['registered', 'scaled'].includes(s.returned.how) ? s.returned.how : 'exact' };
   return o;
 }
 

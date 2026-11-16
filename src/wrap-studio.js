@@ -11,9 +11,11 @@
 import * as G from './wrap-geometry.js';
 import * as R from './measured-region.js';
 import * as K from './wrap-register.js';
+import * as PP from './print-profiles.js';
+import * as P from './procreate-package.js';
 
 let C = null; // what the app gives the studio (see initWrapStudio)
-const ui = { step: 'measure', view: 'all', sub: 'photos', sel: null, mode: null, brush: 4, holdBefore: false, open: false, fitted: false, lmKey: null };
+const ui = { printKind: 'stencil', printOut: null, cutDrag: null, ppi: 300, pkgFormat: 'psd', pkg: null, review: null, busy: '', step: 'measure', view: 'all', sub: 'photos', sel: null, mode: null, brush: 4, holdBefore: false, open: false, fitted: false, lmKey: null };
 const $s = (q) => root && root.querySelector(q);
 let root = null, cv = null, ctx2 = null, side = null, insp = null;
 const view = { s: 1, cx: 0, cy: 0, W: 1, H: 1, fitFor: '' };
@@ -118,7 +120,7 @@ function build() {
     h('header', {}, h('h2', { id: 'wsTitle', text: r ? r.name : 'Measured wrap' }),
       h('button', { class: 'btn', type: 'button', id: 'wsTall', 'aria-pressed': String(root.classList.contains('tall')), text: root.classList.contains('tall') ? 'Show body' : 'Bigger', onclick: () => { root.classList.toggle('tall'); build(); refresh(); } }),
       h('button', { class: 'btn', type: 'button', id: 'wsDone', text: 'Done', onclick: close })),
-    h('div', { id: 'wsTabs', role: 'tablist' }, ...[['measure', 'Measurements'], ['existing', 'Existing tattoo'], ['design', 'Design']].map(([k, label]) =>
+    h('div', { id: 'wsTabs', role: 'tablist' }, ...[['measure', 'Measurements'], ['existing', 'Existing tattoo'], ['design', 'Design'], ['procreate', 'Procreate'], ['print', 'Print']].map(([k, label]) =>
       h('button', { class: 'btn', type: 'button', role: 'tab', 'data-step': k, 'aria-selected': String(ui.step === k), text: label, onclick: () => { ui.step = k; ui.mode = null; ui.sel = null; build(); refresh(); if (k === 'design') aimAt(90); if (k === 'existing') aimAt(270); } }))),
     h('div', { id: 'wsInsp', 'aria-live': 'polite' }),
     h('div', { id: 'wsMain' },
@@ -200,6 +202,8 @@ function renderSide(r) {
   const keepScroll = side.scrollTop;
   if (ui.step === 'measure') side.replaceChildren(...measurePanel(r));
   else if (ui.step === 'existing') side.replaceChildren(...existingPanel(r));
+  else if (ui.step === 'procreate') side.replaceChildren(...procreatePanel(r));
+  else if (ui.step === 'print') side.replaceChildren(...printPanel(r));
   else side.replaceChildren(...designPanel(r));
   side.scrollTop = keepScroll;
   hint();
@@ -217,7 +221,7 @@ function hint(text) {
 }
 
 function seg(items, current, on, cls = '') {
-  return h('div', { class: 'seg' + (items.length === 4 ? ' four' : '') + (cls ? ' ' + cls : ''), role: 'group' }, ...items.map(([v, label]) =>
+  return h('div', { class: 'seg' + (items.length === 4 ? ' four' : '') + (cls ? ' ' + cls : ''), role: 'group', style: `grid-template-columns:repeat(${items.length},1fr)` }, ...items.map(([v, label]) =>
     h('button', { class: 'btn', type: 'button', 'aria-pressed': String(v === current), 'data-v': String(v), text: label, onclick: () => on(v) })));
 }
 function lenInput(id, mm, onSet, label) {
@@ -524,6 +528,9 @@ async function warped(p) {
 
 /* ---------------- design ---------------- */
 function pieces(r = reg()) { return r?.art?.pieces || []; }
+// what the flat view, the body and the overlap check show: the design, or a returned picture
+// being reviewed before it is used
+function shownPieces(r = reg()) { return ui.review && ui.review.piece ? [ui.review.piece] : pieces(r).filter((p) => !p.hidden); }
 function selPiece(r = reg()) { return pieces(r).find((p) => p.id === ui.sel) || null; }
 function designPanel(r) {
   const ps = pieces(r), p = selPiece(r), u = units(), out = [];
@@ -585,11 +592,358 @@ async function addPieces(files) {
   change(() => { const x = reg(); x.art = x.art || {}; x.art.pieces = [...(x.art.pieces || []), ...added].slice(0, 60); ui.sel = added[added.length - 1].id; });
 }
 
+/* ---------------- Procreate: send the flat shape out, bring the drawing back ---------------- */
+const REF_NAMES = new Set(P.LAYERS.filter((L) => L.key !== 'garden').map((L) => L.name));
+const isRef = (name) => REF_NAMES.has((name || '').trim()) || /^Optional background/.test((name || '').trim());
+const sizeText = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+function procreatePanel(r) {
+  const t = tpl(r), out = []; if (!t) return out;
+  const hi = P.highPpi(t); if (ui.ppi !== 300 && ui.ppi !== hi) ui.ppi = 300;
+  const c = P.packageCanvas(t, ui.ppi), e = r.existing || {};
+  out.push(h('p', { text: 'The flat shape at its real size, as one Procreate document. Draw on Proposed garden; the cactus, its ink, the protected gaps, the landmarks, the seam and alignment marks and a measurement grid come as locked layers to draw round.' }));
+  out.push(h('div', { class: 'row' }, h('span', { text: 'Resolution', style: 'font-size:13px;color:var(--muted)' }),
+    seg(hi > 300 ? [[300, '300 PPI'], [hi, `${hi} PPI`]] : [[300, '300 PPI']], ui.ppi, (v) => { ui.ppi = v; ui.pkg = null; renderSide(reg()); })));
+  out.push(h('div', { class: 'row' }, h('span', { text: 'File', style: 'font-size:13px;color:var(--muted)' }),
+    seg([['psd', 'Layered PSD'], ['png', 'PNG layers']], ui.pkgFormat, (v) => { ui.pkgFormat = v; ui.pkg = null; renderSide(reg()); })));
+  out.push(h('p', { id: 'wsPkgSize', text: `${c.w} × ${c.h} pixels at ${ui.ppi} PPI, ${fmt(c.wMm)} × ${fmt(c.hMm)} with room round the shape for the alignment marks. Transparent, so only what you draw comes back.` + (ui.ppi !== 300 ? ` ${ui.ppi} PPI is the most this size can come back at on an iPad.` : '') }));
+  if (!e.locked) out.push(h('div', { class: 'warnbox', text: e.ink ? 'The existing tattoo is not locked yet. It still goes out as it is now.' : 'The existing tattoo is not traced yet, so its reference layers go out empty. Trace it first under Existing tattoo.' }));
+  if (ui.pkg && ui.pkg.calib === r.calib && ui.pkg.ppi === ui.ppi && ui.pkg.format === ui.pkgFormat) {
+    out.push(h('div', { class: 'okbox', id: 'wsPkgReady', text: `Ready: ${ui.pkg.name}, ${sizeText(ui.pkg.blob.size)}.` }),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: 'wsSendPkg', text: 'Send to Procreate', onclick: sendPackage })));
+  } else {
+    out.push(h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: 'wsMakePkg', disabled: !!ui.busy, text: ui.busy === 'make' ? 'Making it…' : 'Make the Procreate file', onclick: () => makePackage().catch((err) => { ui.busy = ''; C.toast('That file could not be made: ' + (err && err.message || err)); renderSide(reg()); }) })));
+  }
+  out.push(h('p', { text: 'In Procreate draw only on Proposed garden and keep the canvas size. Then Share > PSD and bring that file back here. A Procreate file, or a PNG of just the Proposed garden layer, works too.' }));
+  out.push(h('h3', { class: 'shHead', text: 'Bring it back' }));
+  const inp = h('input', { type: 'file', accept: '.psd,.procreate,image/png,image/vnd.adobe.photoshop,application/octet-stream', hidden: true, id: 'wsBringBackFile' });
+  inp.addEventListener('change', () => { const f = inp.files[0]; inp.value = ''; if (f) bringBack(f).catch((err) => { ui.busy = ''; C.toast('That file could not be read: ' + (err && err.message || err)); renderSide(reg()); }); });
+  out.push(h('div', { class: 'row' }, inp, h('button', { class: 'btn' + (ui.pkg || (r.sessions || []).length ? ' primary' : ''), type: 'button', id: 'wsBringBack', disabled: !!ui.busy, text: ui.busy === 'read' ? 'Reading it…' : 'Bring back from Procreate', onclick: () => inp.click() })));
+  const rv = ui.review;
+  if (rv) {
+    const col = collisions.result, lines = [rv.check.why];
+    if (rv.stale) lines.push('It was drawn on earlier measurements, so it is placed at the size it was drawn for. Check it against the new shape.');
+    if (rv.check.ok) lines.push(col && col.total > 0 ? clashText(col) : (r.existing?.ink ? 'It does not touch the old ink, its clear margin or the protected gaps.' : ''));
+    out.push(h('div', { class: rv.check.ok ? 'box' : 'warnbox', id: 'wsReview' }, ...lines.filter(Boolean).map((x) => h('p', { text: x })),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn', type: 'button', id: 'wsCancelReturn', text: rv.check.ok ? 'Cancel' : 'OK', onclick: () => { ui.review = null; collisions.key = ''; refresh(); } }),
+        rv.check.ok ? h('button', { class: 'btn primary', type: 'button', id: 'wsUseReturn', text: rv.check.how === 'scaled' ? 'Use it at this size' : 'Use it', onclick: useReturn }) : null)));
+  }
+  const ss = (r.sessions || []).slice().reverse();
+  if (ss.length) out.push(h('h3', { class: 'shHead', text: 'Sent to Procreate' }), ...ss.slice(0, 5).map((q) => h('div', { class: 'row', style: 'font-size:14px' },
+    h('span', { style: 'flex:1', text: `${q.name || 'Wrap'} · ${(q.at || '').slice(0, 10)} · ${q.ppi} PPI` + (q.returned ? ` · brought back${q.returned.how === 'exact' ? '' : ' (' + q.returned.how + ')'}` : '') + (q.calib !== r.calib ? ' · earlier measurements' : '') }))));
+  return out;
+}
+
+/* ---------------- print ---------------- */
+const PAPER_LABEL = { letter: 'Letter', a4: 'A4', legal: 'Legal', '8.5x16': '8.5×16', custom: 'Custom' };
+const PRINTER_LABEL = { inkjet: 'Inkjet', laser: 'Laser', thermal: 'Thermal', custom: 'Custom' };
+function printOf(r) { return { paper: 'letter', orient: 'auto', printer: 'inkjet', overlap: PP.OVERLAP_MM, mirror: false, ...(r.print || {}) }; }
+function artBox(r) { const t = tpl(r); return t && { w: t.bounds.w, h: t.bounds.h }; }
+// what the approval covers: the measurements and the placed art
+function artSig(r) {
+  const a = (r.art?.pieces || []).filter((p) => !p.hidden).map((p) => [p.img, p.x, p.y, p.w, p.aspect, p.rot, p.flip].map((v) => (typeof v === 'number' ? +v.toFixed(2) : v)).join(','));
+  let hsh = 0; const str = R.measureKey(r) + '|' + a.join(';'); for (let i = 0; i < str.length; i++) hsh = (hsh * 31 + str.charCodeAt(i)) | 0;
+  return (hsh >>> 0).toString(36);
+}
+function approval(r) {
+  const a = r.approved; if (!a) return { state: 'none' };
+  if (a.calib !== r.calib) return { state: 'stale', why: 'The measurements changed after it was approved.' };
+  if (a.sig && a.sig !== artSig(r)) return { state: 'stale', why: 'The design changed after it was approved.' };
+  return { state: 'ok', at: a.at };
+}
+const dayText = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }); } catch (_) { return (iso || '').slice(0, 10); } };
+function setPrint(fn) { change(() => { const x = reg(); const pr = printOf(x); fn(pr); x.print = pr; }); ui.printOut = null; }
+function printLayout(r) { const box = artBox(r); return box && PP.layoutTiles(box, printOf(r)); }
+function printPanel(r) {
+  const out = [], box = artBox(r); if (!box) return out;
+  const pr = printOf(r), L = PP.layoutTiles(box, pr), ap = approval(r), stencil = ui.printKind === 'stencil';
+  out.push(h('p', { text: `Prints at its measured size, ${fmt(box.w)} × ${fmt(box.h)}, on any paper. The paper only changes how many pages, never the size.` }));
+  out.push(seg([['stencil', 'Stencil'], ['guide', 'Placement guide']], ui.printKind, (v) => { ui.printKind = v; ui.printOut = null; renderSide(reg()); }));
+  out.push(h('p', { text: stencil ? 'Just the new garden as clean lines, for stencil paper. The old cactus and the guides are left off so they never transfer.' : 'For plain paper: the old ink, the gaps to keep open, the landmarks, the cut edges and a 1 cm grid, with the new garden faint. Wrap it round your ankle to check the fit before the stencil.' }));
+  out.push(h('h3', { class: 'shHead', text: 'Paper' }));
+  out.push(h('div', { class: 'seg', style: 'grid-template-columns:repeat(5,1fr)', id: 'wsPaper' }, ...PP.PAPER_ORDER.map((k) => h('button', { class: 'btn', type: 'button', 'data-v': k, 'aria-pressed': String(pr.paper === k), text: PAPER_LABEL[k], onclick: () => setPrint((x) => { x.paper = k; if (k === 'custom' && !x.custom) x.custom = { w: 215.9, h: 279.4 }; }) }))));
+  if (pr.paper === 'custom') { const c = pr.custom || { w: 215.9, h: 279.4 }; out.push(h('div', { class: 'row' }, lenInput('wsPaperW', c.w, (v) => setPrint((x) => { x.custom = { ...(x.custom || c), w: Math.min(2000, Math.max(50, v)) }; }), 'Width'), lenInput('wsPaperH', c.h, (v) => setPrint((x) => { x.custom = { ...(x.custom || c), h: Math.min(2000, Math.max(50, v)) }; }), 'Height'))); }
+  out.push(seg([['auto', 'Auto'], ['landscape', 'Landscape'], ['portrait', 'Portrait']], pr.orient, (v) => setPrint((x) => { x.orient = v; })));
+  out.push(h('h3', { class: 'shHead', text: 'Printer' }));
+  out.push(seg(PP.PRINTER_ORDER.map((k) => [k, PRINTER_LABEL[k]]), pr.printer, (v) => setPrint((x) => { x.printer = v; if (v === 'custom' && !x.margins) x.margins = { ...PP.PRINTERS.custom.margins }; })));
+  const prn = PP.printerOf(pr);
+  if (pr.printer === 'custom') out.push(h('div', { class: 'row' }, lenInput('wsMargin', prn.margins.top, (v) => setPrint((x) => { const m = Math.min(60, Math.max(0, v)); x.margins = { top: m, right: m, bottom: m, left: m }; }), 'Margin all round')));
+  out.push(h('p', { text: `${prn.name}: ${fmt(prn.margins.left, 1)} margins${prn.feed ? `, ${fmt(prn.feed, 1)} more at each end it feeds` : ''}, drawn at ${PP.rasterDpi(box, prn.dpi)} dots per inch, on ${prn.media.toLowerCase()}.` }));
+  if (stencil) {
+    out.push(seg([[false, 'As drawn'], [true, 'Mirror once']], !!pr.mirror, (v) => setPrint((x) => { x.mirror = v; })));
+    out.push(h('p', { text: pr.mirror ? 'Mirrored here. Leave the printer’s own mirror setting off, or it flips back.' : 'Most stencil paper flips the picture onto the skin by itself. Mirror here only if yours needs it, and never in the printer too.' }));
+  }
+  out.push(h('div', { class: 'row' }, h('span', { text: 'Overlap', style: 'font-size:13px;color:var(--muted)' }), h('div', { style: 'flex:1' }, seg([[10, '10 mm'], [15, '15 mm'], [20, '20 mm']], pr.overlap, (v) => setPrint((x) => { x.overlap = v; })))));
+  out.push(h('div', { class: L.ok ? 'box' : 'warnbox', id: 'wsLayout' }, h('p', { text: PP.layoutNote(L) }),
+    L.ok && L.tiles.length > 1 ? h('p', { text: 'The joins show on the flat view. Slide one to move it off a flower; the pages still overlap by the same amount.' }) : null));
+  if (L.ok) L.cuts.x.forEach((c, i) => {
+    const others = L.cuts.x.filter((_, j) => j !== i), ext = (v) => PP.clampCuts([...others, v].sort((a, b) => a - b), box.w, L.area.w, L.overlap)[[...others, v].sort((a, b) => a - b).indexOf(v)];
+    const lo = Math.ceil(ext(-1e9)), hi = Math.floor(ext(1e9));
+    const label = h('span', { style: 'font-size:13px;color:var(--muted);min-width:96px', text: `Join ${'ABCDEFGH'[i]} at ${fmtT(c)}` });
+    const sl = slider(lo, Math.max(lo + 1, hi), 1, Math.round(c), (v, done) => {
+      ui.cutDrag = { i, at: v }; label.textContent = `Join ${'ABCDEFGH'[i]} at ${fmtT(v)}`; draw();
+      if (done) { ui.cutDrag = null; setPrint((x) => { const xs = L.cuts.x.slice(); xs[i] = v; x.cuts = [...xs.map((at) => ({ axis: 'x', at })), ...L.cuts.y.map((at) => ({ axis: 'y', at }))]; }); }
+    });
+    sl.id = 'wsCut' + i; sl.style.flex = '1';
+    out.push(h('div', { class: 'row' }, label, sl));
+  });
+  if (L.ok && L.cuts.x.length && (pr.cuts || []).length) out.push(h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', id: 'wsCutsReset', text: 'Even joins', onclick: () => setPrint((x) => { x.cuts = []; }) })));
+  // approval: of this design at these measurements; anything that changes it shows here and on the print
+  out.push(h('h3', { class: 'shHead', text: 'Approval' }));
+  if (ap.state === 'ok') out.push(h('div', { class: 'okbox', id: 'wsApproved', text: `Approved for the stencil on ${dayText(ap.at)}, at these measurements and this design.` }), h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', id: 'wsUnapprove', text: 'Take approval off', onclick: () => { change(() => { delete reg().approved; }); ui.printOut = null; } })));
+  else out.push(h('div', { class: 'warnbox', id: 'wsApproved', text: ap.state === 'stale' ? `${ap.why} Approve it again before you make the stencil.` : 'Not approved yet. You can still print a draft; it says Draft on every page.' }),
+    h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', id: 'wsApprove', disabled: !pieces(r).some((p) => !p.hidden), text: ap.state === 'stale' ? 'Approve again' : 'Approve this design', onclick: () => { change(() => { const x = reg(); x.approved = { calib: x.calib, at: nowIso(), sig: artSig(x) }; }); ui.printOut = null; C.markTried && C.markTried('wrapPrint'); } })));
+  // making and sharing are separate, so the share sheet opens straight from the tap
+  const want = printKey(r);
+  if (ui.printOut && ui.printOut.key === want) out.push(h('div', { class: 'okbox', id: 'wsPrintReady', text: `Ready: ${ui.printOut.name}, ${ui.printOut.pages} page${ui.printOut.pages > 1 ? 's' : ''}, ${sizeText(ui.printOut.blob.size)}. In the print options choose 100% or Actual size.` }),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: 'wsSendPrint', text: 'Print or share', onclick: sendPrint })));
+  else out.push(h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: 'wsMakePrint', disabled: !L.ok || !!ui.busy, text: ui.busy === 'print' ? 'Making it…' : stencil ? 'Make the stencil PDF' : 'Make the placement guide PDF', onclick: () => makePrint().catch((err) => { ui.busy = ''; C.toast('That PDF could not be made: ' + (err && err.message || err)); renderSide(reg()); }) })));
+  // the fitting check on the real leg
+  out.push(h('h3', { class: 'shHead', text: 'Fitting check' }));
+  const f = r.fitted;
+  out.push(h('p', { id: 'wsFitText', text: f ? (f.ok ? `Fitted on ${dayText(f.at)}: the printed guide wrapped round and met itself.` : `Did not fit on ${dayText(f.at)}${f.note ? ': ' + f.note : ''}. Measure again under Measurements.`) : 'Print the placement guide, cut round its outline and wrap it round your ankle. The cut edges should meet with the cactus at the back.' }));
+  const note = h('input', { type: 'text', id: 'wsFitNote', placeholder: 'What was off (optional)', 'aria-label': 'What was off', value: f && !f.ok && f.note ? f.note : '' });
+  out.push(h('div', { class: 'row' },
+    h('button', { class: 'btn', type: 'button', id: 'wsFitYes', text: 'It fits', 'aria-pressed': String(!!(f && f.ok)), onclick: () => change(() => { reg().fitted = { at: nowIso(), ok: true }; }) }),
+    h('button', { class: 'btn', type: 'button', id: 'wsFitNo', text: 'It doesn’t fit', 'aria-pressed': String(!!(f && !f.ok)), onclick: () => change(() => { const n = note.value.trim().slice(0, 300); reg().fitted = { at: nowIso(), ok: false, ...(n ? { note: n } : {}) }; }) })), note);
+  return out;
+}
+function printKey(r) { return JSON.stringify([ui.printKind, printOf(r), r.calib, artSig(r), approval(r).state, r.existing?.ink, r.existing?.gap, r.existing?.buffer]); }
+// The art for the PDF: the whole box at real size, black lines for the stencil or the guide in colour
+async function printPicture(r, kind, dpi) {
+  const t = tpl(r), c = G.canvasFor(t, { ppi: dpi, padMm: 0 }), ppmm = c.w / c.wMm, sy = c.h / c.hMm, M = [ppmm, 0, 0, -sy, c.originMm[0] * ppmm, c.originMm[1] * sy];
+  const cnv = document.createElement('canvas'); cnv.width = c.w; cnv.height = c.h;
+  const g = cnv.getContext('2d', { willReadFrequently: true });
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.w, c.h);
+  const s = { marks: [] };
+  if (kind === 'stencil') {
+    await drawLayer('garden', g, M, r, s, ppmm);
+    const { stencilLines } = await import('./stencil.js');
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    const res = stencilLines(g.getImageData(0, 0, c.w, c.h).data, c.w, c.h, { detail: 0.5, line: Math.max(2, Math.round(0.4 * ppmm)), solid: Math.max(6, Math.round(4 * ppmm)) });
+    const data = new Uint8Array(c.w * c.h); for (let i = 0; i < data.length; i++) data[i] = res.lines[i] ? 0 : 255;
+    return { w: c.w, h: c.h, channels: 1, data, lines: res.linePixels };
+  }
+  const layer = async (key, alpha = 1) => { const tmp = document.createElement('canvas'); tmp.width = c.w; tmp.height = c.h; const tg = tmp.getContext('2d'); await drawLayer(key, tg, M, r, s, ppmm); g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = alpha; g.drawImage(tmp, 0, 0); g.globalAlpha = 1; };
+  await layer('grid', 0.45); await layer('gap', 0.5); await layer('ink', 0.75); await layer('garden', 0.35); await layer('landmarks'); await layer('marks');
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  const px = g.getImageData(0, 0, c.w, c.h).data, data = new Uint8Array(c.w * c.h * 3);
+  for (let i = 0, j = 0; i < px.length; i += 4, j += 3) { data[j] = px[i]; data[j + 1] = px[i + 1]; data[j + 2] = px[i + 2]; }
+  return { w: c.w, h: c.h, channels: 3, data };
+}
+async function makePrint() {
+  const r = reg(), t = tpl(r); if (!t || ui.busy) return null;
+  const kind = ui.printKind, pr = printOf(r), box = artBox(r), L = PP.layoutTiles(box, pr); if (!L.ok) throw new Error(L.why);
+  ui.busy = 'print'; renderSide(r); await new Promise((res) => setTimeout(res, 30));
+  const dpi = PP.rasterDpi(box, PP.printerOf(pr).dpi, kind === 'stencil' ? 6e6 : 8e6);
+  const picture = await printPicture(r, kind, dpi);
+  const b = t.bounds, outline = kind === 'guide' ? G.outline(t, 160).map(([x, y]) => [x - b.minX, b.maxY - y]) : null;
+  const ap = approval(r);
+  const status = ap.state === 'ok' ? `Approved for the stencil on ${dayText(ap.at)}.` : ap.state === 'stale' ? `Draft: ${ap.why.toLowerCase().replace(/\.$/, '')}, not approved again yet.` : 'Draft: not approved yet.';
+  const { measuredPdf } = await import('./measured-print.js'), { deflateBrowser } = await import('./pdf-writer.js');
+  const bytes = await measuredPdf({ kind, L, art: box, picture, mirror: kind === 'stencil' && !!pr.mirror, outline, title: r.name || 'Measured wrap', paperName: pr.paper === 'custom' ? `Custom ${fmtT(PP.paperOf(pr, 'portrait').w)} x ${fmtT(PP.paperOf(pr, 'portrait').h)}` : PP.PAPERS[pr.paper].name, status, deflate: deflateBrowser });
+  const name = `${r.name || 'Measured wrap'} ${kind === 'stencil' ? 'stencil' : 'placement guide'} ${(PP.PAPERS[pr.paper] || PP.PAPERS.letter).name}.pdf`.replace(/[\\/:*?"<>|]/g, '');
+  ui.printOut = { blob: new Blob([bytes], { type: 'application/pdf' }), name, pages: L.tiles.length, key: printKey(r), dpi, kind, lines: picture.lines };
+  C.markTried && C.markTried('wrapPrint');
+  ui.busy = ''; renderSide(reg());
+  return { name, size: bytes.length, pages: L.tiles.length, dpi };
+}
+async function sendPrint() {
+  if (!ui.printOut) return;
+  const { shareOrDownload } = await import('./share.js');
+  const how = await shareOrDownload(ui.printOut.name, ui.printOut.blob);
+  if (how === 'downloaded') C.toast(`Saved ${ui.printOut.name}. Print it at 100% / Actual size.`);
+}
+// the joins between pages on the flat view, while the Print step is open
+function drawJoins(g, M, r) {
+  const t = tpl(r), box = artBox(r), L = printLayout(r); if (!L || !L.ok) return;
+  const cuts = L.cuts.x.slice(); if (ui.cutDrag) cuts[ui.cutDrag.i] = ui.cutDrag.at;
+  const b = t.bounds, s = Math.abs(M[0]);
+  setAffine(g, M); g.save(); g.strokeStyle = '#e8a33d'; g.lineWidth = 2 / s;
+  cuts.forEach((c, i) => {
+    const x = b.minX + c;
+    g.setLineDash([6 / s, 4 / s]); g.beginPath(); g.moveTo(x, b.minY - 4); g.lineTo(x, b.maxY + 4); g.stroke(); g.setLineDash([]);
+    g.globalAlpha = 0.15; g.fillStyle = '#e8a33d'; g.fillRect(x - L.overlap / 2, b.minY, L.overlap, b.h); g.globalAlpha = 1;
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); const q = [M[0] * x + M[4], M[3] * (b.maxY + 4) + M[5]]; g.font = `600 ${13 * (view.dpr || 1)}px -apple-system, system-ui, sans-serif`; g.fillStyle = '#e8a33d'; g.textAlign = 'center'; g.fillText('Join ' + 'ABCDEFGH'[i], q[0], q[1] - 4 * (view.dpr || 1)); g.restore();
+  });
+  g.restore();
+}
+
+// the canvas pictures of one layer, drawn a strip of rows at a time
+async function drawLayer(key, g, M, r, s, ppmm) {
+  const t = tpl(r), e = r.existing || {}, ol = G.outline(t, 160);
+  const px = (x, y) => [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]];
+  const text = (str, x, y, mm, align = 'center', colr = '#000') => { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.font = `600 ${Math.max(8, mm * ppmm)}px -apple-system, system-ui, sans-serif`; g.textAlign = align; g.fillStyle = colr; const q = px(x, y); g.fillText(str, q[0], q[1]); g.restore(); };
+  const path = (pts) => { g.beginPath(); pts.forEach((q, i) => (i ? g.lineTo(...q) : g.moveTo(...q))); };
+  if (key === 'background') { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#fff'; g.fillRect(0, 0, g.canvas.width, g.canvas.height); g.restore(); return; }
+  if (key === 'grid') {
+    setAffine(g, M); path(ol); g.closePath(); g.save(); g.clip(); g.strokeStyle = '#6b6b6b';
+    for (let u = 10, k = 1; u < t.slant; u += 10, k++) { g.lineWidth = (k % 5 ? 0.12 : 0.3); path(Array.from({ length: 97 }, (_, i) => G.point(t, -0.5 + i / 96, u))); g.stroke(); }
+    const mid = G.circAt(t, t.slant / 2), n = Math.floor(mid / 10);
+    for (let k = -Math.floor(n / 2); k <= Math.floor(n / 2); k++) { const f = k * 10 / mid; if (Math.abs(f) >= 0.5) continue; g.lineWidth = k % 5 ? 0.12 : 0.3; path([G.point(t, f, 0), G.point(t, f, t.slant)]); g.stroke(); }
+    g.restore(); return;
+  }
+  if (key === 'marks') {
+    setAffine(g, M); g.strokeStyle = '#000'; g.lineWidth = 0.35; path(ol); g.closePath(); g.stroke();
+    for (const sg of t.segs.slice(1)) { path(Array.from({ length: 97 }, (_, i) => G.point(t, -0.5 + i / 96, sg.u0))); g.stroke(); }
+    // where each side of the limb falls, as ticks under the bottom ring
+    for (const [deg, name] of [[0, 'Inside'], [90, 'Front'], [180, 'Outside'], [270, 'Back']]) {
+      const f = K.fAt(deg, r.seam, r.limb); if (Math.abs(f) > 0.49) continue;
+      setAffine(g, M); path([G.point(t, f, -1), G.point(t, f, 3)]); g.lineWidth = 0.35; g.stroke(); const q = G.point(t, f, -4); text(name, q[0], q[1], 2.6);
+    }
+    for (const side of [-0.5, 0.5]) { const q = G.point(t, side, t.slant / 2); text('Cut', q[0] + side * 9, q[1], 2.6); }
+    if (r.focal) { const fo = r.focal, cc = G.point(t, K.fAt(fo.deg, r.seam, r.limb), fo.at * t.slant); setAffine(g, M); g.setLineDash([2, 1.5]); g.lineWidth = 0.3; roundRect(g, cc[0] - fo.w / 2, cc[1] - fo.h / 2, fo.w, fo.h, 6); g.stroke(); g.setLineDash([]); text('Front focal point', cc[0], cc[1] + fo.h / 2 + 1.5, 2.6); }
+    // the four registration targets, outside the shape: a ring and a cross, MARK_MM across
+    setAffine(g, M); g.lineWidth = 0.5;
+    for (const [x, y] of s.marks) { const a = P.MARK_MM / 2 - 0.25; g.beginPath(); g.arc(x, y, P.MARK_MM * 0.33, 0, Math.PI * 2); g.moveTo(x - a, y); g.lineTo(x + a, y); g.moveTo(x, y - a); g.lineTo(x, y + a); g.stroke(); }
+    return;
+  }
+  if (key === 'landmarks') {
+    for (const l of e.landmarks || []) if (l.at) { setAffine(g, M); g.fillStyle = '#d0202a'; g.beginPath(); g.arc(l.at[0], l.at[1], 1.1, 0, Math.PI * 2); g.fill(); text(l.name, l.at[0] + 2, l.at[1] + 1, 2.4, 'start', '#d0202a'); }
+    return;
+  }
+  if (key === 'ink' || key === 'gap') {
+    const m = (e.ink || e.gap) ? await masks(false) : null; if (!m) return;
+    g.save(); g.imageSmoothingEnabled = true; setAffine(g, M, maskToTpl(m));
+    if (key === 'ink' && m.ink && e.ink) g.drawImage(tint(m.ink, '#000000'), 0, 0);
+    if (key === 'gap') { if (m.gap && e.gap) g.drawImage(tint(m.gap, '#2f7fd6'), 0, 0); if (m.ink && e.ink) { const ring = bufferRing(m, e.buffer ?? 2); if (ring) g.drawImage(ring, 0, 0); } }
+    g.restore(); return;
+  }
+  if (key === 'cactus') {
+    for (const p of e.photos || []) { if (!p.fit || p.id !== (e.active || e.photos[0].id)) continue; const pic = await warped(p); if (!pic) continue; const st = straightOf(p); g.save(); setAffine(g, M, fitAffine(p.fit, st.w, st.h)); g.drawImage(pic, 0, 0, st.w, st.h); g.restore(); }
+    return;
+  }
+  if (key === 'garden') {
+    for (const p of pieces(r)) { if (p.hidden) continue; const im = await C.loadImg(p.img); if (!im) continue; g.save(); setAffine(g, M, pieceAffine(p, im)); g.drawImage(im, 0, 0, im.naturalWidth, im.naturalHeight); g.restore(); }
+  }
+}
+
+// Makes the document ahead of Share, so the share sheet opens straight from the tap
+async function makePackage() {
+  const r = reg(), t = tpl(r); if (!t || ui.busy) return null;
+  ui.busy = 'make'; renderSide(r);
+  await new Promise((res) => setTimeout(res, 30));
+  const s = P.makeSession(r, t, { ppi: ui.ppi, at: nowIso(), sources: pieces(r).filter((p) => !p.hidden).map((p) => p.id) });
+  const ppmm = s.w / s.wMm, sy = s.h / s.hMm, M = [ppmm, 0, 0, -sy, s.originMm[0] * ppmm, s.originMm[1] * sy];
+  const layers = P.psdLayers(s); // bottom first
+  let blob, name;
+  if (ui.pkgFormat === 'png') {
+    if (s.w * s.h > P.MAX_PIXELS) throw new Error('too big for PNG layers at this resolution; use 300 PPI or the layered PSD');
+    const { zipStored } = await import('./obj-export.js');
+    const cnv = document.createElement('canvas'); cnv.width = s.w; cnv.height = s.h; const g = cnv.getContext('2d'), files = [];
+    for (const L of P.LAYERS) {
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, s.w, s.h); await drawLayer(L.key, g, M, r, s, ppmm);
+      const b = await new Promise((res) => cnv.toBlob(res, 'image/png')); files.push({ name: P.pngName(L), data: new Uint8Array(await b.arrayBuffer()) });
+    }
+    files.push({ name: 'manifest.json', data: new TextEncoder().encode(JSON.stringify(P.manifest(s, r), null, 2)) });
+    blob = new Blob([zipStored(files)], { type: 'application/zip' }); name = s.name + ' layers.zip';
+  } else {
+    const { writePsd, StripPacker } = await import('./psd.js');
+    const rows = Math.max(1, Math.min(2048, Math.floor(P.MAX_PIXELS / 2 / s.w)));
+    const strip = document.createElement('canvas'), comp = document.createElement('canvas'); strip.width = comp.width = s.w;
+    const packs = layers.map(() => new StripPacker(4)), merged = new StripPacker(3);
+    for (let y0 = 0; y0 < s.h; y0 += rows) {
+      const n = Math.min(rows, s.h - y0); strip.height = comp.height = n;
+      const g = strip.getContext('2d', { willReadFrequently: true }), cg = comp.getContext('2d'), Ms = [M[0], M[1], M[2], M[3], M[4], M[5] - y0];
+      cg.setTransform(1, 0, 0, 1, 0, 0); cg.fillStyle = '#fff'; cg.fillRect(0, 0, s.w, n);
+      for (let i = 0; i < layers.length; i++) {
+        g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, s.w, n); await drawLayer(layers[i].key, g, Ms, r, s, ppmm);
+        g.setTransform(1, 0, 0, 1, 0, 0); packs[i].add(g.getImageData(0, 0, s.w, n).data, s.w, n);
+        if (!layers[i].hidden) { cg.globalAlpha = layers[i].opacity / 255; cg.drawImage(strip, 0, 0); cg.globalAlpha = 1; }
+      }
+      merged.add(cg.getImageData(0, 0, s.w, n).data, s.w, n);
+      await new Promise((res) => setTimeout(res, 0));
+    }
+    blob = writePsd({ width: s.w, height: s.h, ppi: s.ppi, merged: { packed: merged.packed }, layers: layers.map((L, i) => ({ name: L.name, packed: packs[i].packed, locked: L.locked, hidden: L.hidden, opacity: L.opacity })) });
+    name = s.name + '.psd';
+  }
+  change(() => { const x = reg(); x.sessions = [...(x.sessions || []), s].slice(-10); });
+  C.markTried && C.markTried('wrapProcreate');
+  ui.pkg = { blob, name, calib: r.calib, ppi: ui.ppi, format: ui.pkgFormat, session: s.id };
+  ui.busy = ''; renderSide(reg());
+  return { name, size: blob.size, session: s };
+}
+async function sendPackage() {
+  if (!ui.pkg) return;
+  const { shareOrDownload } = await import('./share.js');
+  const how = await shareOrDownload(ui.pkg.name, ui.pkg.blob);
+  if (how === 'downloaded') C.toast(`Saved ${ui.pkg.name}. Open it in Procreate.`);
+}
+
+// Reads what came back, checks it against the trip it belongs to, and shows it for review.
+async function bringBack(file) {
+  const r = reg(); if (!r || ui.busy) return null;
+  ui.busy = 'read'; renderSide(r);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let w = 0, hgt = 0, names = [], garden = null, marksA = null, flattened = false;
+  const isPsd = bytes[0] === 0x38 && bytes[1] === 0x42 && bytes[2] === 0x50 && bytes[3] === 0x53, isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+  if (isPsd) {
+    const { readPsd } = await import('./psd.js');
+    const d = readPsd(bytes, { merged: false, want: (L) => L.name.trim() === P.MARKS || (!isRef(L.name) && !L.hidden) });
+    w = d.width; hgt = d.height; names = d.layers.map((L) => L.name);
+    const full = (L) => { const lw = L.right - L.left, lh = L.bottom - L.top, a = new Uint8ClampedArray(lw * lh * 4), px = L.pixels; for (let i = 0; i < lw * lh; i++) { a[i * 4] = px[0]?.[i] ?? 0; a[i * 4 + 1] = px[1]?.[i] ?? 0; a[i * 4 + 2] = px[2]?.[i] ?? 0; a[i * 4 + 3] = px[-1] ? px[-1][i] : 255; } return { a, lw, lh }; };
+    const cnv = document.createElement('canvas'); cnv.width = w; cnv.height = hgt; const g = cnv.getContext('2d'), tmp = document.createElement('canvas');
+    let any = false;
+    for (const L of d.layers) {
+      const lw = L.right - L.left, lh = L.bottom - L.top;
+      if (L.name.trim() === P.MARKS && lw && lh) { const { a } = full(L); marksA = new Uint8Array(w * hgt); for (let y = 0; y < lh; y++) for (let x = 0; x < lw; x++) { const X = L.left + x, Y = L.top + y; if (X >= 0 && Y >= 0 && X < w && Y < hgt) marksA[Y * w + X] = a[(y * lw + x) * 4 + 3]; } continue; }
+      if (isRef(L.name) || L.hidden || !lw || !lh) continue;
+      const { a } = full(L); tmp.width = lw; tmp.height = lh; tmp.getContext('2d').putImageData(new ImageData(a, lw, lh), 0, 0);
+      g.globalAlpha = (L.opacity ?? 255) / 255; g.drawImage(tmp, L.left, L.top); g.globalAlpha = 1; any = true;
+    }
+    if (!any) throw new Error('there is nothing drawn on Proposed garden');
+    garden = cnv;
+  } else if (isZip) {
+    const { readProcreate } = await import('./procreate-file.js');
+    const d = await readProcreate(bytes); w = d.width; hgt = d.height; names = d.layers.map((L) => L.name);
+    const cnv = document.createElement('canvas'); cnv.width = w; cnv.height = hgt; const g = cnv.getContext('2d'), tmp = document.createElement('canvas'); tmp.width = w; tmp.height = hgt;
+    let any = false;
+    for (const L of d.layers.slice().reverse()) { // bottom first
+      if ((L.name || '').trim() === P.MARKS) { const a = await L.readNative(); marksA = new Uint8Array(w * hgt); for (let i = 0; i < w * hgt; i++) marksA[i] = a[i * 4 + 3]; continue; }
+      if (isRef(L.name) || L.hidden || !L.tiles) continue;
+      tmp.getContext('2d').putImageData(new ImageData(await L.readNative(), w, hgt), 0, 0); g.globalAlpha = L.opacity ?? 1; g.drawImage(tmp, 0, 0); g.globalAlpha = 1; any = true;
+    }
+    if (!any) throw new Error('there is nothing drawn on Proposed garden');
+    garden = cnv;
+  } else {
+    const url = URL.createObjectURL(file);
+    try {
+      const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('not a picture')); i.src = url; });
+      w = im.naturalWidth; hgt = im.naturalHeight; if (w * hgt > P.MAX_PIXELS * 1.05) throw new Error('the picture is too big to read on this device');
+      const cnv = document.createElement('canvas'); cnv.width = w; cnv.height = hgt; const g = cnv.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0);
+      const a = g.getImageData(0, 0, w, hgt).data; marksA = new Uint8Array(w * hgt); let opaque = 0; for (let i = 0; i < w * hgt; i++) { marksA[i] = a[i * 4 + 3]; if (a[i * 4 + 3] === 255) opaque++; }
+      flattened = opaque > 0.97 * w * hgt; garden = cnv;
+    } finally { URL.revokeObjectURL(url); }
+  }
+  const match = P.matchSession(r.sessions, { w, h: hgt, names }), s = match && match.session;
+  let found = null;
+  if (s && marksA && !(w === s.w && hgt === s.h)) found = P.findMarks(marksA, w, hgt, (s.w / s.wMm) * (w / s.w));
+  let check = P.checkReturn(s, { w, h: hgt, found });
+  if (!isPsd && !isZip && (flattened || (found && check.ok))) check = { ok: false, how: 'refuse', why: 'This picture has the reference layers flattened into it (the cactus, grid or marks). In Procreate, share just the Proposed garden layer as a PNG, or bring back the PSD.' };
+  ui.review = { check, session: s, stale: !!(s && P.staleSession(s, r)), w, h: hgt };
+  if (check.ok) {
+    const piece = P.returnedPiece(s, check, w, hgt);
+    ui.review.piece = { id: uid(), img: C.putImage(garden.toDataURL('image/png')), name: 'From Procreate', from: s.id, x: piece.x, y: piece.y, w: piece.w, aspect: piece.aspect, rot: 0, flip: false, pw: w, ph: hgt, ppi: Math.round(piece.ppi) };
+  }
+  ui.busy = ''; ui.view = 'all'; collisions.key = ''; refresh(); scheduleCollisions();
+  return { ok: check.ok, how: check.how, why: check.why };
+}
+function useReturn() {
+  const rv = ui.review; if (!rv || !rv.check.ok || !rv.piece) return;
+  change(() => {
+    const x = reg(), a = x.art || (x.art = {});
+    if (a.pieces && a.pieces.length) a.saved = [...(a.saved || []), { id: uid(), name: `Before Procreate ${nowIso().slice(5, 10)}`, at: nowIso(), pieces: JSON.parse(JSON.stringify(a.pieces)) }].slice(-12);
+    a.pieces = [rv.piece];
+    const s = (x.sessions || []).find((q) => q.id === rv.session.id); if (s) s.returned = { at: nowIso(), how: rv.check.how };
+  });
+  ui.review = null; ui.sel = null; collisions.key = ''; C.toast('The garden from Procreate is on the wrap. The plants before it are kept as a design version.'); refresh();
+}
+
 /* ---------------- collisions ---------------- */
 const collisions = { key: '', result: null, img: null, timer: 0 };
 async function checkCollisions() {
   const r = reg(); if (!r) return;
-  const e = r.existing || {}, ps = pieces(r).filter((p) => !p.hidden);
+  const e = r.existing || {}, ps = shownPieces(r);
   const k = JSON.stringify([e.ink, e.gap, e.buffer ?? 2, ps, e.maskO]);
   if (collisions.key === k) return; collisions.key = k;
   if (!ps.length || (!e.ink && !e.gap)) { collisions.result = null; collisions.img = null; return; }
@@ -609,7 +963,7 @@ async function checkCollisions() {
   }
   g.clearRect(0, 0, w, hh); g.putImageData(out, 0, 0);
   collisions.result = { ink, buffer, gap, total: ink + buffer + gap }; collisions.img = art;
-  if (ui.step === 'design') renderSide(r); draw(); syncOverlay();
+  if (ui.step === 'design' || ui.step === 'procreate') renderSide(r); draw(); syncOverlay();
 }
 function scheduleCollisions() { clearTimeout(collisions.timer); collisions.timer = setTimeout(() => { checkCollisions().catch(() => {}); }, 120); }
 
@@ -690,8 +1044,8 @@ async function drawContent(g, M, r, o = {}) {
   if (m && m.gap && prot) { g.save(); setAffine(g, M, maskToTpl(m)); g.globalAlpha = 0.55; g.drawImage(tint(m.gap, '#3a8dde'), 0, 0); g.restore(); }
   if (m && m.ink && prot) { const ring = bufferRing(m, e.buffer ?? 2); if (ring) { g.save(); setAffine(g, M, maskToTpl(m)); g.globalAlpha = 0.6; g.drawImage(ring, 0, 0); g.restore(); } }
   // the new plants
-  if (showNew) for (const p of pieces(r)) {
-    if (p.hidden) continue; const im = await C.loadImg(p.img); if (!im) continue;
+  if (showNew) for (const p of shownPieces(r)) {
+    const im = await C.loadImg(p.img); if (!im) continue;
     g.save(); if (prot) g.globalAlpha = 0.45; setAffine(g, M, pieceAffine(p, im)); g.drawImage(im, 0, 0, im.naturalWidth, im.naturalHeight); g.restore();
   }
   if (showNew && collisions.img && m) { g.save(); setAffine(g, M, maskToTpl(m)); g.drawImage(collisions.img, 0, 0); g.restore(); }
@@ -701,6 +1055,7 @@ async function drawContent(g, M, r, o = {}) {
   g.beginPath(); ol.forEach((q, i) => (i ? g.lineTo(...q) : g.moveTo(...q))); g.closePath(); g.stroke();
   for (const sg of t.segs.slice(1)) { g.beginPath(); for (let i = 0; i <= 48; i++) { const q = G.point(t, -0.5 + i / 48, sg.u0); i ? g.lineTo(...q) : g.moveTo(...q); } g.stroke(); }
   if (o.labels) labels(g, r, t, o);
+  if (o.labels && ui.step === 'print') drawJoins(g, M, r);
 }
 function roundRect(g, x, y, w, hh, rr) { g.beginPath(); g.moveTo(x + rr, y); g.lineTo(x + w - rr, y); g.quadraticCurveTo(x + w, y, x + w, y + rr); g.lineTo(x + w, y + hh - rr); g.quadraticCurveTo(x + w, y + hh, x + w - rr, y + hh); g.lineTo(x + rr, y + hh); g.quadraticCurveTo(x, y + hh, x, y + hh - rr); g.lineTo(x, y + rr); g.quadraticCurveTo(x, y, x + rr, y); g.closePath(); }
 function grid(g, M, t, colr) {
@@ -1058,6 +1413,14 @@ function testApi() {
     toScreen, fromScreen, photoToScreen, warnings: () => warnings(reg()), aimAt,
     setLandmark: (key, xy) => change(() => { const r = reg(), p = activePhoto(r), e = ex(r); e.landmarks = e.landmarks || []; let l = e.landmarks.find((x) => x.key === key); if (!l) { l = { id: uid(), key, name: landmarkName(key) }; e.landmarks.push(l); } l.src = { ...(l.src || {}), [p.id]: xy }; }),
     addPhotoData: async (dataUrl, name) => { const im = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = dataUrl; }); const p = { id: uid(), img: C.putImage(dataUrl), pw: im.naturalWidth, ph: im.naturalHeight, name }; change(() => { const e = ex(reg()); e.photos = [...(e.photos || []), p]; e.active = e.active || p.id; if (!e.landmarks) e.landmarks = K.LANDMARKS.slice(0, 4).map((l) => ({ id: uid(), key: l.key, name: l.name })); }); return p.id; },
+    makePackage: async (opts = {}) => { if (opts.ppi) ui.ppi = opts.ppi; if (opts.format) ui.pkgFormat = opts.format; const res = await makePackage(); return res && { name: res.name, size: res.size, session: res.session }; },
+    packageBase64: async () => { if (!ui.pkg) return null; const u = new Uint8Array(await ui.pkg.blob.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode(...u.subarray(i, i + 32768)); return btoa(s); },
+    bringBackBase64: async (b64, name, type = 'application/octet-stream') => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return bringBack(new File([u], name, { type })); },
+    review: () => ui.review && { ok: ui.review.check.ok, how: ui.review.check.how, why: ui.review.check.why, piece: ui.review.piece ? { ...ui.review.piece } : null, stale: ui.review.stale },
+    useReturn, highPpi: () => P.highPpi(tpl()),
+    makePrint: async (kind = 'stencil') => { ui.printKind = kind; return makePrint(); }, printBase64: async () => { if (!ui.printOut) return null; const u = new Uint8Array(await ui.printOut.blob.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode(...u.subarray(i, i + 32768)); return btoa(s); }, printLayout: () => printLayout(reg()), approval: () => approval(reg()), setPrint: (o) => setPrint((x) => Object.assign(x, o)), artSig: () => artSig(reg()),
+    // the visible new art rasterised on the template at ppmm pixels per mm (alpha only, base64)
+    artAlpha: async (ppmm = 4) => { const t = tpl(), b = t.bounds, w = Math.ceil((b.w + 30) * ppmm), hh = Math.ceil((b.h + 30) * ppmm), c = document.createElement('canvas'); c.width = w; c.height = hh; const g = c.getContext('2d'); const M = [ppmm, 0, 0, -ppmm, (15 - b.minX) * ppmm, (b.maxY + 15) * ppmm]; for (const p of shownPieces()) { const im = await C.loadImg(p.img); if (!im) continue; g.save(); setAffine(g, M, pieceAffine(p, im)); g.drawImage(im, 0, 0, im.naturalWidth, im.naturalHeight); g.restore(); } const d = g.getImageData(0, 0, w, hh).data, a = new Uint8Array(w * hh); for (let i = 0; i < w * hh; i++) a[i] = d[i * 4 + 3]; let s = ''; for (let i = 0; i < a.length; i += 32768) s += String.fromCharCode(...a.subarray(i, i + 32768)); return { w, h: hh, b64: btoa(s) }; },
     addPieceData: async (dataUrl, name, at, w) => { const im = await new Promise((res) => { const i = new Image(); i.onload = () => res(i); i.src = dataUrl; }); const p = { id: uid(), img: C.putImage(dataUrl), pw: im.naturalWidth, ph: im.naturalHeight, x: at[0], y: at[1], w, aspect: im.naturalWidth / im.naturalHeight, rot: 0, flip: false, name }; change(() => { const x = reg(); x.art = x.art || {}; x.art.pieces = [...(x.art.pieces || []), p]; }); return p.id; },
   };
 }

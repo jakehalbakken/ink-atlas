@@ -284,7 +284,7 @@ export async function readProcreate(bytes) {
   };
   return {
     width, height, three, featureSet: doc.featureSet,
-    layers: layers.map((l) => ({ ...l, tiles: (tiles.get(l.uuid) || []).length, read: reader(l.uuid) })),
+    layers: layers.map((l) => ({ ...l, tiles: (tiles.get(l.uuid) || []).length, read: reader(l.uuid), readNative: () => readAt(l.uuid, width, height) })),
     composite: composite.filter((u) => tiles.has(u)).map((u) => ({ uuid: u, read: reader(u) })),
   };
 }
