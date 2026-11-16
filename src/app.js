@@ -45,7 +45,7 @@ import { patchMaskTriangles } from './procreate-patch.js';
 import { makePatchReference } from './patch-reference.js';
 import { toneColour, nearestTone, sampleSkin, skinCheck, hexToRgb } from './skin-tone.js';
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
-import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered } from './whats-new.js';
+import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered, readSeen, writeSeen, unseenCount } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
 import { SPOTS, spotAim, turnAlong, spotNote, edgeTris, girthAt, fitNote } from './spots.js';
 import { POSE_BONES, vertexBones, skinPose } from './pose.js';
@@ -71,6 +71,10 @@ import { keepVersion, useVersion, versionList } from './versions.js';
 import { matchesComment } from './comment-find.js';
 import { writePrefs, readPrefs as readDevicePrefs } from './prefs.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
+const newSeen = readSeen();
+// Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
+const TAUGHT_KEY = 'ia-taught', taught = (() => { try { return new Set(JSON.parse(localStorage.getItem(TAUGHT_KEY) || '[]')); } catch (_) { return new Set(); } })();
+function learnt(k) { taught.add(k); try { localStorage.setItem(TAUGHT_KEY, JSON.stringify([...taught])); } catch (_) { /* private mode: lasts until reload */ } }
 
 // a feature that needs the account's email sender is listed only once that is switched on
 const NEW_FEATURES = ALL_FEATURES.filter((f) => !f.needs || (f.needs === 'emailCodes' && emailCodes));
@@ -868,6 +872,7 @@ function endPointer(e) {
   if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...viewSpot(t).pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; } return; }
   if (pts.size > 0 || !gest) return;
   const g = gest; gest = null; handsOn(false);
+  if (g.mode === 'ink' && g.moved && !taught.has('move')) { learnt('move'); renderSheet(); }
   if (g.snap) { commit(); }
   if (!g.moved && performance.now() - g.t0 < 450 && e.type === 'pointerup') tap(e.clientX, e.clientY);
 }
@@ -974,7 +979,7 @@ function renderTray() {
   $('#count').textContent = state.tattoos.length ? `${state.tattoos.length} on the body` : 'Nothing placed yet';
 }
 function renderSheet() {
-  const t = sel(); const sh = $('#sheet'); sh.hidden = !t; renderReview(t); $('#hint').hidden = !!t || state.tattoos.length === 0;
+  const t = sel(); const sh = $('#sheet'); sh.hidden = !t; renderReview(t); if (t && !taught.has('select')) learnt('select'); $('#hint').hidden = !!t || state.tattoos.length === 0 || taught.has('select');
   $('#empty').hidden = state.tattoos.length > 0;
   if(tapPlaceId&&(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'))tapPlaceId=null;
   $('#tapPlaceBar').hidden=!tapPlaceId;$('#bTapPlace').setAttribute('aria-pressed',String(!!tapPlaceId));$('#bTapPlace').textContent=tapPlaceId?'Cancel tap to place':'Tap to place';$('#bTapPlace').disabled=!t||t.locked||t.hidden||t.status==='existing';canvas.style.cursor=tapPlaceId?'crosshair':'';
@@ -1001,7 +1006,7 @@ function renderSheet() {
   $('#bHide').textContent = t.hidden ? 'Show' : 'Hide';
   $('#bStatus').textContent = t.status === 'existing' ? 'Already on me' : 'Planned'; $('#bStatus').setAttribute('aria-pressed', t.status === 'existing' ? 'true' : 'false');
   $('#bFlip').setAttribute('aria-pressed', t.flip ? 'true' : 'false');
-  $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
+  $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
 }
 function renderBody() {
   const sw = $('#skins'); sw.replaceChildren();
@@ -2263,8 +2268,10 @@ setSkinIris(eyes ? EYE_COLOURS[eyes] : null); renderEyes();
 let quietTry = false; // settings arriving from the account tick nothing in New to try
 function markTried(id) { if (quietTry || tried.has(id)) return; tried.add(id); writeTried(tried); renderNew(); }
 function renderNew() {
-  const n = untriedCount(tried, NEW_FEATURES); $('#newBtn').hidden = n === 0; $('#newCount').textContent = String(n);
-  $('#newBtn').setAttribute('aria-label', `New to try, ${n} not tried yet`); $('#newBtn').setAttribute('aria-expanded', String(!$('#newPop').hidden));
+  const n = untriedCount(tried, NEW_FEATURES); $('#newBtn').hidden = n === 0;
+  if (!$('#newPop').hidden) { let more = false; for (const f of NEW_FEATURES) if (!newSeen.has(f.id)) { newSeen.add(f.id); more = true; } if (more) writeSeen(newSeen); }
+  const u = unseenCount(tried, newSeen, NEW_FEATURES); $('#newCount').textContent = String(u); $('#newCount').hidden = u === 0;
+  $('#newBtn').setAttribute('aria-label', `New to try, ${n} not tried yet` + (u ? `, ${u} new` : '')); $('#newBtn').setAttribute('aria-expanded', String(!$('#newPop').hidden));
   if ($('#newPop').hidden) return;
   $('#newList').replaceChildren(...ordered(tried, NEW_FEATURES).map((f) => {
     const done = tried.has(f.id);
@@ -3712,7 +3719,7 @@ function showLook(open) {
 function renderLook() {
   const on = [];
   if ($('#baBtn').getAttribute('aria-pressed') === 'true') on.push('Before / after');
-  for (const id of ['#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn']) { const t = $(id).textContent, i = t.indexOf(': '); if (i > 0) on.push(t.slice(i + 2)); }
+  for (const id of ['#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn']) { const t = $(id).textContent, i = t.indexOf(': '); $(id).classList.toggle('on', i > 0); if (i > 0) on.push(t.slice(i + 2)); }
   $('#lookBtn').textContent = on.length ? 'Preview: ' + on.join(', ') : 'Preview';
   $('#lookBtn').classList.toggle('active', on.length > 0);
 }
@@ -3977,7 +3984,7 @@ $('#openUnplaced').addEventListener('click',()=>{
  toggle('#planMenu',false);const host=el('section',{class:'scrim',role:'dialog','aria-modal':'true','aria-label':'Saved artwork to place'});host.style.zIndex=10000;const panel=el('div',{class:'modal glass'},el('h2',{text:'Saved artwork to place'}),el('p',{text:'These pieces had no body position in the imported project. Place one deliberately, then adjust it on the body.'}));
  for(const record of state.unplacedTattoos||[])panel.append(el('button',{class:'card',text:'Place '+record.name+' on body',onclick:async()=>{
   const image=await loadImg(record.img);if(!image){toast('That saved image could not be opened.');return;}const spot=viewCenterSpot()||nextSlot();snapshot();state.unplacedTattoos=state.unplacedTattoos.filter(t=>t.id!==record.id);const t={...record,pos:spot.pos,normal:spot.normal,locked:false};state.tattoos.push(t);selectedId=t.id;commit();focusTattoo(t);host.remove();toast('Adjust the placement, then lock it when ready.');
- }}));panel.append(el('button',{class:'btn',text:'Close',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape')host.remove();};
+ }}));panel.append(el('button',{class:'btn',text:'Done',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape')host.remove();};
 });
 async function compareSavedLayouts({a,b}){
  const {openLayoutCompare,compareBodyIdentity}=await import('./layout-compare.js');
@@ -5041,7 +5048,7 @@ $('#cV47').addEventListener('click',async()=>{
  const host=el('section',{class:'scrim',id:'v47Export',role:'dialog','aria-modal':'true','aria-label':'Original v47 compatibility export'});host.style.zIndex=10000;
  const panel=el('div',{class:'modal glass'},el('h2',{text:'Original v47 compatibility export'}),el('p',{text:'Not a lossless or visually identical round trip. Keep the full rebuild backup. The original app has not been runtime-tested with this export.'}));
  const details=el('details',{},el('summary',{text:'What carries across and what stays in the backup'}));const list=el('ul');for(const text of bundle.report.limitations||[])list.append(el('li',{text}));details.append(list);panel.append(details);
- panel.append(el('button',{class:'btn',text:'Save full rebuild backup',onclick:()=>saveFile('ink-atlas-full-rebuild-backup.json',JSON.stringify(bundle.rebuildBackup))}),el('button',{class:'btn',text:'Save v47 compatibility copy',onclick:()=>saveFile('ink-atlas-v47-compatibility.ink.json',JSON.stringify(bundle.portable))}),el('button',{class:'btn',text:'Close',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape')host.remove();});
+ panel.append(el('button',{class:'btn',text:'Save full rebuild backup',onclick:()=>saveFile('ink-atlas-full-rebuild-backup.json',JSON.stringify(bundle.rebuildBackup))}),el('button',{class:'btn',text:'Save v47 compatibility copy',onclick:()=>saveFile('ink-atlas-v47-compatibility.ink.json',JSON.stringify(bundle.portable))}),el('button',{class:'btn',text:'Done',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape')host.remove();});
  }catch(e){toast('v47 export stopped safely: '+e.message);}
 });
 function backupNow() { const d = new Date(), p2 = (n) => String(n).padStart(2, '0'); saveFile(`ink-atlas-backup-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.json`, JSON.stringify({ app: 'ink-atlas-proto', v: 2, savedAt: d.toISOString(), state, images: usedImages() })); }

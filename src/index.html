@@ -19,7 +19,7 @@
   /* One visual system. Dark is a dim studio, light a paper desk; the working colour is stencil violet.
      The canvas fills the screen and the chrome floats over it. Spacing 4/8/12/16/24, type 12/13/15/17/22. */
   --bg:#121318; --surface:rgba(25,27,34,.82); --surface-solid:#1b1d24; --surface-raised:#23252e;
-  --fill:var(--fill); --fill-soft:rgba(255,255,255,.035); --fill-strong:rgba(255,255,255,.12);
+  --fill:rgba(255,255,255,.07); --fill-soft:rgba(255,255,255,.035); --fill-strong:rgba(255,255,255,.12);
   --line:var(--fill-strong); --line-strong:rgba(255,255,255,.2);
   --text:#f1f2f6; --muted:#a0a5b3; --faint:#6f7382;
   --stencil:#8474ff; --accent:var(--stencil); --stencil-soft:rgba(132,116,255,.2); --on-accent:#fff; --danger:#ff8f86; --good:#5fcf8f;
@@ -28,7 +28,7 @@
   --panel:var(--surface); --panel-solid:var(--surface-solid);
   --stage-a:#474b59; --stage-b:#2a2d37; --stage-c:#17181d;
   --below:84px;
-  --display:"Bricolage Grotesque",system-ui,sans-serif; --body:"Figtree",system-ui,-apple-system,sans-serif;
+  --display:"Bricolage Grotesque",system-ui,sans-serif; --body:-apple-system,BlinkMacSystemFont,"Figtree",system-ui,sans-serif;
   color-scheme:dark;
 }
 @media (prefers-color-scheme:light){:root{
@@ -211,7 +211,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 
 .pop{position:fixed;z-index:3;top:var(--below);right:16px;width:340px;max-width:calc(100% - 32px);max-height:calc(100% - var(--below) - 110px);overflow-x:hidden;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
 .pop>*{flex:none}
-.pop h3,.modal h2{margin:0;font:700 18px/1.2 var(--display);letter-spacing:-.01em}
+.pop h3,.modal h2{margin:0;font:600 17px/1.25 var(--body);letter-spacing:-.01em}.modal h2{font-size:20px;font-weight:700}
 .pop h4{margin:6px 0 -2px;font:650 11.5px/1.2 var(--body)!important;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 #skins,#hairCols,#eyeCols{display:flex;flex-wrap:wrap;gap:4px}#skins .sw,#hairCols .sw,#eyeCols .sw{flex:none}#eyeCols .sw.photo,#hairCols .sw.photo{box-shadow:inset 0 0 0 3px rgba(255,255,255,.35)}#hairCols[hidden]{display:none}
 .sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent}
@@ -304,6 +304,45 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   body.wash-on #painBar,body.wash-on #roomBar{top:auto!important;bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom,0px))}
   body.wash-on #dock{display:none}
 }
+.i-ba::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223.5%22%20y%3D%224.5%22%20width%3D%2217%22%20height%3D%2215%22%20rx%3D%222.5%22%2F%3E%3Cpath%20d%3D%22M12%202.5v19%22%2F%3E%3Cpath%20d%3D%22M14.5%208.5h3M14.5%2012h3M14.5%2015.5h3%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223.5%22%20y%3D%224.5%22%20width%3D%2217%22%20height%3D%2215%22%20rx%3D%222.5%22%2F%3E%3Cpath%20d%3D%22M12%202.5v19%22%2F%3E%3Cpath%20d%3D%22M14.5%208.5h3M14.5%2012h3M14.5%2015.5h3%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E")}
+.i-pose::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2213.5%22%20cy%3D%224.5%22%20r%3D%222%22%2F%3E%3Cpath%20d%3D%22M6%209.5l4.2%201.6%203.3-1.6%203.8-4.5%22%2F%3E%3Cpath%20d%3D%22M13.5%209.5v5l-3.2%206.5M13.5%2014.5l3.5%206.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2213.5%22%20cy%3D%224.5%22%20r%3D%222%22%2F%3E%3Cpath%20d%3D%22M6%209.5l4.2%201.6%203.3-1.6%203.8-4.5%22%2F%3E%3Cpath%20d%3D%22M13.5%209.5v5l-3.2%206.5M13.5%2014.5l3.5%206.5%22%2F%3E%3C%2Fsvg%3E")}
+.i-clothes::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M8.5%204%203.8%206.6l1.8%204.1%202.4-1.1V20h8V9.6l2.4%201.1%201.8-4.1L15.5%204c-.6%201.5-1.9%202.4-3.5%202.4S9.1%205.5%208.5%204Z%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M8.5%204%203.8%206.6l1.8%204.1%202.4-1.1V20h8V9.6l2.4%201.1%201.8-4.1L15.5%204c-.6%201.5-1.9%202.4-3.5%202.4S9.1%205.5%208.5%204Z%22%2F%3E%3C%2Fsvg%3E")}
+.i-age::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M6.5%203.5h11M6.5%2020.5h11M7.5%203.5c0%204.5%204.5%205.8%204.5%208.5s-4.5%204-4.5%208.5M16.5%203.5c0%204.5-4.5%205.8-4.5%208.5s4.5%204%204.5%208.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M6.5%203.5h11M6.5%2020.5h11M7.5%203.5c0%204.5%204.5%205.8%204.5%208.5s-4.5%204-4.5%208.5M16.5%203.5c0%204.5-4.5%205.8-4.5%208.5s4.5%204%204.5%208.5%22%2F%3E%3C%2Fsvg%3E")}
+.i-sun::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%224%22%2F%3E%3Cpath%20d%3D%22M12%202.5v2M12%2019.5v2M2.5%2012h2M19.5%2012h2M5.3%205.3l1.4%201.4M17.3%2017.3l1.4%201.4M5.3%2018.7l1.4-1.4M17.3%206.7l1.4-1.4%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%224%22%2F%3E%3Cpath%20d%3D%22M12%202.5v2M12%2019.5v2M2.5%2012h2M19.5%2012h2M5.3%205.3l1.4%201.4M17.3%2017.3l1.4%201.4M5.3%2018.7l1.4-1.4M17.3%206.7l1.4-1.4%22%2F%3E%3C%2Fsvg%3E")}
+.i-tape::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%222.5%22%20y%3D%228%22%20width%3D%2219%22%20height%3D%228%22%20rx%3D%221.8%22%2F%3E%3Cpath%20d%3D%22M6.5%208v3M10%208v4.5M13.5%208v3M17%208v4.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%222.5%22%20y%3D%228%22%20width%3D%2219%22%20height%3D%228%22%20rx%3D%221.8%22%2F%3E%3Cpath%20d%3D%22M6.5%208v3M10%208v4.5M13.5%208v3M17%208v4.5%22%2F%3E%3C%2Fsvg%3E")}
+.i-pain::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M13.5%202.5%205%2013.5h6.2l-1.2%208%208.5-11.2h-6.2l1.2-7.8Z%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M13.5%202.5%205%2013.5h6.2l-1.2%208%208.5-11.2h-6.2l1.2-7.8Z%22%2F%3E%3C%2Fsvg%3E")}
+.i-room::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%222.5%22%20stroke-dasharray%3D%222.6%202.6%22%2F%3E%3Cpath%20d%3D%22M12%208.5v7M8.5%2012h7%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%222.5%22%20stroke-dasharray%3D%222.6%202.6%22%2F%3E%3Cpath%20d%3D%22M12%208.5v7M8.5%2012h7%22%2F%3E%3C%2Fsvg%3E")}
+.i-chat::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4.5%205h15A1.5%201.5%200%200%201%2021%206.5v9a1.5%201.5%200%200%201-1.5%201.5H10l-4.5%203.5V17h-1A1.5%201.5%200%200%201%203%2015.5v-9A1.5%201.5%200%200%201%204.5%205Z%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4.5%205h15A1.5%201.5%200%200%201%2021%206.5v9a1.5%201.5%200%200%201-1.5%201.5H10l-4.5%203.5V17h-1A1.5%201.5%200%200%201%203%2015.5v-9A1.5%201.5%200%200%201%204.5%205Z%22%2F%3E%3C%2Fsvg%3E")}
+.i-check::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%20stroke-width%3D%222.3%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%20stroke-width%3D%222.3%22%2F%3E%3C%2Fsvg%3E")}
+/* Preview is a menu like the iPad's own: one column, a glyph and a word per row, a check mark beside
+   what is on. */
+#lookMenu{grid-template-columns:1fr;width:264px;gap:2px;padding:6px}
+#lookMenu .btn{gap:12px;font-weight:500;border-radius:10px}
+#lookMenu .btn::before{color:var(--muted)}
+#lookMenu .btn:hover{background:var(--fill)}
+#lookMenu .btn[aria-pressed=true],#lookMenu .btn.on{background:transparent;color:var(--text);border-color:transparent}
+#lookMenu #baBtn[aria-pressed=true]{background:transparent;color:var(--text);border-color:transparent}
+#lookMenu .btn[aria-pressed=true]::after,#lookMenu .btn.on::after{content:"";margin-left:auto;flex:none;width:18px;height:18px;background:var(--stencil);-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%20stroke-width%3D%222.3%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%20stroke-width%3D%222.3%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat}
+#lookMenu .btn[aria-pressed=true]::before,#lookMenu .btn.on::before{color:var(--stencil)}
+#lookMenu .menu-head{margin:8px 12px 2px}
+#lookMenu .menu-head+.btn{margin-top:0}
+#lookMenu .menu-head:not(:first-child){border-top:1px solid var(--line);padding-top:10px;margin-top:6px}
+.count-badge[hidden],#moveTip:empty{display:none}
+/* Motion, the way the iPad moves: short springs, interruptible, all off with Reduce Motion (below).
+   Only opacity and the separate translate property animate: the transform a panel uses to centre
+   itself is never touched, and nothing is ever smaller than its 44 pt while it arrives. */
+@keyframes ia-grow{from{opacity:0;translate:0 -8px}}
+@keyframes ia-rise{from{opacity:0;translate:0 22px}}
+@keyframes ia-drop{from{opacity:0;translate:0 -10px}}
+@keyframes ia-fade{from{opacity:0}}
+.pop:not([hidden]),#lookMenu:not([hidden]){animation:ia-grow .24s cubic-bezier(.2,.95,.3,1.08);transform-origin:top right}
+#lookMenu:not([hidden]){transform-origin:top center}
+#bodyMatch:not([hidden]),#spotPop:not([hidden]){transform-origin:top left}
+.scrim:not([hidden]){animation:ia-fade .2s ease-out}.scrim:not([hidden]) .modal{animation:ia-rise .3s cubic-bezier(.2,.9,.25,1.04)}
+#sheet:not([hidden]){animation:ia-rise .26s cubic-bezier(.2,.9,.25,1.04)}
+#tapeBar:not([hidden]),#pinBar:not([hidden]),#painBar:not([hidden]),#roomBar:not([hidden]),#followBar:not([hidden]),#suggestBar:not([hidden]),#paintBar:not([hidden]),#procreateBar:not([hidden]),#tapPlaceBar:not([hidden]){animation:ia-drop .22s cubic-bezier(.2,.9,.3,1.05)}
+.btn{transition:background .15s ease,border-color .15s ease,color .15s ease,scale .16s cubic-bezier(.3,.7,.4,1.5)}
+.btn:active:not(:disabled){scale:.96;transition-duration:.06s}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -318,7 +357,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <div id="pinBar" class="glass" role="group" aria-label="Comments on the body" hidden><div class="row"><p id="pinText" aria-live="polite">Tap the body to pin a comment there. Tap a pin to read it.</p><button class="btn" id="pinListBtn" type="button" aria-expanded="false" hidden>List</button><button class="btn" id="pinsDone" type="button">Done</button></div>
   <div id="pinList" hidden><div class="row" role="group" aria-label="Which comments"><button class="btn" id="pinListOpen" type="button" aria-pressed="true">Open</button><button class="btn" id="pinListAll" type="button" aria-pressed="false">All</button><button class="btn" id="pinListMe" type="button" aria-pressed="false" hidden>Mentions you</button></div><input id="pinListFind" type="search" enterkeyhint="search" autocomplete="off" maxlength="80" aria-label="Find a comment" placeholder="Find a comment, a name or a tattoo" hidden><ol id="pinListItems"></ol><p class="tip" id="pinListEmpty" hidden>No open comments. Tap All to see the resolved ones.</p></div>
   <div id="pinEdit" hidden><textarea id="pinNote" maxlength="500" rows="2" aria-label="Comment" placeholder="Like: move this up an inch"></textarea><div class="mention-chips" id="pinNoteAt" role="group" aria-label="Mention someone" hidden></div><div class="row"><button class="btn primary" id="pinSave" type="button">Pin comment</button><button class="btn" id="pinCancel" type="button">Cancel</button></div></div>
-  <div id="pinRead" hidden><p id="pinBody"></p><p class="tip" id="pinWho"></p><div id="pinSuggest" hidden><p class="tip" id="pinSuggestText"></p><div class="row"><button class="btn" id="pinSuggestPeek" type="button" aria-pressed="false">Hold to see it there</button><button class="btn primary" id="pinSuggestUse" type="button">Use this spot</button></div></div><div class="react-row" id="pinReacts" role="group" aria-label="React to this comment" hidden></div><ol id="pinReplies" aria-label="Replies"></ol><p class="tip" id="pinTyping" aria-live="polite" hidden></p><textarea id="pinReply" maxlength="500" rows="1" aria-label="Reply" placeholder="Reply, or type @ to mention someone"></textarea><div class="mention-chips" id="pinReplyAt" role="group" aria-label="Mention someone" hidden></div><div class="row"><button class="btn" id="pinReplySend" type="button">Reply</button><button class="btn" id="pinResolve" type="button">Resolve</button><button class="btn" id="pinClose" type="button">Close</button><button class="btn quiet danger" id="pinDelete" type="button">Delete</button></div></div></div>
+  <div id="pinRead" hidden><p id="pinBody"></p><p class="tip" id="pinWho"></p><div id="pinSuggest" hidden><p class="tip" id="pinSuggestText"></p><div class="row"><button class="btn" id="pinSuggestPeek" type="button" aria-pressed="false">Hold to see it there</button><button class="btn primary" id="pinSuggestUse" type="button">Use this spot</button></div></div><div class="react-row" id="pinReacts" role="group" aria-label="React to this comment" hidden></div><ol id="pinReplies" aria-label="Replies"></ol><p class="tip" id="pinTyping" aria-live="polite" hidden></p><textarea id="pinReply" maxlength="500" rows="1" aria-label="Reply" placeholder="Reply, or type @ to mention someone"></textarea><div class="mention-chips" id="pinReplyAt" role="group" aria-label="Mention someone" hidden></div><div class="row"><button class="btn" id="pinReplySend" type="button">Reply</button><button class="btn" id="pinResolve" type="button">Resolve</button><button class="btn" id="pinClose" type="button">Done</button><button class="btn quiet danger" id="pinDelete" type="button">Delete</button></div></div></div>
 <div id="pinLayer" aria-label="Comments on the body"></div>
 <div id="painBar" class="glass" role="group" aria-label="Pain map" hidden><div class="row"><div id="painKey" aria-hidden="true"><span>Low</span><i></i><span>Very high</span></div><button class="btn" id="painDone" type="button">Done</button></div><p id="painText" aria-live="polite"></p><p class="tip" id="painNote">From common tattoo pain charts. Everyone feels it differently.</p></div>
 <div id="roomBar" class="glass" role="group" aria-label="Open skin" hidden><div class="row"><div id="roomKeyAll" class="roomKey" aria-hidden="true"><span>No room</span><i></i><span>Lots</span></div><div id="roomKeyFit" class="roomKey" aria-hidden="true" hidden><b class="fit"></b><span>Fits</span><b class="tight"></b><span>Too tight</span></div><button class="btn" id="roomAll" type="button" hidden>All room</button><button class="btn" id="roomDone" type="button">Done</button></div><p id="roomText" aria-live="polite"></p><p id="roomCover" hidden></p><p class="tip" id="roomNote">Measured along the skin. Face, scalp, fingers and groin are left out.</p></div>
@@ -412,15 +451,15 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <div id="pointRing" hidden></div><div id="pointTip" class="glass" hidden></div>
 <div id="lookMenu" class="glass" role="group" aria-label="Preview" hidden>
   <p class="menu-head">See it</p>
-  <button class="btn" id="baBtn" type="button" aria-pressed="false">Before / after</button>
-  <button class="btn" id="poseBtn" type="button" aria-expanded="false">Pose</button>
-  <button class="btn" id="clothesBtn" type="button" aria-expanded="false">Clothes</button>
-  <button class="btn" id="ageBtn" type="button" aria-expanded="false">Aging</button>
-  <button class="btn" id="lightBtn" type="button" aria-expanded="false">Light</button>
+  <button class="btn i-ba" id="baBtn" type="button" aria-pressed="false">Before / after</button>
+  <button class="btn i-pose" id="poseBtn" type="button" aria-expanded="false">Pose</button>
+  <button class="btn i-clothes" id="clothesBtn" type="button" aria-expanded="false">Clothes</button>
+  <button class="btn i-age" id="ageBtn" type="button" aria-expanded="false">Aging</button>
+  <button class="btn i-sun" id="lightBtn" type="button" aria-expanded="false">Light</button>
   <p class="menu-head">Check the body</p>
-  <button class="btn" id="tapeBtn" type="button" aria-pressed="false">Tape measure</button>
-  <button class="btn" id="painBtn" type="button" aria-pressed="false">Pain map</button><button class="btn" id="roomBtn" type="button" aria-pressed="false">Open skin</button>
-  <button class="btn" id="pinsBtn" type="button" aria-pressed="false">Comments</button>
+  <button class="btn i-tape" id="tapeBtn" type="button" aria-pressed="false">Tape measure</button>
+  <button class="btn i-pain" id="painBtn" type="button" aria-pressed="false">Pain map</button><button class="btn i-room" id="roomBtn" type="button" aria-pressed="false">Open skin</button>
+  <button class="btn i-chat" id="pinsBtn" type="button" aria-pressed="false">Comments</button>
 </div>
 <div id="posePop" class="pop glass" hidden>
   <div class="pophead"><h3>Pose</h3><button class="btn" type="button" data-close="posePop">Done</button></div>
@@ -595,7 +634,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
 <input id="paintedFile" type="file" hidden>
 
-<div id="pcMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="pcmTitle"><header><h2 id="pcmTitle">Procreate</h2><button class="btn" type="button" data-close="pcMenu">Close</button></header>
+<div id="pcMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="pcmTitle"><header><h2 id="pcmTitle">Procreate</h2><button class="btn" type="button" data-close="pcMenu">Done</button></header>
 <h3 class="shHead">Paint the whole body in 3D</h3>
 <div class="cards">
 <button class="card" id="pm3dSend" type="button"><b>1. Send the 3D body</b><span>Choose Procreate. Paint on the body in 3D, with your skin, tattoos and paint already on it.</span></button>
@@ -605,7 +644,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 <h3 class="shHead">Draw on one spot</h3>
 <div class="cards"><button class="card" id="pmSpot" type="button"><b>Draw on a spot you paint</b><span>Paint a spot on the body, draw on a flat guide in Procreate, then Copy All and Paste here.</span></button></div>
 </div></div>
-<div id="planMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="planTitle"><header><h2 id="planTitle">Plan</h2><button class="btn" data-close="planMenu">Close</button></header>
+<div id="planMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="planTitle"><header><h2 id="planTitle">Plan</h2><button class="btn" data-close="planMenu">Done</button></header>
 <h3 class="shHead">This project</h3><div class="cards">
 <button class="card" id="openProjects"><b>Projects</b><span>Keep separate projects and recoverable copies on this device.</span></button>
 <button class="card" id="openPlanning"><b>Layouts and saved views</b><span>Try other layouts with the same tattoos, save versions and camera spots, and compare them.</span></button>
@@ -628,7 +667,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </div></div>
 <div id="share" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="shTitle">
-    <header><h2 id="shTitle">Share</h2><button class="btn" type="button" data-close="share">Close</button></header>
+    <header><h2 id="shTitle">Share</h2><button class="btn" type="button" data-close="share">Done</button></header>
     <div class="cards" id="linkCards"><button class="card" id="cLink" type="button" hidden><b>Send to someone</b><span>A link to a copy of this project. They open it and can save it in their own account.</span></button></div>
     <h3 class="shHead">Ask and agree</h3>
     <div class="cards">
@@ -685,7 +724,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 
 <div id="recover" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="rcTitle">
-    <header><h2 id="rcTitle">Earlier saves</h2><button class="btn" type="button" data-close="recover">Close</button></header>
+    <header><h2 id="rcTitle">Earlier saves</h2><button class="btn" type="button" data-close="recover">Done</button></header>
     <p class="tip">Copies kept on this device as you work, and before any backup is opened. Opening one replaces what is on screen. Undo brings it back.</p>
     <div id="rcList"></div>
   </div>
@@ -734,7 +773,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </div>
 <div id="answers" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="ansTitle">
-    <header><h2 id="ansTitle">Bring in answers</h2><button class="btn" type="button" data-close="answers">Close</button></header>
+    <header><h2 id="ansTitle">Bring in answers</h2><button class="btn" type="button" data-close="answers">Done</button></header>
     <p class="tip">Copy the reply from your artist or client, in Messages or Mail, and paste it here.</p>
     <textarea id="ansText" rows="7" placeholder="1 yes&#10;2 change: a little smaller"></textarea>
     <p id="ansNote" aria-live="polite"></p>
@@ -743,7 +782,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </div>
 <div id="refs" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="refsTitle">
-    <header><h2 id="refsTitle">Reference pictures</h2><button class="btn" type="button" data-close="refs">Close</button></header>
+    <header><h2 id="refsTitle">Reference pictures</h2><button class="btn" type="button" data-close="refs">Done</button></header>
     <div id="refsList">
       <div class="seg" id="refsFor" role="group" aria-label="Show pictures for"></div>
       <div id="refsGrid"></div>
@@ -762,7 +801,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 </div>
 <div id="preview" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="pvTitle">
-    <header><h2 id="pvTitle">Picture</h2><button class="btn" type="button" data-close="preview">Close</button></header>
+    <header><h2 id="pvTitle">Picture</h2><button class="btn" type="button" data-close="preview">Done</button></header>
     <img id="pvImg" alt="Export preview">
     <p id="pvNote"></p>
     <button class="btn primary" id="pvSave" type="button">Save or share</button>

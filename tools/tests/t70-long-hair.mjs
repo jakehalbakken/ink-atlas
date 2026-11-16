@@ -8,7 +8,7 @@ export default async function (p) {
   const before = await p.evaluate(() => JSON.stringify(window.__ink.state()));
   const head = await p.evaluate(() => { const P = window.__ink.positions(); let y = 0, z = 0; for (let v = 13380; v < 13524; v++) { y += P[v * 3 + 1]; z += P[v * 3 + 2]; } return [y / 144, z / 144]; });
   const look = async (theta, name) => {
-    await p.evaluate(([h, t]) => { Object.assign(window.__ink.goal, { theta: t, phi: Math.PI / 2 - 0.08, roll: 0, tx: 0, ty: h[0] - 0.08, tz: h[1] - 0.04, r: 1.0 }); window.__ink.cur.r = 1.01; }, [head, theta]);
+    await p.evaluate(([h, t]) => { Object.assign(window.__ink.goal, { theta: t, phi: Math.PI / 2 - 0.08, roll: 0, tx: 0, ty: h[0] - 0.08, tz: h[1] - 0.04, r: 1.0 }); Object.assign(window.__ink.cur, window.__ink.goal); window.__ink.cur.r = 1.003; }, [head, theta]); // start next to the goal: 15,000 strands under software WebGL draw a frame every second or two, so a long glide took minutes
     await p.waitForFunction(() => window.__ink.settled(), { timeout: 30000 });
     const style = await p.addStyleTag({ content: 'body *{visibility:hidden!important} canvas{visibility:visible!important}' }); await wait(250);
     await p.screenshot({ path: `shots/t70-${name}.png` }); await style.evaluate((s) => s.remove());

@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'feel', date: '2026-11-16', title: 'Moves and reads like an iPad app', how: 'Panels and menus now grow out of the button you tapped and sheets rise into place, and buttons dip under your finger. Preview is one list with a mark beside whatever is on. Text uses the iPad\u2019s own font, and every panel closes with Done. Tips go away once you have followed them, and this badge only counts what is new since you last looked.', show: 'layout' },
   { id: 'bodySections', date: '2026-11-15', title: 'Body in short sections', how: 'Body is now sorted into Shape, From your photos, Skin, Hair, Eyes and Fine-tune each part, each under a small heading. Beard and Body hair have their own labels. The Plan panels use plainer words and only show the buttons that apply, and the full-screen pins and photo tools follow light and dark.', show: 'bodySections' },
   { id: 'plainBody', date: '2026-11-15', title: 'Reset to plain body', how: 'Body, then Reset to plain body takes off anything painted on the skin from Procreate. Every tattoo stays in the tray as its own item. Each tattoo also has a bin next to Done to remove it, locked ones too, and Undo brings anything back.', show: 'plainBody' },
   { id: 'paintChip', date: '2026-11-15', title: 'Paint on skin in the tattoo list', how: 'After you bring a painted body back from Procreate, the paint shows in the tattoo list as Paint on skin. Tap it to make each drawing a movable tattoo, hide it, or remove it for the plain body. Your tattoos stay either way.', show: 'paintChip' },
@@ -118,3 +119,9 @@ export function writeTried(set, storage = globalThis.localStorage) { try { stora
 export function untriedCount(tried, list = NEW_FEATURES) { return list.filter((f) => !tried.has(f.id)).length; }
 // untried first, newest first within each; tried ones stay at the bottom so they can be found again
 export function ordered(tried, list = NEW_FEATURES) { return [...list.filter((f) => !tried.has(f.id)), ...list.filter((f) => tried.has(f.id))]; }
+// The badge counts only what has come in since the list was last opened on this device, the way an
+// iPad badge clears once you have looked; untried ones stay ticked off in the list itself.
+const SEEN = 'ia-new-seen';
+export function readSeen(storage = globalThis.localStorage) { try { const a = JSON.parse(storage?.getItem(SEEN) || 'null'); return Array.isArray(a) ? new Set(a) : new Set(); } catch (_) { return new Set(); } }
+export function writeSeen(set, storage = globalThis.localStorage) { try { storage?.setItem(SEEN, JSON.stringify([...set])); } catch (_) { /* private mode: lasts until reload */ } }
+export function unseenCount(tried, seen, list = NEW_FEATURES) { return list.filter((f) => !tried.has(f.id) && !seen.has(f.id)).length; }

@@ -11,11 +11,15 @@ export default async function(p){
  const ready=async()=>{await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1000);};
  await ready();
  const N=NEW_FEATURES.length;
- const count=()=>p.$eval('#newCount',e=>+e.textContent);
+ // how many are untried, from the button's label; the badge itself counts only what has not been seen in the list yet
+ const count=()=>p.$eval('#newBtn',e=>+e.getAttribute('aria-label').match(/(\d+) not tried/)[1]);
+ const badge=()=>p.$eval('#newCount',e=>e.hidden?0:+e.textContent);
  const btn=await p.$eval('#newBtn',e=>{const r=e.getBoundingClientRect();return {h:r.height,hidden:e.hidden};});
  assert.equal(btn.hidden,false,'button shows');assert.ok(btn.h>=44,'button big enough');assert.equal(await count(),N,'every feature untried at first');
  const open=async()=>{if(await p.$eval('#newPop',e=>e.hidden)){await p.$eval('#newBtn',e=>e.click());await wait(200);}};
+ assert.equal(await badge(),N,'the badge counts what is new');
  await open();
+ assert.equal(await badge(),0,'looking at the list clears the badge');
  assert.equal(await p.$$eval('#newList .newrow',a=>a.length),N,'one row each');
  const rowSizes=await p.$$eval('#newList .newrow button',a=>a.map(b=>b.getBoundingClientRect().height));assert.ok(rowSizes.every(h=>h>=44),'row buttons big enough');
  // manual tick and untick
