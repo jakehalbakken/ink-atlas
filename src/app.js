@@ -1620,6 +1620,7 @@ function renderPcMenu() {
 }
 $('#pmSpot').addEventListener('click', () => { toggle('#pcMenu', false); startPaint(); });
 $('#pm3dSend').addEventListener('click', () => { toggle('#pcMenu', false); exportPainted('usdz'); });
+$('#pm3dLayers').addEventListener('click', () => exportLayered());
 $('#pm3dBack').addEventListener('click', () => { toggle('#pcMenu', false); $('#paintedFile').click(); });
 $('#pmPaintHide').addEventListener('click', () => { if (!state.paint) return; snapshot(); state.paint.hidden = !state.paint.hidden; commit(); renderPcMenu(); });
 $('#pmPaintSplit').addEventListener('click', () => paintToTattoos());
@@ -2402,6 +2403,7 @@ const SHOW = {
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
+  layers3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dLayers', 'Send the 3D body with each tattoo separate. In Procreate, open Layers: Skin and each tattoo are their own groups to paint on.']; },
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
   spotCompare: () => { const t = needTattoo(); if (!t) return null; if ($('#spotPop').hidden) $('#bSpots').click(); return ['#spotChoices [data-spot="forearm-front"]', 'Each spot says how much it usually hurts, the lightest clothes that hide this tattoo there, and on an arm or leg whether it fits at this size. Tap one to move it.']; },
@@ -4773,6 +4775,22 @@ async function exportPainted(kind) {
   } catch (e) { toast('Could not make the 3D model: ' + ((e && e.message) || 'something went wrong')); }
   finally { needsRender = true; }
 }
+// The 3D body with each tattoo as its own part and material (src/layered-model.js), so
+// Procreate shows the skin and every tattoo as separate, named texture sets in Layers.
+async function exportLayered() {
+  toggle('#share', false); toggle('#pcMenu', false);
+  const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
+  toast(visible.length ? 'Making the 3D body with each tattoo separate. This takes a few seconds.' : 'No tattoos showing, so this is the plain body. Making it now.');
+  try {
+    syncDecals();
+    const { exportLayeredModel } = await import('./layered-model.js');
+    const result = await exportLayeredModel({ THREE, renderer, bodyGeometry: bodyGeo, skinColor: skinMat.color, tattoos: visible.map((t) => ({ name: t.name || 'Tattoo', aspect: t.aspect, geometry: decals[t.id].mesh.geometry, material: decals[t.id].mesh.material })), state, paint: await paintPicture() });
+    window.__lastLayered = { bytes: result.blob.size, size: result.size, parts: result.parts };
+    await saveFile(result.name, result.blob);
+    markTried('layers3d');
+  } catch (e) { toast('Could not make the 3D model: ' + ((e && e.message) || 'something went wrong')); }
+  finally { needsRender = true; }
+}
 // Back from Procreate: a painted model (USDZ, OBJ in a ZIP, or its skin picture) made
 // from the 3D body sent from here. By default the paint comes back as paint on the body
 // (bringBackPainted); it can also be turned into movable tattoos (importPainted, paintToTattoos).
@@ -5070,6 +5088,7 @@ async function spinVideo() {
 }
 $('#cSpin').addEventListener('click', spinVideo);
 $('#cUsdz').addEventListener('click', () => exportPainted('usdz'));
+$('#cUsdzLayers').addEventListener('click', () => exportLayered());
 $('#cPsd').addEventListener('click', () => exportLayers());
 $('#cPainted').addEventListener('click', () => { toggle('#share', false); $('#paintedFile').click(); });
 $('#paintedFile').addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) await bringBack(f); });
