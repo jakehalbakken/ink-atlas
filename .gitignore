@@ -5,3 +5,5 @@ shots
 # private strategy and business notes: never publish
 docs/private/
 dist-accounts
+dist-wip
+dist-main

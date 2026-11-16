@@ -70,6 +70,7 @@ import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripCl
 import { keepVersion, useVersion, versionList } from './versions.js';
 import { matchesComment } from './comment-find.js';
 import { writePrefs, readPrefs as readDevicePrefs } from './prefs.js';
+import { initWrapStudio } from './wrap-studio.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
 const newSeen = readSeen();
 // Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
@@ -143,6 +144,7 @@ bodyGeo.computeVertexNormals();
 bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
 const { mat: skinMat, uniforms: skinU } = createSkin(bodyGeo, SKINS[1]);
 let shapeKey = 0;
+let wrapStudio = null; // the measured wrap studio (wrap-studio.js), made once the body exists
 let poseView = null; // set up once the body exists; poses are for looking and never saved
 const genitalsShown = () => state.figure === 'male' && state.genitals !== false;
 // My face (see the My face section): its state is here because the body is built before that code runs.
@@ -216,12 +218,17 @@ function fullBody(theta) {
 function focusTattoo(t) {
   if (followId) stopFollow();
   const spot = viewSpot(t);
+  // the tattoo fills about a third of the free space, with enough body round it to see where it sits
+  aimView(spot.pos, spot.normal, Math.max(t.width, t.width / t.aspect) * 2.2 + 0.12);
+}
+// Turn and zoom the camera to look at pos along normal, with about ext of body in the free space.
+function aimView(pos, normal, ext) {
+  if (followId) stopFollow();
+  const spot = { pos, normal };
   const n = new V3(...spot.normal);
   goal.theta = Math.atan2(n.x, n.z);
   goal.phi = THREE.MathUtils.clamp(Math.acos(THREE.MathUtils.clamp(n.y, -1, 1)), 0.75, 2.0);
   goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2];
-  // the tattoo fills about a third of the free space, with enough body round it to see where it sits
-  const ext = Math.max(t.width, t.width / t.aspect) * 2.2 + 0.12;
   const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
   const bounds=canvas.getBoundingClientRect(),{top,bottom,left,right}=freeArea();
   const available=THREE.MathUtils.clamp((bottom-top)/Math.max(1,bounds.height),.18,1),availableW=THREE.MathUtils.clamp((right-left)/Math.max(1,bounds.width),.18,1);
@@ -265,6 +272,8 @@ function freeArea() {
   // a panel open at the left (Try other spots) takes that side too
   const sp = !$('#spotPop').hidden ? $('#spotPop') : $('#bodyMatch'), spr = sp.hidden ? null : sp.getBoundingClientRect();
   const left = spr && spr.right < right - 240 ? spr.right + 12 : b.left + 12;
+  const ws = document.getElementById('wrapStudio');
+  if (ws && !ws.hidden) { const w = ws.getBoundingClientRect(); if (w.left > b.left + b.width * 0.3) return { top, bottom, left, right: Math.min(right, w.left - 8) }; return { top, bottom: Math.max(top + 60, Math.min(bottom, w.top - 10)), left, right }; }
   return { top, bottom, left, right };
 }
 // Already in sight: on screen above the bottom panels, below the top bar, and facing us.
@@ -707,7 +716,7 @@ function whenText(at) {
 /* ---------- history ---------- */
 function snapshot() { undoStack.push(JSON.stringify(state)); if (undoStack.length > 40) undoStack.shift(); redoStack.length = 0; refreshUndo(); }
 // The record of approval pages sent is not undone, so replies still match.
-function restore(json) { const asks = state.asks; state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); }
+function restore(json) { const asks = state.asks; state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); if (wrapStudio) wrapStudio.refresh(); }
 // each undo and redo says in a toast what it put back, so a tap never changes something unseen
 function stepWords(a, b) { try { return changeWords(a, b); } catch { return ''; } }
 function undo() { if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); }
@@ -728,7 +737,7 @@ function renderHistory() {
 }
 function openHistory() { cancelGesture(); renderHistory(); toggle('#historyPop', true); markTried('history'); }
 function refreshUndo() { $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
-function commit() { if (spotPeek) peekSpot(false); syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); }
+function commit() { if (spotPeek) peekSpot(false); syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); if (wrapStudio) wrapStudio.refresh(); }
 
 /* ---------- tattoo ops ---------- */
 const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
@@ -905,6 +914,7 @@ window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
+  if (wrapStudio && wrapStudio.isOpen() && wrapStudio.tapBody(hitBody(x, y))) return;
   if (pointing.on) { pointTap(x, y); return; }
   if (tape.on) { tapeTap(x, y); return; }
   if (pain.on) { painTap(x, y); return; }
@@ -2314,6 +2324,7 @@ function needTattoo() {
 var infoQuietUntil = 0, infoByShow = false; // More controls opened by a Show me: pointed at, not tried
 const SHOW = {
   layouts: () => { toggle('#planMenu', true); return ['#openPlanning', 'Tap Layouts and views. Name the layout on the body and tap Save; each saved one has Open, and the dots beside it hold Rename, What’s different and Archive.']; },
+  measuredWrap: () => { toggle('#planMenu', true); return ['#openWrap', 'Tap Measured wrap. Your ankle numbers are filled in to start; change any of them there.']; },
   together: () => (account && account.configured ? (account.showTogether(), ['#acctInvite', 'Tap Invite someone and send the link to Liv or your artist. Once they join, you both see the same tattoos and each other\'s changes as they happen.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   answer: () => {
     if (workingTogether()) { const t = needTattoo(); if (!t) return null; return ['#approveRow', 'On a project you work on together, tap Looks good or Ask for a change. Everyone on it sees your answer.']; }
@@ -5278,8 +5289,31 @@ let viewSent = '';
 setInterval(() => { if (!account || !account.nudge || !peersHere.length) return; const k = myView().join(); if (k !== viewSent) { viewSent = k; account.nudge(); } }, 700);
 $('#cLink').addEventListener('click', () => { toggle('#share', false); if (account) account.sendLink().catch(() => {}); });
 // Test hooks for tools/tests. loadState runs the same upgrade path a saved project takes on open.
+// Measured wrap: rings measured round an arm or leg, the existing tattoo registered on them, and the
+// new design arranged on the flat shape (wrap-studio.js). Everything lives in state.regions.
+async function readPicture(file, max) {
+  const url = URL.createObjectURL(file);
+  try {
+    const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const w = im.naturalWidth, h = im.naturalHeight; if (!(w > 0 && h > 0) || w * h > 40e6) return null;
+    const s = Math.min(1, max / Math.max(w, h)), c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w * s)); c.height = Math.max(1, Math.round(h * s));
+    const g = c.getContext('2d'); g.drawImage(im, 0, 0, c.width, c.height);
+    // a see-through picture stays PNG; a photo becomes a good JPEG, so a full-size photo stays small enough to save
+    let see = false; try { const d = g.getImageData(0, 0, c.width, c.height).data; for (let i = 3; i < d.length; i += 4 * 7) if (d[i] < 250) { see = true; break; } } catch (_) { see = true; }
+    return { dataUrl: see ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.92), w: c.width, h: c.height };
+  } catch (_) { return null; } finally { URL.revokeObjectURL(url); }
+}
+wrapStudio = initWrapStudio({
+  THREE, body: () => body, getState: () => state, snapshot, commit, toast, loadImg, markTried, requestRender: () => { needsRender = true; },
+  putImage: (dataUrl) => { const k = uid(); images[k] = dataUrl; return k; }, readPicture,
+  closePanels: () => { closePanels(); toggle('#planMenu', false); if (selectedId) select(null); },
+  rig: () => ({ bones: POSE_BONES, joints: poseView.restRig().joints, count: COUNTS.body, vertexBones, rest: () => (bodyGeo.attributes.rest || bodyGeo.attributes.position).array, index: bodyGeo.index.array }),
+  aim: (pos, normal, ext) => aimView(pos, normal, ext), shapeKey: () => shapeKey,
+});
+$('#openWrap').addEventListener('click', () => { toggle('#planMenu', false); wrapStudio.open(); });
+
 window.__ink = {
-  state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
+  wrap: () => wrapStudio,   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
   sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, bodyChange: () => bodyChangeLast, mirror: () => mirrorLast, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
