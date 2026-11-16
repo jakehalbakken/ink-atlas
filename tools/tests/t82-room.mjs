@@ -26,7 +26,8 @@ export default async function(p){
  // samples are planned and small: under 1% of the skin
  const sh=await p.evaluate(()=>window.__ink.room().shares());assert.ok(sh.inkShare===0&&sh.planShare>0&&sh.planShare<0.01,JSON.stringify(sh));
  // a tap on bare skin reads that spot
- const box=await p.evaluate(()=>{const r=document.querySelector('canvas').getBoundingClientRect();for(let f=0.35;f<0.9;f+=0.03)for(const dx of [0,-20,20,-40,40,-60,60]){const x=r.left+r.width/2+dx,y=r.top+r.height*f;const u=window.__ink.room().under(x,y);if(u&&!u.off&&!window.__ink.inkIdsAt(x,y).length)return {x,y};}return null;});
+ const box=await p.evaluate(()=>{const r=document.querySelector('canvas').getBoundingClientRect();for(let f=0.35;f<0.9;f+=0.03)for(const dx of [0,-20,20,-40,40,-60,60]){const x=r.left+r.width/2+dx,y=r.top+r.height*f;if(document.elementFromPoint(x,y)!==document.querySelector('canvas'))continue;// skin a finger can reach, not under the bar
+ const u=window.__ink.room().under(x,y);if(u&&!u.off&&!window.__ink.inkIdsAt(x,y).length)return {x,y};}return null;});
  assert.ok(box,'found open skin on screen');
  await p.mouse.click(box.x,box.y);await wait(300);r=await p.evaluate(()=>window.__ink.room());
  assert.match(r.text,/^[A-Z][^:]+: room for a piece about \d+(\.\d)? in across\.$/,r.text);assert.ok(r.on&&!r.fitId,'still on');
