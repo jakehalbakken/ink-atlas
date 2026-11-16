@@ -63,7 +63,7 @@ export default async function (p) {
     for (const k of proj.image_keys) assert.ok(fake.files.has('artwork/p/' + proj.id + '/' + k), 'artwork copied to the project folder: ' + k);
     assert.equal((await db('select count(*)::int n from public.invites'))[0].n, 1);
     assert.equal((await p.evaluate(() => window.__ink.account().bind)).shared, true);
-    await p.click('#account header .btn');
+    await p.click('#account header .acct-close');
 
     // Liv: opens the link signed out, makes her account, lands in Jake's project
     const q = await openPage();
@@ -101,10 +101,10 @@ export default async function (p) {
     assert.equal(await p.$$eval('#acctTogether .acct-item', (e) => e.filter((x) => /Liv/.test(x.textContent)).length), 1, 'she is listed once');
     assert.match(await p.$eval('#acctTogether', (e) => e.textContent), new RegExp('Liv.*Here now · looking at ' + lookName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     await p.screenshot({ path: 'shots/t83-here-now.png' });
-    await p.click('#account header .btn');
+    await p.click('#account header .acct-close');
     await q.click('#hereNow');
     await until(q, () => /Jake.*owns this project.*Here now/.test((document.querySelector('#acctTogether [data-owner]') || {}).textContent || ''), null, 'Liv sees Jake here on his row');
-    await q.click('#account header .btn');
+    await q.click('#account header .acct-close');
     await q.evaluate(() => window.__ink.select(null));
     await until(p, () => !document.querySelector('#trayItems b.peer'), null, 'the mark goes when she lets go', 10000);
 
@@ -293,7 +293,7 @@ export default async function (p) {
     assert.equal(await hasText(q, 'Rename'), false, 'she cannot rename it'); assert.equal(await hasText(q, 'Invite someone'), false);
     assert.match(await q.$eval('#account', (e) => e.textContent), /Jake.*owns this project/);
     await q.screenshot({ path: 'shots/t83-liv-home.png' });
-    await q.click('#account header .btn');
+    await q.click('#account header .acct-close');
 
     // Jake's panel lists her; he takes her off; her screen says so on its next check
     await p.click('#accountBtn');
@@ -311,7 +311,7 @@ export default async function (p) {
     // the old link no longer lets her back in
     await q.goto(link, { waitUntil: 'load' });
     await until(q, () => window.__ink && window.__ink.ready() && /no longer works/.test((document.querySelector('#account .acct-msg') || {}).textContent || ''), null, 'old invite refused');
-    await p.click('#account header .btn');
+    await p.click('#account header .acct-close');
 
     // forgot password, on a third device
     const r = await openPage(); await ready(r, url); await wait(300);

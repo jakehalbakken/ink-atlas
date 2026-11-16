@@ -64,7 +64,7 @@ export default async function (p) {
     const link = await p.$eval('#account .acct-link', (e) => e.value);
     assert.deepEqual(await db('select role from public.invites'), [{ role: 'comment' }]);
     const [proj] = await db('select id from public.projects');
-    await p.click('#account header .btn');
+    await p.click('#account header .acct-close');
 
     // the artist joins: no way to move, resize or add tattoos
     const q = await openPage();
@@ -164,10 +164,10 @@ export default async function (p) {
     await q.click('#accountBtn');
     await until(q, () => document.querySelector('#account .acct-turn'), null, 'her list says whose turn');
     assert.match(await q.$eval('#account .acct-turn', (e) => e.textContent), /Waiting on Jake to make 1 change/);
-    await q.click('#account header .btn');
+    await q.click('#account header .acct-close');
 
     // replies and resolving: Jake answers her comment and resolves it, she answers back
-    await p.click('#account header .btn'); await wait(150);
+    await p.click('#account header .acct-close'); await wait(150);
     const noteId = await p.evaluate(() => window.__ink.state().notes.find((n) => n.pin && n.by === 'Mara').id);
     await p.evaluate((id) => { window.__ink.pinsOn(); window.__ink.openPin(id); }, noteId); await wait(200);
     assert.equal((await p.evaluate(() => window.__ink.pins())).canDelete, true, 'Jake can edit, so he can delete it');
@@ -279,7 +279,7 @@ export default async function (p) {
     await q.evaluate((id) => window.__ink.select(id), t0); await wait(300);
     assert.equal(await shown(q, '.editor-quick'), true, 'editing controls back');
     // a selected tattoo shows the comments pinned on it, and a reference picture tries on the body
-    await p.click('#account header .btn'); await wait(150);
+    await p.click('#account header .acct-close'); await wait(150);
     await p.evaluate((id) => window.__ink.select(id), t0); await wait(300);
     assert.equal(await shown(p, '#bPinsFor'), true); assert.equal(await p.$eval('#bPinsFor', (e) => e.textContent), 'Comments (1)');
     await p.click('#bPinsFor'); await wait(300);
