@@ -385,6 +385,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 /* Motion, the way the iPad moves: short springs, interruptible, all off with Reduce Motion (below).
    Only opacity and the separate translate property animate: the transform a panel uses to centre
    itself is never touched, and nothing is ever smaller than its 44 pt while it arrives. */
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pair[hidden]{display:none}
 .seg{flex:none;gap:2px;padding:3px;border-radius:var(--r-md,14px);background:var(--fill)}
 .seg .btn{border:0;border-radius:calc(var(--r-md,14px) - 3px);background:transparent;color:var(--muted);font-weight:600;box-shadow:none;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .seg .btn:hover{background:var(--fill-soft)}
@@ -466,7 +467,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <button class="btn" id="bodyPhotoBtn" type="button">Match a photo of me</button>
   <input type="file" id="bodyPhotoFile" accept="image/*" hidden>
   <button class="btn" id="faceBtn" type="button">Add my face</button>
-  <div class="seg" role="group" aria-label="Your face" id="faceRow" hidden>
+  <div class="pair" role="group" aria-label="Your face" id="faceRow" hidden>
     <button class="btn" id="faceShow" type="button">Hide my face</button>
     <button class="btn" id="faceRemove" type="button">Remove</button>
   </div>

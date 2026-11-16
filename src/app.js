@@ -1048,12 +1048,12 @@ function renderBody() {
   $('#rHeight').value = state.heightCm; const inch = state.heightCm / 2.54; $('#hText').textContent = `${Math.floor(inch / 12)} ft ${Math.round(inch % 12)} in  ·  ${state.heightCm} cm`;
 }
 function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); }
-function toast(msg, action, fn) {
+function toast(msg, action, fn, ms = 5200) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   // below a bar that is showing at the top, never behind it
   const bar = ['#procreateBar', '#paintBar'].map((q) => $(q)).find((b) => b && !b.hidden);
   t.style.top = bar ? `${Math.round(bar.getBoundingClientRect().bottom + 8)}px` : '';
-  t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 5200);
+  t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, ms);
 }
 let slideSnap = false;
 function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t || t.locked) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); likeRender(t); renderGap(); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
@@ -3904,7 +3904,7 @@ async function reloadForUpdate() {
 function onUpdateReady() {
   if (updateReady) return; updateReady = true;
   if (document.hidden || (!touchedSinceBoot && !gest)) { reloadForUpdate(); return; }
-  toast('A new version of Ink Atlas is ready.', 'Reload', reloadForUpdate);
+  toast('A new version of Ink Atlas is ready.', 'Reload', reloadForUpdate, 15000); // long enough to read and reach; leaving the screen applies it anyway
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden && updateReady) reloadForUpdate(); });
 if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) onUpdateReady(); }); }
