@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'measuredWrap', date: '2026-11-16', title: 'Measured wrap round your ankle', how: 'Plan > Measured wrap. Start with your ankle numbers (9 in and 12.5 in round, 4 in apart), add a photo of the cactus, mark its top flower and stone base, and it is scaled to its real 4 in and placed on the back of the leg. Find the ink protects it and the gaps in it, and plant pictures you add are warned off both.', show: 'measuredWrap' },
   { id: 'framing', date: '2026-11-16', title: 'Full body beside the panel', how: 'With a tattoo selected, tap Front, Left, Back or Right: the whole body now fits in the space beside or above the tattoo panel instead of sitting behind it.', show: 'layout' },
   { id: 'editTiles', date: '2026-11-16', title: 'Tidier tattoo panel', how: 'Select a tattoo: its main actions are now a row of picture buttons under the name, like Place by tap, Clean up, Lock and Edit in Procreate, and turn, fade, bend and taper show their value as you slide them.', show: 'editProcreate' },
   { id: 'lists', date: '2026-11-16', title: 'Share, Plan and Procreate as lists', how: 'Open Share, Plan or Procreate: each choice is one row with a picture, its name and one short line, grouped under a heading, so you can find what you want at a glance.', show: 'message' },

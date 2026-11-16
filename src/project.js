@@ -5,6 +5,7 @@
 import { FIT_GROUPS } from './fit.js';
 import { cleanReview, cleanAsks } from './approval.js';
 import { cleanVersions } from './versions.js';
+import { cleanRegions, regionImageKeys } from './measured-region.js';
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -80,6 +81,8 @@ export function cleanState(raw, hasImage) {
   }
   // reference pictures (optional): inspiration for the whole project or one tattoo
   if (s.refs !== undefined) { const r = cleanRefs(s.refs, hasImage, new Set(out.map((t) => t.id))); if (r.length) s.refs = r; else delete s.refs; }
+  // measured wraps planned from tape measurements (optional, no migration)
+  if (s.regions !== undefined) { const r = cleanRegions(s.regions, hasImage); if (r.length) s.regions = r; else delete s.regions; }
   return { state: s, dropped, replace };
 }
 
@@ -167,6 +170,7 @@ export function imageKeysFor(state) {
     for (const t of [...(s?.tattoos || []),...(s?.unplacedTattoos || [])]) { if (typeof t?.img === 'string') keys.add(t.img); for (const v of Array.isArray(t?.versions) ? t.versions : []) if (typeof v?.img === 'string') keys.add(v.img); }
     if (typeof s?.paint?.img === 'string') keys.add(s.paint.img);
     for (const r of Array.isArray(s?.refs) ? s.refs : []) if (typeof r?.img === 'string') keys.add(r.img);
+    for (const r of Array.isArray(s?.regions) ? s.regions : []) for (const k of regionImageKeys(r)) keys.add(k);
     for(const board of Array.isArray(s?.artworkBoards)?s.artworkBoards:[])for(const entry of Object.values(board?.entries||{}))for(const k of [entry?.sourceKey,entry?.outputKey])if(typeof k==='string')keys.add(k);
     for (const a of Object.values(s?.artworks || {})) {
       for (const k of [a?.source, a?.output, a?.mask]) if (typeof k === 'string') keys.add(k);
