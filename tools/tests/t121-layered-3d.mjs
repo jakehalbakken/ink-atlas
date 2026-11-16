@@ -20,7 +20,7 @@ export default async function (p) {
   const card = await p.$eval('#pm3dLayers', (e) => { const r = e.getBoundingClientRect(); return { h: r.height, w: r.width, text: e.textContent, shown: !e.closest('[hidden]') }; });
   assert.ok(card.shown && card.h >= 44, 'card in the Procreate menu, big enough');
   assert.match(card.text, /each tattoo separate/);
-  await p.screenshot({ path: 'shots/t120-menu.png' });
+  await p.screenshot({ path: 'shots/t121-menu.png' });
   await p.click('#pm3dLayers');
   await p.waitForFunction(() => !!window.saved['ink-atlas-model-layers.usdz'] || window.toasts.some((x) => x.includes('Could not make')), { timeout: 120000 });
   assert.ok(await p.evaluate(() => !!window.saved['ink-atlas-model-layers.usdz']), 'model made: ' + (await p.evaluate(() => window.toasts.join(' | '))));

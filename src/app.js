@@ -3881,11 +3881,12 @@ function syncFitUI() {
 $('#fitReset').addEventListener('click', () => { snapshot(); reshape(() => { state.fit = {}; state.muscle = 0.5; state.weight = 0.5; }); commit(); toast('Body shape back to standard', 'Undo', undo); });
 // Keep browser/page zoom separate from the 3D camera. Single-finger panel
 // scrolling is allowed; pinching panels must not zoom the entire app off-screen.
+// A panel of its own marks its scrolling parts with data-scroll (the measured wrap does).
 // A one-finger (or Pencil) touch that starts on a button is left alone, so the jitter of
 // a tap never turns into a cancelled click; the page itself cannot scroll anyway.
 document.addEventListener('touchmove', (e) => {
   if (e.touches.length === 1 && controlAt(e.target)) return;
-  if (e.touches.length > 1 || !(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems,#sheet,[aria-modal=true]')) e.preventDefault();
+  if (e.touches.length > 1 || !(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems,#sheet,[aria-modal=true],[data-scroll]')) e.preventDefault();
 }, { passive: false });
 installPenTap();
 for (const name of ['gesturestart', 'gesturechange']) document.addEventListener(name, (e) => e.preventDefault(), { passive: false });
