@@ -600,3 +600,13 @@ Jake: "we have gone absolutely overboard on the tools and features. They need a 
 - Checked: t114 at 1180x820, 820x1180, 1024x768, 390x844, 1366x1024 in dark and light; full suite. Not yet checked on Jake's iPad.
 - Next stages: restyle the older panels that still use fixed cream and green colours (layouts and checkpoints, layers, line up tattoos, project shelf, photo references), and light mode on every panel.
 - Stuck ink fix (live 2026-11-15): Remove works on locked and already-on-me tattoos, a bin next to Done, Paint on skin chip in the tray, Body > Reset to plain body. Built and tested headless (t72, t114); not yet checked on the iPad.
+
+## Design pass against Apple's iPad guidelines (2026-11-16, built, tested headless)
+
+Jake: "Imagine you're designing an apple native app. It should feel flawless." The audit and its four stages are in `docs/ui-structure.md`. No new features.
+
+- Stage 1, foundations: the dark `--fill` token fixed (plain buttons had no fill in dark); the iPad's own font for everything but the Ink Atlas mark; every panel and sheet closes with Done; popovers grow out of their button, sheets rise, bars drop in, buttons dip when pressed (opacity and position only, so 44 pt targets measure true mid-animation), all off with Reduce Motion; Preview as a one-column list with a glyph per row and a check mark on whatever is on; the New to try badge counts only what is new since the list was last opened; the two on-screen tips go once followed (localStorage `ia-new-seen`, `ia-taught`, per device, not in the project).
+- Stage 2, the edit sheet: the four quick actions are glyph tiles in one row, Add reference pictures sits under them as a row, turn, fade, bend and taper show their value as you slide (`_readout` in `slider.js`), and the name field no longer pushes Done onto its own line in the landscape column.
+- Stage 3, sheets as lists: every row in Share, Plan and Procreate leads with a glyph and has a one-line description, grouped on inset cards with hairlines (`.modal .cards`, `.modal .card.i-NAME`).
+- Stage 4, framing and first run: Front, Left, Back and Right with a tattoo selected fit the whole body beside the right-hand column in landscape and above the panel in portrait (`fullBody` in `app.js`, only while the edit sheet is open, so the overview with nothing selected is unchanged); the empty state is a title and one line over the tray's own Add tattoo and Procreate; the first-run card uses the system font and a glyph per move.
+- Checked: t114 and t55 on each stage, full suite on the four together, screenshots in dark and light at 1180x820 and 820x1180. Not yet checked on Jake's iPad.

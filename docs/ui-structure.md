@@ -100,9 +100,12 @@ Jake, 2026-11-15 22:42Z: "Imagine you're designing an apple native app. It shoul
 
 ### Stages
 
+All four built and tested headless on 2026-11-16; not yet checked on the iPad.
+
+
 1. **Foundations.** Fix the dark fill; system face; Done everywhere; springs for every popover, menu, sheet, bar and press, off with Reduce Motion; the Preview menu as a single-column list with glyphs and check marks; New to try badge for this week only; hints that go once followed.
 2. **The edit sheet.** Quick actions as one row of glyph actions; size and turn values while dragging; More controls sections as grouped rows.
-3. **Sheets as lists.** Share, Plan and Procreate as grouped inset lists with glyphs and one-line descriptions; the accounts thread restyles its own panels onto the same classes (`.list`, `.list-row`).
+3. **Sheets as lists.** Share, Plan and Procreate as grouped inset lists with glyphs and one-line descriptions; the accounts thread restyles its own panels onto the same classes (`.cards` holding `.card` rows inside a `.modal`, a glyph from an `i-NAME` class on the row).
 4. **Framing and first run.** Landscape overview centred beside the column; the empty state; the first-run card in the same visual language.
 
 Each stage ships on a green suite with its New to try entry.
