@@ -67,6 +67,21 @@ class InkSlider extends HTMLElement {
     fill.style.left = at(Math.min(k, o)); fill.style.right = `calc(100% - ${at(Math.max(k, o))})`;
     this.querySelector('.sl-thumb').style.left = at(k);
     this.setAttribute('aria-valuemin', this.min); this.setAttribute('aria-valuemax', this.max); this.setAttribute('aria-valuenow', Math.round(this._v * 100) / 100);
+    this._readout();
+  }
+  // With a unit (unit="°" or unit="%"), the label says the value while it moves, the way iPad sliders
+  // with a number do: "Turn  15°". The label's own words are wrapped once into a row with the number.
+  _readout() {
+    const u = this.getAttribute('unit'), lbl = this.parentElement; if (u == null || !lbl) return;
+    let out = lbl.querySelector(':scope > .lbl-row > .val');
+    if (!out) {
+      const words = [...lbl.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim()); if (!words) return;
+      const row = document.createElement('span'); row.className = 'lbl-row'; lbl.insertBefore(row, words); row.append(words);
+      out = document.createElement('span'); out.className = 'val'; row.append(out);
+    }
+    const v = Math.round(this._v), text = (this.min < 0 && v > 0 ? '+' : '') + v + u;
+    if (out.textContent !== text) out.textContent = text;
+    this.setAttribute('aria-valuetext', text);
   }
 }
 if (!customElements.get('ink-slider')) customElements.define('ink-slider', InkSlider);
