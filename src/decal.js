@@ -88,20 +88,27 @@ function limbFlat(geo, t, frame, startTri, limb) {
   const ang = new Float64Array(verts), Rv = new Float64Array(verts);
   for (let v = 0; v < verts; v++) { const b = sb(S[v]), x = Wo[v] - (mo[b] || 0), y = Ws[v] - (ms[b] || 0); ang[v] = Math.atan2(y, x); Rv[v] = Math.hypot(x, y); }
   const ab = (a) => ((Math.floor((a + Math.PI) / (2 * Math.PI) * NA) % NA) + NA) % NA;
-  const rsum = new Float64Array(nb * NA), rc = new Float64Array(nb * NA);
-  for (let v = 0; v < Math.min(verts, limb.keep.length); v++) if (own(v)) { const b = sb(S[v]); for (let k = -2; k <= 2; k++) { const j = b + k; if (j < 0 || j >= nb) continue; const c = j * NA + ab(ang[v]); rsum[c] += Rv[v]; rc[c]++; } }
-  // radius per height and angle bin, gaps filled round the ring, rows with nothing copied from nearby
-  const RT = new Float64Array(nb * NA).fill(NaN);
-  for (let b = 0; b < nb; b++) {
-    const row = []; for (let a = 0; a < NA; a++) { const c = b * NA + a; row.push(rc[c] ? rsum[c] / rc[c] : NaN); }
-    if (!row.some((x) => x === x)) continue;
-    for (let a = 0; a < NA; a++) if (!(row[a] === row[a])) { let l = 1, r = 1; while (!(row[(a - l + NA) % NA] === row[(a - l + NA) % NA])) l++; while (!(row[(a + r) % NA] === row[(a + r) % NA])) r++; RT[b * NA + a] = (row[(a - l + NA) % NA] * r + row[(a + r) % NA] * l) / (l + r); } else RT[b * NA + a] = row[a];
-  }
-  for (let b = 1; b < nb; b++) if (!(RT[b * NA] === RT[b * NA])) for (let a = 0; a < NA; a++) RT[b * NA + a] = RT[(b - 1) * NA + a];
-  for (let b = nb - 2; b >= 0; b--) if (!(RT[b * NA] === RT[b * NA])) for (let a = 0; a < NA; a++) RT[b * NA + a] = RT[(b + 1) * NA + a];
-  // cumulative length round each ring, from angle -PI
-  const CT = new Float64Array(nb * (NA + 1)), da = 2 * Math.PI / NA;
-  for (let b = 0; b < nb; b++) for (let a = 0; a < NA; a++) CT[b * (NA + 1) + a + 1] = CT[b * (NA + 1) + a] + (RT[b * NA + a] || 0) * da;
+  const table = (pick) => {
+    const rsum = new Float64Array(nb * NA), rc = new Float64Array(nb * NA);
+    for (let v = 0; v < Math.min(verts, limb.keep.length); v++) if (pick(v)) { const b = sb(S[v]); for (let k = -2; k <= 2; k++) { const j = b + k; if (j < 0 || j >= nb) continue; const c = j * NA + ab(ang[v]); rsum[c] += Rv[v]; rc[c]++; } }
+    // radius per height and angle bin, gaps filled round the ring, rows with nothing copied from nearby
+    const RT = new Float64Array(nb * NA).fill(NaN);
+    for (let b = 0; b < nb; b++) {
+      const row = []; for (let a = 0; a < NA; a++) { const c = b * NA + a; row.push(rc[c] ? rsum[c] / rc[c] : NaN); }
+      if (!row.some((x) => x === x)) continue;
+      for (let a = 0; a < NA; a++) if (!(row[a] === row[a])) { let l = 1, r = 1; while (!(row[(a - l + NA) % NA] === row[(a - l + NA) % NA])) l++; while (!(row[(a + r) % NA] === row[(a + r) % NA])) r++; RT[b * NA + a] = (row[(a - l + NA) % NA] * r + row[(a + r) % NA] * l) / (l + r); } else RT[b * NA + a] = row[a];
+    }
+    for (let b = 1; b < nb; b++) if (!(RT[b * NA] === RT[b * NA])) for (let a = 0; a < NA; a++) RT[b * NA + a] = RT[(b - 1) * NA + a];
+    for (let b = nb - 2; b >= 0; b--) if (!(RT[b * NA] === RT[b * NA])) for (let a = 0; a < NA; a++) RT[b * NA + a] = RT[(b + 1) * NA + a];
+    // cumulative length round each ring, from angle -PI
+    const CT = new Float64Array(nb * (NA + 1)), da = 2 * Math.PI / NA;
+    for (let b = 0; b < nb; b++) for (let a = 0; a < NA; a++) CT[b * (NA + 1) + a + 1] = CT[b * (NA + 1) + a] + (RT[b * NA + a] || 0) * da;
+    return CT;
+  };
+  // first from the limb's own skin, then again with the hand or foot where it still lies round the
+  // same ring (the wrist or ankle bone), so a band there is measured on the skin it really covers
+  const CT0 = table(own), da0 = 2 * Math.PI / NA;
+  const CT = table((v) => own(v) || (v < limb.keep.length && limb.keep[v] === 2 && Rv[v] < 1.6 * CT0[sb(S[v]) * (NA + 1) + NA] / (2 * Math.PI))), da = da0;
   const cum = (b, t) => { const f = (t + Math.PI) / da, i = Math.max(0, Math.min(NA - 1, Math.floor(f))), r = f - i; return CT[b * (NA + 1) + i] + (CT[b * (NA + 1) + i + 1] - CT[b * (NA + 1) + i]) * r; };
   const perim = (b) => CT[b * (NA + 1) + NA];
   // length round the ring at this height from angle a0 by turn (-PI..PI, plus whole turns)
@@ -123,7 +130,7 @@ function limbFlat(geo, t, frame, startTri, limb) {
   const Rr = nrm(toRest([frame.right.x, frame.right.y, frame.right.z])), Ur = nrm(toRest([frame.up.x, frame.up.y, frame.up.z]));
   const rx = dt(Rr, eRound), rs = dt(Rr, eDown), ux = dt(Ur, eRound), us = dt(Ur, eDown);
   const w = t.width, h = t.width / t.aspect, round = Math.abs(rx) * w + Math.abs(ux) * h;
-  if (!(rr > 0) || round < 0.45 * 2 * Math.PI * rr) return null;
+  if (!(rr > 0) || round < 0.8 * 2 * Math.PI * rr) return null;
   const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   return {
     // flat x, y of vertex v with its angle shifted by k turns (for triangles across the back)

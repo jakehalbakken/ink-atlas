@@ -12,6 +12,7 @@ export default async function (p) {
     const spots = {
       'ankle band': [[0.193, 0.14, 2], [0, 0, -1], 0.2],
       'ankle band from the back': [[-0.193, 0.15, -2], [0, 0, 1], 0.21],
+      'ankle three quarters': [[-0.193, 0.15, 2], [0, 0, -1], 0.16],
       'wrist band': [[2, 1.095, 0.175], [-1, 0, 0], 0.15],
       'upper arm band': [[0.27, 1.3, 2], [0, 0, -1], 0.25],
     };
@@ -36,13 +37,13 @@ export default async function (p) {
   await look('wrist', { theta: 1.2, phi: 1.3, r: 0.6, tx: 0.47, ty: 1.09, tz: 0.17 });
   for (const c of res.cover) console.log(c.name, 'cover', c.cover.toFixed(3), 'stretch p90', c.stretch.toFixed(2), 'p10', (c.low || 0).toFixed(2));
   for (const c of res.span) console.log(c.name, 'y', c.y.toFixed(3), 'from', c.lo.toFixed(3), 'to', c.hi.toFixed(3), 'triangles', c.tris);
-  assert.equal(res.cover.length, 4, 'all four placed');
+  assert.equal(res.cover.length, 5, 'all five placed');
   for (const c of res.cover) {
     assert.ok(c.cover > 0.97, `${c.name}: the whole band is on the skin, no holes (${(c.cover * 100).toFixed(1)}%)`);
     assert.ok(c.stretch < 1.9 && c.low > 0.45, `${c.name}: even scale round the limb (${c.low.toFixed(2)} to ${c.stretch.toFixed(2)})`);
   }
   for (const c of res.span.filter((c) => /ankle/.test(c.name))) {
-    const h = 0.2 / 4;
+    const h = c.name === 'ankle three quarters' ? 0.16 / 4 : 0.2 / 4;
     assert.ok(c.hi - c.lo < h + 0.04 && c.lo > c.y - h / 2 - 0.03, `${c.name}: stays a band, nothing dropped onto the heel (${c.lo.toFixed(3)} to ${c.hi.toFixed(3)})`);
   }
   console.log('PASS t116 a band round the ankle, wrist and upper arm closes on itself with no holes');
