@@ -75,6 +75,8 @@ import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOff
 const newSeen = readSeen();
 // Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
 const TAUGHT_KEY = 'ia-taught', taught = (() => { try { return new Set(JSON.parse(localStorage.getItem(TAUGHT_KEY) || '[]')); } catch (_) { return new Set(); } })();
+// the fine print under the pain map and open skin is read once, then the bars stay slim
+let painSeen = false, roomSeen = false;
 function learnt(k) { taught.add(k); try { localStorage.setItem(TAUGHT_KEY, JSON.stringify([...taught])); } catch (_) { /* private mode: lasts until reload */ } }
 
 // a feature that needs the account's email sender is listed only once that is switched on
@@ -250,9 +252,13 @@ function placeChrome() {
   if (!fits) { body.classList.add('views-low'); document.documentElement.style.setProperty('--views-top', Math.round($('#top').getBoundingClientRect().bottom - 4) + 'px'); }
   const bottom = Math.max($('#top').getBoundingClientRect().bottom, fits ? 0 : v.getBoundingClientRect().bottom + 8);
   document.documentElement.style.setProperty('--below', Math.round(bottom) + 'px');
+  // panels at the right stop above the tray wherever the tray sits under them
+  const tr2 = $('#tray').getBoundingClientRect(), popLeft = innerWidth - 356;
+  const gap = tr2.height && tr2.right > popLeft ? Math.max(24, Math.round(innerHeight - tr2.top + 12)) : 24;
+  document.documentElement.style.setProperty('--tray-gap', gap + 'px');
 }
 addEventListener('resize', () => { placeChrome(); requestAnimationFrame(placeChrome); setTimeout(placeChrome, 300); });
-{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); ro.observe($('#top .toolbar')); ro.observe($('#top')); }
+{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); ro.observe($('#top .toolbar')); ro.observe($('#top')); ro.observe($('#tray')); }
 if (document.fonts) document.fonts.ready.then(placeChrome);
 placeChrome();
 function freeArea() {
@@ -1052,12 +1058,12 @@ function renderBody() {
   $('#rHeight').value = state.heightCm; const inch = state.heightCm / 2.54; $('#hText').textContent = `${Math.floor(inch / 12)} ft ${Math.round(inch % 12)} in  ·  ${state.heightCm} cm`;
 }
 function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); }
-function toast(msg, action, fn) {
+function toast(msg, action, fn, ms = 5200) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   // below a bar that is showing at the top, never behind it
   const bar = ['#procreateBar', '#paintBar'].map((q) => $(q)).find((b) => b && !b.hidden);
   t.style.top = bar ? `${Math.round(bar.getBoundingClientRect().bottom + 8)}px` : '';
-  t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, 5200);
+  t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, ms);
 }
 let slideSnap = false;
 function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t || t.locked) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); likeRender(t); renderGap(); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
@@ -3249,7 +3255,7 @@ function painOfTattoo(t) {
   return line;
 }
 function painRender() {
-  $('#painBtn').setAttribute('aria-pressed', String(pain.on)); $('#painBar').hidden = !pain.on;
+  $('#painBtn').setAttribute('aria-pressed', String(pain.on)); $('#painBar').hidden = !pain.on; $('#painNote').hidden = taught.has('painNote'); if (!pain.on && !$('#painNote').hidden && painSeen) learnt('painNote'); if (pain.on) painSeen = true;
   document.body.classList.toggle('wash-on', pain.on || room.on);
   $('#painText').textContent = pain.text;
   if (pain.mesh) pain.mesh.visible = pain.on;
@@ -3385,7 +3391,7 @@ function coverRender() {
 }
 function roomFitText(t) { return `Green is where ${t.name || 'it'} fits with half an inch to spare. Tap a green spot to move it there.`; }
 function roomRender() {
-  $('#roomBtn').setAttribute('aria-pressed', String(room.on)); $('#roomBar').hidden = !room.on;
+  $('#roomBtn').setAttribute('aria-pressed', String(room.on)); $('#roomBar').hidden = !room.on; $('#roomNote').hidden = taught.has('roomNote'); if (!room.on && !$('#roomNote').hidden && roomSeen) learnt('roomNote'); if (room.on) roomSeen = true;
   document.body.classList.toggle('wash-on', pain.on || room.on);
   $('#roomText').textContent = room.text;
   $('#roomKeyAll').hidden = !!room.fitId; $('#roomKeyFit').hidden = !room.fitId; $('#roomAll').hidden = !room.fitId;
@@ -3909,7 +3915,7 @@ async function reloadForUpdate() {
 function onUpdateReady() {
   if (updateReady) return; updateReady = true;
   if (document.hidden || (!touchedSinceBoot && !gest)) { reloadForUpdate(); return; }
-  toast('A new version of Ink Atlas is ready.', 'Reload', reloadForUpdate);
+  toast('A new version of Ink Atlas is ready.', 'Reload', reloadForUpdate, 15000); // long enough to read and reach; leaving the screen applies it anyway
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden && updateReady) reloadForUpdate(); });
 if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) onUpdateReady(); }); }
