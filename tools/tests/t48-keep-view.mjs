@@ -34,7 +34,9 @@ export default async function(p){
  at=await p.evaluate(id=>window.__ink.projectPoint(window.__ink.viewSpot(id).pos),sun);
  const low=await cam();
  if(at.y>900&&at.y<1150){
-  await send([['pointerdown',6,at.x,at.y],['pointerup',6,at.x,at.y]]);await wait(300);await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});await wait(300);
+  await send([['pointerdown',6,at.x,at.y],['pointerup',6,at.x,at.y]]);await wait(300);
+  // the slide starts on the frame after the panel shows; a slow headless frame can come after 300 ms
+  await p.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(r)))));await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});await wait(300);
   now=await cam();for(const k of ['r','theta','phi','roll'])assert.equal(now[k],low[k],'slide keeps '+k);
   const at2=await p.evaluate(id=>window.__ink.projectPoint(window.__ink.viewSpot(id).pos),sun),top2=await p.$eval('#sheet',e=>e.getBoundingClientRect().top);
   assert.ok(at2.y<top2&&at2.y>top2-120,`slid just above the panel (${Math.round(at.y)} to ${Math.round(at2.y)}, panel at ${Math.round(top2)})`);
