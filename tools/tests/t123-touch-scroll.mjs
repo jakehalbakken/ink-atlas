@@ -3,6 +3,7 @@
 // scrolls but sits outside them never moved unless the finger began on a button: the
 // comment list, a long comment and its replies, the Ink check bar and the text boxes.
 // - no element that can scroll sits outside the guard's list;
+// - every text box is at least 16 px, so tapping one never zooms the iPad's page in;
 // - a finger that starts on plain text in the Ink check bar scrolls it, and the page stays put.
 import assert from 'node:assert/strict';
 export default async function (p) {
@@ -20,6 +21,11 @@ export default async function (p) {
     return r;
   });
   assert.deepEqual(outside, [], 'parts that scroll but ignore a finger: ' + outside.join(', '));
+
+  const small = await p.evaluate(() => [...document.querySelectorAll('input,textarea,select')]
+    .filter((el) => !['checkbox', 'radio', 'range', 'file', 'color', 'button', 'submit', 'hidden'].includes(el.type) && parseFloat(getComputedStyle(el).fontSize) < 16)
+    .map((el) => (el.id || el.className || el.tagName) + ' ' + getComputedStyle(el).fontSize));
+  assert.deepEqual(small, [], 'text boxes that zoom the iPad in when tapped: ' + small.join(', '));
 
   const cdp = await p.target().createCDPSession();
   const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y]) => ({ x, y, id: 1, radiusX: 8, radiusY: 8, force: 1 })) });
@@ -40,5 +46,5 @@ export default async function (p) {
   assert.ok(after.top > 20, 'a finger scrolls the Ink check bar: ' + JSON.stringify(after));
   assert.deepEqual(after.page, [0, 0], 'the page itself never moves');
   await p.evaluate(() => { document.querySelectorAll('#icBar .t123').forEach((e) => e.remove()); document.getElementById('inkCheck').hidden = true; });
-  console.log('PASS t123 touch scroll: every scrolling part takes a finger, the Ink check bar scrolls from plain text, the page stays put');
+  console.log('PASS t123 touch scroll: every scrolling part takes a finger, no text box zooms the page, the Ink check bar scrolls from plain text, the page stays put');
 }
