@@ -71,6 +71,7 @@ import { keepVersion, useVersion, versionList } from './versions.js';
 import { matchesComment } from './comment-find.js';
 import { writePrefs, readPrefs as readDevicePrefs } from './prefs.js';
 import { initWrapStudio } from './wrap-studio.js';
+import { limbAxis, limbPlace, limbPoint, LimbDrag, rotFor, rotRound, shareRound, wrapAngle as wrapA } from './wrap-drag.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
 const newSeen = readSeen();
 // Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
@@ -458,7 +459,54 @@ function decalLimb(tri) {
   }
   const J = poseView.restRig().joints;
   const at = (n) => { const b = POSE_BONES.find((x) => x.name === `${n}.${L.side}`); return [0, 1, 2].map((i) => J[b.head * 3 + i]); };
-  return { joints: L.bones.map(at), keep: limbKeep.get(L.key), rest: (bodyGeo.attributes.rest || bodyGeo.attributes.position).array };
+  return { key: L.key, label: L.label, joints: L.bones.map(at), keep: limbKeep.get(L.key), rest: (bodyGeo.attributes.rest || bodyGeo.attributes.position).array };
+}
+// A piece on an arm or leg, with the limb's line and how far round it reaches (cached per placement
+// and shape). share is of about 2 pi r at its middle: rough, for deciding how to move it.
+const wrapCache = new Map();
+function wrapInfo(t) {
+  if (!t) return null;
+  const k = [t.pos, t.normal, t.width, t.aspect, t.rot || 0, shapeKey].join('|'), c = wrapCache.get(t.id);
+  if (c && c.k === k) return c.v;
+  let v = null;
+  const tri = startTriangle(t), L = decalLimb(tri);
+  if (L && L.keep[bodyGeo.index.array[tri * 3]] === 1) {
+    const ax = limbAxis(L.joints), at = limbPlace(ax, t.pos), f = frameOf(t), h = t.width / t.aspect;
+    const sr = shareRound(f.right.toArray(), f.up.toArray(), f.n.toArray(), t.width, h, at);
+    v = { L, ax, at, tri, share: sr.share, reach: sr.reach };
+    // the bone is seldom in the middle of the limb (the calf hangs behind the shin), so the real
+    // loop of skin round it is the measure where it can be walked
+    const g = girthHere(t, v); if (g) { v.girth = g; v.share = sr.reach / g; }
+  }
+  wrapCache.set(t.id, { k, v }); return v;
+}
+// wide enough round an arm or leg that it is moved like a ring on a rod
+const isWrap = (t) => { const w = wrapInfo(t); return !!w && w.share >= 0.35; };
+// The limb's own skin at a spot: looked for from outside along the way out, skipping the other leg,
+// the body or a hand in between. Rest positions, like everything placed.
+function limbSurface(keep, point, out) {
+  const o = new V3(...out).normalize();
+  ray.set(new V3(...point).addScaledVector(o, 0.12), o.clone().negate()); ray.far = 0.3;
+  const hits = ray.intersectObject(body, false); ray.far = Infinity;
+  const I = bodyGeo.index.array;
+  for (const h of hits) { if (h.faceIndex == null || keep[I[h.faceIndex * 3]] !== 1) continue; return { pos: h.point.toArray(), normal: h.normal.clone().normalize().toArray(), tri: h.faceIndex }; }
+  return null;
+}
+// The loop of skin round the limb at a piece's middle, square to the limb's line (metres), or null.
+function girthHere(t, w = wrapInfo(t)) {
+  if (!w) return null;
+  if (!spotEdges) spotEdges = edgeTris(bodyGeo.index.array, bodyGeo.index.count / 3);
+  try { const g = girthAt(bodyGeo.attributes.position.array, bodyGeo.index.array, w.tri, t.pos, w.at.dir, spotEdges); return g > 0.05 && g < 1.2 ? g : null; } catch { return null; }
+}
+// Lay a piece round its arm or leg: long side round the limb, top towards the body, sized so its
+// ends meet at the back. One undo step.
+function wrapRound(t) {
+  const w = wrapInfo(t); if (!w || !t || t.locked || cannotMove(t)) return false;
+  const girth = girthHere(t, w) || 2 * Math.PI * w.at.r;
+  const f0 = frameOf({ ...t, rot: 0 }), rot = rotRound(f0.right.toArray(), f0.up.toArray(), w.at.dir, t.aspect);
+  snapshot();
+  t.rot = rot; t.width = THREE.MathUtils.clamp(t.aspect >= 1 ? girth : girth * t.aspect, 0.012, 0.9);
+  markTried('wrapGrab'); commit(); return true;
 }
 function decalGeometry(t) {
   const st = startTriangle(t), { positions, uvs, supports, tris } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), st, decalLimb(st));
@@ -819,9 +867,39 @@ function setCommentOnly(on) {
   renderUI();
 }
 function screenOf(v) { const p = v.clone().project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height }; }
-function onSelectedInk(x, y) {
+// Whether the finger is on the selected tattoo's own decal (any part of its artwork, clear parts
+// too), on the skin it lies on, not through the limb from behind.
+function onSelectedDecal(x, y, h) {
+  const t = sel(), d = t && decals[t.id]; if (!d || !d.mesh.visible || !h) return false;
+  ray.setFromCamera(ndc(x, y), camera);
+  const hits = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]);
+  return hits.some((q) => Math.abs(q.distance - h.distance) < 0.012);
+}
+function onSelectedInk(x, y, slop = 0) {
   const t = sel(); if (cannotMove(t) || tapPlaceId || !t || t.locked || t.status === 'existing' || t.hidden) return false;
-  const h = hitBody(x, y); return !!(h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t));
+  const h = hitBody(x, y), wrap = isWrap(t);
+  // a piece that goes round an arm or leg is grabbed anywhere on it, front, side or back; the flat
+  // box round its middle would reach onto the body beside the limb, so it is only for other pieces
+  if (!wrap && h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t)) return true;
+  if (onSelectedDecal(x, y, h)) return true;
+  // a fingertip is wide: a near miss on a thin band still takes hold of it
+  if (slop) for (const [dx, dy] of [[slop, 0], [-slop, 0], [0, slop], [0, -slop]]) if (onSelectedDecal(x + dx, y + dy, hitBody(x + dx, y + dy))) return true;
+  return false;
+}
+// Start moving a wrap like a ring on a rod: from where the finger first touched its skin.
+function limbGrab(t, x, y) {
+  const w = isWrap(t) ? wrapInfo(t) : null, h = w && hitBody(x, y); if (!h) return null;
+  return { drag: new LimbDrag(w.ax, w.at, limbPlace(w.ax, h.point.toArray()), frameOf(t).up.toArray()), keep: w.L.keep };
+}
+function limbMove(G, x, y) {
+  const h = hitBody(x, y), I = bodyGeo.index.array;
+  // off the limb (the background, the other leg, the body) the band holds still, and goes on from
+  // wherever the finger comes back onto the limb, with no jump
+  const on = h && h.faceIndex != null && G.keep[I[h.faceIndex * 3]] > 0;
+  const sp = G.drag.step(on ? limbPlace(G.drag.ax, h.point.toArray()) : null); if (!sp) return null;
+  const hit = limbSurface(G.keep, sp.point, sp.out); if (!hit) return null;
+  const f = frameOf({ normal: hit.normal, rot: 0 });
+  return { pos: hit.pos, normal: hit.normal, rot: rotFor(f.right.toArray(), f.up.toArray(), sp.up) };
 }
 function two() { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, ang: Math.atan2(b.y - a.y, b.x - a.x), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; }
 canvas.addEventListener('pointerdown', (e) => {
@@ -832,11 +910,12 @@ canvas.addEventListener('pointerdown', (e) => {
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pts.size === 1) {
     const t = sel();
-    const onInk = onSelectedInk(e.clientX, e.clientY);
+    const onInk = onSelectedInk(e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 10);
     const sc = t ? screenOf(new V3(...viewSpot(t).pos)) : { x: 0, y: 0 };
     if (onInk && poseView.motion.playing) poseView.pause(); // hold the pose still while the ink moves
     if (paint && hitBody(e.clientX, e.clientY)) { gest = { mode: 'paint', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: true, snap: false, type: e.pointerType, dab: new Set() }; paintAt(e.clientX, e.clientY, gest.dab); return; }
     gest = { mode: onInk ? 'ink' : 'cam', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, ox: e.clientX - sc.x, oy: e.clientY - sc.y, type: e.pointerType };
+    if (onInk) gest.limb = limbGrab(t, e.clientX, e.clientY);
   } else if (pts.size === 2 && gest) {
     const s = two();
     // two fingers that land together are a pan or zoom, not paint: take back the first finger's dab
@@ -844,7 +923,7 @@ canvas.addEventListener('pointerdown', (e) => {
     // Fingers that land together arrive in no fixed order, so "two fingers starting on it"
     // must not depend on which one the browser reports first: if the first finger has not
     // moved yet and the second one lands on the selected tattoo, it is a resize/turn of it.
-    if (gest.mode === 'cam' && !gest.moved && performance.now() - gest.t0 < 350 && onSelectedInk(e.clientX, e.clientY)) gest.mode = 'ink';
+    if (gest.mode === 'cam' && !gest.moved && performance.now() - gest.t0 < 350 && onSelectedInk(e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 10)) gest.mode = 'ink';
     gest.moved = true; gest.hadTwo = true; handsOn(true); gest.intent = null; gest.pd = s.d; gest.pa = s.ang; gest.pcx = s.cx; gest.pcy = s.cy;
     const t = sel(); if (gest.mode === 'ink' && t) { gest.w0 = t.width; gest.r0 = t.rot; gest.d0 = s.d; gest.a0 = s.ang; if (!gest.snap) { snapshot(); gest.snap = true; } }
   }
@@ -863,6 +942,7 @@ canvas.addEventListener('pointermove', (e) => {
       glide = false; goal.theta -= dx * 0.0085; goal.phi = THREE.MathUtils.clamp(goal.phi - dy * 0.0065, 0.2, Math.PI - 0.35); needsRender = true;
     } else {
       const t = sel(); if (!t) return;
+      if (gest.limb) { const to = limbMove(gest.limb, e.clientX, e.clientY); if (to) { if (!gest.snap) { snapshot(); gest.snap = true; } Object.assign(t, to); inkDirty = true; markTried('wrapGrab'); } return; }
       const h = hitBody(e.clientX - gest.ox, e.clientY - gest.oy);
       if (h) { if (!gest.snap) { snapshot(); gest.snap = true; } t.pos = h.point.toArray(); t.normal = h.normal.clone().normalize().toArray(); updateLiveGuides(t); inkDirty = true; }
     }
@@ -901,10 +981,11 @@ function endPointer(e) {
   if (e.type === 'pointercancel') { cancelGesture(); return; }
   if (!pts.has(e.pointerId)) return;
   pts.delete(e.pointerId);
-  if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...viewSpot(t).pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; } return; }
+  if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...viewSpot(t).pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; if (gest.limb) gest.limb = limbGrab(t, p.x, p.y); } return; }
   if (pts.size > 0 || !gest) return;
   const g = gest; gest = null; handsOn(false);
   if (g.mode === 'ink' && g.moved && !taught.has('move')) { learnt('move'); renderSheet(); }
+  if (g.limb && g.moved && !taught.has('wrapMove')) { learnt('wrapMove'); renderSheet(); }
   if (g.snap) { commit(); }
   if (!g.moved && performance.now() - g.t0 < 450 && e.type === 'pointerup') tap(e.clientX, e.clientY);
 }
@@ -937,7 +1018,36 @@ let inkDirty = false;
 // turn with it. Everything else keeps the usual gestures; the handles are just one more way.
 const handleBox = $('#handles'), hSize = $('#hSize'), hTurn = $('#hTurn');
 let handleDrag = null;
+// A band round an arm or leg: its middle is often round the back, so the handles go on the part
+// facing you, on its bottom and top edges (cached until the view or the band moves).
+let wrapHandleCache = null;
+function wrapFront(t) {
+  const w = wrapInfo(t); if (!w || w.share < 0.35 || poseView.active) return null;
+  const k = [t.id, t.pos, t.normal, t.width, t.rot || 0, shapeKey, camera.position.toArray().map((v) => v.toFixed(3))].join('|');
+  if (wrapHandleCache && wrapHandleCache.k === k) return wrapHandleCache.v;
+  const cam = limbPlace(w.ax, camera.position.toArray());
+  let dA = wrapA(cam.angle - w.at.angle);
+  // a piece part way round: the nearest of its own skin to you
+  if (w.share < 0.95) { const half = Math.max(0, Math.PI * w.share - 0.4); dA = Math.max(-half, Math.min(half, dA)); }
+  const p = limbPoint(w.ax, w.at.s, w.at.angle + dA, w.at.r), hit = limbSurface(w.L.keep, p.point, p.out);
+  let v = null;
+  if (hit) {
+    const up0 = frameOf(t).up.toArray(), n = new V3(...hit.normal), c0 = Math.cos(dA), s0 = Math.sin(dA), k3 = new V3(...w.at.dir), u = new V3(...up0);
+    const up = u.clone().multiplyScalar(c0).add(new V3().crossVectors(k3, u).multiplyScalar(s0)).add(k3.clone().multiplyScalar(k3.dot(u) * (1 - c0)));
+    up.addScaledVector(n, -up.dot(n)).normalize();
+    v = { pos: hit.pos, normal: hit.normal, up: up.toArray() };
+  }
+  wrapHandleCache = { k, v }; return v;
+}
 function handleSpots(t) {
+  const wf = wrapFront(t);
+  if (wf) {
+    const c = new V3(...wf.pos), up = new V3(...wf.up), hh = t.width / t.aspect / 2;
+    if (new V3(...wf.normal).dot(camera.position.clone().sub(c).normalize()) < 0.15) return null;
+    const cs = screenOf(c), bot = screenOf(c.clone().addScaledVector(up, -hh)), top = screenOf(c.clone().addScaledVector(up, hh));
+    const bx = bot.x - cs.x, by = bot.y - cs.y, bl = Math.hypot(bx, by) || 1, ux = top.x - cs.x, uy = top.y - cs.y, ul = Math.hypot(ux, uy) || 1;
+    return { c: cs, size: { x: bot.x + bx / bl * 30, y: bot.y + by / bl * 30 }, turn: { x: top.x + ux / ul * 34, y: top.y + uy / ul * 34 } };
+  }
   const spot = viewSpot(t), f = frameOf({ ...t, normal: spot.normal }), c = new V3(...spot.pos);
   const hw = t.width / 2, hh = t.width / t.aspect / 2;
   const toCam = camera.position.clone().sub(c).normalize();
@@ -1039,7 +1149,17 @@ function renderSheet() {
   $('#bHide').textContent = t.hidden ? 'Show' : 'Hide';
   $('#bStatus').textContent = t.status === 'existing' ? 'Already on me' : 'Planned'; $('#bStatus').setAttribute('aria-pressed', t.status === 'existing' ? 'true' : 'false');
   $('#bFlip').setAttribute('aria-pressed', t.flip ? 'true' : 'false');
-  $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
+  // a piece on an arm or leg that is long or reaches far round it: how far round, and one tap to
+  // lay it right round with its ends meeting at the back
+  const wi = t.status !== 'existing' && !commentOnly ? wrapInfo(t) : null, longArt = Math.max(t.aspect, 1 / t.aspect) >= 2;
+  const showWrap = !!wi && (longArt || wi.share >= 0.35);
+  $('#wrapRow').hidden = !showWrap;
+  if (showWrap) {
+    const limb = /leg/.test(wi.L.key) ? 'leg' : 'arm', full = wi.share >= 0.95 && wi.share <= 1.08;
+    $('#wrapText').textContent = full ? `Goes all the way round your ${limb}.` : wi.share > 1.08 ? `Longer than the way round your ${limb} here, so its ends overlap.` : `Goes about ${Math.max(5, Math.round(wi.share * 20) * 5)}% of the way round your ${limb}.`;
+    $('#wrapFit').hidden = full || t.locked; $('#wrapFit').textContent = wi.share > 1.08 ? 'Fit it round' : 'Wrap it round';
+  }
+  $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':isWrap(t)&&!taught.has('wrapMove')?`Drag it sideways to turn it round your ${/leg/.test(wrapInfo(t).L.key)?'leg':'arm'}, up or down to slide it along. Grab it anywhere, even round the back.`:taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
 }
 function renderBody() {
   const sw = $('#skins'); sw.replaceChildren();
@@ -2324,6 +2444,7 @@ function needTattoo() {
 }
 var infoQuietUntil = 0, infoByShow = false; // More controls opened by a Show me: pointed at, not tried
 const SHOW = {
+  wrapGrab: () => { const t = sel() || state.tattoos.find((x) => !x.hidden && isWrap(x)) || state.tattoos.find((x) => !x.hidden && wrapInfo(x)); if (!t) return [null, 'Put a long piece on an arm or leg, tap Wrap it round under its name, then drag it anywhere on it: sideways turns it round, up or down slides it along.']; if (sel() !== t) select(t.id, true); else revealTattoo(t); renderSheet(); return $('#wrapRow').hidden ? [null, 'Move the tattoo onto an arm or leg: Wrap it round shows under its name. Then drag it anywhere on it, even round the back.'] : [$('#wrapFit').hidden ? '#wrapRow' : '#wrapFit', $('#wrapFit').hidden ? 'It goes all the way round. Drag it anywhere on it: sideways turns it round the limb, up or down slides it along.' : 'Tap Wrap it round: the long side goes round the limb with the ends meeting at the back. Then drag it anywhere on it, sideways to turn it, up or down to slide it.']; },
   layersSheet: () => { toggle('#planMenu', true); return ['#openLayers', 'Tap Layers and groups. Each tattoo is one line with an eye to hide it and dots to move or lock it; tick several and the actions for them show below.']; },
   layouts: () => { toggle('#planMenu', true); return ['#openPlanning', 'Tap Layouts and views. Name the layout on the body and tap Save; each saved one has Open, and the dots beside it hold Rename, What’s different and Archive.']; },
   measuredWrap: () => { toggle('#planMenu', true); return ['#openWrap', 'Tap Measured wrap. Your ankle numbers are filled in to start; change any of them there.']; },
@@ -3568,6 +3689,10 @@ function lineRender(t) {
   $('#lineText').textContent = l.offDeg < 1.5 ? `Straight ${on}.` : `Turned ${Math.round(l.offDeg)}° off straight ${on}.`;
   $('#lineFix').hidden = l.offDeg < 1.5;
 }
+$('#wrapFit').addEventListener('click', () => {
+  const t = sel(); if (!t) return; const limb = /leg/.test(wrapInfo(t)?.L.key || '') ? 'leg' : 'arm';
+  if (wrapRound(t)) toast(`Wrapped round your ${limb}, ends meeting at the back. Drag it sideways to turn it, up or down to slide it.`, 'Undo', undo);
+});
 $('#lineFix').addEventListener('click', () => {
   const t = sel(), l = lineOf(t); if (!l || l.offDeg < 1.5) return;
   if (t.locked) { toast('Unlock this tattoo first.'); return; }
@@ -5394,7 +5519,7 @@ window.__ink = {
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
-  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)
   decalSpan: (axis = [0, 1, 0]) => state.tattoos.map((t) => { const d = decals[t.id], P = d && d.mesh.geometry.attributes.position.array, UV = d && d.mesh.geometry.attributes.uv.array; let lo = Infinity, hi = -Infinity; if (P) for (let f = 0; f < P.length / 9; f++) { const u = (UV[f * 6] + UV[f * 6 + 2] + UV[f * 6 + 4]) / 3, v = (UV[f * 6 + 1] + UV[f * 6 + 3] + UV[f * 6 + 5]) / 3; if (u < UV_MARGIN || u > 1 - UV_MARGIN || v < UV_MARGIN || v > 1 - UV_MARGIN) continue; let y = 0; for (let k = 0; k < 3; k++) { const i = f * 9 + k * 3; y += (P[i] * axis[0] + P[i + 1] * axis[1] + P[i + 2] * axis[2]) / 3; } lo = Math.min(lo, y); hi = Math.max(hi, y); } return { name: t.name, lo, hi, y: t.pos[1], tris: P ? P.length / 9 : 0 }; }), restJoint: (n) => { const J = poseView.restRig().joints, b = POSE_BONES.find((x) => x.name === n); return b ? [0, 1, 2].map((i) => J[b.head * 3 + i]) : null; }, decalCover: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry; if (!g || !g.attributes.uv) return { name: t.name, cover: 0, stretch: 0 };
