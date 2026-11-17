@@ -12,7 +12,7 @@ export default async function(p){
  const labels=await p.$$eval('#poseList [data-pose]',b=>b.map(x=>x.textContent.trim()));
  assert.ok(labels.length>=29,'about 30 stills: '+labels.length);assert.ok(labels.includes('Standing')&&labels.includes('Squat'));
  const minSize=await p.$$eval('#poseList [data-pose], #motionPlay, #posePop [data-speed]',b=>Math.min(...b.map(x=>Math.min(x.getBoundingClientRect().width,x.getBoundingClientRect().height))));
- assert.ok(minSize>=44,'pose buttons are 44pt: '+minSize);
+ assert.ok(minSize>=44-0.01,'pose buttons are 44pt: '+minSize); // a layout on a fraction of a pixel can read 43.99998
  // choose a still: the body bends and the ink goes with it
  const t=await p.evaluate(()=>window.__ink.state().tattoos[0]);
  await p.click('#poseList [data-pose=twist]');await wait(500);await settled();

@@ -91,11 +91,22 @@ export default async function (p) {
     // a mouse drags it too
     const m = await drag(id, cx, cy, 24, 0, 'mouse');
     assert.equal(m.mode, 'wrap', `${name}: a mouse grabs it`); assert.ok(m.moved > 1e-4, `${name}: a mouse moves it`);
+    // a fingertip just past the band's edge (taken hold of by the finger's slop) turns it like the
+    // rest of it: no fall back to the flat drag, which jumped it about a centimetre or stuck
+    await wait(600); // the ink rebuilds a frame after the last drag
+    const edge = await p.evaluate(() => { const I = window.__ink, b = document.querySelector('#stage canvas').getBoundingClientRect(), o = []; for (let y = b.top + 10; y < b.bottom; y += 12) for (let x = b.left + 10; x < b.right; x += 12) if (I.grabsAt(x, y, 10) && !I.grabsAt(x, y, 0)) o.push([x, y]); return o; });
+    for (const [x, y] of edge.filter((_, i) => i % Math.max(1, Math.floor(edge.length / 6)) === 0)) {
+      const r = await drag(id, x, y, 0, 18, 'touch', 6);
+      assert.equal(r.mode, 'wrap', `${name}: a touch at the edge ${x},${y} turns the band like the rest`);
+      if (r.moved > 1e-6) await p.evaluate(() => window.__ink.undo()); await wait(60); // the list is full here, so undo whenever it moved
+    }
+    // and a tap there, where a drag would have taken hold, keeps it selected
+    if (edge.length) { const [x, y] = edge[0]; await p.evaluate(({ x, y }) => { const cv = document.querySelector('#stage canvas'); for (const k of ['pointerdown', 'pointerup']) cv.dispatchEvent(new PointerEvent(k, { pointerId: 8, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, button: 0, buttons: k === 'pointerup' ? 0 : 1 })); }, { x, y }); await wait(100); assert.equal(await p.evaluate(() => window.__ink.selected()), id, `${name}: a tap just off the edge keeps it selected`); }
     // the handles sit on the part facing the camera
     const hs = await p.evaluate(() => [...document.querySelectorAll('#handles:not([hidden]) .hnd')].filter((e) => !e.hidden).map((e) => { const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }));
     const vb = await p.evaluate(() => [innerWidth, innerHeight]);
     for (const [hx, hy] of hs) assert.ok(hx > 0 && hy > 0 && hx < vb[0] && hy < vb[1], `${name}: handle on screen ${hx},${hy}`);
-    console.log(name, 'girth', girth.toFixed(3), 'ink points', all.length, 'worst uv', worst.toFixed(3), 'handles', hs.length);
+    console.log(name, 'girth', girth.toFixed(3), 'ink points', all.length, 'edge', edge.length, 'worst uv', worst.toFixed(3), 'handles', hs.length);
   }
   // a small piece on a limb still moves with its middle under the finger, as before
   const small = await p.evaluate(async () => {

@@ -887,9 +887,17 @@ function onSelectedInk(x, y, slop = 0) {
   return false;
 }
 // Start moving a wrap like a ring on a rod: from where the finger first touched its skin.
-function limbGrab(t, x, y) {
-  const w = isWrap(t) ? wrapInfo(t) : null, h = w && hitBody(x, y); if (!h) return null;
-  return { drag: new LimbDrag(w.ax, w.at, limbPlace(w.ax, h.point.toArray()), frameOf(t).up.toArray()), keep: w.L.keep };
+function limbGrab(t, x, y, slop = 0) {
+  const w = isWrap(t) ? wrapInfo(t) : null; if (!w) return null;
+  // a fingertip that took hold just past the band's edge (off the limb, on the background or the
+  // other leg) still turns the band like a ring: it starts from the first skin of this limb the
+  // finger reaches, so it neither jumps nor falls back to the flat drag that sticks
+  const I = bodyGeo.index.array, onLimb = (h) => h && h.faceIndex != null && w.L.keep[I[h.faceIndex * 3]] > 0;
+  let h = hitBody(x, y);
+  if (!onLimb(h)) h = [[slop, 0], [-slop, 0], [0, slop], [0, -slop]].map(([dx, dy]) => slop && hitBody(x + dx, y + dy)).find(onLimb) || null;
+  const drag = new LimbDrag(w.ax, w.at, h ? limbPlace(w.ax, h.point.toArray()) : w.at, frameOf(t).up.toArray());
+  if (!h) drag.lost = true;
+  return { drag, keep: w.L.keep };
 }
 function limbMove(G, x, y) {
   const h = hitBody(x, y), I = bodyGeo.index.array;
@@ -915,7 +923,7 @@ canvas.addEventListener('pointerdown', (e) => {
     if (onInk && poseView.motion.playing) poseView.pause(); // hold the pose still while the ink moves
     if (paint && hitBody(e.clientX, e.clientY)) { gest = { mode: 'paint', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: true, snap: false, type: e.pointerType, dab: new Set() }; paintAt(e.clientX, e.clientY, gest.dab); return; }
     gest = { mode: onInk ? 'ink' : 'cam', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, ox: e.clientX - sc.x, oy: e.clientY - sc.y, type: e.pointerType };
-    if (onInk) gest.limb = limbGrab(t, e.clientX, e.clientY);
+    if (onInk) gest.limb = limbGrab(t, e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 10);
   } else if (pts.size === 2 && gest) {
     const s = two();
     // two fingers that land together are a pan or zoom, not paint: take back the first finger's dab
@@ -981,7 +989,7 @@ function endPointer(e) {
   if (e.type === 'pointercancel') { cancelGesture(); return; }
   if (!pts.has(e.pointerId)) return;
   pts.delete(e.pointerId);
-  if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...viewSpot(t).pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; if (gest.limb) gest.limb = limbGrab(t, p.x, p.y); } return; }
+  if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...viewSpot(t).pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; if (gest.limb) gest.limb = limbGrab(t, p.x, p.y, 10); } return; }
   if (pts.size > 0 || !gest) return;
   const g = gest; gest = null; handsOn(false);
   if (g.mode === 'ink' && g.moved && !taught.has('move')) { learnt('move'); renderSheet(); }
@@ -1006,6 +1014,8 @@ function tap(x, y) {
   if(id){lastInkTap={ids,id,x,y,time:now};select(id,false);lastInkTap.time=performance.now(); // a repeat tap counts from when the selection has shown, so a slow panel never eats it
     const tapNow=lastInkTap,fresh=()=>{if(lastInkTap===tapNow)tapNow.time=Math.max(tapNow.time,performance.now());};requestAnimationFrame(()=>{fresh();const t=sel();if(t&&t.id===id&&!gest)keepClearOfPanels(t);requestAnimationFrame(fresh);});setTimeout(fresh,0);lastTap={t:0,x,y,empty:false};return;}
   lastInkTap=null;
+  // a fingertip just off the selected tattoo, where a drag would take hold of it, keeps it selected
+  if (selectedId && onSelectedInk(x, y, 10)) { lastTap = { t: 0, x, y, empty: false }; return; }
   const dbl = lastTap.empty && now - lastTap.t < 380 && Math.hypot(x - lastTap.x, y - lastTap.y) < 40;
   lastTap = { t: now, x, y, empty: true };
   if (dbl) { fullBody(); lastTap.t = 0; }
