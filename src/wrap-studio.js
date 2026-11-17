@@ -15,7 +15,7 @@ import * as PP from './print-profiles.js';
 import * as P from './procreate-package.js';
 
 let C = null; // what the app gives the studio (see initWrapStudio)
-const ui = { printKind: 'stencil', printOut: null, cutDrag: null, ppi: 300, pkgFormat: 'psd', pkg: null, review: null, busy: '', step: 'measure', view: 'all', sub: 'photos', sel: null, mode: null, brush: 4, holdBefore: false, open: false, fitted: false, lmKey: null };
+const ui = { printKind: 'stencil', printOut: null, cutDrag: null, ppi: 300, pkgFormat: 'psd', pkg: null, review: null, busy: '', step: 'quick', view: 'all', sub: 'photos', sel: null, mode: null, brush: 4, holdBefore: false, open: false, fitted: false, lmKey: null };
 const $s = (q) => root && root.querySelector(q);
 let root = null, cv = null, ctx2 = null, side = null, insp = null;
 // user: the view was zoomed or moved by hand. A change of the canvas size (a warning line coming
@@ -57,6 +57,7 @@ const CSS = `
 #wsTabs .btn[aria-selected=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
 #wsInsp{margin:0 12px 6px;padding:6px 10px;border-radius:var(--r-md);background:var(--fill-soft);font-size:13px;line-height:1.35;color:var(--muted)}
 #wsInsp b{color:var(--text);font-weight:600}
+.qthumb img{display:block;width:64px;height:64px;object-fit:contain;border-radius:var(--r-md);background:var(--fill-soft)}
 #wsInsp .warn{color:#e8a33d}
 #wsMain{flex:1;min-height:0;display:flex;flex-direction:column}
 @media (min-aspect-ratio:5/4){#wsMain{flex-direction:row}}
@@ -124,8 +125,8 @@ function build() {
     h('header', {}, h('h2', { id: 'wsTitle', text: r ? r.name : 'Measured wrap' }),
       h('button', { class: 'btn', type: 'button', id: 'wsTall', 'aria-pressed': String(root.classList.contains('tall')), text: root.classList.contains('tall') ? 'Show body' : 'Bigger', onclick: () => { root.classList.toggle('tall'); build(); refresh(); } }),
       h('button', { class: 'btn', type: 'button', id: 'wsDone', text: 'Done', onclick: close })),
-    h('div', { id: 'wsTabs', role: 'tablist', 'data-scroll': '' }, ...[['measure', 'Measurements'], ['existing', 'Existing tattoo'], ['design', 'Design'], ['procreate', 'Procreate'], ['print', 'Print']].map(([k, label]) =>
-      h('button', { class: 'btn', type: 'button', role: 'tab', 'data-step': k, 'aria-selected': String(ui.step === k), text: label, onclick: () => { if (ui.step !== k) side.scrollTop = 0; ui.step = k; ui.mode = null; ui.sel = null; refresh(); if (k === 'design') aimAt(90); if (k === 'existing') aimAt(270); } }))),
+    h('div', { id: 'wsTabs', role: 'tablist', 'data-scroll': '' }, ...[['quick', 'Quick'], ['measure', 'Measurements'], ['existing', 'Existing tattoo'], ['design', 'Design'], ['procreate', 'Procreate'], ['print', 'Print']].map(([k, label]) =>
+      h('button', { class: 'btn', type: 'button', role: 'tab', 'data-step': k, 'aria-selected': String(ui.step === k), text: label, onclick: () => { if (ui.step !== k) side.scrollTop = 0; ui.step = k; ui.mode = null; ui.sel = null; refresh(); if (k === 'design') aimAt(90); if (k === 'existing' || k === 'quick') aimAt(270); } }))),
     h('div', { id: 'wsInsp', 'aria-live': 'polite' }),
     h('div', { id: 'wsMain' },
       h('div', { id: 'wsFlat' }, h('canvas', { id: 'wsCanvas', 'aria-label': 'The measured wrap laid flat' }),
@@ -172,9 +173,9 @@ function renderStart() {
       const limb = $s('#wsStartLimb').value, r = R.startingRegion(limb);
       r.focal = { deg: 90, at: 0.5, w: 90, h: 70 };
       change(() => { S().regions = [...(S().regions || []), r]; ui.regionId = r.id; });
-      build(); refresh(); aimAt(270);
+      ui.step = 'quick'; build(); refresh(); aimAt(270);
     } }),
-    h('p', { text: 'Starts at 9 in round at the bottom, 12.5 in at the top and 4 in between, as you measured round your cactus. Change any of them next.' }));
+    h('p', { text: 'Starts at 9 in round at the bottom, 12.5 in at the top and 4 in between, as you measured round your cactus. Change any of them next, then add a picture of the cactus and get the Procreate file.' }));
 }
 
 /* ---------------- inspector: always on, the numbers that matter ---------------- */
@@ -184,7 +185,8 @@ function warnings(r) {
   for (let i = 1; i < r.levels.length; i++) if (r.levels[i].gap > 130) out.push('Rings more than about 5 in apart: add one in between, since the shape between them is a guess.');
   if (!r.existing?.ink) out.push('The existing tattoo is not traced yet, so nothing protects it.');
   const width = inkWidth(r); if (!width) out.push('The existing tattoo’s width is not measured yet.');
-  if (t && cutThroughFocal(r)) out.push('The cut runs through the front focal point. Move it to the inside or outside.');
+  // a cut placed opposite the tattoo on the Quick screen is drawn across in Procreate; only the print says so
+  if (t && cutThroughFocal(r) && r.existing?.side == null) out.push('The cut runs through the front focal point. Move it to the inside or outside.');
   if (r.existing && cutThroughInk(r)) out.push('The cut runs through the existing tattoo. Move it.');
   if (r.existing?.maskCalib && r.existing.maskCalib !== r.calib) out.push('The measurements changed after the existing tattoo was traced. Check it still sits right.');
   return out;
@@ -204,7 +206,8 @@ const seamName = (deg) => (R.SEAMS.find(([d]) => d === deg) || [0, `${deg}°`])[
 /* ---------------- side panel per step ---------------- */
 function renderSide(r) {
   const keepScroll = side.scrollTop;
-  if (ui.step === 'measure') side.replaceChildren(...measurePanel(r));
+  if (ui.step === 'quick') side.replaceChildren(...quickPanel(r));
+  else if (ui.step === 'measure') side.replaceChildren(...measurePanel(r));
   else if (ui.step === 'existing') side.replaceChildren(...existingPanel(r));
   else if (ui.step === 'procreate') side.replaceChildren(...procreatePanel(r));
   else if (ui.step === 'print') side.replaceChildren(...printPanel(r));
@@ -378,7 +381,7 @@ function placePhoto(keepPlace) {
   const e = ex(r), known = e.knownMm || 101.6;
   // a straight-up length is shorter than the same length along the sloping skin of the cone
   const g = t.segs[0], along = e.knownHow === 'skin' ? known : known * (g.s / Math.max(1e-9, g.h));
-  const back = K.fAt(270, r.seam, r.limb), at = keepPlace && p.fit ? K.photoToTemplate(p.fit, st.w, st.h, ...base) : G.point(t, back, 0);
+  const back = K.fAt(e.side ?? 270, r.seam, r.limb), at = keepPlace && p.fit ? K.photoToTemplate(p.fit, st.w, st.h, ...base) : G.point(t, back, 0);
   const fit = K.calibrate(st.w, st.h, base, top, along, at, !!p.fit?.flip);
   if (fit) { p.fit = fit; storeLandmarkSpots(); }
   // other photos fitted from the shared landmarks, at their own scale
@@ -429,19 +432,20 @@ async function masks(create) {
   Object.assign(mask, { key: k, ink: mk(im), gap: mk(ig), w, h: hh, ppmm, o: o.slice() });
   return mask;
 }
-function saveMasks(m, which = ['ink', 'gap']) {
-  change(() => {
+function saveMasks(m, which = ['ink', 'gap'], inStep = false) {
+  const body = () => {
     const e = ex(reg()); e.maskO = m.o.slice(); e.maskPpmm = m.ppmm; e.maskCalib = reg().calib;
     for (const n of which) { const c = m[n]; c.version = (c.version || 0) + 1; e[n] = C.putImage(c.toDataURL('image/png')); }
     mask.key = [e.ink, e.gap, e.maskPpmm, JSON.stringify(e.maskO)].join('|');
-  });
+  };
+  if (inStep) body(); else change(body);
 }
 const toMask = (m, x, y) => [(x - m.o[0]) * m.ppmm, (m.o[1] - y) * m.ppmm];
 const fromMask = (m, mx, my) => [m.o[0] + mx / m.ppmm, m.o[1] - my / m.ppmm];
 
-async function findInk() {
+async function findInk(o = {}) {
   const r = reg(), p = activePhoto(r), st = straightOf(p); if (!p?.fit || !st) return;
-  C.toast('Finding the ink…');
+  if (!o.inStep) C.toast('Finding the ink…');
   const pic = await warped(p); if (!pic) return;
   const m = await masks(true), W = pic.width, H = pic.height, g = pic.getContext('2d').getImageData(0, 0, W, H).data;
   const L = new Float32Array(W * H), A = new Uint8Array(W * H);
@@ -462,15 +466,17 @@ async function findInk() {
   }
   dropSpecks(d, m.w, m.h, Math.round(1.5 * m.ppmm * m.ppmm));
   out.clearRect(0, 0, m.w, m.h); out.putImageData(id, 0, 0);
-  saveMasks(m, ['ink']); ui.view = 'protected'; refresh();
+  saveMasks(m, ['ink'], o.inStep); if (o.inStep) return;
+  ui.view = 'protected'; refresh();
   C.toast('Found the ink. Rub out anything that is not the tattoo, then protect the gaps.');
 }
-async function findGaps() {
+async function findGaps(o = {}) {
   const m = await masks(true), w = m.w, hh = m.h, a = m.ink.getContext('2d').getImageData(0, 0, w, hh).data, ink = new Uint8Array(w * hh);
   for (let i = 0; i < w * hh; i++) ink[i] = a[i * 4 + 3] > 100 ? 1 : 0;
   const gap = K.gapsBetween(ink, w, hh, Math.round(5 * m.ppmm)), g = m.gap.getContext('2d'), id = g.getImageData(0, 0, w, hh), d = id.data;
   for (let i = 0; i < w * hh; i++) if (gap[i]) { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = 255; d[i * 4 + 3] = 255; }
-  g.putImageData(id, 0, 0); saveMasks(m, ['gap']); ui.view = 'protected'; refresh();
+  g.putImageData(id, 0, 0); saveMasks(m, ['gap'], o.inStep); if (o.inStep) return;
+  ui.view = 'protected'; refresh();
   C.toast('The gaps between the pieces of the old tattoo are protected.');
 }
 function boxBlur(src, w, h, r) {
@@ -604,38 +610,181 @@ function procreatePanel(r) {
   const t = tpl(r), out = []; if (!t) return out;
   const hi = P.highPpi(t); if (ui.ppi !== 300 && ui.ppi !== hi) ui.ppi = 300;
   const c = P.packageCanvas(t, ui.ppi), e = r.existing || {};
-  out.push(h('p', { text: 'The flat shape at its real size, as one Procreate document. Draw on Proposed garden; the cactus, its ink, the protected gaps, the landmarks, the seam and alignment marks and a measurement grid come as locked layers to draw round.' }));
+  out.push(h('p', { text: 'The flat shape at its real size, as one Procreate document. Draw on Proposed garden; the cactus, its ink, the protected gaps, the landmarks, the seam and alignment marks and a measurement grid come as locked layers to draw round. Past each cut edge a faded strip repeats the other end, so you can draw straight across the cut.' }));
   out.push(h('div', { class: 'row' }, h('span', { text: 'Resolution', style: 'font-size:13px;color:var(--muted)' }),
     seg(hi > 300 ? [[300, '300 PPI'], [hi, `${hi} PPI`]] : [[300, '300 PPI']], ui.ppi, (v) => { ui.ppi = v; ui.pkg = null; renderSide(reg()); })));
   out.push(h('div', { class: 'row' }, h('span', { text: 'File', style: 'font-size:13px;color:var(--muted)' }),
     seg([['psd', 'Layered PSD'], ['png', 'PNG layers']], ui.pkgFormat, (v) => { ui.pkgFormat = v; ui.pkg = null; renderSide(reg()); })));
   out.push(h('p', { id: 'wsPkgSize', text: `${c.w} × ${c.h} pixels at ${ui.ppi} PPI, ${fmt(c.wMm)} × ${fmt(c.hMm)} with room round the shape for the alignment marks. Transparent, so only what you draw comes back.` + (ui.ppi !== 300 ? ` ${ui.ppi} PPI is the most this size can come back at on an iPad.` : '') }));
-  if (!e.locked) out.push(h('div', { class: 'warnbox', text: e.ink ? 'The existing tattoo is not locked yet. It still goes out as it is now.' : 'The existing tattoo is not traced yet, so its reference layers go out empty. Trace it first under Existing tattoo.' }));
-  if (ui.pkg && ui.pkg.calib === r.calib && ui.pkg.ppi === ui.ppi && ui.pkg.format === ui.pkgFormat) {
-    out.push(h('div', { class: 'okbox', id: 'wsPkgReady', text: `Ready: ${ui.pkg.name}, ${sizeText(ui.pkg.blob.size)}.` }),
-      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: 'wsSendPkg', text: 'Send to Procreate', onclick: sendPackage })));
-  } else {
-    out.push(h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: 'wsMakePkg', disabled: !!ui.busy, text: ui.busy === 'make' ? 'Making it…' : 'Make the Procreate file', onclick: () => makePackage().catch((err) => { ui.busy = ''; C.toast('That file could not be made: ' + (err && err.message || err)); renderSide(reg()); }) })));
-  }
+  if (!e.locked && e.side == null) out.push(h('div', { class: 'warnbox', text: e.ink ? 'The existing tattoo is not locked yet. It still goes out as it is now.' : 'The existing tattoo is not traced yet, so its reference layers go out empty. Trace it first under Existing tattoo.' }));
+  out.push(...makeRow(r, 'wsMakePkg', 'wsSendPkg'));
   out.push(h('p', { text: 'In Procreate draw only on Proposed garden and keep the canvas size. Then Share > PSD and bring that file back here. A Procreate file, or a PNG of just the Proposed garden layer, works too.' }));
   out.push(h('h3', { class: 'shHead', text: 'Bring it back' }));
-  const inp = h('input', { type: 'file', accept: '.psd,.procreate,image/png,image/vnd.adobe.photoshop,application/octet-stream', hidden: true, id: 'wsBringBackFile' });
-  inp.addEventListener('change', () => { const f = inp.files[0]; inp.value = ''; if (f) bringBack(f).catch((err) => { ui.busy = ''; C.toast('That file could not be read: ' + (err && err.message || err)); renderSide(reg()); }); });
-  out.push(h('div', { class: 'row' }, inp, h('button', { class: 'btn' + (ui.pkg || (r.sessions || []).length ? ' primary' : ''), type: 'button', id: 'wsBringBack', disabled: !!ui.busy, text: ui.busy === 'read' ? 'Reading it…' : 'Bring back from Procreate', onclick: () => inp.click() })));
-  const rv = ui.review;
-  if (rv) {
-    const col = collisions.result, lines = [rv.check.why];
-    if (rv.stale) lines.push('It was drawn on earlier measurements, so it is placed at the size it was drawn for. Check it against the new shape.');
-    if (rv.check.ok) lines.push(col && col.total > 0 ? clashText(col) : (r.existing?.ink ? 'It does not touch the old ink, its clear margin or the protected gaps.' : ''));
-    out.push(h('div', { class: rv.check.ok ? 'box' : 'warnbox', id: 'wsReview' }, ...lines.filter(Boolean).map((x) => h('p', { text: x })),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn', type: 'button', id: 'wsCancelReturn', text: rv.check.ok ? 'Cancel' : 'OK', onclick: () => { ui.review = null; collisions.key = ''; refresh(); } }),
-        rv.check.ok ? h('button', { class: 'btn primary', type: 'button', id: 'wsUseReturn', text: rv.check.how === 'scaled' ? 'Use it at this size' : 'Use it', onclick: useReturn }) : null)));
-  }
+  out.push(...bringBackRow(r, 'wsBringBack'), ...reviewBox(r));
   const ss = (r.sessions || []).slice().reverse();
   if (ss.length) out.push(h('h3', { class: 'shHead', text: 'Sent to Procreate' }), ...ss.slice(0, 5).map((q) => h('div', { class: 'row', style: 'font-size:14px' },
     h('span', { style: 'flex:1', text: `${q.name || 'Wrap'} · ${(q.at || '').slice(0, 10)} · ${q.ppi} PPI` + (q.returned ? ` · brought back${q.returned.how === 'exact' ? '' : ' (' + q.returned.how + ')'}` : '') + (q.calib !== r.calib ? ' · earlier measurements' : '') }))));
   return out;
+}
+// Make the file, then Send it (made ahead, so the share sheet opens straight from the tap)
+function makeRow(r, makeId, sendId) {
+  if (ui.pkg && ui.pkg.calib === r.calib && ui.pkg.ppi === ui.ppi && ui.pkg.format === ui.pkgFormat && ui.pkg.sig === pkgSig(r)) {
+    return [h('div', { class: 'okbox', id: sendId + 'Ready', text: `Ready: ${ui.pkg.name}, ${sizeText(ui.pkg.blob.size)}.` }),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: sendId, text: 'Send to Procreate', onclick: sendPackage }))];
+  }
+  return [h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: makeId, disabled: !!ui.busy, text: ui.busy === 'make' ? 'Making it…' : 'Make the Procreate file', onclick: () => makePackage().catch((err) => { ui.busy = ''; C.toast('That file could not be made: ' + (err && err.message || err)); renderSide(reg()); }) }))];
+}
+// what goes into the file besides the measurements: a file made before a change is made again
+const pkgSig = (r) => JSON.stringify([r.seam, r.existing?.ink, r.existing?.gap, (r.existing?.photos || []).map((p) => [p.img, p.fit]), (r.art?.pieces || []).map((p) => [p.img, p.x, p.y, p.w, p.rot, p.flip, p.hidden])]);
+function bringBackRow(r, id) {
+  const inp = h('input', { type: 'file', accept: '.psd,.procreate,image/png,image/vnd.adobe.photoshop,application/octet-stream', hidden: true, id: id + 'File' });
+  inp.addEventListener('change', () => { const f = inp.files[0]; inp.value = ''; if (f) bringBack(f).catch((err) => { ui.busy = ''; C.toast('That file could not be read: ' + (err && err.message || err)); renderSide(reg()); }); });
+  return [h('div', { class: 'row' }, inp, h('button', { class: 'btn' + (ui.pkg || (r.sessions || []).length ? ' primary' : ''), type: 'button', id, disabled: !!ui.busy, text: ui.busy === 'read' ? 'Reading it…' : 'Bring back from Procreate', onclick: () => inp.click() }))];
+}
+function reviewBox(r) {
+  const rv = ui.review; if (!rv) return [];
+  const col = collisions.result, lines = [rv.check.why];
+  if (rv.stale) lines.push('It was drawn on earlier measurements, so it is placed at the size it was drawn for. Check it against the new shape.');
+  if (rv.folded) lines.push('What you drew past the cut is moved round to the other end, where that skin is.');
+  if (rv.check.ok) lines.push(col && col.total > 0 ? clashText(col) : (r.existing?.ink ? 'It does not touch the old ink, its clear margin or the protected gaps.' : ''));
+  return [h('div', { class: rv.check.ok ? 'box' : 'warnbox', id: 'wsReview' }, ...lines.filter(Boolean).map((x) => h('p', { text: x })),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn', type: 'button', id: 'wsCancelReturn', text: rv.check.ok ? 'Cancel' : 'OK', onclick: () => { ui.review = null; collisions.key = ''; refresh(); } }),
+      rv.check.ok ? h('button', { class: 'btn primary', type: 'button', id: 'wsUseReturn', text: rv.check.how === 'scaled' ? 'Use it at this size' : 'Use it', onclick: useReturn }) : null))];
+}
+
+/* ---------------- quick: three numbers, the old tattoo, Procreate and back, on one screen ---------------- */
+const totalLen = (r) => r.levels.slice(1).reduce((a, l) => a + l.gap, 0);
+// the old tattoo is looked after by this screen until it is locked under Existing tattoo
+const quickOwns = (r) => !!(r.existing && r.existing.side != null && !r.existing.locked && activePhoto(r));
+const SIDES = [[270, 'Back'], [180, 'Outside'], [90, 'Front'], [0, 'Inside']];
+function quickPanel(r) {
+  const t = tpl(r), e = r.existing || {}, p = activePhoto(r), out = [];
+  out.push(h('p', { text: 'Your tape numbers and a picture of the tattoo already there make a Procreate file at the real size, with that tattoo in the middle. Draw round it, bring it back, and it wraps round the leg.' }));
+  out.push(h('h3', { class: 'shHead', text: '1. Your measurements' }));
+  if (r.levels.length === 2) {
+    out.push(h('div', { class: 'row' }, lenInput('wqBottom', r.levels[0].circ, (v) => quickMeasure((x) => { x.levels[0].circ = v; }), 'Round at the bottom'),
+      lenInput('wqTop', r.levels[1].circ, (v) => quickMeasure((x) => { x.levels[1].circ = v; }), 'Round at the top')));
+    out.push(lenInput('wqLen', r.levels[1].gap, (v) => quickMeasure((x) => { x.levels[1].gap = v; }), 'Length between them'),
+      h('label', { class: 'f' }, 'Measured', seg([['skin', 'Along the skin'], ['axial', 'Straight up']], r.methodConfirmed ? r.method : '', (v) => quickMeasure((x) => { x.method = v; x.methodConfirmed = true; }))));
+    if (!r.methodConfirmed) out.push(h('p', { class: 'warn', id: 'wqHow', text: 'Tap how you measured the length: a tape laid on the skin, or a ruler held straight up beside the leg.' }));
+  } else out.push(h('p', { text: `${r.levels.length} rings, ${fmtT(r.levels[0].circ)} round at the bottom to ${fmtT(r.levels[r.levels.length - 1].circ)} at the top. Change them under Measurements.` }));
+  if (!t) { out.push(h('div', { class: 'warnbox', text: 'These numbers do not make a shape: the length along the skin has to be longer than the change in radius.' })); return out; }
+
+  out.push(h('h3', { class: 'shHead', text: '2. The tattoo already there' }));
+  if (!p) {
+    out.push(fileButton('wqPhoto', 'Add a picture of it', false, false, (f) => quickPicture(f[0]).catch((err) => C.toast('That picture could not be used: ' + (err && err.message || err)))));
+    out.push(h('p', { text: 'A see-through PNG of the design works best; a photo taken straight on works too. It goes in the middle of the file, standing on the bottom ring.' }));
+  } else if (!quickOwns(r)) {
+    out.push(h('div', { class: 'okbox', id: 'wqOwn', text: e.locked ? 'Set up and locked under Existing tattoo. It goes in the file where it sits there.' : 'Set up under Existing tattoo. It goes in the file where it sits there.' }));
+    out.push(fileButton('wqPhoto', 'Use a different picture', false, false, (f) => quickPicture(f[0]).catch((err) => C.toast('That picture could not be used: ' + (err && err.message || err)))));
+  } else {
+    const f = K.fAt(e.side, r.seam, r.limb), mid = Math.abs(f) < 0.01;
+    out.push(h('div', { class: 'row' }, h('div', { class: 'qthumb' }, thumb(p.img)),
+      h('p', { id: 'wqPlaced', style: 'flex:1', text: `${SIDES.find(([d]) => d === e.side)[1]} of the leg, ${fmtT(e.knownMm || totalLen(r))} tall, standing on the bottom ring` + (mid ? ', in the middle of the file.' : '.') + (e.ink ? ' Its ink and the gaps between its pieces are kept clear.' : '') })));
+    out.push(lenInput('wqTall', e.knownMm || totalLen(r), (v) => quickPlace({ tall: v }), 'How tall it is'),
+      h('label', { class: 'f' }, 'Which side of the leg', seg(SIDES, e.side, (v) => quickPlace({ side: v }))));
+    out.push(fileButton('wqPhoto', 'Use a different picture', false, false, (fl) => quickPicture(fl[0]).catch((err) => C.toast('That picture could not be used: ' + (err && err.message || err)))));
+    out.push(h('p', { text: 'Its top and bottom were found in the picture. If it sits wrong, fix the top and bottom under Existing tattoo > Mark the landmarks.' }));
+  }
+
+  out.push(h('h3', { class: 'shHead', text: '3. Draw in Procreate' }));
+  out.push(...makeRow(r, 'wqMake', 'wqSend'));
+  out.push(h('p', { text: 'Draw on Proposed garden. The faded strips past each end are the skin round the other side, so draw straight across them; that part is moved round when it comes back. Keep the canvas size, then Share > PSD.' }));
+  out.push(...bringBackRow(r, 'wqBack'), ...reviewBox(r));
+  if (!ui.review && pieces(r).some((q) => q.from)) {
+    out.push(h('div', { class: 'okbox', id: 'wqOnLeg', text: 'Your drawing is on the leg. Turn it to check every side:' }),
+      seg(SIDES, null, (v) => aimAt(v)));
+  }
+  out.push(h('h3', { class: 'shHead', text: 'Fine-tune' }));
+  out.push(h('div', { class: 'row', style: 'flex-wrap:wrap' }, ...[['measure', 'Measurements'], ['existing', 'Existing tattoo'], ['design', 'Arrange plants'], ['print', 'Print a stencil']].map(([k, label]) =>
+    h('button', { class: 'btn', type: 'button', 'data-go': k, text: label, onclick: () => { ui.step = k; ui.mode = null; side.scrollTop = 0; refresh(); } }))));
+  return out;
+}
+
+// Where the ink of a picture is: a see-through picture by what is drawn, a photo by what is darker
+// than the skin round its edge. The middle 98% of it either way, so specks do not stretch the box.
+async function inkBox(dataUrl, W, H) {
+  const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('not a picture')); i.src = dataUrl; });
+  const k = Math.min(1, 600 / Math.max(W, H)), w = Math.max(1, Math.round(W * k)), hh = Math.max(1, Math.round(H * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = hh; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, w, hh);
+  const d = g.getImageData(0, 0, w, hh).data, n = w * hh, L = new Float32Array(n); let see = false;
+  for (let i = 0; i < n; i++) { L[i] = 0.299 * d[i * 4] + 0.587 * d[i * 4 + 1] + 0.114 * d[i * 4 + 2]; if (d[i * 4 + 3] < 250) see = true; }
+  let on;
+  if (see) on = (i) => d[i * 4 + 3] > 100;
+  else {
+    const edge = [], m = Math.max(1, Math.round(0.03 * Math.min(w, hh)));
+    for (let y = 0; y < hh; y++) for (let x = 0; x < w; x++) if (x < m || y < m || x >= w - m || y >= hh - m) edge.push(L[y * w + x]);
+    edge.sort((a, b) => a - b); const bg = edge[edge.length >> 1];
+    on = (i) => bg - L[i] > Math.max(25, 0.18 * bg);
+  }
+  const xs = [], ys = [];
+  for (let y = 0; y < hh; y++) for (let x = 0; x < w; x++) if (on(y * w + x)) { xs.push(x); ys.push(y); }
+  if (xs.length < 0.002 * n) return { box: [0, 0, W, H], left: [0, H / 2], right: [W, H / 2] };
+  const pts = xs.map((x, i) => [x, ys[i]]); xs.sort((a, b) => a - b); ys.sort((a, b) => a - b);
+  const q = (a, f) => a[Math.min(a.length - 1, Math.max(0, Math.round(f * (a.length - 1))))];
+  const lx = q(xs, 0.01), rx = q(xs, 0.99), mid = (a) => { a.sort((u, v) => u - v); return a[a.length >> 1]; };
+  // the leftmost and rightmost ink (an arm, on a cactus), at the middle of the ink there
+  const left = [lx / k, mid(pts.filter((p) => p[0] <= lx + 1).map((p) => p[1])) / k], right = [(rx + 1) / k, mid(pts.filter((p) => p[0] >= rx - 1).map((p) => p[1])) / k];
+  return { box: [lx / k, q(ys, 0.01) / k, (rx + 1) / k, (q(ys, 0.99) + 1) / k], left, right };
+}
+// Find the old ink and its gaps again on the photo as it sits now (inside the current undo step).
+async function retrace() {
+  const e = ex(reg()); for (const k of ['ink', 'gap', 'maskO', 'maskPpmm', 'maskCalib']) delete e[k];
+  mask.key = ''; await findInk({ inStep: true }); await findGaps({ inStep: true });
+}
+let quickBusy = false;
+async function quickStep(fn) {
+  if (quickBusy) return; quickBusy = true;
+  C.snapshot();
+  try { await fn(); } finally { quickBusy = false; ui.pkg = null; C.commit(); }
+}
+// A new picture of the tattoo already there: its top and bottom found in it, scaled to its height,
+// stood on the bottom ring on the chosen side, the file cut opposite so it sits in the middle,
+// and its ink and gaps traced. One undo step.
+async function quickPicture(file) {
+  const r = reg(); if (!r || !file) return;
+  const e0 = r.existing || {};
+  if (e0.locked || (e0.photos?.length && !quickOwns(r))) { if (!(await ask('Replace the tattoo set up under Existing tattoo with this picture? Its landmarks and tracing start again.', 'Replace it'))) return; }
+  const pic = await C.readPicture(file, 4096); if (!pic) { C.toast('That picture could not be opened.'); return; }
+  const { box: [x0, y0, x1, y1], left, right } = await inkBox(pic.dataUrl, pic.w, pic.h), cx = (x0 + x1) / 2;
+  await quickStep(async () => {
+    const x = reg(), id = uid(), e = ex(x), side = e0.side ?? 270, at = { top: [cx, y0], base: [cx, y1], left, right };
+    const ph = { id, img: C.putImage(pic.dataUrl), pw: pic.w, ph: pic.h, name: (file.name || 'Tattoo').replace(/\.[a-z0-9]+$/i, '').slice(0, 60) };
+    ph.quad = cornersOf(ph);
+    for (const k of Object.keys(e)) delete e[k];
+    Object.assign(e, { photos: [ph], active: id, landmarks: K.LANDMARKS.slice(0, 4).map((l) => ({ id: uid(), key: l.key, name: l.name, src: { [id]: at[l.key] } })), knownMm: totalLen(x), knownHow: x.method === 'axial' ? 'vertical' : 'skin', side, buffer: 2, locked: false });
+    x.seam = (side + 180) % 360;
+    placePhoto(); await retrace();
+  });
+  ui.view = 'all'; refresh(); aimAt(reg().existing.side);
+  C.toast('Placed in the middle of the file, with its ink kept clear.');
+  C.markTried && C.markTried('wrapQuick');
+}
+async function quickPlace({ tall, side }) {
+  if (!quickOwns(reg())) return;
+  await quickStep(async () => {
+    const x = reg(), e = ex(x);
+    if (tall) e.knownMm = tall;
+    if (side != null) { e.side = side; x.seam = (side + 180) % 360; }
+    placePhoto(); await retrace();
+  });
+  if (side != null) aimAt(side);
+}
+// A tape number changed: the template, and the tattoo on it, follow in one undo step.
+async function quickMeasure(fn) {
+  const r = reg(); if (!quickOwns(r)) return measure(fn);
+  const before = R.measureKey(r), copy = JSON.parse(JSON.stringify(r)); fn(copy);
+  if (R.measureKey(copy) !== before && !R.templateOf(copy)) { C.toast('Those numbers do not make a shape: a length along the skin must be longer than the change in radius.'); refresh(); return; }
+  if (r.approved && R.measureKey(copy) !== before && !(await ask('This wrap is approved for printing. Changing its measurements takes the approval off. Change it?', 'Change it'))) { refresh(); return; }
+  await quickStep(async () => {
+    const x = reg(), oldLen = totalLen(x); fn(x);
+    if (R.measureKey(x) === before) return;
+    x.calib = (x.calib || 1) + 1; delete x.approved;
+    const e = ex(x); if (Math.abs((e.knownMm || 0) - oldLen) < 0.01) e.knownMm = totalLen(x);
+    e.knownHow = x.method === 'axial' ? 'vertical' : 'skin';
+    placePhoto(); await retrace();
+  });
 }
 
 /* ---------------- print ---------------- */
@@ -662,6 +811,7 @@ function printPanel(r) {
   const out = [], box = artBox(r); if (!box) return out;
   const pr = printOf(r), L = PP.layoutTiles(box, pr), ap = approval(r), stencil = ui.printKind === 'stencil';
   out.push(h('p', { text: `Prints at its measured size, ${fmt(box.w)} × ${fmt(box.h)}, on any paper. The paper only changes how many pages, never the size.` }));
+  if (r.existing?.side != null && cutThroughFocal(r)) out.push(h('div', { class: 'warnbox', id: 'wsCutFocal', text: 'The flat shape is cut at the front, opposite the cactus, so the stencil splits the front design at its two ends. To print it in one piece, move the cut to the inside or outside under Measurements.' }));
   out.push(seg([['stencil', 'Stencil'], ['guide', 'Placement guide']], ui.printKind, (v) => { ui.printKind = v; ui.printOut = null; renderSide(reg()); }));
   out.push(h('p', { text: stencil ? 'Just the new garden as clean lines, for stencil paper. The old cactus and the guides are left off so they never transfer.' : 'For plain paper: the old ink, the gaps to keep open, the landmarks, the cut edges and a 1 cm grid, with the new garden faint. Wrap it round your ankle to check the fit before the stencil.' }));
   out.push(h('h3', { class: 'shHead', text: 'Paper' }));
@@ -773,8 +923,22 @@ function drawJoins(g, M, r) {
   g.restore();
 }
 
-// the canvas pictures of one layer, drawn a strip of rows at a time
+// the canvas pictures of one layer, drawn a strip of rows at a time. Past each cut edge (the
+// run-on strips) the references repeat the other end of the wrap, and the garden repeats faintly
+// on its own locked layer, so drawing can carry straight across the cut.
+const RUN_ON_KEYS = new Set(['grid', 'cactus', 'ink', 'gap', 'landmarks']);
 async function drawLayer(key, g, M, r, s, ppmm) {
+  const ro = s.runOn || 0;
+  if (key !== 'wrapref') await drawLayerMain(key, g, M, r, s, ppmm);
+  if (!(ro > 0) || !(key === 'wrapref' || RUN_ON_KEYS.has(key))) return;
+  const t = tpl(r);
+  for (let i = 0; i < t.segs.length; i++) for (const side of [1, -1]) {
+    g.save(); setAffine(g, M); g.beginPath(); G.band(t, i, side * 0.5, side * (0.5 + ro)).forEach((q, j) => (j ? g.lineTo(...q) : g.moveTo(...q))); g.closePath(); g.clip();
+    await drawLayerMain(key === 'wrapref' ? 'garden' : key, g, mul(M, G.wrapAffine(t, i, side)), r, s, ppmm);
+    g.restore();
+  }
+}
+async function drawLayerMain(key, g, M, r, s, ppmm) {
   const t = tpl(r), e = r.existing || {}, ol = G.outline(t, 160);
   const px = (x, y) => [M[0] * x + M[2] * y + M[4], M[1] * x + M[3] * y + M[5]];
   const text = (str, x, y, mm, align = 'center', colr = '#000') => { g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.font = `600 ${Math.max(8, mm * ppmm)}px -apple-system, system-ui, sans-serif`; g.textAlign = align; g.fillStyle = colr; const q = px(x, y); g.fillText(str, q[0], q[1]); g.restore(); };
@@ -795,8 +959,26 @@ async function drawLayer(key, g, M, r, s, ppmm) {
       const f = K.fAt(deg, r.seam, r.limb); if (Math.abs(f) > 0.49) continue;
       setAffine(g, M); path([G.point(t, f, -1), G.point(t, f, 3)]); g.lineWidth = 0.35; g.stroke(); const q = G.point(t, f, -4); text(name, q[0], q[1], 2.6);
     }
-    for (const side of [-0.5, 0.5]) { const q = G.point(t, side, t.slant / 2); text('Cut', q[0] + side * 9, q[1], 2.6); }
-    if (r.focal) { const fo = r.focal, cc = G.point(t, K.fAt(fo.deg, r.seam, r.limb), fo.at * t.slant); setAffine(g, M); g.setLineDash([2, 1.5]); g.lineWidth = 0.3; roundRect(g, cc[0] - fo.w / 2, cc[1] - fo.h / 2, fo.w, fo.h, 6); g.stroke(); g.setLineDash([]); text('Front focal point', cc[0], cc[1] + fo.h / 2 + 1.5, 2.6); }
+    const ro = s.runOn || 0;
+    if (ro > 0) {
+      // the run-on strips: dashed, with what they are written in them
+      setAffine(g, M); g.setLineDash([2, 1.5]); g.lineWidth = 0.3;
+      path(G.outline(t, 60, 0.5 + ro)); g.closePath(); g.stroke();
+      for (const sd of [1, -1]) { const q = G.point(t, sd * (0.5 + ro / 2), t.slant / 2); text('Same skin as', q[0], q[1] + 2, 2.4); text('the other end', q[0], q[1] - 1.5, 2.4); }
+      g.setLineDash([]);
+      for (const sd of [-0.5, 0.5]) { const q = G.point(t, sd, t.slant + 2.5); text('Cut: draw across it', q[0], q[1], 2.4); }
+    } else for (const side of [-0.5, 0.5]) { const q = G.point(t, side, t.slant / 2); text('Cut', q[0] + side * 9, q[1], 2.6); }
+    if (r.focal) {
+      const fo = r.focal, cc = G.point(t, K.fAt(fo.deg, r.seam, r.limb), fo.at * t.slant), ro = s.runOn || 0;
+      const box = (Mx) => { setAffine(g, Mx); g.setLineDash([2, 1.5]); g.lineWidth = 0.3; roundRect(g, cc[0] - fo.w / 2, cc[1] - fo.h / 2, fo.w, fo.h, 6); g.stroke(); g.setLineDash([]); };
+      // a box near the cut carries on past it, as the skin does: it is drawn once more a turn
+      // each way, all within the shape and its run-on strips
+      g.save(); setAffine(g, M); path(ro > 0 ? G.outline(t, 96, 0.5 + ro) : ol); g.closePath(); g.clip(); box(M);
+      if (ro > 0 && t.segs.length === 1) for (const sd of [1, -1]) box(mul(M, G.wrapAffine(t, 0, sd)));
+      g.restore();
+      const ff = K.fAt(fo.deg, r.seam, r.limb), lab = Math.abs(ff) < 0.4 || !(ro > 0) ? cc : G.point(t, Math.sign(ff || 1) * (0.5 + ro / 2), fo.at * t.slant); // by the cut: in a run-on strip
+      text('Front focal point', lab[0], cc[1] + fo.h / 2 + 1.5, 2.6);
+    }
     // the four registration targets, outside the shape: a ring and a cross, MARK_MM across
     setAffine(g, M); g.lineWidth = 0.5;
     for (const [x, y] of s.marks) { const a = P.MARK_MM / 2 - 0.25; g.beginPath(); g.arc(x, y, P.MARK_MM * 0.33, 0, Math.PI * 2); g.moveTo(x - a, y); g.lineTo(x + a, y); g.moveTo(x, y - a); g.lineTo(x, y + a); g.stroke(); }
@@ -863,7 +1045,7 @@ async function makePackage() {
   }
   change(() => { const x = reg(); x.sessions = [...(x.sessions || []), s].slice(-10); });
   C.markTried && C.markTried('wrapProcreate');
-  ui.pkg = { blob, name, calib: r.calib, ppi: ui.ppi, format: ui.pkgFormat, session: s.id };
+  ui.pkg = { blob, name, calib: r.calib, ppi: ui.ppi, format: ui.pkgFormat, session: s.id, sig: pkgSig(reg()) };
   ui.busy = ''; renderSide(reg());
   return { name, size: blob.size, session: s };
 }
@@ -926,11 +1108,30 @@ async function bringBack(file) {
   if (!isPsd && !isZip && (flattened || (found && check.ok))) check = { ok: false, how: 'refuse', why: 'This picture has the reference layers flattened into it (the cactus, grid or marks). In Procreate, share just the Proposed garden layer as a PNG, or bring back the PSD.' };
   ui.review = { check, session: s, stale: !!(s && P.staleSession(s, r)), w, h: hgt };
   if (check.ok) {
+    if (s.runOn > 0) { const fb = foldBack(garden, s, check); garden = fb.canvas; ui.review.folded = fb.moved; }
     const piece = P.returnedPiece(s, check, w, hgt);
     ui.review.piece = { id: uid(), img: C.putImage(garden.toDataURL('image/png')), name: 'From Procreate', from: s.id, x: piece.x, y: piece.y, w: piece.w, aspect: piece.aspect, rot: 0, flip: false, pw: w, ph: hgt, ppi: Math.round(piece.ppi) };
   }
   ui.busy = ''; ui.view = 'all'; collisions.key = ''; refresh(); scheduleCollisions();
   return { ok: check.ok, how: check.how, why: check.why };
+}
+// What was drawn in the run-on strips past each cut is the skin at the other end: it is moved
+// there exactly (a turn about the cone's tip), and the strips are left empty, so the garden only
+// holds the measured shape. k and t take the picture's pixels to the session's canvas pixels.
+function foldBack(src, s, check) {
+  const plan = P.foldPlan(s); if (!plan.length) return { canvas: src, moved: false };
+  const K = [check.k, 0, 0, check.k, check.t[0], check.t[1]], Ki = [1 / check.k, 0, 0, 1 / check.k, -check.t[0] / check.k, -check.t[1] / check.k];
+  const toPic = (pts) => pts.map(([x, y]) => [Ki[0] * x + Ki[4], Ki[3] * y + Ki[5]]);
+  const out = document.createElement('canvas'); out.width = src.width; out.height = src.height; const g = out.getContext('2d');
+  const poly = (pts) => { g.beginPath(); pts.forEach((q, j) => (j ? g.lineTo(...q) : g.moveTo(...q))); g.closePath(); };
+  g.drawImage(src, 0, 0);
+  for (const f of plan) { g.save(); poly(toPic(f.from)); g.clip(); g.clearRect(0, 0, out.width, out.height); g.restore(); }
+  // anything drawn in the strips at all?
+  const probe = document.createElement('canvas'); probe.width = src.width; probe.height = src.height; const pg = probe.getContext('2d', { willReadFrequently: true });
+  for (const f of plan) { pg.save(); pg.beginPath(); toPic(f.from).forEach((q, j) => (j ? pg.lineTo(...q) : pg.moveTo(...q))); pg.closePath(); pg.clip(); pg.drawImage(src, 0, 0); pg.restore(); }
+  const pd = pg.getImageData(0, 0, probe.width, probe.height).data; let moved = false; for (let i = 3; i < pd.length; i += 16) if (pd[i] > 40) { moved = true; break; }
+  for (const f of plan) { g.save(); poly(toPic(f.clip)); g.clip(); setAffine(g, Ki, f.m, K); g.drawImage(src, 0, 0); g.restore(); }
+  return { canvas: out, moved };
 }
 function useReturn() {
   const rv = ui.review; if (!rv || !rv.check.ok || !rv.piece) return;
@@ -1054,9 +1255,11 @@ async function drawContent(g, M, r, o = {}) {
   }
   if (showNew && collisions.img && m) { g.save(); setAffine(g, M, maskToTpl(m)); g.drawImage(collisions.img, 0, 0); g.restore(); }
   g.restore();
-  // outline, rings and the cut edges
+  if (o.repeat) return;
+  // outline, rings and the cut edges (on the leg the cut is not an edge, so only the rings)
   setAffine(g, M); g.lineWidth = 1.5 / Math.abs(M[0]); g.strokeStyle = o.accent || '#8474ff';
-  g.beginPath(); ol.forEach((q, i) => (i ? g.lineTo(...q) : g.moveTo(...q))); g.closePath(); g.stroke();
+  if (o.body) for (const u of [0, t.slant]) { g.beginPath(); for (let i = 0; i <= 96; i++) { const q = G.point(t, -0.5 + i / 96, u); i ? g.lineTo(...q) : g.moveTo(...q); } g.stroke(); }
+  else { g.beginPath(); ol.forEach((q, i) => (i ? g.lineTo(...q) : g.moveTo(...q))); g.closePath(); g.stroke(); }
   for (const sg of t.segs.slice(1)) { g.beginPath(); for (let i = 0; i <= 48; i++) { const q = G.point(t, -0.5 + i / 48, sg.u0); i ? g.lineTo(...q) : g.moveTo(...q); } g.stroke(); }
   if (o.labels) labels(g, r, t, o);
   if (o.labels && ui.step === 'print') drawJoins(g, M, r);
@@ -1075,7 +1278,7 @@ function labels(g, r, t, o) {
     const f = K.fAt(deg, r.seam, r.limb); if (Math.abs(f) > 0.49) continue;
     const q = toScreen(...G.point(t, f, 0)); g.fillStyle = o.muted; g.fillText(name, q[0], q[1] + 16);
   }
-  if (r.focal) { const c = G.point(t, K.fAt(r.focal.deg, r.seam, r.limb), r.focal.at * t.slant + r.focal.h / 2), q = toScreen(...c); g.fillStyle = o.accent; g.fillText('Front focal point', q[0], q[1] - 6); }
+  if (r.focal) { const c = G.point(t, K.fAt(r.focal.deg, r.seam, r.limb), r.focal.at * t.slant + r.focal.h / 2), q = toScreen(...c), hw = g.measureText('Front focal point').width / 2 + 4; g.fillStyle = o.accent; g.fillText('Front focal point', Math.min(view.W - hw, Math.max(hw, q[0])), q[1] - 6); }
   const a = toScreen(...G.point(t, -0.5, t.slant / 2)), b = toScreen(...G.point(t, 0.5, t.slant / 2)); g.fillStyle = o.muted; g.save(); g.translate(a[0] - 10, a[1]); g.rotate(-Math.PI / 2); g.fillText('Cut', 0, 0); g.restore(); g.save(); g.translate(b[0] + 10, b[1]); g.rotate(Math.PI / 2); g.fillText('Cut', 0, 0); g.restore();
   g.textAlign = 'start';
 }
@@ -1323,6 +1526,18 @@ const FRAG_HEAD = `
 uniform sampler2D wMap; uniform vec3 wLower, wUp, wO, wFr; uniform float wMmPer, wSeam, wSign, wSlant; uniform int wN;
 uniform float wRing[${MAXSEG + 1}]; uniform vec4 wSegA[${MAXSEG}]; uniform vec4 wSegB[${MAXSEG}]; uniform vec4 wFrame;
 varying vec3 vRest;
+// the flat template point (mm) at f across and u along the skin
+vec2 wPt(float f, float u) {
+  vec2 P = vec2(0.0); float u0 = 0.0;
+  for (int i = 0; i < ${MAXSEG}; i++) { if (i >= wN) break; vec4 A = wSegA[i], B = wSegB[i]; if (u <= u0 + A.z || i == wN - 1) {
+      float v = u - u0;
+      if (A.w > 0.5) { P = vec2(f * (A.x + (A.y - A.x) * v / A.z), v); }
+      else { float a = f * B.y, sh = sin(a * 0.5); if (B.x > 0.0) { float R = B.z + v; P = vec2(R * sin(a), v * cos(a) - 2.0 * B.z * sh * sh); } else { float R = B.z - v; P = vec2(R * sin(a), v * cos(a) + 2.0 * B.z * sh * sh); } }
+      P.y += B.w; break; }
+    u0 += A.z; }
+  return P;
+}
+vec2 wUv(vec2 P) { return vec2((wFrame.x + P.x) / wFrame.z, 1.0 - (wFrame.y - P.y) / wFrame.w); }
 `;
 const FRAG_MAP = `
 {
@@ -1331,16 +1546,12 @@ const FRAG_MAP = `
   // u along the measured skin: in proportion between the rings on the body
   float u = -1.0; float u0 = 0.0;
   for (int i = 0; i < ${MAXSEG}; i++) { if (i >= wN) break; float h0 = wRing[i], h1 = wRing[i + 1]; if (hmm <= h1 || i == wN - 1) { u = u0 + (hmm - h0) / max(1e-6, h1 - h0) * wSegA[i].z; break; } u0 += wSegA[i].z; }
+  // the picture's own scale on screen, taken where f does not jump: across the cut the place in
+  // the picture leaps from one end to the other, which would read the blurriest copy (a line)
+  vec2 wuv = wUv(wPt(f, u)), wub = wUv(wPt(f < 0.0 ? f + 1.0 : f, u));
+  vec2 gx = abs(f) < 0.25 ? dFdx(wuv) : dFdx(wub), gy = abs(f) < 0.25 ? dFdy(wuv) : dFdy(wub);
   if (u < 0.0 || u > wSlant) discard;
-  vec2 P = vec2(0.0); u0 = 0.0;
-  for (int i = 0; i < ${MAXSEG}; i++) { if (i >= wN) break; vec4 A = wSegA[i], B = wSegB[i]; if (u <= u0 + A.z || i == wN - 1) {
-      float v = u - u0;
-      if (A.w > 0.5) { P = vec2(f * (A.x + (A.y - A.x) * v / A.z), v); }
-      else { float a = f * B.y, sh = sin(a * 0.5); if (B.x > 0.0) { float R = B.z + v; P = vec2(R * sin(a), v * cos(a) - 2.0 * B.z * sh * sh); } else { float R = B.z - v; P = vec2(R * sin(a), v * cos(a) + 2.0 * B.z * sh * sh); } }
-      P.y += B.w; break; }
-    u0 += A.z; }
-  vec2 wuv = vec2((wFrame.x + P.x) / wFrame.z, 1.0 - (wFrame.y - P.y) / wFrame.w);
-  vec4 tc = texture2D(wMap, wuv); diffuseColor *= tc;
+  vec4 tc = textureGrad(wMap, wuv, gx, gy); diffuseColor *= tc;
 }
 `;
 function buildOverlay(r) {
@@ -1414,6 +1625,13 @@ async function syncOverlayNow() {
   const g = overlayCanvas.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, f.w, f.h);
   const k2 = f.w / f.wMm, M = [k2, 0, 0, -k2, f.originMm[0] * k2, f.originMm[1] * k2];
   await drawContent(g, M, r, { fill: 'rgba(255,255,255,.10)', accent: '#8474ff', body: true });
+  // a thin strip past each cut repeats the other end, so the leg shows no line where the art
+  // crosses the cut (the picture is read smoothly right up to its edge)
+  const t = tpl(r);
+  for (let i = 0; i < t.segs.length; i++) for (const sd of [1, -1]) {
+    g.save(); setAffine(g, M); g.beginPath(); G.band(t, i, sd * 0.5, sd * 0.52).forEach((q, j) => (j ? g.lineTo(...q) : g.moveTo(...q))); g.closePath(); g.clip();
+    await drawContent(g, mul(M, G.wrapAffine(t, i, sd)), r, { fill: 'rgba(255,255,255,.10)', body: true, repeat: true }); g.restore();
+  }
   if (overlayTex) overlayTex.needsUpdate = true;
   overlay.set(overlayCanvas, true);
   scheduleCollisions();
@@ -1448,6 +1666,8 @@ function testApi() {
     bringBackBase64: async (b64, name, type = 'application/octet-stream') => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return bringBack(new File([u], name, { type })); },
     review: () => ui.review && { ok: ui.review.check.ok, how: ui.review.check.how, why: ui.review.check.why, piece: ui.review.piece ? { ...ui.review.piece } : null, stale: ui.review.stale },
     useReturn, highPpi: () => P.highPpi(tpl()),
+    quickPictureData: async (dataUrl, name) => { const b = await (await fetch(dataUrl)).blob(); return quickPicture(new File([b], name, { type: b.type })); },
+    quickPlace, quickMeasure, foldPlan: () => { const q = (reg().sessions || []).slice(-1)[0]; return q ? P.foldPlan(q) : []; },
     makePrint: async (kind = 'stencil') => { ui.printKind = kind; return makePrint(); }, printBase64: async () => { if (!ui.printOut) return null; const u = new Uint8Array(await ui.printOut.blob.arrayBuffer()); let s = ''; for (let i = 0; i < u.length; i += 32768) s += String.fromCharCode(...u.subarray(i, i + 32768)); return btoa(s); }, printLayout: () => printLayout(reg()), approval: () => approval(reg()), setPrint: (o) => setPrint((x) => Object.assign(x, o)), artSig: () => artSig(reg()),
     // the visible new art rasterised on the template at ppmm pixels per mm (alpha only, base64)
     artAlpha: async (ppmm = 4) => { const t = tpl(), b = t.bounds, w = Math.ceil((b.w + 30) * ppmm), hh = Math.ceil((b.h + 30) * ppmm), c = document.createElement('canvas'); c.width = w; c.height = hh; const g = c.getContext('2d'); const M = [ppmm, 0, 0, -ppmm, (15 - b.minX) * ppmm, (b.maxY + 15) * ppmm]; for (const p of shownPieces()) { const im = await C.loadImg(p.img); if (!im) continue; g.save(); setAffine(g, M, pieceAffine(p, im)); g.drawImage(im, 0, 0, im.naturalWidth, im.naturalHeight); g.restore(); } const d = g.getImageData(0, 0, w, hh).data, a = new Uint8Array(w * hh); for (let i = 0; i < w * hh; i++) a[i] = d[i * 4 + 3]; let s = ''; for (let i = 0; i < a.length; i += 32768) s += String.fromCharCode(...a.subarray(i, i + 32768)); return { w, h: hh, b64: btoa(s) }; },

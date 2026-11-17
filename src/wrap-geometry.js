@@ -114,12 +114,14 @@ export function arcLength(t, u) {
 // The exact box round the whole curved shape. On every arc, x = R sin a and y = R cos a + c reach
 // their extremes at the ends or where a is a multiple of a quarter turn; the straight cut edges
 // reach theirs at their ends. So those candidates are enough: nothing between them can stick out.
-export function bounds(t) {
+// fr is how far across to take it (0.5 is the measured shape itself; more takes in the run-on
+// strips past each cut, see runOnFor).
+export function bounds(t, fr = 0.5) {
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   const take = (p) => { if (p[0] < minX) minX = p[0]; if (p[0] > maxX) maxX = p[0]; if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1]; };
   for (const g of t.segs) {
-    const fs = [-0.5, 0.5];
-    if (!g.flat) for (let k = -4; k <= 4; k++) { const f = k * (Math.PI / 2) / g.angle; if (f > -0.5 && f < 0.5) fs.push(f); }
+    const fs = [-fr, fr];
+    if (!g.flat) for (let k = -4; k <= 4; k++) { const f = k * (Math.PI / 2) / g.angle; if (f > -fr && f < fr) fs.push(f); }
     for (const v of [0, g.s]) for (const f of fs) { const p = segPoint(g, f, v); take([p[0], p[1] + g.y0]); }
   }
   return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY };
@@ -127,21 +129,63 @@ export function bounds(t) {
 
 // The outline of the template as one closed polygon (template mm), for drawing and for clipping:
 // up the right cut edge, back along each upper arc, down the left edge and along the lowest arc.
-export function outline(t, steps = 96) {
+// fr as in bounds.
+export function outline(t, steps = 96, fr = 0.5) {
   const pts = [];
   const arc = (u, from, to) => { for (let i = 0; i <= steps; i++) pts.push(point(t, from + (to - from) * i / steps, u)); };
-  arc(0, -0.5, 0.5);
-  for (const g of t.segs) pts.push(point(t, 0.5, g.u0 + g.s));
-  arc(t.slant, 0.5, -0.5);
-  for (let i = t.segs.length - 1; i >= 0; i--) pts.push(point(t, -0.5, t.segs[i].u0));
+  arc(0, -fr, fr);
+  for (const g of t.segs) pts.push(point(t, fr, g.u0 + g.s));
+  arc(t.slant, fr, -fr);
+  for (let i = t.segs.length - 1; i >= 0; i--) pts.push(point(t, -fr, t.segs[i].u0));
   return pts;
 }
 
+// Run-on strips. Laid flat, the wrap is cut, so the skin just past the right cut edge is the skin
+// at the left one. The file for drawing in adds a strip past each cut that repeats the other end
+// (a share of a turn wide), so a design can be drawn straight across the cut; what is drawn there
+// is folded back onto the other end when it comes back. The strips stop short of meeting each
+// other round a steep cone.
+export const RUN_ON = 0.2;
+export function runOnFor(t, want = RUN_ON) {
+  let ro = want;
+  for (const g of t.segs) if (!g.flat) ro = Math.min(ro, Math.PI / g.angle - 0.5 - 0.05);
+  return Math.max(0, ro);
+}
+// One segment's band between f0 and f1 (any order), all the way up it, as a closed polygon in
+// template mm.
+export function band(t, i, f0, f1, steps = 24) {
+  const g = t.segs[i], pts = [], at = (f, v) => { const p = segPoint(g, f, v); return [p[0], p[1] + g.y0]; };
+  for (let k = 0; k <= steps; k++) pts.push(at(f0 + (f1 - f0) * k / steps, 0));
+  for (let k = 0; k <= steps; k++) pts.push(at(f1, g.s * k / steps));
+  for (let k = 0; k <= steps; k++) pts.push(at(f1 + (f0 - f1) * k / steps, g.s));
+  for (let k = 0; k <= steps; k++) pts.push(at(f0, g.s * (1 - k / steps)));
+  return pts;
+}
+// The exact map, in segment i, from the point at (f, u) to the point at (f + k, u): a turn about
+// the cone's tip (a slide sideways for a straight segment). As a canvas-style affine
+// [a, b, c, d, e, f]: x' = a x + c y + e, y' = b x + d y + f.
+export function wrapAffine(t, i, k) {
+  const g = t.segs[i], at = (f, v) => { const p = segPoint(g, f, v); return [p[0], p[1] + g.y0]; };
+  const src = [at(0, 0), at(0, g.s), at(0.25, 0)], dst = [at(k, 0), at(k, g.s), at(0.25 + k, 0)];
+  return affineFrom3(src, dst);
+}
+export function affineFrom3(src, dst) {
+  const [[x0, y0], [x1, y1], [x2, y2]] = src, det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+  if (Math.abs(det) < 1e-12) throw new Error('Points in a line');
+  const solve = (v0, v1, v2) => {
+    const p = ((v1 - v0) * (y2 - y0) - (v2 - v0) * (y1 - y0)) / det, q = ((x1 - x0) * (v2 - v0) - (x2 - x0) * (v1 - v0)) / det;
+    return [p, q, v0 - p * x0 - q * y0];
+  };
+  const X = solve(dst[0][0], dst[1][0], dst[2][0]), Y = solve(dst[0][1], dst[1][1], dst[2][1]);
+  return [X[0], Y[0], X[1], Y[1], X[2], Y[2]];
+}
+export const applyAffine = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+
 // The rectangular canvas the template sits in: its exact physical size, how many pixels at `ppi`,
 // and where template (0, 0) lands. Rows run from the top, as in a picture.
-export function canvasFor(t, { ppi = 300, padMm = 6 } = {}) {
+export function canvasFor(t, { ppi = 300, padMm = 6, box = null } = {}) {
   if (!(ppi > 0) || !(padMm >= 0)) throw new Error('Bad canvas settings');
-  const b = t.bounds, wMm = b.w + 2 * padMm, hMm = b.h + 2 * padMm;
+  const b = box || t.bounds, wMm = b.w + 2 * padMm, hMm = b.h + 2 * padMm;
   return {
     ppi, padMm, wMm, hMm,
     w: Math.round(wMm / 25.4 * ppi), h: Math.round(hMm / 25.4 * ppi),

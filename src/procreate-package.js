@@ -8,7 +8,7 @@
 // targets sit in the padding outside the shape, so a document that comes back cropped or resized
 // can be put back on the template explicitly instead of being stretched to fit.
 
-import { canvasFor, toPx, fromPx } from './wrap-geometry.js';
+import { canvasFor, toPx, fromPx, bounds, runOnFor, develop, band, wrapAffine, outline } from './wrap-geometry.js';
 
 export const PPI_CHOICES = [300, 600];
 export const DEFAULT_PPI = 300;
@@ -18,8 +18,8 @@ export const MARK_MM = 7; // size of each target
 // iPad Safari will not make a canvas over about 16.7 million pixels, and the picture that comes
 // back has to fit in one. The higher choice is the most that fits, in steps of 50, up to 600.
 export const MAX_PIXELS = 16_700_000;
-export function highPpi(t) {
-  const wIn = (t.bounds.w + 2 * PAD_MM) / 25.4, hIn = (t.bounds.h + 2 * PAD_MM) / 25.4;
+export function highPpi(t, runOn = runOnFor(t)) {
+  const b = bounds(t, 0.5 + runOn), wIn = (b.w + 2 * PAD_MM) / 25.4, hIn = (b.h + 2 * PAD_MM) / 25.4;
   return Math.max(DEFAULT_PPI, Math.min(600, Math.floor(Math.sqrt(MAX_PIXELS / (wIn * hIn)) / 50) * 50));
 }
 
@@ -27,6 +27,7 @@ export function highPpi(t) {
 // locked references. The background is there but hidden, so the canvas stays transparent.
 export const LAYERS = [
   { key: 'garden', name: 'Proposed garden', locked: false },
+  { key: 'wrapref', name: 'Other end of the wrap', locked: true, opacity: 110 },
   { key: 'cactus', name: 'Existing cactus reference', locked: true, opacity: 200 },
   { key: 'ink', name: 'Existing ink mask', locked: true, opacity: 115 },
   { key: 'gap', name: 'Negative-space protection', locked: true, opacity: 115 },
@@ -36,36 +37,61 @@ export const LAYERS = [
   { key: 'background', name: 'Optional background', locked: true, hidden: true },
 ];
 export const GARDEN = LAYERS[0].name;
-export const MARKS = LAYERS[5].name;
+export const MARKS = LAYERS.find((L) => L.key === 'marks').name;
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const code = (id) => id.replace(/[^a-z0-9]/gi, '').slice(0, 6).toUpperCase();
 
 // The physical canvas and its registration targets (template mm, one in each corner of the
-// padding, just outside the shape's box).
-export function packageCanvas(t, ppi = DEFAULT_PPI) {
+// padding, just outside the shape's box). runOn is the share of a turn added past each cut edge
+// (runOnFor in wrap-geometry.js), so a design can be drawn across the cut; 0 is the plain shape.
+export function packageCanvas(t, ppi = DEFAULT_PPI, runOn = runOnFor(t)) {
   if (!PPI_CHOICES.includes(ppi) && !(ppi >= 150 && ppi <= 1200)) throw new Error('Choose 300 or 600 PPI');
-  const c = canvasFor(t, { ppi, padMm: PAD_MM }), b = t.bounds, m = PAD_MM / 2;
+  const b = bounds(t, 0.5 + runOn), c = canvasFor(t, { ppi, padMm: PAD_MM, box: b }), m = PAD_MM / 2;
   const marks = [[b.minX - m, b.maxY + m], [b.maxX + m, b.maxY + m], [b.maxX + m, b.minY - m], [b.minX - m, b.minY - m]];
-  return { ...c, marks };
+  return { ...c, marks, runOn };
 }
 
 // A new trip out: everything needed to check and place what comes back, nothing that could go
 // stale. `calib` ties it to the measurements it was made from.
-export function makeSession(region, t, { ppi = DEFAULT_PPI, at = new Date().toISOString(), id = uid(), sources = [] } = {}) {
-  const c = packageCanvas(t, ppi);
-  return {
+export function makeSession(region, t, { ppi = DEFAULT_PPI, at = new Date().toISOString(), id = uid(), sources = [], runOn = runOnFor(t) } = {}) {
+  const c = packageCanvas(t, ppi, runOn);
+  const s = {
     id, at, calib: region.calib, ppi: c.ppi, w: c.w, h: c.h, wMm: c.wMm, hMm: c.hMm, originMm: c.originMm.slice(), padMm: c.padMm,
     seam: region.seam, method: region.method, mapping: 'frustum-v1',
     levels: region.levels.map((l) => (l.gap ? { circ: l.circ, gap: l.gap } : { circ: l.circ })),
     marks: c.marks, layers: LAYERS.map((L) => L.name), sources: sources.slice(0, 50),
     name: fileBase(region, id),
   };
+  if (runOn > 0) s.runOn = runOn;
+  return s;
 }
+
+// What drawn past a cut edge becomes when it comes back: for each segment and each side, the strip
+// it was drawn in and the exact map onto the other end of the measured shape, both in the
+// session's canvas pixels. `clip` is where the folded picture lands, `from` the strip it came from.
+export function foldPlan(s) {
+  const ro = s.runOn || 0; if (!(ro > 0)) return [];
+  const t = develop(s.levels, s.method), kx = s.w / s.wMm, ky = s.h / s.hMm;
+  const P = [kx, 0, 0, -ky, s.originMm[0] * kx, s.originMm[1] * ky], Pi = [1 / kx, 0, 0, -1 / ky, -s.originMm[0], s.originMm[1]];
+  const px = (pts) => pts.map(([x, y]) => [P[0] * x + P[4], P[3] * y + P[5]]);
+  const out = [];
+  for (let i = 0; i < t.segs.length; i++) for (const side of [1, -1]) {
+    const from = band(t, i, side * 0.5, side * (0.5 + ro)), to = band(t, i, -side * 0.5, -side * (0.5 - ro));
+    out.push({ from: px(from), clip: px(to), m: mul3(P, mul3(wrapAffine(t, i, -side), Pi)) });
+  }
+  return out;
+}
+// The measured shape itself in the session's canvas pixels.
+export function shapeOutline(s) {
+  const t = develop(s.levels, s.method), kx = s.w / s.wMm, ky = s.h / s.hMm;
+  return outline(t, 160).map(([x, y]) => [(s.originMm[0] + x) * kx, (s.originMm[1] - y) * ky]);
+}
+export const mul3 = (A, B) => [A[0] * B[0] + A[2] * B[1], A[1] * B[0] + A[3] * B[1], A[0] * B[2] + A[2] * B[3], A[1] * B[2] + A[3] * B[3], A[0] * B[4] + A[2] * B[5] + A[4], A[1] * B[4] + A[3] * B[5] + A[5]];
 export const fileBase = (region, id) => `${(region.name || 'Measured wrap').replace(/[^\w -]+/g, '').trim() || 'Measured wrap'} ${code(id)}`;
 // The background layer's name carries the trip's code, so a document can be matched to its trip
 // even after it has been renamed.
-export const backgroundName = (s) => `${LAYERS[7].name} (Ink Atlas ${code(s.id)})`;
+export const backgroundName = (s) => `${LAYERS[LAYERS.length - 1].name} (Ink Atlas ${code(s.id)})`;
 export const layerName = (L, s) => (L.key === 'background' ? backgroundName(s) : L.name);
 
 // The order and flags for writePsd (bottom layer first).
@@ -79,7 +105,7 @@ export function manifest(s, region) {
     canvas: { widthPx: s.w, heightPx: s.h, ppi: s.ppi, widthMm: +s.wMm.toFixed(3), heightMm: +s.hMm.toFixed(3), originMm: s.originMm.map((v) => +v.toFixed(4)), mapping: s.mapping },
     registration: s.marks.map((m) => { const p = toPx(s, m[0], m[1]); return { mm: m.map((v) => +v.toFixed(3)), px: p.map((v) => +v.toFixed(2)) }; }),
     layers: LAYERS.map((L, i) => ({ order: i + 1, file: pngName(L), name: layerName(L, s), locked: L.locked, hidden: !!L.hidden })),
-    note: 'Draw only on Proposed garden. Keep the canvas size; if you crop or resize it, keep the Seam and alignment marks layer so Ink Atlas can put it back exactly.',
+    note: 'Draw only on Proposed garden. The faded strips past each cut edge are the same skin as the other end: draw straight across, and it is folded back when it comes back. Keep the canvas size; if you crop or resize it, keep the Seam and alignment marks layer so Ink Atlas can put it back exactly.',
   };
 }
 export const pngName = (L) => `${String(LAYERS.indexOf(L) + 1).padStart(2, '0')}-${L.key}.png`;

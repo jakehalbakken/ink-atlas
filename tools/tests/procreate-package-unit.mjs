@@ -1,7 +1,7 @@
 // Procreate package for a measured wrap: canvas size, layers, session, manifest, and the checks on
 // what comes back (exact, resized, cropped, stretched, turned). Plus the PSD lock and resolution.
 import assert from 'node:assert/strict';
-import { develop, toPx, pxFor, ptFor } from '../../src/wrap-geometry.js';
+import { develop, toPx, pxFor, ptFor, point, bounds, runOnFor, wrapAffine, applyAffine } from '../../src/wrap-geometry.js';
 import * as P from '../../src/procreate-package.js';
 import { writePsd, readPsd, StripPacker } from '../../src/psd.js';
 import { cleanSession } from '../../src/measured-region.js';
@@ -11,9 +11,15 @@ const t = develop(region.levels, 'skin');
 
 // canvas at 300 and 600 PPI: pixel count = round(mm / 25.4 x PPI)
 const c3 = P.packageCanvas(t, 300), c6 = P.packageCanvas(t, 600);
-assert.equal(c3.w, pxFor(t.bounds.w + 2 * P.PAD_MM, 300)); assert.equal(c3.h, pxFor(t.bounds.h + 2 * P.PAD_MM, 300));
-assert.equal(c6.w, pxFor(t.bounds.w + 2 * P.PAD_MM, 600));
-assert.ok(Math.abs(c3.wMm - (307.47 + 24)) < 0.02, 'width ' + c3.wMm);
+// the file runs on past each cut by a share of a turn, so drawing can cross the cut
+const ro = runOnFor(t), wb = bounds(t, 0.5 + ro); assert.equal(ro, 0.2); assert.equal(c3.runOn, ro);
+assert.equal(c3.w, pxFor(wb.w + 2 * P.PAD_MM, 300)); assert.equal(c3.h, pxFor(wb.h + 2 * P.PAD_MM, 300));
+assert.equal(c6.w, pxFor(wb.w + 2 * P.PAD_MM, 600));
+{ const c0 = P.packageCanvas(t, 300, 0); assert.ok(Math.abs(c0.wMm - (307.47 + 24)) < 0.02, 'width without run-on ' + c0.wMm); }
+// one turn round: the same u at f and f+1 is the same skin, an exact rotation about the cone tip
+{ const A = wrapAffine(t, 0, 1); for (const [f, u] of [[-0.6, 0], [-0.55, 50], [-0.7, 101.6]]) { const a = applyAffine(A, ...point(t, f, u)), b = point(t, f + 1, u); assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6, 'wrap map ' + a + ' ' + b); } }
+// a session keeps its run-on, and the fold plan sends each strip to the other end
+{ const s = P.makeSession(region, t, { ppi: 300, runOn: ro }), fp = P.foldPlan(s); assert.equal(s.runOn, ro); assert.equal(fp.length, 2); }
 assert.ok(Math.abs(ptFor(25.4) - 72) < 1e-9);
 console.log('canvas 300 PPI', c3.w, 'x', c3.h, '600 PPI', c6.w, 'x', c6.h);
 // marks inside the canvas, outside the shape's box
@@ -31,7 +37,7 @@ const L = P.psdLayers(s);
 assert.equal(L.at(-1).name, 'Proposed garden'); assert.equal(L.at(-1).locked, false);
 assert.ok(L.slice(0, -1).every((l) => l.locked));
 assert.equal(L[0].name, 'Optional background (Ink Atlas ABC123)'); assert.ok(L[0].hidden);
-assert.deepEqual(P.LAYERS.map((l) => l.name), ['Proposed garden', 'Existing cactus reference', 'Existing ink mask', 'Negative-space protection', 'Anatomical landmarks', 'Seam and alignment marks', 'Measurement grid', 'Optional background']);
+assert.deepEqual(P.LAYERS.map((l) => l.name), ['Proposed garden', 'Other end of the wrap', 'Existing cactus reference', 'Existing ink mask', 'Negative-space protection', 'Anatomical landmarks', 'Seam and alignment marks', 'Measurement grid', 'Optional background']);
 
 // manifest
 const man = P.manifest(s, region);

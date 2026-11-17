@@ -37,14 +37,14 @@ export default async function (p) {
   // the Procreate tab
   await p.evaluate(() => [...document.querySelectorAll('#wsTabs .btn')].find((b) => b.dataset.step === 'procreate').click()); await wait(300);
   let r = await p.evaluate(() => ({ size: document.getElementById('wsPkgSize').textContent, make: !!document.getElementById('wsMakePkg'), hi: window.__ink.wrap().api.highPpi() }));
-  assert.ok(/3915 × 1774 pixels at 300 PPI/.test(r.size), 'canvas size readout: ' + r.size); assert.ok(r.make, 'Make the Procreate file button');
-  assert.equal(r.hi, 450, 'higher choice fits an iPad canvas');
+  assert.ok(/5211 × 2044 pixels at 300 PPI/.test(r.size), 'canvas size readout: ' + r.size); assert.ok(r.make, 'Make the Procreate file button');
+  assert.equal(r.hi, 350, 'higher choice fits an iPad canvas');
   await p.screenshot({ path: 'shots/t118-procreate.png' });
 
   r = await p.evaluate(async () => { const W = window.__ink.wrap().api; const res = await W.makePackage({ ppi: 300, format: 'psd' }); return { res, ready: !!document.getElementById('wsSendPkg'), sessions: W.reg().sessions }; });
   assert.ok(/\.psd$/.test(r.res.name) && r.ready, 'file made ahead and Send shown: ' + JSON.stringify(r.res.name));
   assert.equal(r.sessions.length, 1, 'trip recorded'); const s = r.sessions[0];
-  assert.equal(s.w, 3915); assert.equal(s.h, 1774); assert.equal(s.ppi, 300);
+  assert.equal(s.w, 5211); assert.equal(s.h, 2044); assert.equal(s.ppi, 300);
   console.log('made', r.res.name, (r.res.size / 1048576).toFixed(1), 'MB');
 
   // read the PSD as Procreate would
@@ -59,9 +59,9 @@ export default async function (p) {
     const ih = Buffer.alloc(13); ih.writeUInt32BE(w, 0); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
     writeFileSync('shots/t118-psd.png', Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
   }
-  assert.equal(psd.width, 3915); assert.equal(psd.height, 1774); assert.equal(psd.ppi, 300, 'resolution written');
+  assert.equal(psd.width, 5211); assert.equal(psd.height, 2044); assert.equal(psd.ppi, 300, 'resolution written');
   const names = psd.layers.map((L) => L.name);
-  assert.deepEqual(names, ['Optional background (Ink Atlas ' + s.id.replace(/[^a-z0-9]/gi, '').slice(0, 6).toUpperCase() + ')', 'Measurement grid', 'Seam and alignment marks', 'Anatomical landmarks', 'Negative-space protection', 'Existing ink mask', 'Existing cactus reference', 'Proposed garden']);
+  assert.deepEqual(names, ['Optional background (Ink Atlas ' + s.id.replace(/[^a-z0-9]/gi, '').slice(0, 6).toUpperCase() + ')', 'Measurement grid', 'Seam and alignment marks', 'Anatomical landmarks', 'Negative-space protection', 'Existing ink mask', 'Existing cactus reference', 'Other end of the wrap', 'Proposed garden']);
   for (const L of psd.layers) assert.equal(L.locked, L.name !== 'Proposed garden', 'lock on ' + L.name);
   assert.ok(psd.layers[0].hidden, 'background hidden, so the canvas is transparent');
   const count = (L) => { let n = 0; const a = L.pixels[-1]; if (!a) return 0; for (let i = 0; i < a.length; i++) if (a[i] > 100) n++; return n; };
@@ -70,8 +70,8 @@ export default async function (p) {
   assert.ok(count(by['Existing ink mask']) > 50000, 'ink mask has the cactus: ' + count(by['Existing ink mask']));
   assert.ok(count(by['Negative-space protection']) > 2000, 'protected gaps');
   assert.ok(count(by['Existing cactus reference']) > 100000, 'cactus photo');
-  const marksL = by[MARKS], ma = new Uint8Array(3915 * 1774); for (let i = 0; i < ma.length; i++) ma[i] = marksL.pixels[-1][i];
-  const found = findMarks(ma, 3915, 1774, 3915 / s.wMm);
+  const marksL = by[MARKS], ma = new Uint8Array(5211 * 2044); for (let i = 0; i < ma.length; i++) ma[i] = marksL.pixels[-1][i];
+  const found = findMarks(ma, 5211, 2044, 5211 / s.wMm);
   assert.ok(found, 'the four alignment targets can be found in the marks layer');
   // the garden's own content lands where the plants are: transparent elsewhere
   const g0 = by['Proposed garden'], ga = g0.pixels[-1]; assert.equal(ga[0], 0, 'corner transparent');
@@ -82,7 +82,7 @@ export default async function (p) {
   assert.ok(r.ok && r.how === 'exact', 'unchanged file goes back exactly: ' + JSON.stringify(r));
   r = await p.evaluate(() => ({ rv: window.__ink.wrap().api.review(), box: !!document.getElementById('wsReview'), use: !!document.getElementById('wsUseReturn') }));
   assert.ok(r.box && r.use, 'shown for review with Use it');
-  near(r.rv.piece.w, s.wMm, 1e-6, 'returned picture is the canvas width'); assert.equal(r.rv.piece.pw, 3915);
+  near(r.rv.piece.w, s.wMm, 1e-6, 'returned picture is the canvas width'); assert.equal(r.rv.piece.pw, 5211);
   const during = await p.evaluate(() => window.__ink.wrap().api.artAlpha(4));
   const diff = (A, B) => { const a = Buffer.from(A.b64, 'base64'), b = Buffer.from(B.b64, 'base64'); let big = 0, sum = 0, ink = 0; for (let i = 0; i < a.length; i++) { const d = Math.abs(a[i] - b[i]); sum += d; if (d > 128) big++; if (a[i] > 128) ink++; } return { big, mean: sum / a.length, ink }; };
   const d1 = diff(before, during);
@@ -103,7 +103,7 @@ export default async function (p) {
   // 2. resized to half: put back by the marks
   const half = (L, W, H) => { const w = Math.round(W / 2), h = Math.round(H / 2), out = new Uint8ClampedArray(w * h * 4), lw = L.right - L.left; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const X = x * 2 - L.left, Y = y * 2 - L.top; if (X < 0 || Y < 0 || X >= lw || Y >= L.bottom - L.top) continue; const i = Y * lw + X, o = (y * w + x) * 4; out[o] = L.pixels[0][i]; out[o + 1] = L.pixels[1][i]; out[o + 2] = L.pixels[2][i]; out[o + 3] = L.pixels[-1][i]; } return out; };
   {
-    const W = 3915, H = 1774, w = Math.round(W / 2), h = Math.round(H / 2), gpx = half(g0, W, H), mpx = half(marksL, W, H);
+    const W = 5211, H = 2044, w = Math.round(W / 2), h = Math.round(H / 2), gpx = half(g0, W, H), mpx = half(marksL, W, H);
     const blob = writePsd({ width: w, height: h, merged: gpx, layers: [{ name: 'Seam and alignment marks', rgba: mpx }, { name: 'Proposed garden', rgba: gpx }] });
     const hb = Buffer.from(await blob.arrayBuffer()).toString('base64');
     r = await p.evaluate((b) => window.__ink.wrap().api.bringBackBase64(b, 'half.psd'), hb);
@@ -116,7 +116,7 @@ export default async function (p) {
   }
   // 3. stretched taller: refused
   {
-    const W = 3915, H = 1774, h2 = Math.round(H * 1.04), str = (L) => { const out = new Uint8ClampedArray(W * h2 * 4), lw = L.right - L.left; for (let y = 0; y < h2; y++) { const Y = Math.min(H - 1, Math.round(y / 1.04)) - L.top; if (Y < 0 || Y >= L.bottom - L.top) continue; for (let x = 0; x < W; x++) { const X = x - L.left; if (X < 0 || X >= lw) continue; const i = Y * lw + X, o = (y * W + x) * 4; out[o] = L.pixels[0][i]; out[o + 1] = L.pixels[1][i]; out[o + 2] = L.pixels[2][i]; out[o + 3] = L.pixels[-1][i]; } } return out; };
+    const W = 5211, H = 2044, h2 = Math.round(H * 1.04), str = (L) => { const out = new Uint8ClampedArray(W * h2 * 4), lw = L.right - L.left; for (let y = 0; y < h2; y++) { const Y = Math.min(H - 1, Math.round(y / 1.04)) - L.top; if (Y < 0 || Y >= L.bottom - L.top) continue; for (let x = 0; x < W; x++) { const X = x - L.left; if (X < 0 || X >= lw) continue; const i = Y * lw + X, o = (y * W + x) * 4; out[o] = L.pixels[0][i]; out[o + 1] = L.pixels[1][i]; out[o + 2] = L.pixels[2][i]; out[o + 3] = L.pixels[-1][i]; } } return out; };
     const blob = writePsd({ width: W, height: h2, merged: str(g0), layers: [{ name: 'Seam and alignment marks', rgba: str(marksL) }, { name: 'Proposed garden', rgba: str(g0) }] });
     r = await p.evaluate((b) => window.__ink.wrap().api.bringBackBase64(b, 'tall.psd'), Buffer.from(await blob.arrayBuffer()).toString('base64'));
     assert.ok(!r.ok && /stretch/i.test(r.why), 'stretched file refused: ' + JSON.stringify(r));
@@ -126,7 +126,7 @@ export default async function (p) {
   // 4. a cropped PNG with no marks: refused with the reason; an exact-size PNG of the garden: fine
   r = await p.evaluate(async () => { const c = document.createElement('canvas'); c.width = 3000; c.height = 1500; const g = c.getContext('2d'); g.fillStyle = '#2d6a3a'; g.fillRect(100, 100, 300, 300); const b = c.toDataURL('image/png').split(',')[1]; return window.__ink.wrap().api.bringBackBase64(b, 'garden.png', 'image/png'); });
   assert.ok(!r.ok && /cropped or stretched/.test(r.why), 'cropped PNG refused: ' + JSON.stringify(r));
-  r = await p.evaluate(async () => { const c = document.createElement('canvas'); c.width = 3915; c.height = 1774; const g = c.getContext('2d'); g.fillStyle = '#2d6a3a'; g.fillRect(1800, 600, 300, 300); const b = c.toDataURL('image/png').split(',')[1]; return window.__ink.wrap().api.bringBackBase64(b, 'garden.png', 'image/png'); });
+  r = await p.evaluate(async () => { const c = document.createElement('canvas'); c.width = 5211; c.height = 2044; const g = c.getContext('2d'); g.fillStyle = '#2d6a3a'; g.fillRect(1800, 600, 300, 300); const b = c.toDataURL('image/png').split(',')[1]; return window.__ink.wrap().api.bringBackBase64(b, 'garden.png', 'image/png'); });
   assert.ok(r.ok && r.how === 'exact', 'garden PNG at the canvas size: ' + JSON.stringify(r));
   await p.evaluate(() => document.getElementById('wsCancelReturn').click()); await wait(200);
   assert.equal(await p.evaluate(() => window.__ink.wrap().api.reg().art.pieces.length), 2, 'Cancel leaves the design alone');
@@ -135,9 +135,9 @@ export default async function (p) {
   r = await p.evaluate(async () => { const W = window.__ink.wrap().api; const res = await W.makePackage({ ppi: 300, format: 'png' }); const b = await W.packageBase64(); return { name: res.name, b: b.slice(0, 8), len: b.length }; });
   assert.ok(/layers\.zip$/.test(r.name), 'PNG layers zip: ' + r.name);
   const zip = Buffer.from(await p.evaluate(() => window.__ink.wrap().api.packageBase64()), 'base64').toString('latin1');
-  for (const f of ['01-garden.png', '06-marks.png', '08-background.png', 'manifest.json']) assert.ok(zip.includes(f), 'zip holds ' + f);
+  for (const f of ['01-garden.png', '02-wrapref.png', '07-marks.png', '09-background.png', 'manifest.json']) assert.ok(zip.includes(f), 'zip holds ' + f);
   const man = JSON.parse(zip.slice(zip.indexOf('{\n  "app"'), zip.indexOf('\n}', zip.indexOf('{\n  "app"')) + 2));
-  assert.equal(man.canvas.widthPx, 3915); assert.equal(man.canvas.ppi, 300); assert.equal(man.layers[0].name, 'Proposed garden');
+  assert.equal(man.canvas.widthPx, 5211); assert.equal(man.canvas.ppi, 300); assert.equal(man.layers[0].name, 'Proposed garden');
 
   // 44 pt targets, and tattoos never touched
   const small = await p.evaluate(() => [...document.querySelectorAll('#wrapStudio .btn')].filter((b) => b.offsetParent && b.getBoundingClientRect().height < 43).map((b) => b.textContent));
@@ -147,6 +147,6 @@ export default async function (p) {
   await p.evaluate(async () => { await window.__ink.flush(); });
   await p.reload({ waitUntil: 'load' }); await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1000);
   r = await p.evaluate(() => (window.__ink.state().regions[0].sessions || []).map((q) => [q.w, q.h, !!q.returned]));
-  assert.ok(r.length === 2 && r[0][0] === 3915, 'trips kept after reload: ' + JSON.stringify(r));
+  assert.ok(r.length === 2 && r[0][0] === 5211, 'trips kept after reload: ' + JSON.stringify(r));
   console.log('t118 wrap Procreate PASS');
 }

@@ -122,6 +122,8 @@ export function cleanExisting(e, hasImage) {
     if (o.ink || o.gap) { o.maskPpmm = e.maskPpmm; o.maskO = e.maskO.slice(); if (Number.isInteger(e.maskCalib) && e.maskCalib > 0) o.maskCalib = e.maskCalib; }
   }
   if (num(e.buffer) && e.buffer >= 0 && e.buffer <= 20) o.buffer = e.buffer;
+  // the side of the limb it sits on when the Quick screen placed it (degrees, 270 the back)
+  if ([0, 90, 180, 270].includes(e.side)) o.side = e.side;
   return o.photos || o.ink || o.gap || o.landmarks ? o : null;
 }
 
@@ -171,6 +173,8 @@ export function cleanSession(s) {
   if (Array.isArray(s.layers)) o.layers = s.layers.filter((n) => typeof n === 'string').slice(0, 12).map((n) => n.slice(0, 60));
   if (Array.isArray(s.sources)) o.sources = s.sources.filter((n) => typeof n === 'string' && n.length <= 80).slice(0, 50);
   if (typeof s.name === 'string') o.name = s.name.slice(0, 80);
+  // the share of a turn drawn past each cut edge (none on a file made before that existed)
+  if (num(s.runOn) && s.runOn > 0 && s.runOn <= 0.5) o.runOn = s.runOn;
   if (s.returned && typeof s.returned === 'object' && typeof s.returned.at === 'string') o.returned = { at: s.returned.at.slice(0, 30), how: ['registered', 'scaled'].includes(s.returned.how) ? s.returned.how : 'exact' };
   return o;
 }

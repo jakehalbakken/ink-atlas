@@ -17,6 +17,9 @@ export default async function (p) {
   assert.equal(await p.evaluate(() => !document.getElementById('wrapStudio').hidden), true, 'studio opens from Plan');
   await p.evaluate(() => document.getElementById('wsStart').click());
   await wait(600);
+  // a new wrap opens on Quick (t122); this check goes through the detailed steps
+  assert.equal(await p.evaluate(() => window.__ink.wrap().api.ui.step), 'quick', 'a new wrap opens on Quick');
+  await p.evaluate(() => document.querySelector('#wsTabs [data-step=measure]').click()); await wait(400);
   let r = await p.evaluate(() => { const W = window.__ink.wrap().api; return { s: W.summary(), reg: W.reg(), warn: W.warnings(), insp: document.getElementById('wsInsp').textContent }; });
   near(r.s.lower, 228.6, 0.1, 'bottom arc'); near(r.s.middle, 273.05, 0.1, 'middle arc'); near(r.s.upper, 317.5, 0.1, 'top arc');
   near(r.s.slant, 101.6, 0.01, 'length along the skin'); near(r.s.w, 307.47, 0.05, 'flat width'); near(r.s.h, 126.21, 0.05, 'flat height');
