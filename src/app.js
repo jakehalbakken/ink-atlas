@@ -2324,6 +2324,7 @@ function needTattoo() {
 }
 var infoQuietUntil = 0, infoByShow = false; // More controls opened by a Show me: pointed at, not tried
 const SHOW = {
+  layersSheet: () => { toggle('#planMenu', true); return ['#openLayers', 'Tap Layers and groups. Each tattoo is one line with an eye to hide it and dots to move or lock it; tick several and the actions for them show below.']; },
   layouts: () => { toggle('#planMenu', true); return ['#openPlanning', 'Tap Layouts and views. Name the layout on the body and tap Save; each saved one has Open, and the dots beside it hold Rename, What’s different and Archive.']; },
   measuredWrap: () => { toggle('#planMenu', true); return ['#openWrap', 'Tap Measured wrap. Your ankle numbers are filled in to start; change any of them there.']; },
   together: () => (account && account.configured ? (account.showTogether(), ['#acctInvite', 'Tap Invite someone and send the link to Liv or your artist. Once they join, you both see the same tattoos and each other\'s changes as they happen.']) : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
@@ -4016,7 +4017,7 @@ $('#openPlacement').addEventListener('click',async()=>{
   snapshot();for(const t of plan.updates)Object.assign(state.tattoos.find(x=>x.id===t.id),t);state.tattoos.push(...plan.additions);commit();toast('Placement applied.','Undo',undo);
  }});}catch(e){toast('Placement tools: '+e.message);}
 });
-$('#openLayers').addEventListener('click',()=>{toggle('#planMenu',false);openLayers({getState:()=>state,onTransform:transformSelection,getImages:()=>images,onSolo:ids=>{soloIds=ids?new Set(ids):null;syncDecals();},select:id=>select(id,true),change:fn=>{snapshot();fn(state);commit();}});});
+$('#openLayers').addEventListener('click',()=>{toggle('#planMenu',false);markTried('layersSheet');openLayers({getState:()=>state,onTransform:transformSelection,getImages:()=>images,onSolo:ids=>{soloIds=ids?new Set(ids):null;syncDecals();},select:id=>select(id,true),change:fn=>{snapshot();fn(state);commit();}});});
 $('#openUnplaced').addEventListener('click',()=>{
  toggle('#planMenu',false);const host=el('section',{class:'scrim',role:'dialog','aria-modal':'true','aria-label':'Saved artwork to place'});host.style.zIndex=10000;const panel=el('div',{class:'modal glass'},el('h2',{text:'Saved artwork to place'}),el('p',{text:'These pieces had no body position in the imported project. Place one deliberately, then adjust it on the body.'}));
  for(const record of state.unplacedTattoos||[])panel.append(el('button',{class:'card',text:'Place '+record.name+' on body',onclick:async()=>{
