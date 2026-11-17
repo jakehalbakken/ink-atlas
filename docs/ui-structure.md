@@ -32,7 +32,7 @@ More controls opens sections, each with a small heading:
 1. **Size and shape:** Size, Turn, Ink strength; Precise placement; Bend and taper.
 2. **About this spot:** size as an everyday thing, where it sits, what it shows in, how it holds up, how it stretches, straighten, who it reads for, even placement.
 3. **Check it:** Ink check, Try other spots, Find room for it, Real size on screen, Try on with camera.
-4. **Plan it:** time to tattoo and rate, every sitting in the plan, sittings, versions, note for your artist, who did it.
+4. **Plan it:** time to tattoo and rate, every sitting in the plan, sittings, versions, note for your artist, who did it. Each is its own inset box (2026-11-17).
 5. **Copy and arrange:** Mirror, Flip vertical, Duplicate, Copy to other side, Split into designs, Clean up linked copies, Stencil for your artist.
 6. **This tattoo:** Planned or already on me, Hide, Remove.
 
