@@ -123,5 +123,35 @@ export default async function (p) {
   assert.equal(sm.mode, 'ink', 'a small piece moves the plain way'); assert.ok(sm.moved > 1e-4, 'a small piece moves');
   const row = await p.evaluate(() => document.querySelector('#wrapRow').hidden);
   assert.ok(row, 'no Wrap it round for a small square piece');
+  // growing a long piece with the corner handle until it wraps: the handle in hand stays under the
+  // finger (it used to jump to the band's front edge the moment the piece began to wrap), one undo step
+  for (const name of ['ankle', 'forearm']) {
+    const [o, d, cam] = spots[name];
+    await p.evaluate(async ({ o, d }) => {
+      const I = window.__ink, s = I.state(); s.tattoos = []; I.setShape({});
+      const c = document.createElement('canvas'); c.width = 800; c.height = 200; const g = c.getContext('2d'); g.fillStyle = '#556'; g.fillRect(0, 30, 800, 140);
+      const h = I.surfaceAt(o, d); const t = await I.addArt(c.toDataURL('image/png'), 'band', { pos: h.pos, normal: h.normal, width: 0.05 });
+      I.commitTest(); I.select(t.id);
+    }, { o, d });
+    await p.evaluate((g) => { Object.assign(window.__ink.goal, g); Object.assign(window.__ink.cur, g); window.__ink.select(window.__ink.selected()); }, cam); await wait(900);
+    const r = await p.evaluate(async () => {
+      const I = window.__ink, h = document.querySelector('#hSize'), id = I.selected(), t = () => I.state().tattoos.find((q) => q.id === id);
+      const raf = () => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)));
+      const at = (e) => { const b = e.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; };
+      if (h.hidden || document.querySelector('#handles').hidden) return { err: 'no handle' };
+      const [x0, y0] = at(h), [tx, ty] = at(document.querySelector('#hTurn')), L = Math.hypot(x0 - tx, y0 - ty), ux = (x0 - tx) / L, uy = (y0 - ty) / L;
+      const ev = (k, X, Y) => h.dispatchEvent(new PointerEvent(k, { pointerId: 9, pointerType: 'touch', clientX: X, clientY: Y, bubbles: true, button: 0, buttons: k === 'pointerup' ? 0 : 1 }));
+      const u0 = I.undoLen(), s0 = I.wrapShare(id).share; let x = x0, y = y0, off = 0;
+      ev('pointerdown', x, y);
+      for (let i = 1; i <= 30; i++) { x += ux * 6; y += uy * 6; ev('pointermove', x, y); await raf(); const [hx, hy] = at(h); off = Math.max(off, Math.hypot(hx - x, hy - y)); }
+      ev('pointerup', x, y); await raf();
+      return { s0, s1: I.wrapShare(id).share, w: t().width, off, steps: I.undoLen() - u0, u0 };
+    });
+    assert.ok(!r.err, `${name}: size handle shown`);
+    assert.ok(r.s0 < 0.35 && r.s1 > 0.5, `${name}: the handle grew it into a wrap ${JSON.stringify(r)}`);
+    assert.ok(r.off < 2, `${name}: the size handle stayed under the finger ${JSON.stringify(r)}`);
+    if (r.u0 < 39) assert.equal(r.steps, 1, `${name}: a handle drag is one undo step`);
+    console.log(name, 'handle resize', JSON.stringify(r));
+  }
   await p.screenshot({ path: 'shots/t124-wrap-grab.png' });
 }

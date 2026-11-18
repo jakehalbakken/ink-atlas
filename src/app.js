@@ -1075,7 +1075,13 @@ function placeHandles() {
   if (!s) { if (!handleDrag) handleBox.hidden = true; return; }
   const r = canvas.getBoundingClientRect(), inView = (p) => p.x > r.left + 8 && p.x < r.right - 8 && p.y > r.top + 8 && p.y < r.bottom - 8;
   handleBox.hidden = false;
-  for (const [b, p] of [[hSize, s.size], [hTurn, s.turn]]) { b.style.left = p.x + 'px'; b.style.top = p.y + 'px'; b.hidden = !inView(p); }
+  // the handle being dragged stays under the finger: a piece that starts to wrap moves its handles to
+  // the part facing you, and the one in hand jumping away from the finger reads as lost
+  const g = handleDrag;
+  for (const [b, p] of [[hSize, s.size], [hTurn, s.turn]]) {
+    const q = g && b === (g.kind === 'size' ? hSize : hTurn) ? { x: g.x, y: g.y } : p;
+    b.style.left = q.x + 'px'; b.style.top = q.y + 'px'; b.hidden = !inView(q);
+  }
 }
 for (const [b, kind] of [[hSize, 'size'], [hTurn, 'turn']]) {
   b.addEventListener('pointerdown', (e) => {
@@ -1083,12 +1089,13 @@ for (const [b, kind] of [[hSize, 'size'], [hTurn, 'turn']]) {
     e.preventDefault(); e.stopPropagation(); try { b.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
     const s = handleSpots(t); if (!s) return; markTried('handles');
     if (poseView.motion.playing) poseView.pause();
-    handleDrag = { id: e.pointerId, kind, c: s.c, d0: Math.hypot(e.clientX - s.c.x, e.clientY - s.c.y) || 1, a0: Math.atan2(e.clientY - s.c.y, e.clientX - s.c.x), w0: t.width, r0: t.rot || 0, snap: false };
+    handleDrag = { id: e.pointerId, kind, c: s.c, d0: Math.hypot(e.clientX - s.c.x, e.clientY - s.c.y) || 1, a0: Math.atan2(e.clientY - s.c.y, e.clientX - s.c.x), w0: t.width, r0: t.rot || 0, snap: false, x: e.clientX, y: e.clientY };
     b.classList.add('on');
   });
   b.addEventListener('pointermove', (e) => {
     const g = handleDrag, t = sel(); if (!g || g.id !== e.pointerId || !t) return;
     if (!g.snap) { snapshot(); g.snap = true; }
+    g.x = e.clientX; g.y = e.clientY;
     if (g.kind === 'size') t.width = THREE.MathUtils.clamp(g.w0 * Math.hypot(e.clientX - g.c.x, e.clientY - g.c.y) / g.d0, 0.012, 0.9);
     else {
       let da = Math.atan2(e.clientY - g.c.y, e.clientX - g.c.x) - g.a0; da = Math.atan2(Math.sin(da), Math.cos(da));
