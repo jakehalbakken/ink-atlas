@@ -130,7 +130,14 @@ function limbFlat(geo, t, frame, startTri, limb) {
   const Rr = nrm(toRest([frame.right.x, frame.right.y, frame.right.z])), Ur = nrm(toRest([frame.up.x, frame.up.y, frame.up.z]));
   const rx = dt(Rr, eRound), rs = dt(Rr, eDown), ux = dt(Ur, eRound), us = dt(Ur, eDown);
   const w = t.width, h = t.width / t.aspect, round = Math.abs(rx) * w + Math.abs(ux) * h;
-  if (!(rr > 0) || round < 0.8 * 2 * Math.PI * rr) return null;
+  // Most pieces part way round are unfolded like a stencil, which follows bumps more closely. A
+  // band at least a third of the way round a forearm or lower leg is laid out as a sleeve too: the
+  // ankle and wrist narrow fast, and a stencil turned off the limb's line tore there into a V.
+  // (Not the upper arm or thigh, which run into the shoulder and hip, and not over the bend of the
+  // elbow or knee: a sleeve stretches there.)
+  const part = round / (2 * Math.PI * rr), reach = (Math.abs(rs) * w + Math.abs(us) * h) / 2;
+  const belowJoint = g0 !== segs[0] && s0 - reach - g0.start > 0.02;
+  if (!(rr > 0) || part < 0.35 || (part < 0.8 && !belowJoint)) return null;
   const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   return {
     // flat x, y of vertex v with its angle shifted by k turns (for triangles across the back)

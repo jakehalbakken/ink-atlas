@@ -46,5 +46,23 @@ export default async function (p) {
     const h = c.name === 'ankle three quarters' ? 0.16 / 4 : 0.2 / 4;
     assert.ok(c.hi - c.lo < h + 0.04 && c.lo > c.y - h / 2 - 0.03, `${c.name}: stays a band, nothing dropped onto the heel (${c.lo.toFixed(3)} to ${c.hi.toFixed(3)})`);
   }
-  console.log('PASS t116 a band round the ankle, wrist and upper arm closes on itself with no holes');
+  // A band part way round the ankle or calf, turned off the line of the leg (2026-11-18: the stencil
+  // layout tore a turned ankle band into a V, with a second prong of ink beside it): laid out like a
+  // sleeve it stays one even band.
+  const turned = await p.evaluate(async () => {
+    const I = window.__ink, s = I.state(); s.tattoos = []; I.setShape({});
+    const c = document.createElement('canvas'); c.width = 800; c.height = 200; const g = c.getContext('2d'); g.fillStyle = '#111'; for (let y = 0; y < 200; y += 20) for (let x = (y / 20) % 2 * 20; x < 800; x += 40) g.fillRect(x, y, 20, 20);
+    const art = c.toDataURL('image/png');
+    const spots = { ankle: [[0.193, 0.14, 2], [0, 0, -1], 0.14], calf: [[0.12, 0.35, -2], [0, 0, 1], 0.2] };
+    for (const [name, [o, d, w]] of Object.entries(spots)) for (const r of [-0.49, 0.49]) { const h = I.surfaceAt(o, d); const t = await I.addArt(art, `${name} turned ${r}`, { pos: h.pos, normal: h.normal, width: w }); t.rot = r; }
+    I.commitTest(); for (let k = 0; k < 40; k++) await new Promise((r) => requestAnimationFrame(r)); await new Promise((r) => setTimeout(r, 800));
+    return I.decalCover();
+  });
+  for (const c of turned) {
+    console.log(c.name, 'cover', c.cover.toFixed(3), 'stretch p90', c.stretch.toFixed(2), 'p10', (c.low || 0).toFixed(2));
+    assert.ok(c.cover > 0.97, `${c.name}: the whole band is on the skin (${(c.cover * 100).toFixed(1)}%)`);
+    assert.ok(c.stretch < 1.35 && c.low > 0.5, `${c.name}: stays one band, no torn prong (${c.low.toFixed(2)} to ${c.stretch.toFixed(2)})`);
+  }
+  await look('ankle-turned', { theta: 1.57, phi: 1.45, r: 0.6, tx: 0.19, ty: 0.15, tz: 0 });
+  console.log('PASS t116 a band round the ankle, wrist and upper arm closes on itself with no holes, and a turned band stays whole');
 }
