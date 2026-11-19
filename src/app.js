@@ -1913,7 +1913,7 @@ function renderPose() {
 let scrubbing = false;
 function afterPoseChange() { spotCache.clear(); const t = sel(); if (t && !gest) requestAnimationFrame(() => { if (sel() === t && poseView.settled()) revealTattoo(t); }); }
 $('#poseBtn').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); toggle('#lightPop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#posePop'); renderPose(); });
-$('#poseList').addEventListener('click', (e) => { const b = e.target.closest('[data-pose]'); if (!b) return; cancelGesture(); poseView.choose(b.dataset.pose); renderPose(); setTimeout(afterPoseChange, 320); });
+$('#poseList').addEventListener('click', (e) => { const b = e.target.closest('[data-pose]'); if (!b) return; cancelGesture(); if (POSE_CATALOG[b.dataset.pose] && POSE_CATALOG[b.dataset.pose].group === 'Straight arms') markTried('straightArms'); poseView.choose(b.dataset.pose); renderPose(); setTimeout(afterPoseChange, 320); });
 $('#motionKind').addEventListener('change', () => { poseView.scrub(0, $('#motionKind').value); if ($('#motionPlay').getAttribute('aria-pressed') === 'true') poseView.play(); renderPose(); });
 $('#motionPlay').addEventListener('click', () => { if (poseView.motion.playing) poseView.pause(); else poseView.play($('#motionKind').value); renderPose(); });
 document.querySelectorAll('#posePop [data-speed]').forEach((b) => b.addEventListener('click', () => { poseView.speed = +b.dataset.speed; renderPose(); }));
@@ -2560,6 +2560,7 @@ const SHOW = {
   definition: () => { toggle('#bodyPop', true); return ['#rMuscle', 'Slide Muscle up, or Weight down, to see more muscle definition.']; },
   skinTone: () => { toggle('#bodyPop', true); return ['#skinOwnBtn', 'Tap + to make your own skin tone, or match a photo of your skin.']; },
   light: () => { showLook(true); return ['#lightBtn', 'Tap Light, then pick the light you will see it in most.']; },
+  straightArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=straightDown]', 'Tap Arms straight down, Arms straight out or Palms forward. The elbows go fully straight and your arm tattoos go with the skin. Standing puts you back.']; },
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
@@ -4093,6 +4094,16 @@ function onUpdateReady() {
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden && updateReady) reloadForUpdate(); });
 if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) onUpdateReady(); }); }
+try { $('#buildStamp').textContent = 'This copy is from ' + new Date(__BUILD_TIME__).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '. A newer one loads on its own.'; } catch {}
+// Look for a new version whenever the app comes back to the screen and every 15 minutes while
+// it is open. A home-screen app on the iPad is often only resumed, never loaded again, so the
+// browser's own check (on loading the page) can leave it on an old version for days.
+if ('serviceWorker' in navigator) {
+  let lastCheck = 0;
+  const checkForUpdate = () => { if (document.hidden || performance.now() - lastCheck < 60000) return; lastCheck = performance.now(); navigator.serviceWorker.getRegistration().then((r) => r && r.update()).catch(() => {}); };
+  document.addEventListener('visibilitychange', checkForUpdate); addEventListener('focus', checkForUpdate); addEventListener('pageshow', checkForUpdate);
+  setInterval(checkForUpdate, 15 * 60 * 1000);
+}
 $('#projectsBtn').addEventListener('click', () => {cancelGesture();toggle('#planMenu',true);});
 function previewInput() {return {THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden).map(t=>decals[t.id]).filter(d=>d && d.tex).map(d=>({geometry:d.mesh.geometry,material:d.mesh.material}))};}
 $('#openBodyTools').addEventListener('click',async()=>{

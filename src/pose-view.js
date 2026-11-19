@@ -67,7 +67,11 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
 
   function rest() {
     const shapeKey = JSON.stringify([state().figure, state().muscle, state().weight, state().fit || {}]);
-    if (rigFor !== shapeKey) { rig = createRestRig(state()); rigFor = shapeKey; }
+    if (rigFor !== shapeKey) {
+      rig = createRestRig(state()); rigFor = shapeKey;
+      // a fitted pose (straight arms) is worked out again for the new shape, so the elbows stay straight
+      if (POSE_CATALOG[key] && POSE_CATALOG[key].fit && !blend) target = catalogRotations(key, rig);
+    }
     return { positions: bodyGeo.attributes.position.array, joints: rig.joints };
   }
   // Bring the posed body up to date. Cheap when nothing changed.
@@ -125,7 +129,7 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
   function choose(k) {
     stop();
     if (!POSE_CATALOG[k]) throw new Error('Unknown pose');
-    key = k; setRotations(k === 'neutral' ? null : catalogRotations(k));
+    key = k; setRotations(k === 'neutral' ? null : catalogRotations(k, (rest(), rig)));
   }
   function frame() { show(catalogMotionRotations(motion.kind, motion.phase)); }
   function play(kind = motion.kind) {
@@ -164,7 +168,7 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
     setCustom(rotations, opts) { stop(); key = 'custom'; setRotations(rotations, opts); },
     reset() { stop(); key = 'neutral'; setRotations(null); },
     // For pictures: show a still at once, then put back exactly what was showing before.
-    showNow(k) { stop(); if (!POSE_CATALOG[k]) throw new Error('Unknown pose'); key = k; setRotations(k === 'neutral' ? null : catalogRotations(k), { animate: false }); },
+    showNow(k) { stop(); if (!POSE_CATALOG[k]) throw new Error('Unknown pose'); key = k; setRotations(k === 'neutral' ? null : catalogRotations(k, (rest(), rig)), { animate: false }); },
     snapshot() { return { key, target, playing: motion.playing, kind: motion.kind, phase: motion.phase }; },
     restore(s) { stop(); clearTimeout(blendTimer); blend = null; motion.kind = s.kind; motion.phase = s.phase; key = s.key; show(s.target); if (s.playing) play(s.kind); },
     withPosed, pointOn, ensure,

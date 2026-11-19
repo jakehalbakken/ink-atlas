@@ -31,6 +31,8 @@ const projectRoot = import.meta.dirname;
 export default defineConfig({
   root: 'src',
   base: '/ink-atlas/',
+  // when this copy was built, shown at the foot of New to try so a stale copy is easy to spot
+  define: { __BUILD_TIME__: JSON.stringify(new Date().toISOString()) },
   publicDir: resolve(projectRoot, 'public'),
   build: {
     outDir: resolve(projectRoot, 'dist'),

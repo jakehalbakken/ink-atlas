@@ -16,11 +16,12 @@ const add=(out,bone,axis,value)=>{if(value)(out[bone]||(out[bone]=[])).push([axi
 // into a fist (fist, 0..1). Axes come from the rest skeleton, so they fit every body.
 let REST=null;
 const restRig=()=>REST||(REST=createRestRig({}));
-const restJoint=(name,end='head')=>{const J=restRig().joints,b=POSE_BONES.find(x=>x.name===name),k=b[end]*3;return [J[k],J[k+1],J[k+2]];};
+const restJointOf=(name,end='head',rig=restRig())=>{const J=rig.joints,b=POSE_BONES.find(x=>x.name===name),k=b[end]*3;return [J[k],J[k+1],J[k+2]];};
 const vsub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],vdot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],vcross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],vunit=a=>{const l=Math.hypot(...a)||1;return a.map(x=>x/l);};
-const AXES={};
-function armAxes(side){
- if(AXES[side])return AXES[side];
+const AXES=new WeakMap();
+function armAxes(side,rig=restRig()){
+ const cache=AXES.get(rig)||(AXES.set(rig,{}),AXES.get(rig));if(cache[side])return cache[side];
+ const restJoint=(name,end='head')=>restJointOf(name,end,rig);
  const sh=restJoint('upperarm01.'+side),el=restJoint('lowerarm01.'+side),wr=restJoint('wrist.'+side);
  const upper=vunit(vsub(el,sh)),fore=vunit(vsub(wr,el)),hinge=vunit(vcross(upper,fore));
  // the palm faces where the fingers curl to: across the knuckles, then square to the fingers
@@ -35,28 +36,31 @@ function armAxes(side){
  for(const f of [2,3,4,5])for(const k of [1,2,3]){const name=`finger${f}-${k}.${side}`,d=vunit(vsub(restJoint(name,'tail'),restJoint(name)));let ax=vunit(vcross(d,palmN));finger.push({name,axis:ax,k});}
  // the thumb closes over the middle of the index and middle fingers
  const fistRot={};for(const f of finger)fistRot[f.name]=axisAngle(f.axis,[0,1.45,1.6,1.05][f.k]);
- const T=poseTransforms(restRig(),fistRot),bi=Object.fromEntries(POSE_BONES.map((b,i)=>[b.name,i]));
+ const T=poseTransforms(rig,fistRot),bi=Object.fromEntries(POSE_BONES.map((b,i)=>[b.name,i]));
  const posed=(name,end)=>{const t=T[bi[name]],p=restJoint(name,end),[x,y,z]=p,[a,b,c,w]=t.q,tx=2*(b*z-c*y),ty=2*(c*x-a*z),tz=2*(a*y-b*x);return [x+w*tx+b*tz-c*ty+t.t[0],y+w*ty+c*tx-a*tz+t.t[1],z+w*tz+a*ty-b*tx+t.t[2]];};
  const mid=n=>{const a=posed(n,'head'),b=posed(n,'tail');return [(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2];};
  const target=mid('finger2-2.'+side).map((x,i)=>(x+mid('finger3-2.'+side)[i])/2);
  const tb=restJoint('finger1-1.'+side),td=vunit(vsub(restJoint('finger1-3.'+side,'tail'),tb)),tt=vunit(vsub(target,tb));
  const d2=vunit(vsub(restJoint('finger1-2.'+side,'tail'),restJoint('finger1-2.'+side))),tp=vunit(vsub(tt,d2.map(x=>x*vdot(tt,d2))));
  const thumb={dir:td,swingAxis:vunit(vcross(td,tt)),swing:Math.acos(Math.min(1,vdot(td,tt))),bend:vunit(vcross(d2,tp))};
- return AXES[side]={upper,fore,hinge,palmN,sup,finger,thumb};
+ // the rest skeleton holds the elbow bent forward (about 47 degrees); straight undoes it
+ const bend=Math.acos(Math.min(1,Math.max(-1,vdot(upper,fore))));
+ return cache[side]={upper,fore,hinge,palmN,sup,finger,thumb,bend};
 }
 const smooth01=x=>{const t=Math.min(1,Math.max(0,x));return t*t*(3-2*t);};
 // lift: arm out to the side and up (0.75 is about level). reach: forward (+) or back (-).
 // elbow: bend the forearm forward. curl: bend the forearm up, for a raised arm.
 // hang: bring the arm in to the side first (1 = straight down), so a reach goes forward
 // rather than forward and out. palm: turn the palm up/forward (radians). fist: 0..1.
-const arm=(side,{lift=0,reach=0,elbow=0,curl=0,hang=0,palm=0,fist=0}={},out={})=>{
- const s=side==='L'?1:-1,A=armAxes(side);lift-=.75*hang;
+// straight: 0..1 of the rest skeleton's own elbow bend taken out, so 1 is a fully straight arm.
+const arm=(side,{lift=0,reach=0,elbow=0,curl=0,hang=0,palm=0,fist=0,straight=0,rig}={},out={})=>{
+ const s=side==='L'?1:-1,A=armAxes(side,rig);lift-=.75*hang;
  // outward turn of the upper arm first (rest frame), split over its two bones
  const outward=-s*(Math.PI/2)*smooth01(curl/.5);
  add(out,'upperarm01.'+side,A.upper,outward*.6);add(out,'upperarm02.'+side,A.upper,outward*.4);
  const share=(bone,f)=>{add(out,bone,'z',s*lift*f);add(out,bone,'x',-reach*f);};
  share('clavicle.'+side,lift>.9?.12:0);share('shoulder01.'+side,lift>.9?.16:.08);share('upperarm01.'+side,lift>.9?.72:.92);
- add(out,'lowerarm01.'+side,A.hinge,elbow+curl);
+ add(out,'lowerarm01.'+side,A.hinge,elbow+curl-A.bend*straight);
  add(out,'lowerarm02.'+side,A.fore,A.sup*palm);
  if(fist){
   for(const f of A.finger)add(out,f.name,f.axis,fist*[0,1.45,1.6,1.05][f.k]);
@@ -72,10 +76,18 @@ const spine=(out,{turn=0,bend=0,side=0}={})=>{for(const [b,f] of [['spine04',.2]
 const leg=(side,hip=0,knee=0,out={},ankle=hip-knee)=>{add(out,'upperleg01.'+side,'x',-hip);add(out,'lowerleg01.'+side,'x',knee);add(out,'foot.'+side,'x',ankle);return out;};
 const merge=(...parts)=>{const out={};for(const p of parts)for(const [b,l] of Object.entries(p))(out[b]||(out[b]=[])).push(...l);return out;};
 
-const still=(group,label,angles)=>({group,label,angles});
-export const POSE_GROUPS=Object.freeze(['Standing','Arms','One arm','Torso','Legs']);
+const still=(group,label,angles,fit)=>({group,label,angles,fit});
+// a pose that fits the body it is shown on (fit(rig) -> angles), for the exact straight elbow
+const fitted=(group,label,opts)=>still(group,label,both(opts),(rig)=>both({...opts,rig}));
+export const STRAIGHT_DOWN=Object.freeze({lift:-.45,straight:1}),STRAIGHT_OUT=Object.freeze({lift:.85,straight:1}),PALMS_FORWARD=1.2;
+export const POSE_GROUPS=Object.freeze(['Standing','Straight arms','Arms','One arm','Torso','Legs']);
 export const POSE_CATALOG=Object.freeze({
  neutral:still('Standing','Standing',{}),
+ // Elbows fully straight, for laying out a whole arm piece. Down keeps a hand's width from
+ // the hips; Out is level with the shoulders; Palms forward turns the inner arm to the camera.
+ straightDown:fitted('Straight arms','Arms straight down',STRAIGHT_DOWN),
+ straightOut:fitted('Straight arms','Arms straight out',STRAIGHT_OUT),
+ straightPalms:fitted('Straight arms','Palms forward',{...STRAIGHT_DOWN,palm:PALMS_FORWARD}),
  armsLifted:still('Arms','Arms out to the sides',both({lift:.78})),
  raisedBoth:still('Arms','Arms overhead',both({lift:2.15,elbow:.1})),
  doubleBiceps:still('Arms','Double biceps',both({lift:.9,curl:.95,palm:1.3,fist:1})),
@@ -105,7 +117,8 @@ export const POSE_CATALOG=Object.freeze({
  seated:still('Legs','Seated',merge(leg('L',1.5,1.5),leg('R',1.5,1.5),spine({},{bend:.16}),both({hang:1.1,reach:.1,elbow:.5}),{'wrist.L':[['x',.15]],'wrist.R':[['x',.15]]})), // hands resting on the thighs
  stride:still('Legs','Stride',merge(leg('L',.42,.15),leg('R',-.3,.35))),
 });
-export function catalogRotations(key){const preset=POSE_CATALOG[key];if(!preset)throw new Error('Unknown pose study');return pack(preset.angles);}
+// rig: the rest rig of the body on screen, so a fitted pose (straight arms) is exact for that shape
+export function catalogRotations(key,rig){const preset=POSE_CATALOG[key];if(!preset)throw new Error('Unknown pose study');return pack(rig&&preset.fit?preset.fit(rig):preset.angles);}
 export const MOTION_CATALOG=Object.freeze({
  elbow:{label:'Biceps curl',duration:2.5},reach:{label:'Reach and return',duration:2.7},turn:{label:'Torso turns',duration:3.8},
  lateral:{label:'Lateral raise',duration:2.8},press:{label:'Overhead press',duration:3},wave:{label:'Wave',duration:2.5},
