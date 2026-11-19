@@ -1,4 +1,4 @@
-// t130 select a piece and move it in Clean up: a mirrored design in two halves, tap one half to select just
+// t132 select a piece and move it in Clean up: a mirrored design in two halves, tap one half to select just
 // it, drag it further out (straight across), past the edge so the picture grows evenly and the tattoo's width
 // grows with it (every piece keeps its real size on the body), one undo step a drag, two fingers size and
 // turn it, flip and copy, Erase only inside the selection, a box and a lasso, Done saves a new version.
@@ -120,6 +120,6 @@ export default async function (p) {
   await p.click('#undo'); await wait(300);
   const t2 = (await st()).tattoos.find((t) => t.id === t0.id);
   assert.equal(t2.img, t0.img); assert.equal(t2.width, t0.width, 'one undo on the body puts it all back');
-  await p.screenshot({ path: 'shots/t130-select-move.png' });
-  console.log('PASS t130 select and move in Clean up: tap a half, drag it out straight, the picture grows evenly and the tattoo with it, undo, two fingers, put back, flip, erase inside the selection, box and lasso, keys, Done keeps a version');
+  await p.screenshot({ path: 'shots/t132-select-move.png' });
+  console.log('PASS t132 select and move in Clean up: tap a half, drag it out straight, the picture grows evenly and the tattoo with it, undo, two fingers, put back, flip, erase inside the selection, box and lasso, keys, Done keeps a version');
 }
