@@ -128,7 +128,7 @@ export default async function (p) {
   // portrait: open beside the tray; phone: over the screen, and the rail leaves the tray its width
   await p.setViewport({ width: 820, height: 1180, deviceScaleFactor: 1 }); await wait(700);
   await p.click('#ldToggle');
-  await p.waitForFunction(() => { const e = document.querySelector('#layersDock'); return e.classList.contains('open') && e.getBoundingClientRect().bottom >= 1140; }, { timeout: 8000 }).catch(() => {});
+  await p.waitForFunction(() => { const e = document.querySelector('#layersDock'); const r = e.getBoundingClientRect(); return e.classList.contains('open') && r.bottom >= 1140 && r.right <= innerWidth - 11; }, { timeout: 8000 }).catch(() => {});
   await wait(300);
   const pp = { ...(await box('#layersDock')), iw: await p.evaluate(() => innerWidth) };
   assert.ok(pp.b >= 1180 - 40 && pp.r <= pp.iw, `full height in portrait: ${JSON.stringify(pp)}`);
