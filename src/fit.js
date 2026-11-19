@@ -26,6 +26,8 @@ export const FIT_GROUPS = [
     { key: 'upperArmLen', label: 'Upper arm length' },
     { key: 'foreArmLen', label: 'Forearm length' },
     { key: 'upperArmSize', label: 'Upper arm size' },
+    { key: 'foreArmSize', label: 'Forearm size' },
+    { key: 'wristSize', label: 'Wrist size' },
     { key: 'hand', label: 'Hand size' },
   ] },
   { title: 'Legs', items: [
@@ -33,6 +35,7 @@ export const FIT_GROUPS = [
     { key: 'shinLen', label: 'Shin length' },
     { key: 'thighSize', label: 'Thigh size' },
     { key: 'calfSize', label: 'Calf size' },
+    { key: 'ankleSize', label: 'Ankle size' },
     { key: 'foot', label: 'Foot size' },
   ] },
   { title: 'Neck', items: [

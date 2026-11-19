@@ -43,6 +43,7 @@ export function createRestRig(state={}){
  let lo=Infinity,hi=-Infinity;for(let i=1;i<positions.length;i+=3){lo=Math.min(lo,positions[i]);hi=Math.max(hi,positions[i]);}
  const scale=1.75/(hi-lo);if(!Number.isFinite(scale)||scale<=0)throw new Error('Invalid rest bounds');
  for(const arr of [positions,joints])for(let i=0;i<arr.length;i+=3){arr[i]*=scale;arr[i+1]=(arr[i+1]-lo)*scale;arr[i+2]*=scale;}
+ applyLocalGirth(positions,joints,state.fit);
  finite(positions,'Rest positions');finite(joints,'Rest joints');
  return {positions,joints,normalization:{lo,scale},vertexCount:RIG.vertexCount};
 }
@@ -191,3 +192,41 @@ export function boneWeightSum(names){
 }
 /** The bones that move one vertex, as [name, weight] pairs. */
 export function vertexBones(v){const out=[];if(v<0||v>=RIG.vertexCount)return out;for(let k=OFF[v];k<OFF[v+1];k++)out.push([POSE_BONES[IDS[k]].name,W[k]]);return out;}
+
+/** The rest skeleton's joints alone, for a body whose positions were normalised with lo and scale
+ * (mesh.js does the positions; this keeps the two in step without building the positions twice). */
+export function shapeJoints(state,lo,scale){
+ const joints=new Float64Array(JB);
+ for(const [key,w] of shapeWeights(state)){if(!w)continue;const j=JT[key];if(j)for(let a=0;a<j.length;a++)joints[a]+=j[a]*w;}
+ for(let i=0;i<joints.length;i+=3){joints[i]*=scale;joints[i+1]=(joints[i+1]-lo)*scale;joints[i+2]*=scale;}
+ return joints;
+}
+// ---- girth sliders the MakeHuman targets don't have: forearm, wrist and ankle ----
+// The skin round a stretch of one bone is pushed out from (or in towards) the bone's line, most in
+// the middle of the stretch and fading to nothing at its ends, only on skin those bones move. The
+// joints stay where they are, so the limb's length and the pose rig are untouched.
+export const LOCAL_GIRTH=Object.freeze({
+ foreArmSize:{from:['lowerarm01','head'],to:['wrist','head'],mid:.3,half:.4,bones:['lowerarm01','lowerarm02'],k:.24},
+ wristSize:{from:['lowerarm01','head'],to:['wrist','head'],mid:.95,half:.24,bones:['lowerarm01','lowerarm02','wrist'],k:.22},
+ ankleSize:{from:['lowerleg01','head'],to:['foot','head'],mid:.9,half:.22,bones:['lowerleg01','lowerleg02','foot'],k:.22},
+});
+const girthMasks={};
+function girthMask(key,side){const id=key+side;if(!girthMasks[id])girthMasks[id]=boneWeightSum(LOCAL_GIRTH[key].bones.map(b=>b+'.'+side));return girthMasks[id];}
+export function applyLocalGirth(positions,joints,fit){
+ if(!fit)return positions;
+ for(const key of Object.keys(LOCAL_GIRTH)){
+  const v=clamp(+fit[key]||0,-1,1);if(!v)continue;
+  const g=LOCAL_GIRTH[key],amt=g.k*v;
+  for(const side of ['L','R']){
+   const A=joint({joints},g.from[0]+'.'+side,g.from[1]),B=joint({joints},g.to[0]+'.'+side,g.to[1]),ax=sub(B,A),L2=dot(ax,ax);if(!(L2>1e-12))continue;
+   const mask=girthMask(key,side),n=Math.min(mask.length,positions.length/3);
+   for(let i=0;i<n;i++){
+    const m=mask[i];if(m<=1e-4)continue;const o=i*3,p=[positions[o],positions[o+1],positions[o+2]];
+    const t=dot(sub(p,A),ax)/L2,u=(t-g.mid)/g.half;if(u<=-1||u>=1)continue;
+    const c=Math.cos(u*Math.PI/2),f=amt*c*c*m;
+    for(let a=0;a<3;a++){const on=A[a]+ax[a]*t;positions[o+a]=on+(p[a]-on)*(1+f);}
+   }
+  }
+ }
+ return positions;
+}

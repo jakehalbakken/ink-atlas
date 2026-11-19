@@ -38,9 +38,9 @@ export function changeWords(before, after) {
   }
   if (!same([...A.keys()], [...B.keys()])) return 'reordering the tattoos';
   const diff = (k) => !same(before[k], after[k]);
-  if (['fit', 'muscle', 'weight', 'figure', 'genitals'].some(diff)) return 'the body shape';
-  if (['skin', 'skinHex'].some(diff)) return 'the skin tone';
+  if (['fit', 'muscle', 'weight', 'figure', 'genitals', 'measured'].some(diff)) return 'the body shape';
   if (diff('heightCm')) return 'the height';
+  if (['skin', 'skinHex'].some(diff)) return 'the skin tone';
   if (diff('paint')) return 'the paint';
   if (diff('notes')) return 'the comments';
   if (diff('refs')) return 'the reference pictures';

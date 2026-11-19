@@ -26,7 +26,7 @@ export function cleanState(raw, hasImage) {
   s.app = 'ink-atlas-proto'; s.v = v;
   s.skin = Number.isInteger(s.skin) && s.skin >= 0 && s.skin <= 4 ? s.skin : 1;
   if (!(typeof s.skinHex === 'string' && /^#[0-9a-f]{6}$/i.test(s.skinHex))) delete s.skinHex;
-  s.heightCm = num(s.heightCm) ? clamp(Math.round(s.heightCm), 150, 205) : 175;
+  s.heightCm = num(s.heightCm) ? clamp(Math.round(s.heightCm * 10) / 10, 150, 205) : 175; // to a millimetre, so a typed height in inches keeps
   if (s.figure != null && !FIGURES.includes(s.figure)) s.figure = 'male'; // absent is meaningful: a save from before body types
   // v1 kept muscle 0..1 from average and weight -1..1; v2 keeps both 0..1 with 0.5 = average
   s.muscle = num(s.muscle) ? clamp(s.muscle, 0, 1) : v >= 2 ? 0.5 : 0;
@@ -34,6 +34,8 @@ export function cleanState(raw, hasImage) {
   const fit = {};
   if (s.fit && typeof s.fit === 'object' && !Array.isArray(s.fit)) for (const k of Object.keys(s.fit)) if (FIT_KEYS.has(k) && num(s.fit[k]) && s.fit[k]) fit[k] = clamp(s.fit[k], -1, 1);
   s.fit = fit; s.genitals = s.genitals !== false;
+  // measurements typed in the Body panel, in inches, by body slider (optional)
+  if (s.measured !== undefined) { const m = {}; if (s.measured && typeof s.measured === 'object' && !Array.isArray(s.measured)) for (const k of Object.keys(s.measured)) if (FIT_KEYS.has(k) && num(s.measured[k]) && s.measured[k] > 0.5 && s.measured[k] < 120) m[k] = Math.round(s.measured[k] * 100) / 100; if (Object.keys(m).length) s.measured = m; else delete s.measured; }
 
   const out = [], replace = [], seen = new Set(); let dropped = 0;
   for (const t of s.tattoos) {

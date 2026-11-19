@@ -196,7 +196,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #wrapBox i{font-style:normal;font-size:12px;color:var(--stencil);margin-left:8px}
 #wrapBox .grp{padding:2px 14px 10px;display:flex;flex-direction:column;gap:4px}
 #preciseBox>.row,#preciseBox>.tip{padding:0 14px}#preciseBox[open]{padding-bottom:10px}#preciseBox .row{flex-wrap:wrap}
-#fitGroups .grp{padding:0 14px 10px;display:flex;flex-direction:column;gap:4px}
+#fitGroups .grp{padding:0 14px 10px;display:flex;flex-direction:column;gap:4px}.mrow{display:flex;align-items:center;gap:8px}.mrow ink-slider{flex:1;min-width:0}.mval{flex:none;width:84px;min-height:44px;padding:0 6px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:var(--text);font:600 15px var(--body);font-variant-numeric:tabular-nums;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent}.mval.set{color:var(--stencil);border-color:var(--stencil)}.mval.drift{color:var(--warn,#d98a1e)}input.mval{font-size:16px;-webkit-user-select:text;user-select:text}input.hput{width:180px}.mhint{font-size:12.5px;color:var(--muted)}.mhint[hidden]{display:none}#measureAgain[hidden]{display:none}
 #fitGroups .grp .btn{align-self:flex-start;margin-bottom:4px}
 .tip{color:var(--muted);font-size:13px;margin:0}
 .pophead{display:flex;align-items:center;justify-content:space-between;position:sticky;top:-16px;margin:-16px -16px 0;padding:10px 10px 10px 18px;background:var(--surface-solid);border-bottom:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0;z-index:1}
@@ -491,7 +491,7 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
   <div class="lbl">Muscle: less to more<ink-slider id="rMuscle" min="0" max="100" default="50" origin="50" aria-label="Muscle"></ink-slider></div>
   <div class="lbl">Weight: lighter to heavier<ink-slider id="rWeight" min="0" max="100" default="50" origin="50" aria-label="Weight"></ink-slider></div>
   <div class="lbl">Height, used for real-world sizes<ink-slider id="rHeight" min="150" max="205" step="1" aria-label="Height"></ink-slider></div>
-  <div id="hText" style="font-variant-numeric:tabular-nums"></div>
+  <button class="btn quiet" id="hText" type="button" aria-label="Height: type your own" style="font-variant-numeric:tabular-nums;align-self:flex-start"></button>
   </section>
   <section class="sec"><h5>From your photos</h5>
   <button class="btn" id="bodyPhotoBtn" type="button">Match a photo of me</button>
@@ -526,6 +526,8 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
   <div id="eyeCols" role="group" aria-label="Eye colour"></div>
   </section>
   <section class="sec"><h5>Fine-tune each part</h5>
+  <p class="tip" id="measureTip">Each number is that part measured with a tape. Tap one to type your own, in inches or cm, and the body changes to match.</p>
+  <button class="btn" id="measureAgain" type="button" hidden>Match my measurements again</button>
   <div id="fitGroups"></div>
   <p class="tip">Double-tap a slider to put it back to standard.</p>
   <button class="btn quiet" id="fitReset" type="button">Reset body shape</button>

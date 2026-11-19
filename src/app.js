@@ -1,6 +1,7 @@
 import { visibleInkAt, rankedInkHits, cycleInkHit } from './ink-picking.js';
 import * as THREE from 'three';
-import { INDEX, INDEX_ALL, COUNTS, EYES, MARKS, shapePositions, shapePositionsV1, legacyPositions } from './mesh.js';
+import { INDEX, INDEX_ALL, COUNTS, EYES, MARKS, shapePositions, shapePositionsV1, legacyPositions, shapeWithJoints } from './mesh.js';
+import { MEASURES, measureBody, unitsToInches, inchText, parseInches, matchMeasurements } from './body-measure.js';
 import { FIT_GROUPS, fitVisible, fitFromV47 } from './fit.js';
 import { createSkin, updateSkin, setSkinFace, skinFaceOn, setSkinHair, setSkinBeard, setSkinBodyHair, setSkinIris, skinIrisHex, skinPhotoIrisHex } from './skin.js';
 import { HAIR_STYLES, HAIR_COLOURS } from './hair.js';
@@ -1273,7 +1274,7 @@ function renderBody() {
   document.querySelectorAll('[data-fig]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.fig === state.figure ? 'true' : 'false'));
   $('#rMuscle').value = Math.round((state.muscle ?? 0.5) * 100); $('#rWeight').value = Math.round((state.weight ?? 0.5) * 100);
   syncFitUI();
-  $('#rHeight').value = state.heightCm; const inch = state.heightCm / 2.54; $('#hText').textContent = `${Math.floor(inch / 12)} ft ${Math.round(inch % 12)} in  ·  ${state.heightCm} cm`;
+  $('#rHeight').value = Math.round(state.heightCm); { const inch = state.heightCm / 2.54, ft = Math.floor((inch + 0.05) / 12), ins = Math.max(0, inch - ft * 12); $('#hText').textContent = `${ft} ft ${ins.toFixed(1).replace(/\.0$/, '')} in  ·  ${(+state.heightCm.toFixed(1))} cm`; }
 }
 function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); followInkLook(); }
 function toast(msg, action, fn, ms = 5200) {
@@ -2599,6 +2600,10 @@ const SHOW = {
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
+  bodyInches: () => { toggle('#bodyPop', true); const G = fitGroupEls.find((x) => x.g.title === 'Arms'); if (G) G.d.open = true; refreshMeasures(true); return ['.mval[data-m=upperArmSize]', 'Your upper arm measured round the biceps. Slide and the number follows. Tap it to type your own.']; },
+  bodyTypeIn: () => { toggle('#bodyPop', true); const G = fitGroupEls.find((x) => x.g.title === 'Arms'); if (G) G.d.open = true; refreshMeasures(true); return ['.mval[data-m=upperArmSize]', 'Tap the number and type what your tape says, in inches or cm. The slider moves until the body measures the same.']; },
+  bodyGirth: () => { toggle('#bodyPop', true); const G = fitGroupEls.find((x) => x.g.title === 'Arms'); if (G) G.d.open = true; refreshMeasures(true); return ['.mval[data-m=foreArmSize]', 'Forearm and wrist size are new under Arms, ankle size under Legs.']; },
+  heightExact: () => { toggle('#bodyPop', true); return ['#hText', 'Tap your height to type it exactly, like 5 ft 10.5 in or 179 cm. Your tattoos keep their real size.']; },
   bodySections: () => { toggle('#bodyPop', true); return ['#bodyPop .sec', 'Body in short sections: shape, your photos, skin, hair, eyes and each part.']; },
   plainBody: () => { toggle('#bodyPop', true); return ['#plainBody', 'Takes off anything painted on the skin from Procreate and keeps every tattoo in Layers as its own item. Undo puts it back.']; },
   paintChip: () => { if (layersDock && !layersDock.isOpen()) layersDock.setOpen(true, true); return [state.paint ? '#ldPaint' : null, state.paint ? 'Paint you brought back from Procreate shows here in Layers. Tap it to make it movable tattoos, hide it, or remove it.' : 'Paint you bring back from Procreate now shows in Layers as Paint on skin. Tap it to make it movable tattoos, hide it, or remove it for the plain body.']; },
@@ -4240,9 +4245,20 @@ $('#file').addEventListener('change', async (e) => {
     });
   } else commit();
 });
-function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#lightPop' && typeof renderLight === 'function') renderLight(); if (id === '#newPop' && typeof renderNew === 'function') renderNew(); if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
+function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#lightPop' && typeof renderLight === 'function') renderLight(); if (id === '#newPop' && typeof renderNew === 'function') renderNew(); if (id === '#bodyPop') { updateInset(); if (!n.hidden && typeof refreshMeasures === 'function') refreshMeasures(true); } if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
 $('#bodyBtn').addEventListener('click', () => { showLook(false); toggle('#bodyPop'); });
-$('#rHeight').addEventListener('input', () => { state.heightCm = +$('#rHeight').value; renderBody(); renderSheet(); save(); });
+// Height sets the real-world size of everything. Tattoos keep their real size (a 3 in piece stays
+// 3 in), so they take up a little less of a taller body. One undo step a drag.
+let heightSlide = null;
+function setHeightCm(cm) {
+  cm = Math.max(150, Math.min(205, Math.round(cm * 10) / 10));
+  const h0 = heightSlide ? heightSlide.h0 : state.heightCm || 175, w0 = heightSlide ? heightSlide.w : new Map(state.tattoos.map((t) => [t.id, t.width]));
+  state.heightCm = cm;
+  for (const t of state.tattoos) if (w0.has(t.id)) t.width = Math.max(0.012, Math.min(0.9, w0.get(t.id) * h0 / cm));
+  syncDecals(); renderBody(); renderSheet(); needsRender = true;
+}
+$('#rHeight').addEventListener('input', () => { if (!heightSlide) { snapshot(); heightSlide = { h0: state.heightCm || 175, w: new Map(state.tattoos.map((t) => [t.id, t.width])) }; } setHeightCm(+$('#rHeight').value); });
+$('#rHeight').addEventListener('change', () => { heightSlide = null; commit(); });
 document.querySelectorAll('[data-fig]').forEach((b) => b.addEventListener('click', () => { if (state.figure === b.dataset.fig) return; snapshot(); reshape(() => { state.figure = b.dataset.fig; }); commit(); }));
 /* ---------- body shape sliders ---------- */
 // Every shape slider works the same way: pin the ink to its triangles when the drag
@@ -4252,8 +4268,8 @@ function bindShape(r, set) {
   r.addEventListener('input', () => { if (!shapeSlide) { snapshot(); shapeSlide = anchorsNow(); } set(+r.value / 100); applyShape(); applyAnchors(shapeSlide); syncDecals(); });
   r.addEventListener('change', () => { shapeSlide = null; commit(); });
 }
-bindShape($('#rMuscle'), (v) => { state.muscle = v; markTried('definition'); });
-bindShape($('#rWeight'), (v) => { state.weight = v; });
+bindShape($('#rMuscle'), (v) => { state.muscle = v; markTried('definition'); refreshMeasures(); });
+bindShape($('#rWeight'), (v) => { state.weight = v; refreshMeasures(); });
 /* ---------- your own skin tone ---------- */
 function skinFromSliders() {
   markTried('skin-tone');
@@ -4304,6 +4320,95 @@ $('#spUse').addEventListener('click', () => {
   toast('Your skin tone now matches the photo.', 'Undo', undo);
 });
 const fitEls = {}; const fitGroupEls = [];
+/* ---------- real measurements beside the body sliders ---------- */
+// Each slider that changes something a tape can measure shows it in inches, live as it moves.
+// Tap the number to type your own (inches, or cm): the slider is searched until the body measures
+// that, and every number typed before is matched again, since a longer shin makes the rest of the
+// body a little smaller to keep the height. Typed numbers are kept in state.measured.
+const MEASURE_OF = Object.fromEntries(MEASURES.map((m) => [m.key, m]));
+const measureEls = {}; let measured = {}, measureTimer = 0, liveKey = null, liveRaf = 0, measureBusy = false;
+function measureNow(keys, st = state) {
+  const { positions, joints } = shapeWithJoints(st), r = measureBody(positions, joints, INDEX, COUNTS.body, keys), out = {};
+  for (const k of Object.keys(r)) out[k] = unitsToInches(r[k], st.heightCm || 175);
+  return out;
+}
+const typedText = (v) => `${Math.abs(v * 10 - Math.round(v * 10)) > 0.01 ? +v.toFixed(2) : v.toFixed(1)} in`;
+function showMeasures() {
+  const want = state.measured || {}; let off = 0;
+  for (const [k, e] of Object.entries(measureEls)) {
+    if (e.editing || (measureBusy && e.val.dataset.busy)) continue;
+    const v = measured[k], set = want[k] != null, drift = set && v != null && Math.abs(v - want[k]) > 0.15;
+    // a number you typed reads as you typed it (13.75 in) while the body measures within a tenth of it
+    e.val.textContent = set && !drift && Math.abs(v - want[k]) <= 0.1 ? typedText(want[k]) : v != null ? inchText(v) : '—';
+    e.val.classList.toggle('set', set && !drift); e.val.classList.toggle('drift', drift);
+    e.val.title = set ? `You measured ${inchText(want[k])}` : '';
+    if (drift && fitEls[k] && !fitEls[k].row.hidden) off++;
+  }
+  const again = $('#measureAgain'); if (again) { again.hidden = !off || measureBusy; again.textContent = off === 1 ? 'Match my measurement again' : `Match my ${off} measurements again`; }
+}
+function refreshMeasures(now) {
+  clearTimeout(measureTimer);
+  const run = () => { if ($('#bodyPop').hidden) return; try { measured = measureNow(null); } catch (_) { measured = {}; } showMeasures(); };
+  if (now) run(); else measureTimer = setTimeout(run, 140);
+}
+function liveMeasure(key) {
+  liveKey = key; if (liveRaf) return;
+  liveRaf = requestAnimationFrame(() => { liveRaf = 0; try { Object.assign(measured, measureNow([liveKey])); } catch (_) {} showMeasures(); });
+}
+function editMeasure(key) {
+  const e = measureEls[key]; if (!e || e.editing || measureBusy) return;
+  const cur = measured[key], input = el('input', { class: 'mval mput', type: 'text', inputmode: 'decimal', enterkeyhint: 'done', autocomplete: 'off', 'aria-label': `${e.m.label} in inches`, value: cur != null ? cur.toFixed(1) : '' });
+  e.editing = true; e.val.replaceWith(input); e.hint.hidden = false; input.focus(); input.select();
+  let done = false;
+  const finish = (use) => {
+    if (done) return; done = true; e.editing = false; input.replaceWith(e.val); e.hint.hidden = true;
+    const t = input.value.trim(); if (!use || !t || (cur != null && t === cur.toFixed(1))) { showMeasures(); return; }
+    const inches = parseInches(t);
+    if (!(inches > 0.5 && inches < 120)) { showMeasures(); toast('Type a number of inches, like 14.5, or add cm.'); return; }
+    applyMeasures({ ...(state.measured || {}), [key]: Math.round(inches * 100) / 100 }, key);
+  };
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); finish(true); } else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false); } });
+  input.addEventListener('blur', () => finish(true));
+}
+// Search the sliders for the typed numbers (all of them, the one just typed first).
+function applyMeasures(targets, first) {
+  const vis = new Set(FIT_GROUPS.filter((g) => fitVisible(g.when, state.figure)).flatMap((g) => g.items).filter((i) => fitVisible(i.when, state.figure)).map((i) => i.key));
+  const use = {}; for (const k of Object.keys(targets)) if (vis.has(k) && MEASURE_OF[k]) use[k] = targets[k];
+  if (!Object.keys(use).length) return;
+  measureBusy = true; const e = first && measureEls[first]; if (e) { e.val.textContent = 'Matching…'; e.val.dataset.busy = '1'; } showMeasures();
+  setTimeout(() => {
+    let res;
+    try { res = matchMeasurements(state.fit || {}, use, (fit, k) => { const r = measureNow([k], { ...state, fit }); return r[k] ?? null; }, { first }); }
+    catch (_) { res = null; } finally { if (e) delete e.val.dataset.busy; }
+    if (!res) { measureBusy = false; refreshMeasures(true); toast('That measurement could not be matched.'); return; }
+    measureBusy = false; snapshot();
+    reshape(() => { state.fit = res.fit; state.measured = use; });
+    markTried('bodyTypeIn'); commit(); refreshMeasures(true);
+    const miss = res.misses.find((x) => x.key === first) || res.misses[0];
+    if (miss) {
+      const m = MEASURE_OF[miss.key], more = miss.target > miss.got;
+      const why = m.kind === 'round' ? (more ? 'More Muscle or Weight makes it bigger.' : 'Less Muscle or Weight makes it smaller.') : 'Height changes every length.';
+      toast(`${m.label} goes ${more ? 'up to' : 'down to'} ${inchText(more ? miss.hi : miss.lo)} on this body. ${why}`, 'Undo', undo, 8000);
+    } else if (first) toast(`${MEASURE_OF[first].label} now measures ${typedText(use[first])}.`, 'Undo', undo);
+  }, 30);
+}
+function editHeight() {
+  const b = $('#hText'); if (b.dataset.editing) return;
+  const input = el('input', { class: 'mval mput hput', type: 'text', inputmode: 'text', enterkeyhint: 'done', autocomplete: 'off', 'aria-label': 'Height', placeholder: `5' 10" or 178 cm` });
+  b.dataset.editing = '1'; b.replaceWith(input); input.focus();
+  let done = false;
+  const finish = (use) => {
+    if (done) return; done = true; delete b.dataset.editing; input.replaceWith(b);
+    const t = input.value.trim(); if (!use || !t) return;
+    const inches = parseInches(t), cm = inches * 2.54;
+    if (!(cm >= 120 && cm <= 230)) { toast(`Type your height like 5' 10" or 178 cm.`); return; }
+    if (cm < 150 || cm > 205) toast('Height goes from 4 ft 11 in to 6 ft 9 in, so it is set to the nearest end.');
+    snapshot(); heightSlide = null; setHeightCm(cm); markTried('heightExact'); commit();
+    if (state.measured && Object.keys(state.measured).length) applyMeasures(state.measured, null);
+  };
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); finish(true); } else if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); finish(false); } });
+  input.addEventListener('blur', () => finish(true));
+}
 (function buildFitUI() {
   const host = $('#fitGroups');
   for (const g of FIT_GROUPS) {
@@ -4311,8 +4416,19 @@ const fitEls = {}; const fitGroupEls = [];
     if (g.toggle) { tog = el('button', { class: 'btn', type: 'button', text: 'Show on the body', onclick: () => { snapshot(); reshape(() => { state[g.toggle] = state[g.toggle] === false; }); commit(); } }); grp.append(tog); }
     for (const it of g.items) {
       const s = el('ink-slider', { min: -100, max: 100, 'aria-label': it.label });
-      const row = el('div', { class: 'lbl' }, it.label, s);
-      bindShape(s, (v) => { state.fit = state.fit || {}; if (v) state.fit[it.key] = v; else delete state.fit[it.key]; });
+      const m = MEASURE_OF[it.key];
+      let row;
+      if (m) {
+        const val = el('button', { class: 'mval', type: 'button', 'data-m': it.key, 'aria-label': `${m.label}: type your own measurement`, onclick: () => editMeasure(it.key) });
+        const hint = el('span', { class: 'mhint', hidden: true, text: `Tape ${m.how}. Inches, or add cm.` });
+        row = el('div', { class: 'lbl' }, it.label, el('div', { class: 'mrow' }, s, val), hint);
+        measureEls[it.key] = { val, hint, m };
+      } else row = el('div', { class: 'lbl' }, it.label, s);
+      bindShape(s, (v) => {
+        state.fit = state.fit || {}; if (v) state.fit[it.key] = v; else delete state.fit[it.key];
+        if (state.measured && state.measured[it.key] != null) { delete state.measured[it.key]; if (!Object.keys(state.measured).length) delete state.measured; }
+        if (m) { liveMeasure(it.key); markTried(['foreArmSize', 'wristSize', 'ankleSize'].includes(it.key) ? 'bodyGirth' : 'bodyInches'); }
+      });
       grp.append(row); fitEls[it.key] = { s, row, when: it.when };
     }
     const d = el('details', {}, el('summary', {}, el('span', { text: g.title }), mark), grp);
@@ -4332,8 +4448,11 @@ function syncFitUI() {
     G.mark.textContent = changed ? `${changed} changed` : '';
     if (G.tog) G.tog.setAttribute('aria-pressed', state[G.g.toggle] !== false ? 'true' : 'false');
   }
+  if (!shapeSlide) refreshMeasures();
 }
-$('#fitReset').addEventListener('click', () => { snapshot(); reshape(() => { state.fit = {}; state.muscle = 0.5; state.weight = 0.5; }); commit(); toast('Body shape back to standard', 'Undo', undo); });
+$('#fitReset').addEventListener('click', () => { snapshot(); reshape(() => { state.fit = {}; state.muscle = 0.5; state.weight = 0.5; delete state.measured; }); commit(); toast('Body shape back to standard', 'Undo', undo); });
+$('#measureAgain').addEventListener('click', () => { if (state.measured) applyMeasures(state.measured, null); });
+$('#hText').addEventListener('click', editHeight);
 // Keep browser/page zoom separate from the 3D camera. Single-finger panel
 // scrolling is allowed; pinching panels must not zoom the entire app off-screen.
 // A panel of its own marks its scrolling parts with data-scroll (the measured wrap does).
