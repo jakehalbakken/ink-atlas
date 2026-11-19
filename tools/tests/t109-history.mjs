@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 export default async function (p) {
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(300);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(300);
   const start = await p.evaluate(() => JSON.stringify(window.__ink.state().tattoos));
   const width = (cm) => p.evaluate((v) => { const e = document.querySelector('#exactWidth'); e.value = (v / 2.54).toFixed(2); e.dispatchEvent(new Event('change')); }, cm);
   await width(6); await wait(200); await width(7); await wait(200); await width(8); await wait(200);

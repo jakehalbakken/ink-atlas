@@ -40,7 +40,7 @@ export default async function (p) {
   // a tattoo selected with More controls open, and Share, at iPad landscape
   await p.setViewport({ width: 1180, height: 820, deviceScaleFactor: 1 }); await wait(600);
   assert.equal(await p.evaluate(() => document.body.classList.contains('views-low')), false, 'back on one row at iPad landscape after other sizes');
-  await p.click('#trayItems .chip'); await wait(1300);
+  await p.click('#ldList .ld-tat'); await wait(1300);
   await p.screenshot({ path: `shots/t114-${theme}-sheet.png` });
   await p.click('#editorAdvanced > summary'); await wait(700);
   const secs = await p.$$eval('#editorAdvanced .sec > h5', (a) => a.map((e) => e.textContent));
@@ -57,7 +57,7 @@ export default async function (p) {
   await p.screenshot({ path: `shots/t114-${theme}-plan.png` });
   await p.click('[data-close="planMenu"]');
   // nothing is stuck: a locked tattoo still goes with the bin next to Done, and Undo brings it back
-  await wait(300); await p.click('#trayItems .chip'); await wait(600);
+  await wait(300); await p.click('#ldList .ld-tat'); await wait(600);
   if ((await p.$eval('#bLock', (e) => e.textContent)) !== 'Unlock') { await p.click('#bLock'); await wait(200); }
   const n0 = await p.evaluate(() => window.__ink.state().tattoos.length);
   await p.click('#bDelTop'); await wait(300);

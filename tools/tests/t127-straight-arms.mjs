@@ -9,7 +9,7 @@ export default async function (p) {
   const settled = () => p.waitForFunction(() => window.__ink.settled() && window.__ink.pose().settled, { timeout: 20000 });
   await settled(); await wait(600);
   // put the sunburst on the left forearm first, where straightening the elbow moves it most
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(300);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(300);
   const id = await p.evaluate(() => window.__ink.selected());
   await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; });
   await p.$eval('#bSpots', (e) => e.click()); await wait(300);

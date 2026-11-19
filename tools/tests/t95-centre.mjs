@@ -6,7 +6,7 @@ export default async function (p) {
   const events = async (list) => p.evaluate((list) => { const c = document.querySelector('#stage canvas'); for (const [type, id, x, y] of list) c.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, button: 0, buttons: type === 'pointerup' ? 0 : 1 })); }, list);
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1000);
   await p.evaluate(() => { const i = window.__ink, s = i.state(), art = structuredClone(s.tattoos[0]), h = i.surfaceAt([0.04, 1.3, 2], [0, 0, -1]); s.tattoos = [{ ...art, id: 'mid', name: 'Chest piece', ...h, locked: false, status: 'planned', width: 0.05, rot: 0, hidden: false }]; i.commitTest(); });
-  await p.click('#trayItems .chip'); await wait(300); await p.waitForFunction(() => window.__ink.settled(), { timeout: 30000 }).catch(() => {}); await wait(500);
+  await p.click('#ldList .ld-tat'); await wait(300); await p.waitForFunction(() => window.__ink.settled(), { timeout: 30000 }).catch(() => {}); await wait(500);
   const at = (x) => p.evaluate((x) => { const i = window.__ink, h = i.surfaceAt([x, 1.3, 2], [0, 0, -1]); return { screen: i.projectPoint(h.pos), pos: h.pos }; }, x);
   const start = await p.evaluate(() => window.__ink.projectPoint(window.__ink.state().tattoos[0].pos));
   await events([['pointerdown', 91, start.x, start.y]]);

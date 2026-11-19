@@ -7,7 +7,7 @@ export default async function(p){
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
  const sun=await p.evaluate(()=>window.__ink.state().tattoos.find(t=>/Sunburst/.test(t.name)).id);
  assert.equal(await p.$eval('#handles',e=>e.hidden),true,'no handles with nothing selected');
- await p.click('#trayItems .chip:first-child');await wait(400);await p.click('#trayItems .chip:first-child');
+ await p.click('#ldList .ld-tat');await wait(400);await p.click('#ldList .ld-tat');
  await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});await wait(300);
  assert.equal(await p.evaluate(()=>window.__ink.selected()),sun);
  const box=async id=>p.$eval(id,e=>{const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,w:r.width,h:r.height,hidden:e.hidden||e.parentElement.hidden};});

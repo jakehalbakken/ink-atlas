@@ -93,9 +93,9 @@ export default async function (p) {
     const look = await q.evaluate(() => window.__ink.state().tattoos[1].id), lookName = await q.evaluate(() => window.__ink.state().tattoos[1].name);
     await q.evaluate((id) => window.__ink.select(id), look);
     await until(p, (id) => window.__ink.peers().some((o) => o.name === 'Liv' && o.look === id), look, 'Jake sees which tattoo she has selected', 10000);
-    const chip = await p.evaluate((n) => { const c = [...document.querySelectorAll('#trayItems .chip')].find((x) => x.querySelector('span').textContent === n); const m = c && c.querySelector('b.peer'); return { mark: m && m.textContent, label: c && c.getAttribute('aria-label') }; }, lookName);
+    const chip = await p.evaluate((n) => { const c = [...document.querySelectorAll('#ldList .ld-tat')].find((x) => x.querySelector('span').textContent === n); const m = c && c.querySelector('b.peer'); return { mark: m && m.textContent, label: c && c.getAttribute('aria-label') }; }, lookName);
     assert.equal(chip.mark, 'L', 'her initial on that tattoo in the tray'); assert.match(chip.label, /Liv looking at it/);
-    assert.equal(await p.$$eval('#trayItems b.peer', (e) => e.length), 1, 'and on no other');
+    assert.equal(await p.$$eval('#ldList b.peer', (e) => e.length), 1, 'and on no other');
     await p.click('#hereNow');
     await until(p, () => [...document.querySelectorAll('#acctTogether [data-uid]')].some((e) => /Here now · looking at/.test(e.textContent)), null, 'the account panel says what she is looking at, on her own row');
     assert.equal(await p.$$eval('#acctTogether .acct-item', (e) => e.filter((x) => /Liv/.test(x.textContent)).length), 1, 'she is listed once');
@@ -106,7 +106,7 @@ export default async function (p) {
     await until(q, () => /Jake.*owns this project.*Here now/.test((document.querySelector('#acctTogether [data-owner]') || {}).textContent || ''), null, 'Liv sees Jake here on his row');
     await q.click('#account header .acct-close');
     await q.evaluate(() => window.__ink.select(null));
-    await until(p, () => !document.querySelector('#trayItems b.peer'), null, 'the mark goes when she lets go', 10000);
+    await until(p, () => !document.querySelector('#ldList b.peer'), null, 'the mark goes when she lets go', 10000);
 
     // Jake follows Liv's view: her camera turns to the back and his goes with it; a touch on the body stops it
     await until(p, () => window.__ink.peers().some((o) => o.name === 'Liv' && o.view), null, 'her view is shared', 10000);
@@ -215,14 +215,14 @@ export default async function (p) {
     // new to her: the pin and the Comments button carry a dot until she opens it
     await until(q, () => document.querySelector('#pinsBtn').classList.contains('has-new'), null, 'Comments marked new for Liv');
     // and the tattoo's chip in the tray says how many open comments it has, in red while new
-    assert.equal(await q.evaluate(() => { const b = document.querySelector('#trayItems .chip b.cmts.new'); return b && b.textContent; }), '1', 'red count on the chip');
+    assert.equal(await q.evaluate(() => { const b = document.querySelector('#ldList .ld-tat b.cmts.new'); return b && b.textContent; }), '1', 'red count on the chip');
     // Show opens it on her side
     await q.evaluate(() => [...document.querySelectorAll('#toast button')].find((b) => b.textContent === 'Show').click()); await wait(400);
     pins = await q.evaluate(() => window.__ink.pins());
     assert.equal(pins.on, true); assert.ok(pins.open, 'the comment is open');
     assert.match(await q.$eval('#pinWho', (e) => e.textContent), /Jake/);
     assert.equal(await q.$eval('#pinsBtn', (e) => e.classList.contains('has-new')), false, 'read once opened');
-    assert.equal(await q.evaluate(() => { const b = document.querySelector('#trayItems .chip b.cmts'); return b && (b.classList.contains('new') ? 'new ' : '') + b.textContent; }), '1', 'count stays, no longer red');
+    assert.equal(await q.evaluate(() => { const b = document.querySelector('#ldList .ld-tat b.cmts'); return b && (b.classList.contains('new') ? 'new ' : '') + b.textContent; }), '1', 'count stays, no longer red');
     await q.screenshot({ path: 'shots/t83-pin-arrives.png' });
     // Liv typing a reply under it shows on Jake's open comment, and goes when she sends it
     await p.evaluate((id) => window.__ink.openPin(id), note.id); await wait(200);

@@ -7,8 +7,8 @@ export default async function (p) {
   await p.evaluate(() => { const c = document.querySelector('#coachOk'); c && c.click(); });
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(800);
   const id = await p.evaluate(() => window.__ink.state().tattoos[0].id);
-  await p.evaluate(() => document.querySelector('#trayItems .chip').click()); await wait(150);
-  await p.evaluate(() => document.querySelector('#trayItems .chip').click()); await wait(1200); // a second tap zooms to it
+  await p.evaluate(() => document.querySelector('#ldList .ld-tat').click()); await wait(150);
+  await p.evaluate(() => document.querySelector('#ldList .ld-tat').click()); await wait(1200); // a second tap zooms to it
   const near = await p.evaluate(() => window.__ink.cur.r);
   await p.click('#full');
   await new Promise((r) => setTimeout(r, 120)); // a frame or two, far less than a glide

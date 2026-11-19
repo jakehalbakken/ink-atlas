@@ -3,6 +3,9 @@
 // Move later, Lock and Take out of group), groups as folders with their own eye, and two quick
 // switches at the top, Hide planned and Hide existing, that only change what this screen shows.
 // Open or folded is kept per device (localStorage ia-layers-dock), never in the project.
+// Since 2026-11-19 (Jake: "there's two places now to access the existing tattoos, and it just
+// needs to be in the layer panel") it is the only list of tattoos: Add tattoo and Procreate sit at
+// its top, it opens by default on an iPad, and the edit panel stacks under it in the same column.
 // The caller owns history, persistence and decal regeneration: change(fn) wraps one undo step.
 import { reorderTattoo, changeSelected } from './layers.js';
 import { blendOf, blendLetter, blendName, hasLook, describeLook, DEFAULT_BLEND } from './ink-look.js';
@@ -46,7 +49,18 @@ const CSS = `#layersDock{position:fixed;z-index:2;right:calc(12px + env(safe-are
 #layersDock.rail .ld-kinds{flex-direction:column;gap:4px;padding:6px 0 0;margin-top:2px;border-top:1px solid var(--line);width:100%;align-items:center}
 #layersDock.rail .ld-kind{width:44px;min-height:52px;flex-direction:column;gap:1px;padding:4px 0;font-size:10.5px;font-weight:600}
 #layersDock .ld-toggle{position:relative;color:var(--text)}#layersDock .ld-badge{position:absolute;right:1px;top:1px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:var(--fill-strong,var(--fill));color:var(--text);font:700 11px/18px var(--body);text-align:center}
-#layersDock.open{width:var(--ld-open-w,320px);bottom:calc(16px + var(--kb,0px) + env(safe-area-inset-bottom,0px));padding:0;gap:0;overflow:hidden}
+#layersDock.open{width:var(--ld-open-w,340px);bottom:calc(16px + var(--kb,0px) + env(safe-area-inset-bottom,0px));padding:0;gap:0;overflow:hidden}
+#layersDock.open.with-sheet{bottom:calc(24px + var(--kb,0px) + env(safe-area-inset-bottom,0px) + var(--sheet-h,0px))}
+#layersDock.with-sheet .ld-foot{display:none!important}
+#layersDock .ld-adds{display:flex;gap:4px}#layersDock.rail .ld-adds{flex-direction:column;padding-bottom:4px}
+#layersDock .ld-adds .btn{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;font-size:0;gap:0;justify-content:center;border-radius:var(--r-md,14px)}
+#layersDock .ld-adds .btn::before{width:22px;height:22px;margin:0}
+#layersDock .ld-adds .btn:not(.primary){background:var(--fill);border-color:transparent}
+#layersDock .ld-tag{font-style:normal}#layersDock .ld-tag.rv-ok{color:var(--good,#5fd39a)}#layersDock .ld-tag.rv-chg{color:var(--warn,#ffb35c)}
+#layersDock .ld-thumb{position:relative;overflow:visible}#layersDock .ld-thumb img{border-radius:10px}
+#layersDock .ld-thumb b{position:absolute;min-width:18px;height:18px;padding:0 4px;border-radius:9px;font:700 11px/18px var(--body);text-align:center;box-shadow:0 0 0 2px var(--surface-solid,#222)}
+#layersDock .ld-thumb b.cmts{right:-5px;top:-5px;background:var(--fill-strong,#555);color:var(--text)}#layersDock .ld-thumb b.cmts.new{background:#e5484d;color:#fff}
+#layersDock .ld-thumb b.peer{left:-5px;bottom:-5px;background:var(--stencil,#8b7cff);color:#fff}
 #layersDock.open .ld-badge,#layersDock.open .ld-cap{display:none}
 #layersDock .ld-head{display:flex;align-items:center;gap:4px}
 #layersDock.open .ld-head{padding:8px 8px 6px 16px;min-height:60px}
@@ -78,35 +92,49 @@ const CSS = `#layersDock{position:fixed;z-index:2;right:calc(12px + env(safe-are
 body.comment-only #layersDock .ld-eye,body.comment-only #layersDock .ld-mode,body.comment-only #layersDock .ld-more,body.comment-only #layersDock .ld-foot{display:none!important}
 body.hands-on #layersDock{opacity:.08;transition:opacity .12s ease}
 body.painting #layersDock,body:has(#wrapStudio:not([hidden])) #layersDock{display:none!important}
-@media (max-width:600px){#layersDock.open{left:12px;width:auto;z-index:7}}
+@media (max-width:699px){#layersDock.open{left:12px;width:auto;z-index:7}}
 @media (prefers-reduced-motion:no-preference){#layersDock.open{animation:ld-in .22s cubic-bezier(.2,.9,.3,1)}@keyframes ld-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}}`;
 
 // Options: getState, getImages, selectedId(), pick(id) (select it the way a tray chip does),
 // change(fn) (one undo step), kinds (the {planned, existing} view switches, owned by the caller),
 // onKinds(kind) after a switch, openSheet() for Layers and groups, onPaint() for Paint on skin,
-// onLayout() whenever its width changes, onOpen(open), openLook(id) for Blend and colour.
+// onLayout() whenever its width changes, onOpen(open), openLook(id) for Blend and colour,
+// adds: [Add tattoo, Procreate] buttons moved into its top, badges(t) for the marks a line carries
+// (review, who is looking, open comments), sheetShown() while the edit panel stacks under it.
+export const WIDE = 700; // from here up (an iPad, either way round) the layers and the edit panel are a column at the right
+export const COL_W = 340;
 export function createLayersDock(o) {
   if (!document.getElementById('ld-css')) { const s = document.createElement('style'); s.id = 'ld-css'; s.textContent = CSS; document.head.append(s); }
-  let open = false; try { open = localStorage.getItem(DOCK_KEY) === 'open'; } catch { /* private mode: folded */ }
+  // open on an iPad unless it was folded away on this device; a phone starts folded
+  let open = innerWidth >= WIDE; try { const v = localStorage.getItem(DOCK_KEY); if (v === 'open' || v === 'rail') open = v === 'open'; } catch { /* private mode */ }
   let openMore = null, lastKey = '';
   const folded = new Set(); // groups folded shut on this screen only
   const host = document.createElement('aside'); host.id = 'layersDock'; host.className = 'glass'; host.setAttribute('aria-label', 'Layers');
-  host.innerHTML = `<div class="ld-head"><div class="ld-title"><h2>Layers</h2><small id="ldCount"></small></div><button class="ld-ib ld-toggle" id="ldToggle" type="button"></button></div>
+  host.innerHTML = `<div class="ld-head"><div class="ld-title"><h2>Layers</h2><small id="ldCount"></small></div><div class="ld-adds" id="ldAdds" role="group" aria-label="Add"></div><button class="ld-ib ld-toggle" id="ldToggle" type="button"></button></div>
 <div class="ld-kinds" id="ldKinds" role="group" aria-label="Quick hide"><button class="ld-kind" id="ldPlanned" type="button" data-kind="planned" aria-pressed="false"></button><button class="ld-kind" id="ldExisting" type="button" data-kind="existing" aria-pressed="false"></button></div>
 <div class="ld-list" id="ldList" data-scroll></div>
 <div class="ld-foot"><button class="btn" id="ldMore" type="button" aria-haspopup="dialog">Select several</button></div>`;
   (document.querySelector('#viewport') || document.body).append(host);
   const $ = (s) => host.querySelector(s);
+  for (const b of o.adds || []) if (b) { b.title = b.textContent.trim(); if (!b.getAttribute('aria-label')) b.setAttribute('aria-label', b.title); $('#ldAdds').append(b); }
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const ib = (html, label, fn, cls = '') => { const b = el('button', 'ld-ib ' + cls); b.type = 'button'; b.innerHTML = html; b.setAttribute('aria-label', label); b.addEventListener('click', fn); return b; };
   const btn = (text, fn) => { const b = el('button', 'btn', text); b.type = 'button'; b.addEventListener('click', fn); return b; };
-  const wide = () => innerWidth > 600;
+  const wide = () => innerWidth >= WIDE;
+  let lastW = null;
   function layout() {
-    host.classList.toggle('open', open); host.classList.toggle('rail', !open);
-    const w = open ? (wide() ? 320 : 0) : (wide() ? 60 : 0), shown = getComputedStyle(host).display !== 'none';
-    document.documentElement.style.setProperty('--layers-w', (shown && w ? w + 12 : 0) + 'px');
-    document.documentElement.style.setProperty('--ld-open-w', '320px');
-    o.onLayout?.();
+    const sheet = !!o.sheetShown?.() && wide();
+    host.classList.toggle('open', open); host.classList.toggle('rail', !open); host.classList.toggle('with-sheet', sheet && open);
+    const shown = getComputedStyle(host).display !== 'none';
+    // the room the right-hand column takes: the open panel (with the edit panel under it), or the
+    // rail, with the edit panel beside it while a tattoo is selected
+    let w = 0;
+    if (wide()) w = shown ? (open ? COL_W + 12 : 60 + 12 + (sheet ? COL_W + 8 : 0)) : (sheet ? COL_W + 12 : 0);
+    document.documentElement.style.setProperty('--layers-w', w + 'px');
+    document.documentElement.style.setProperty('--rail-w', shown && !open && wide() ? '68px' : '0px');
+    document.documentElement.style.setProperty('--ld-open-w', COL_W + 'px');
+    document.body.classList.toggle('ld-open', open && wide() && shown);
+    if (w !== lastW) { lastW = w; o.onLayout?.(); }
   }
   function setOpen(v, quiet) {
     open = !!v; try { localStorage.setItem(DOCK_KEY, open ? 'open' : 'rail'); } catch { /* private mode */ }
@@ -120,11 +148,18 @@ export function createLayersDock(o) {
     row.dataset.id = t.id; row.setAttribute('role', 'listitem');
     const pick = el('button', 'ld-pick'); pick.type = 'button';
     const thumb = el('span', 'ld-thumb'); const src = images[t.img]; if (typeof src === 'string' && src) { thumb.classList.add('art'); const im = el('img'); im.src = src; im.alt = ''; thumb.append(im); }
+    const mark = o.badges?.(t) || {};
     const bits = [t.status === 'existing' ? 'On me' : 'Planned']; if (t.locked && t.status !== 'existing') bits.push('Locked'); if (t.hidden) bits.push('Hidden'); else if (offByKind) bits.push('Off for now');
+    if (mark.peer) { const p = el('b', 'peer', mark.peer.letter); p.title = mark.peer.names + ' looking'; thumb.append(p); }
+    if (mark.cmts) { const c = el('b', 'cmts' + (mark.cmts.fresh ? ' new' : ''), String(mark.cmts.n)); c.title = `${mark.cmts.n} open comment${mark.cmts.n === 1 ? '' : 's'}`; thumb.append(c); }
     if (hasLook(t)) bits.push(describeLook(t));
-    const text = el('span'); text.append(el('b', '', t.name || 'Tattoo'), el('small', '', bits.join(' · ')));
-    pick.append(thumb, text); pick.setAttribute('aria-label', `${t.name || 'Tattoo'}, ${bits.join(', ')}`); if (t.id === selId) pick.setAttribute('aria-current', 'true');
-    pick.addEventListener('click', () => { if (offByKind) { o.kinds[kindOf(t)] = false; o.onKinds?.(kindOf(t)); } o.pick(t.id); });
+    const text = el('span'), sm = el('small', '', bits.join(' · '));
+    if (mark.tag) sm.append(' · ', el('i', 'ld-tag ' + (mark.tag.cls || ''), mark.tag.text));
+    text.append(el('b', '', t.name || 'Tattoo'), sm);
+    pick.append(thumb, text);
+    pick.setAttribute('aria-label', `${t.name || 'Tattoo'}, ${bits.join(', ')}${mark.tag ? ', ' + mark.tag.text : ''}${mark.peer ? `, ${mark.peer.names} looking at it` : ''}${mark.cmts ? `, ${mark.cmts.n} open comment${mark.cmts.n === 1 ? '' : 's'}${mark.cmts.fresh ? ', new' : ''}` : ''}`); if (t.id === selId) pick.setAttribute('aria-current', 'true');
+    pick.classList.add('ld-tat'); pick.dataset.id = t.id;
+    pick.addEventListener('click', () => { if (offByKind) { o.kinds[kindOf(t)] = false; o.onKinds?.(kindOf(t)); } o.pick(t.id); if (!wide() && open) setOpen(false, true); });
     const eye = ib(t.hidden ? EYE_OFF : EYE, `${t.hidden ? 'Show' : 'Hide'} ${t.name || 'tattoo'}`, () => o.change((s) => changeSelected(s, [t.id], { hidden: !t.hidden })), 'ld-eye' + (t.hidden ? ' off' : ''));
     const more = ib(DOTS, `More for ${t.name || 'tattoo'}`, () => { openMore = openMore === t.id ? null : t.id; lastKey = ''; render(); }, 'ld-more'); more.setAttribute('aria-expanded', String(openMore === t.id));
     const mode = blendOf(t), look = ib(`<span>${blendLetter(mode)}</span>`, `Blend and colour for ${t.name || 'tattoo'}: ${blendName(mode)}`, () => o.openLook?.(t.id), 'ld-mode' + (hasLook(t) ? ' set' : ''));
@@ -143,7 +178,7 @@ export function createLayersDock(o) {
   function render() {
     const state = o.getState(), images = o.getImages() || {}, selId = o.selectedId(), k = o.kinds;
     const key = JSON.stringify([open, selId, k, openMore, [...folded], state.groups || [], state.paint ? !!state.paint.hidden : null,
-      state.tattoos.map((t) => [t.id, t.name, t.hidden, t.status, t.locked, t.group, t.img, !!images[t.img], t.blend || '', t.adjust || null])]);
+      state.tattoos.map((t) => [t.id, t.name, t.hidden, t.status, t.locked, t.group, t.img, !!images[t.img], t.blend || '', t.adjust || null, o.badges?.(t) || null])]);
     if (key === lastKey) return; lastKey = key;
     const all = state.tattoos, planned = all.filter((t) => kindOf(t) === 'planned').length, existing = all.length - planned;
     $('#ldCount').textContent = all.length ? `${all.length} on the body` + (k.planned || k.existing ? ', some hidden' : '') : 'Nothing placed yet';
@@ -182,11 +217,24 @@ export function createLayersDock(o) {
       const eye = ib(p.hidden ? EYE_OFF : EYE, `${p.hidden ? 'Show' : 'Hide'} paint on skin`, () => o.change((s) => { if (s.paint) s.paint.hidden = !s.paint.hidden; }), 'ld-eye' + (p.hidden ? ' off' : ''));
       line.append(pick, eye, el('span')); row.append(line); row.id = 'ldPaint'; list.append(row);
     }
-    if (!all.length && !state.paint) list.append(el('p', 'ld-empty', 'Add a tattoo from the tray and it shows here as a layer.'));
+    if (!all.length && !state.paint) list.append(el('p', 'ld-empty', 'Tap + to add a picture of a tattoo, or the pencil to draw one in Procreate. Each one shows here as a layer.'));
     list.scrollTop = keep;
     $('#ldMore').hidden = !all.length;
   }
+  // A tattoo picked on the body: open the panel on an iPad (2026-11-19, Jake: "when I select a
+  // tattoo on the body, I want that to be opened up in the layer panel"), unfold its group and
+  // bring its line into view. On a phone the panel would cover the body, so it only marks the line.
+  function reveal(id) {
+    const state = o.getState(), t = state.tattoos.find((x) => x.id === id); if (!t) return;
+    if (t.group && folded.has(t.group)) { folded.delete(t.group); lastKey = ''; }
+    if (!open && wide()) setOpen(true, true); else render();
+    requestAnimationFrame(() => {
+      const row = host.querySelector(`.ld-row[data-id="${String(id).replace(/["\\]/g, "\\$&")}"]`), list = $('#ldList'); if (!row || !list || !open) return;
+      const r = row.getBoundingClientRect(), l = list.getBoundingClientRect();
+      if (r.top < l.top + 4 || r.bottom > l.bottom - 4) list.scrollTop += (r.top + r.height / 2) - (l.top + l.height / 2);
+    });
+  }
   addEventListener('resize', () => layout());
   render(); layout();
-  return { render, layout, setOpen, isOpen: () => open, el: host };
+  return { render, layout, setOpen, reveal, isOpen: () => open, el: host, wide };
 }

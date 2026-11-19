@@ -35,7 +35,7 @@ export default async function(p){
  };
  // Sprig sits on the side of the torso
  const sprig=all.find(t=>/Sprig/.test(t.name))||all[0];
- await (await p.$$('#trayItems .chip'))[all.indexOf(sprig)].click();await wait(400);
+ await (await p.$$('#ldList .ld-tat'))[all.indexOf(sprig)].click();await wait(400);
  await p.waitForFunction(()=>window.__ink.settled(),{timeout:30000});
  // a live pose to come back to
  await p.evaluate(()=>window.__ink.setPose('twist'));await wait(500);

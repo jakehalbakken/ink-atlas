@@ -18,8 +18,8 @@ export default async function (p) {
   });
   await wait(300);
   // the chip of the tattoo with an open comment carries its count
-  assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#trayItems .chip')].map((c) => c.querySelector('b.cmts')?.textContent || '')), ['1', ''], 'one open comment on the first tattoo');
-  assert.match(await p.$eval('#trayItems .chip', (e) => e.getAttribute('aria-label')), /1 open comment$/);
+  assert.deepEqual(await p.evaluate(() => [...document.querySelectorAll('#ldList .ld-tat')].map((c) => c.querySelector('b.cmts')?.textContent || '')), ['1', ''], 'one open comment on the first tattoo');
+  assert.match(await p.$eval('#ldList .ld-tat', (e) => e.getAttribute('aria-label')), /1 open comment$/);
   await p.evaluate(() => window.__ink.pinsOn()); await wait(200);
   await p.click('#pinListBtn'); await wait(150);
   assert.equal(await shown('#pinListFind'), true, 'find box with four comments');

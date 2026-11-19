@@ -9,7 +9,7 @@ export default async function(p){
  const all=await p.evaluate(()=>JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
  assert.ok(all.length>=2,'sample project has several tattoos');
  const sprig=all.find(t=>/Sprig/.test(t.name))||all[0];
- const chip=(await p.$$('#trayItems .chip'))[all.indexOf(sprig)];await chip.click();await wait(700);
+ const chip=(await p.$$('#ldList .ld-tat'))[all.indexOf(sprig)];await chip.click();await wait(700);
  const txt=await p.$eval('#gap',e=>e.hidden?'':e.textContent);
  const g=await p.evaluate(()=>window.__ink.gap());
  assert.ok(g&&g.inches>=0,'measured');

@@ -66,7 +66,7 @@ export default async function(p){
  await p.click('#lookBtn');await p.click('#roomBtn');await wait(300);await p.click('#lookBtn');await p.click('#tapeBtn');await wait(300);
  assert.ok(!(await p.evaluate(()=>window.__ink.room().on))&&await p.evaluate(()=>window.__ink.tape().on),'tape takes over');await p.click('#tapeDone');
  // More controls: Where it sits, Time to tattoo, Find room for it
- await (await p.$$('#trayItems .chip'))[all.findIndex(t=>t.id===sun.id)].click();await wait(600);
+ await (await p.$$('#ldList .ld-tat'))[all.findIndex(t=>t.id===sun.id)].click();await wait(600);
  await p.evaluate(()=>{document.querySelector('#editorAdvanced').open=true;});await wait(500);
  const where=await p.$eval('#whereLine',e=>e.hidden?'':e.textContent),est=await p.$eval('#estLine',e=>e.textContent);
  assert.match(where,/^Chest, left side: centre \d+(\.\d)? in \(\d+ cm\) left of centre, \d+(\.\d)? in \(\d+ cm\) below the base of the neck\.$/,where);
@@ -85,7 +85,7 @@ export default async function(p){
  await p.click('#bRoom');await wait(600);r=await p.evaluate(()=>window.__ink.room());
  assert.ok(r.on&&r.fitId===sun.id&&/Green is where Sunburst/.test(r.text),'Find room for it starts from the selected tattoo');
  assert.equal(await p.evaluate(()=>window.__ink.selected()),null,'the editor gets out of the way');
- await (await p.$$('#trayItems .chip'))[0].click();await wait(400);assert.ok(!(await p.evaluate(()=>window.__ink.room().on)),'selecting puts it away');
+ await (await p.$$('#ldList .ld-tat'))[0].click();await wait(400);assert.ok(!(await p.evaluate(()=>window.__ink.room().on)),'selecting puts it away');
  await p.evaluate(()=>localStorage.removeItem('ia-rate'));
  // on a phone the bar sits at the bottom in the tray's place
  await p.setViewport({width:390,height:844,deviceScaleFactor:1});await wait(500);

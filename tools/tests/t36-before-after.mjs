@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 export default async function(p){
  const wait=(n=400)=>new Promise(r=>setTimeout(r,n));
  await p.setViewport({width:1180,height:820,deviceScaleFactor:1,hasTouch:true});await wait(600);
- await p.click('#trayItems .chip');await wait(300);await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});
+ await p.click('#ldList .ld-tat');await wait(300);await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});
  const id=await p.evaluate(()=>window.__ink.selected());
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  // grid of pixels around the selected tattoo's centre, rendered through the real frame path

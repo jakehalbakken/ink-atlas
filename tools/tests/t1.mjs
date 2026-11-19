@@ -6,7 +6,7 @@ export default async function (p) {
   console.log('sun pos', pos);
   await p.screenshot({ path: './shots/s_a.png' });
   // tap tray chip to select + focus
-  await p.click('#trayItems .chip');
+  await p.click('#ldList .ld-tat');
   await wait(1800);
   await p.screenshot({ path: './shots/s_b.png' });
   // drag ink from screen centre-ish (tattoo is centred after focus)

@@ -113,9 +113,15 @@ body.views-low #views{position:fixed;left:50%;transform:translateX(-50%);top:var
 @media (hover:hover){#views .btn:hover{color:var(--text)}}
 #dock{position:fixed;left:0;right:var(--layers-w,0px);bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
 #dock>*{pointer-events:auto}
+#foot{position:fixed;left:0;right:var(--layers-w,0px);bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px calc(16px + env(safe-area-inset-bottom,0px));pointer-events:none}
+#foot>#empty{pointer-events:auto}#adds[hidden]{display:none}
+#empty .row{gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+#bSheetMin{flex:none;width:44px;padding:0;color:var(--muted)}#bSheetMin svg{transition:transform .2s ease}#sheet.min #bSheetMin svg{transform:rotate(180deg)}
+#sheet.min>*:not(.row:first-child){display:none!important}#sheet.min{overflow:hidden}
+#viewLock{min-width:44px;width:44px;padding:0}#viewLock .vl-shut,#viewLock[aria-pressed=true] .vl-open{display:none}#viewLock[aria-pressed=true] .vl-shut{display:block}#viewLock[aria-pressed=true]{color:var(--on-accent,#fff)!important;background:var(--stencil)!important}
 /* fingers on the body: everything floating fades almost away until they lift */
-#top,#views,#lookMenu,#dock,.pop{transition:opacity .25s ease}
-body.hands-on #top,body.hands-on #views,body.hands-on #lookMenu,body.hands-on #dock,body.hands-on .pop{opacity:.08;transition:opacity .12s ease}
+#top,#views,#lookMenu,#dock,#foot,.pop{transition:opacity .25s ease}
+body.hands-on #top,body.hands-on #views,body.hands-on #lookMenu,body.hands-on #dock,body.hands-on #foot,body.hands-on .pop{opacity:.08;transition:opacity .12s ease}
 #procreateBar{position:fixed;top:var(--below);left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 #procreateBar[hidden]{display:none}
 #procreateBar p{margin:0;font-size:14px;line-height:1.35;color:var(--muted)}#procreateBar p b{color:var(--text)}
@@ -192,11 +198,6 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 #fitGroups .grp .btn{align-self:flex-start;margin-bottom:4px}
 .tip{color:var(--muted);font-size:13px;margin:0}
 .pophead{display:flex;align-items:center;justify-content:space-between;position:sticky;top:-16px;margin:-16px -16px 0;padding:10px 10px 10px 18px;background:var(--surface-solid);border-bottom:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0;z-index:1}
-#tray{width:min(760px,100%);display:flex;gap:8px;align-items:center;padding:8px}
-#tray>.btn{gap:6px;padding:0 14px 0 10px}
-#add{flex:none}
-#trayItems{display:flex;gap:8px;overflow-x:auto;flex:1;scrollbar-width:none;padding:2px;touch-action:pan-x;overscroll-behavior:contain}
-#trayItems::-webkit-scrollbar{display:none}
 .chip{flex:none;display:flex;align-items:center;gap:9px;min-height:52px;padding:5px 12px 5px 5px;border-radius:var(--r-md);border:1.5px solid transparent;background:var(--fill);max-width:210px;position:relative;font:500 14px/1.2 var(--body)}
 .chip img{width:42px;height:42px;border-radius:10px;object-fit:contain;background:#f4f1ec}
 .chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
@@ -206,7 +207,6 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .chip .pchip{width:42px;height:42px;border-radius:10px;display:grid;place-items:center;background:var(--stencil-soft);color:var(--stencil);flex:none}
 .chip .pchip::before{width:22px;height:22px}
 .ppActs{display:flex;flex-direction:column;gap:8px}.ppActs .btn{flex-direction:column;align-items:flex-start;text-align:left;height:auto;min-height:56px;padding:10px 14px;gap:2px}.ppActs small{font-weight:500;font-size:12.5px;color:var(--muted);line-height:1.35}
-#count{flex:none;color:var(--muted);font-size:12.5px;padding-right:6px}
 #empty{padding:10px 14px;display:flex;gap:12px;align-items:center}
 .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.seg.four{grid-template-columns:repeat(4,1fr)}.lbl.sub{margin-bottom:-4px}#bodyPop .sec:first-of-type{border-top:1px solid var(--line);padding-top:12px}.seg .btn{padding:0 8px}.lbl{color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
 
@@ -290,25 +290,34 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 @media (max-width:720px){
   .sliders{grid-template-columns:1fr 1fr}
   .cards{grid-template-columns:1fr}
-  #count{display:none}
 }
-/* The Layers panel at the right (layers-dock.js) sets --layers-w to the room it takes: the
-   tray, the edit panel and the bars across the top keep clear of it. */
+/* The Layers panel at the right (layers-dock.js) sets --layers-w to the room the right-hand
+   column takes (Layers, with the edit panel under it or beside the rail): the bars across the
+   top and the hint at the bottom keep clear of it. */
 :root:has(#wrapStudio:not([hidden])),body.painting{--layers-w:0px!important}
 #roomBar,#pinBar,#painBar,#selfBar,#paintBar,#procreateBar,#followBar,#toast,#tapPlaceBar{margin-left:calc(var(--layers-w,0px) / -2);max-width:calc(100% - 32px - var(--layers-w,0px))!important}
-/* Wide landscape: the tattoo list and the edit panel stand in a column at the right, so the
-   middle of the screen, where the body is, stays clear. */
-@media (orientation:landscape) and (min-width:1000px){
-  #dock{left:auto;right:var(--layers-w,0px);top:var(--below);width:420px;justify-content:flex-end;align-items:stretch;padding:0 16px 16px}
-  #sheet,#tray,#empty{width:100%}
-  #sheet{max-height:none;flex:0 1 auto;min-height:0}
+/* An iPad either way round (700 px and up): one column at the right. Layers on top, the edit
+   panel under it when a tattoo is selected (or beside the folded rail), so the middle of the
+   screen, where the body is, stays clear. Anything opened from the top bar takes that same
+   column while it is open, and Layers and the edit panel step out of its way (kept in place, so
+   nothing moves when it closes). */
+@media (min-width:700px){
+  #dock{left:auto;right:calc(12px + var(--rail-w,0px) + env(safe-area-inset-right,0px));top:var(--below);width:340px;justify-content:flex-end;align-items:stretch;padding:0 0 calc(16px + env(safe-area-inset-bottom,0px))}
+  #sheet{width:100%;max-height:none;flex:0 1 auto;min-height:0}
+  body.ld-open #sheet{max-height:calc(100% - 236px)}
   #sheet #size{flex-basis:100%;order:3}
   #sheet .row:first-child{flex-wrap:wrap}
   .editor-quick{flex-wrap:wrap}.editor-quick .btn{flex:1 1 40%;min-width:0;padding:0 8px;font-size:14px}
-  #tray{flex-wrap:wrap}#tray #trayItems{flex-basis:100%;order:3}#tray #count{margin-left:auto}
-  #hint{align-self:center;text-align:center}
   #procreateBar{width:min(520px,calc(100% - 472px))}#paintBar{width:min(560px,calc(100% - 160px))}
+  .pop:not(#bodyMatch):not(#spotPop),#lookMenu{right:calc(12px + env(safe-area-inset-right,0px));max-height:calc(100% - var(--below) - 16px - var(--kb,0px))}
+  body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #layersDock,body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #dock,
+  body:has(#lookMenu:not([hidden])) #layersDock,body:has(#lookMenu:not([hidden])) #dock{visibility:hidden;pointer-events:none}
 }
+#sheet .row:first-child #name{flex:1 1 90px}#sheet .row:first-child{flex-wrap:wrap}#sheet #size{flex-basis:100%;order:3}
+/* a phone: the edit panel runs along the bottom, so the Layers rail steps aside while it is open,
+   and the view buttons drop the words Full body to keep the lock in reach */
+@media (max-width:699px){body:has(#sheet:not([hidden])) #layersDock.rail{display:none!important}}
+@media (max-width:520px){#views .btn{min-width:44px;padding:0 9px}#views #full{font-size:0;gap:0;width:44px;min-width:44px;padding:0;justify-content:center}#views #full::before{margin:0}}
 /* Phones: the pain map and open skin bars take the tattoo list's place at the bottom while they
    are on, so the head, neck and chest stay in view. */
 @media (max-width:600px),(max-height:500px){
@@ -442,6 +451,8 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     <button class="btn" type="button" data-view="1">Left</button>
     <button class="btn" type="button" data-view="2">Back</button>
     <button class="btn" type="button" data-view="3">Right</button>
+    <span class="tb-sep" aria-hidden="true"></span>
+    <button class="btn ico" id="viewLock" type="button" aria-pressed="false" aria-label="Lock the view" title="Lock the view"><svg class="vl-open" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 6.8-1.2"/></svg><svg class="vl-shut" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/></svg></button>
   </div>
   <div class="cluster glass toolbar">
     <button class="btn quiet ico i-undo" id="undo" type="button" aria-label="Undo" title="Undo (hold for more)" disabled></button>
@@ -596,8 +607,19 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   <div class="posegrid" id="ageChoices"></div>
   <p class="tip">Very fine lines and small lettering blur first. If a design still reads at 10 years, it will hold up.</p>
 </div>
-<div id="dock">
+<div id="foot">
   <p id="hint">Tap a tattoo to work on it. Double-tap empty space for the full body.</p>
+  <div id="empty" class="glass" hidden>
+    <b>Plan your next tattoo</b>
+    <span>Add a photo or drawing of a tattoo, or draw one in Procreate.</span>
+    <div class="row"><button class="btn primary i-plus" id="emptyAdd" type="button">Add tattoo</button><button class="btn i-pencil" id="emptyDraw" type="button" aria-haspopup="dialog">Draw in Procreate</button></div>
+  </div>
+</div>
+<div id="adds" hidden>
+  <button class="btn primary i-plus" id="add" type="button">Add tattoo</button>
+  <button class="btn i-pencil" id="drawNew" type="button" aria-haspopup="dialog">Procreate</button>
+</div>
+<div id="dock">
   <div id="sheet" class="glass" hidden>
     <div class="row">
       <label for="name" hidden>Name</label>
@@ -605,6 +627,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
       <span id="size"></span>
       <span id="gap" hidden></span>
       <button class="btn quiet ico i-trash" id="bDelTop" type="button" aria-label="Remove tattoo" title="Remove tattoo"></button>
+      <button class="btn quiet ico" id="bSheetMin" type="button" aria-expanded="true" aria-label="Fold the panel down" title="Fold the panel down"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
       <button class="btn primary" id="bDone" type="button">Done</button>
     </div>
     <p id="review" hidden></p>
@@ -683,16 +706,6 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
     </div></section>
     </div></details>
     <p id="moveTip"></p>
-  </div>
-  <div id="empty" class="glass" hidden>
-    <b>Plan your next tattoo</b>
-    <span>Add a photo or drawing of a tattoo, or draw one in Procreate.</span>
-  </div>
-  <div id="tray" class="glass">
-    <button class="btn primary i-plus" id="add" type="button">Add tattoo</button>
-    <button class="btn i-pencil" id="drawNew" type="button" aria-haspopup="dialog">Procreate</button>
-    <div id="trayItems"></div>
-    <span id="count"></span>
   </div>
 </div>
 <div id="paintBar" class="glass" hidden><p><b>Paint the area you want to draw on.</b> Use a finger or the Pencil on the body. Two fingers move the view.</p><div class="row"><button class="btn primary" id="paintGo" type="button" disabled>Draw in Procreate</button><button class="btn" id="paintClear" type="button" disabled>Clear</button><button class="btn quiet" id="paintCancel" type="button">Cancel</button></div></div>

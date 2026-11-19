@@ -7,7 +7,7 @@ export default async function (p) {
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
   // the Sunburst: about square, so its width goes round the limb and as much runs up it
   const all = await p.evaluate(() => window.__ink.state().tattoos.map((t) => t.name));
-  await (await p.$$('#trayItems .chip'))[Math.max(0, all.findIndex((n) => /Sunburst/.test(n)))].click(); await wait(300);
+  await (await p.$$('#ldList .ld-tat'))[Math.max(0, all.findIndex((n) => /Sunburst/.test(n)))].click(); await wait(300);
   const id = await p.evaluate(() => window.__ink.selected());
   const widthCm = (c) => p.evaluate((v) => { const e = document.querySelector('#exactWidth'); e.value = (v / 2.54).toFixed(2); e.dispatchEvent(new Event('change')); }, c);
   await widthCm(5); await wait(300);

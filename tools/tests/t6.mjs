@@ -25,7 +25,7 @@ export default async function (p) {
   check('stored in the new format, artwork kept apart', rec1.format === 2 && !rec1.images && rec1.imageKeys.length === 2 && (await p.evaluate(async (k) => typeof (await window.__idb.get('img:' + k)), rec1.imageKeys[0])) === 'string');
 
   // 2. leaving the app right after an edit
-  await p.click('#trayItems .chip'); await wait(900);
+  await p.click('#ldList .ld-tat'); await wait(900);
   if(!await p.$eval('#editorAdvanced',e=>e.open))await p.click('#editorAdvanced > summary');
   await p.click('#bFlip'); await p.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await wait(120); await reload();
@@ -79,7 +79,7 @@ export default async function (p) {
   await p.click('#redo'); await wait(500);
 
   // 6. a failing disk is reported, not hidden
-  await p.click('#trayItems .chip'); await wait(900);
+  await p.click('#ldList .ld-tat'); await wait(900);
   // Imported existing ink is locked. Unlock explicitly before testing edits.
   if (await p.$eval('#bFlip', b => b.disabled)) { await p.click('#bLock'); await wait(500); }
   await p.evaluate(() => { window.__put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function () { throw new DOMException('full', 'QuotaExceededError'); }; });
@@ -104,7 +104,7 @@ export default async function (p) {
 
   // 8. an unreadable save: fall back to the newest copy, keep the unreadable one
   const good = await ids();
-  await p.evaluate(() => window.__ink.store().addRecovery(window.__ink.state(), Object.fromEntries(window.__ink.state().tattoos.map((t) => [t.img, document.querySelector('#trayItems img').src])), 'Test copy'));
+  await p.evaluate(() => window.__ink.store().addRecovery(window.__ink.state(), Object.fromEntries(window.__ink.state().tattoos.map((t) => [t.img, document.querySelector('#ldList .ld-thumb img').src])), 'Test copy'));
   await p.evaluate(() => window.__idb.put('project', { format: 2, state: { tattoos: 'garbage' }, imageKeys: [] })); await reload();
   const fb = await p.evaluate(async () => ({ ids: window.__ink.state().tattoos.map((t) => t.id).join(','), q: (await window.__idb.keys()).filter((k) => String(k).startsWith('quarantine:')).length }));
   check('unreadable save: opens the newest copy and keeps the unreadable one', fb.ids === good && fb.q >= 1, JSON.stringify(fb) + ' | ' + await toastText());
@@ -114,7 +114,7 @@ export default async function (p) {
   // 9. touch targets
   const small = async (label) => (await p.evaluate(() => [...document.querySelectorAll('button, ink-slider, summary, input[type=text], .chip')].filter((n) => n.offsetParent !== null && !n.closest('[hidden]')).map((n) => { const r = n.getBoundingClientRect(); return { what: (n.id || n.textContent.trim().slice(0, 18) || n.tagName), w: Math.round(r.width), h: Math.round(r.height) }; }).filter((x) => x.w < 44 || x.h < 44))).map((x) => `${label}:${x.what} ${x.w}x${x.h}`);
   let tiny = await small('main');
-  await p.click('#trayItems .chip'); await wait(900); tiny = tiny.concat(await small('sheet'));
+  await p.click('#ldList .ld-tat'); await wait(900); tiny = tiny.concat(await small('sheet'));
   await p.click('#bodyBtn'); await wait(300); await p.evaluate(() => document.querySelectorAll('#fitGroups details').forEach((d) => { d.open = true; })); await wait(200); tiny = tiny.concat(await small('body'));
   await p.click('[data-close="bodyPop"]'); await p.click('#shareBtn'); await wait(200); tiny = tiny.concat(await small('share'));
   await p.click('#cRecover'); await wait(300); tiny = tiny.concat(await small('earlier'));

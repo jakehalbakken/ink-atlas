@@ -11,7 +11,7 @@ export default async function (p) {
   const sun = all.find((t) => /Sunburst/.test(t.name)); assert.ok(sun, 'sample has the sunburst');
   const get = () => p.evaluate((id) => JSON.parse(JSON.stringify(window.__ink.state().tattoos.find((q) => q.id === id))), sun.id);
   await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (b) { if (b.name) window.saved[b.name] = b; return old.call(this, b); }; });
-  await (await p.$$('#trayItems .chip'))[all.findIndex((t) => t.id === sun.id)].click(); await wait(500);
+  await (await p.$$('#ldList .ld-tat'))[all.findIndex((t) => t.id === sun.id)].click(); await wait(500);
   assert.equal(await p.evaluate(() => window.__ink.selected()), sun.id);
   await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; }); await wait(400);
   assert.equal(await p.$eval('#verBox', (e) => e.hidden), true, 'one artwork: no versions box');

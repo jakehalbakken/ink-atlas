@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 export default async function(p) {
  const wait=(n=500)=>new Promise(r=>setTimeout(r,n));
- await p.click('#trayItems .chip');await wait();
+ await p.click('#ldList .ld-tat');await wait();
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  await p.click('#bCleanup');await wait();await p.click('[data-mode="color"]');await p.click('[data-action="paper"]');await p.click('[data-action="cancel"]');await p.click('[data-action="discard"]');
  assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before,'cancel preserves project');
@@ -10,7 +10,7 @@ export default async function(p) {
  assert(art.art.source!==art.img,'immutable original retained separately');assert.equal(art.art.output,art.img);
  await p.reload({waitUntil:'load'});await wait(1600);
  assert.equal(await p.evaluate(()=>window.__ink.state().tattoos[0].img),art.img,'cleanup survives reload');
- await p.click('#trayItems .chip');await wait();await p.click('#bCleanup');await wait();
+ await p.click('#ldList .ld-tat');await wait();await p.click('#bCleanup');await wait();
  assert(await p.$('[data-action="reset"]'),'source available after reload');await p.click('[data-action="cancel"]');
  await p.click('#editorAdvanced > summary');await p.click('#preciseBox summary');await p.click('[data-inch="3"]');await wait();
  assert(Math.abs(await p.evaluate(()=>{const s=window.__ink.state();return s.tattoos[0].width*100*s.heightCm/175/2.54;})-3)<.001);

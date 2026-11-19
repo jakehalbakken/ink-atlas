@@ -7,7 +7,7 @@ export default async function(p){
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
  const all=await p.evaluate(()=>JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
  const sun=all.find(t=>/Sunburst/.test(t.name)),spr=all.find(t=>/Sprig/.test(t.name));
- const gapOf=async(id)=>{await (await p.$$('#trayItems .chip'))[all.findIndex(t=>t.id===id)].click();await wait(700);return p.$eval('#gap',e=>e.hidden?'':e.textContent);};
+ const gapOf=async(id)=>{await (await p.$$('#ldList .ld-tat'))[all.findIndex(t=>t.id===id)].click();await wait(700);return p.$eval('#gap',e=>e.hidden?'':e.textContent);};
  // old Sprig, new Sunburst laid over it at a few sizes
  const lay=(w)=>p.evaluate(([s,o,w])=>{const st=window.__ink.state(),a=st.tattoos.find(t=>t.id===s),b=st.tattoos.find(t=>t.id===o);b.status='existing';a.status='planned';a.pos=b.pos.slice();a.normal=b.normal.slice();a.width=b.width*w;window.__ink.commitTest();},[sun.id,spr.id,w]);
  await lay(3);await wait(600);

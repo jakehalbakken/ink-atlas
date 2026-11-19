@@ -10,10 +10,10 @@ export default async function (p) {
   const get = () => p.evaluate((id) => { const q = window.__ink.state().tattoos.find((x) => x.id === id); return q ? JSON.parse(JSON.stringify(q)) : null; }, t.id);
   const count = () => p.evaluate(() => window.__ink.state().tattoos.length);
   const screen = (q) => p.evaluate((pos) => window.__ink.projectPoint(pos), q.pos);
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(800);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(800);
   await p.evaluate(() => document.activeElement && document.activeElement.blur()); await p.mouse.move(5, 5);
   // tap the chip again to zoom to it, so a step shows as more than a pixel
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(400);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(400);
   await p.evaluate(() => document.activeElement && document.activeElement.blur());
   await p.waitForFunction(() => window.__ink.settled(), { timeout: 10000 }).catch(() => {});
   const t0 = await get(), s0 = await screen(t0);

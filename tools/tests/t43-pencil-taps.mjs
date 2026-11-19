@@ -38,7 +38,7 @@ export default async function(p){
  assert.equal(await p.evaluate(()=>{const n=window.__picks;window.__restorePick();return n;}),1+picks,'Upload opens the photo picker once');
  // tray chip selects the tattoo with the pen
  const id=await p.evaluate(()=>window.__ink.state().tattoos[0].id);
- assert.equal(await press('#trayItems button.chip'),1);await wait(200);
+ assert.equal(await press('#ldList .ld-tat'),1);await wait(200);
  assert.equal(await p.evaluate(()=>window.__ink.selected()),id,'pen selects from the tray');
  // a pen drag that leaves the button is not a tap; a finger is left to the browser
  assert.equal(await press('#poseBtn',{drift:40}),0,'pen drag does not click');

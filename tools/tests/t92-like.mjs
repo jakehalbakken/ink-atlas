@@ -6,7 +6,7 @@ export default async function (p) {
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
   const t = (await p.evaluate(() => JSON.parse(JSON.stringify(window.__ink.state().tattoos))))[0];
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(500);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(500);
   // 3.37 x 2.13 in at the standard height: a credit card
   const setIn = (w, h) => p.evaluate(([id, w, h]) => { const st = window.__ink.state(), q = st.tattoos.find((x) => x.id === id); const k = (st.heightCm || 175) / 175; q.width = w * 2.54 / 100 / k; q.aspect = w / h; q.locked = false; window.__ink.commitTest(); }, [t.id, w, h]);
   await setIn(3.37, 2.13); await wait(300);

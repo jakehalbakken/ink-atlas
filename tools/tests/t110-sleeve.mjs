@@ -7,7 +7,7 @@ export default async function (p) {
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
   // hide every tattoo but one, and put that one on the outside of the left forearm
   const all = await p.evaluate(() => window.__ink.state().tattoos.map((t) => t.name));
-  await (await p.$$('#trayItems .chip'))[Math.max(0, all.findIndex((n) => /Sunburst/.test(n)))].click(); await wait(300);
+  await (await p.$$('#ldList .ld-tat'))[Math.max(0, all.findIndex((n) => /Sunburst/.test(n)))].click(); await wait(300);
   const id = await p.evaluate(() => window.__ink.selected());
   await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; });
   await p.$eval('#bSpots', (e) => e.click()); await wait(400);

@@ -44,7 +44,7 @@ export default async function (p) {
   assert.ok(after.visible && after.strands > 14000 && Math.abs(after.probe[0][0] - probeA) > 1e-6, 'grown again on the new shape');
   assert.deepEqual(await p.evaluate(() => window.__ink.hair()), { style: 'long', colour: 'blond', hex: null });
   // a tattoo on the nape: the hair moves aside while it is selected, and comes back after
-  await (await p.$$('#trayItems .chip'))[1].click(); await wait(300);
+  await (await p.$$('#ldList .ld-tat'))[1].click(); await wait(300);
   assert.equal((await p.evaluate(() => window.__ink.hairStrands())).tucked, false, 'not over the chest');
   await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; });
   await p.$eval('#bSpots', (e) => e.click()); await wait(300);

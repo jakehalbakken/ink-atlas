@@ -9,7 +9,7 @@ export default async function (p) {
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
   await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (b) { if (b.name) window.saved[b.name] = b; return old.call(this, b); }; });
   const t = (await p.evaluate(() => JSON.parse(JSON.stringify(window.__ink.state().tattoos))))[0];
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(500);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(500);
   await p.evaluate((id) => { const q = window.__ink.state().tattoos.find((x) => x.id === id); q.width = 0.05; q.locked = false; q.status = 'planned'; window.__ink.commitTest(); }, t.id);
   await openMore();
   await p.click('#bSpots'); await wait(500);

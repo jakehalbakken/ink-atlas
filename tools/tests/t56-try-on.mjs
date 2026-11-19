@@ -12,7 +12,7 @@ export default async function(p){
   window.__camStops=0;navigator.mediaDevices.getUserMedia=async(o)=>{window.__camAsk=o;const s=c.captureStream(15);for(const t of s.getTracks()){const st=t.stop.bind(t);t.stop=()=>{window.__camStops++;st();};}return s;};
   window.__shared=null;navigator.canShare=()=>true;navigator.share=async({files})=>{window.__shared={name:files[0].name,size:files[0].size,url:URL.createObjectURL(files[0])};};});
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
- await (await p.$$('#trayItems .chip'))[0].click();await wait(300);
+ await (await p.$$('#ldList .ld-tat'))[0].click();await wait(300);
  await p.evaluate(()=>{document.querySelector('#editorAdvanced').open=true;});
  const bh=await p.$eval('#bTryOn',e=>e.getBoundingClientRect().height);assert.ok(bh>=44,'button big enough');
  await p.$eval('#bTryOn',e=>e.click());await wait(1200);

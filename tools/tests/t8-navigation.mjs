@@ -7,7 +7,7 @@ export default async function (p) {
   const initial = await p.evaluate(() => JSON.stringify(window.__ink.state()));
   async function visible(label) {
     const r = await p.evaluate(() => {
-      const v = visualViewport, ids = ['#top','#full','#trayItems'];
+      const v = visualViewport, ids = ['#top','#full','#layersDock'];
       return ids.map(id => { const r = document.querySelector(id).getBoundingClientRect(); return {id,x:r.x,y:r.y,right:r.right,bottom:r.bottom,w:r.width,h:r.height,v:{x:v.offsetLeft,y:v.offsetTop,w:v.width,h:v.height,scale:v.scale}}; });
     });
     for (const q of r) assert(q.x >= q.v.x-2 && q.y >= q.v.y-2 && q.right <= q.v.x+q.v.w+2 && q.bottom <= q.v.y+q.v.h+2, `${label} ${JSON.stringify(q)}`);
@@ -49,7 +49,7 @@ export default async function (p) {
   }),'lost capture clears stale pointers');
   await p.click('#full'); await wait();
   assert.equal(await p.evaluate(() => JSON.stringify(window.__ink.state())),initial,'navigation leaves project unchanged');
-  await p.click('#trayItems .chip');await wait();await visible('editing selected ink');
+  await p.click('#ldList .ld-tat');await wait();await visible('editing selected ink');
   await p.click('#full'); await wait();
   assert(await p.$eval('#sheet',e=>e.hidden),'Full body exits edit mode');
   assert.equal(await p.$eval('#name',e=>getComputedStyle(e).fontSize),'16px','input avoids iOS focus zoom');

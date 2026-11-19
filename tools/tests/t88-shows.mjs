@@ -9,7 +9,7 @@ export default async function (p) {
   const openMore = async () => { if (!(await p.$eval('#editorAdvanced', (e) => e.open))) await p.click('#editorAdvanced summary'); await wait(600); };
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
   const t = (await p.evaluate(() => JSON.parse(JSON.stringify(window.__ink.state().tattoos))))[0];
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(500);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(500);
   await p.evaluate((id) => { const q = window.__ink.state().tattoos.find((x) => x.id === id); q.width = 0.05; q.locked = false; window.__ink.commitTest(); }, t.id);
   await openMore();
   await p.click('#bSpots'); await wait(500);

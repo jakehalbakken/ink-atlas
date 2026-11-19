@@ -9,7 +9,7 @@ export default async function(p){
  const all=await p.evaluate(()=>JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
  const sprig=all.find(t=>/Sprig/.test(t.name));
  await p.evaluate(id=>{const t=window.__ink.state().tattoos.find(t=>t.id===id);t.rot=0.5;t.flip=false;window.__ink.commitTest();},sprig.id);
- const chip=(await p.$$('#trayItems .chip'))[all.indexOf(sprig)];await chip.click();await wait(300);
+ const chip=(await p.$$('#ldList .ld-tat'))[all.indexOf(sprig)];await chip.click();await wait(300);
  assert.equal(await p.evaluate(()=>window.__ink.selected()),sprig.id);
  const src=await p.evaluate(id=>window.__ink.state().tattoos.find(t=>t.id===id),sprig.id);
  const n0=all.length;
@@ -34,7 +34,7 @@ export default async function(p){
  await p.click('#undo');await wait(300);
  assert.equal(await p.evaluate(()=>window.__ink.state().tattoos.length),n0,'one undo removes it');
  await p.click('#redo');await wait(300);
- if(!await p.evaluate(()=>window.__ink.selected())){const chips=await p.$$('#trayItems .chip');await chips[chips.length-1].click();await wait(300);}
+ if(!await p.evaluate(()=>window.__ink.selected())){const chips=await p.$$('#ldList .ld-tat');await chips[chips.length-1].click();await wait(300);}
  // real size on screen: guessed 96 ppi on a desktop browser
  await p.evaluate(()=>{try{localStorage.setItem('ia-screen-ppi','');}catch(_){} document.querySelector('#editorAdvanced').open=true;});
  await p.$eval('#bRealSize',e=>e.click());await wait(300);

@@ -9,7 +9,7 @@ export default async function(p){
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
  const all=await p.evaluate(()=>JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
  const pick=all.find(t=>!t.hidden)||all[0];
- const chip=(await p.$$('#trayItems .chip'))[all.indexOf(pick)];await chip.click();await wait(300);
+ const chip=(await p.$$('#ldList .ld-tat'))[all.indexOf(pick)];await chip.click();await wait(300);
  assert.equal(await p.evaluate(()=>window.__ink.selected()),pick.id);
  await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));

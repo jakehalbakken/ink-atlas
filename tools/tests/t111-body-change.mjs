@@ -6,7 +6,7 @@ export default async function (p) {
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
   const all = await p.evaluate(() => window.__ink.state().tattoos.map((t) => t.name));
-  await (await p.$$('#trayItems .chip'))[Math.max(0, all.findIndex((n) => /Sunburst/.test(n)))].click(); await wait(400);
+  await (await p.$$('#ldList .ld-tat'))[Math.max(0, all.findIndex((n) => /Sunburst/.test(n)))].click(); await wait(400);
   await p.waitForFunction(() => window.__ink.settled(), { timeout: 30000 }).catch(() => {});
   const id = await p.evaluate(() => window.__ink.selected());
   const goal0 = await p.evaluate(() => JSON.stringify(window.__ink.goal)), before = await p.evaluate(() => JSON.stringify(window.__ink.state()));

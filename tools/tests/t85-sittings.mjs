@@ -12,7 +12,7 @@ export default async function (p) {
   const all = await p.evaluate(() => JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
   const t = all[0];
   const get = () => p.evaluate((id) => JSON.parse(JSON.stringify(window.__ink.state().tattoos.find((q) => q.id === id))), t.id);
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(500);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(500);
   if ((await get()).status === 'existing') { await p.click('#bStatus'); await wait(300); }
   // make it big enough for more than one sitting
   await p.evaluate((id) => { const q = window.__ink.state().tattoos.find((x) => x.id === id); q.width *= 3.2; window.__ink.commitTest(); }, t.id); await wait(300);
@@ -61,7 +61,7 @@ export default async function (p) {
   const cleaned = await p.evaluate(() => [window.__ink.cleanCheck({ sittings: { start: '2026-13-40', gap: 5 } }), window.__ink.cleanCheck({ sittings: { start: '2027-01-09', gap: 4, x: 1 } }), window.__ink.cleanCheck({ sittings: 'soon' }), window.__ink.cleanCheck({ sittings: { away: '2027-02-31x' } }), window.__ink.cleanCheck({ sittings: { away: '2027-02-14' } })]);
   assert.deepEqual(cleaned, [{}, { sittings: { start: '2027-01-09', gap: 4 } }, {}, {}, { sittings: { away: '2027-02-14' } }], JSON.stringify(cleaned));
   // a trip that lands while sitting 2 is fresh: said, and Start after it moves the sittings
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(500);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(500);
   await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; }); await wait(800);
   assert.match(await p.$eval('#sitDry', (e) => e.hidden ? '' : e.textContent), /^Keep it out of pools, the sea, baths and strong sun for two weeks after each sitting: after the last one, until /);
   assert.ok(await p.$eval('#sitAway', (e) => e.getBoundingClientRect().height >= 44), 'trip date big enough');

@@ -6,7 +6,7 @@ export default async function(p){
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  const sun=JSON.parse(before).tattoos.find(t=>/Sunburst/.test(t.name));
- await p.click('#trayItems .chip:first-child');await p.click('#trayItems .chip:first-child');await p.waitForFunction(()=>window.__ink.settled(),{timeout:20000});await wait(400);
+ await p.click('#ldList .ld-tat');await p.click('#ldList .ld-tat');await p.waitForFunction(()=>window.__ink.settled(),{timeout:20000});await wait(400);
  // the darkest pixels and how many dark pixels there are around the tattoo
  const ink=async()=>{await wait(500);const at=await p.evaluate(id=>{const s=window.__ink.viewSpot(id);return window.__ink.projectPoint(s.pos);},sun.id);
   // the Aging panel can sit over the edge of the picture: keep it out of the measurement

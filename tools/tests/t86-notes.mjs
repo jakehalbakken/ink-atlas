@@ -11,7 +11,7 @@ export default async function (p) {
   const all = await p.evaluate(() => JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
   assert.ok(all.length >= 2, 'the sample has tattoos');
   const tA = all[0], tB = all[1];
-  const chip = async (id) => { await (await p.$$('#trayItems .chip'))[all.findIndex((t) => t.id === id)].click(); await wait(600); };
+  const chip = async (id) => { await (await p.$$('#ldList .ld-tat'))[all.findIndex((t) => t.id === id)].click(); await wait(600); };
   const get = (id) => p.evaluate((id) => window.__ink.state().tattoos.find((q) => q.id === id), id);
   // make sure A is planned
   await chip(tA.id);

@@ -5,7 +5,7 @@ import { SPOTS } from '../../src/spots.js';
 export default async function(p){
  const wait=(n=300)=>new Promise(r=>setTimeout(r,n));
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
- await (await p.$$('#trayItems .chip'))[1].click();await wait(300);
+ await (await p.$$('#ldList .ld-tat'))[1].click();await wait(300);
  await p.evaluate(()=>{document.querySelector('#editorAdvanced').open=true;});
  await p.$eval('#bSpots',e=>e.click());await wait(400);
  const notes=await p.evaluate(()=>window.__ink.spotNotes());

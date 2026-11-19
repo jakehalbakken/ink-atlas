@@ -12,7 +12,7 @@ export default async function(p){
  await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(b){if(b.name)window.saved[b.name]=b;return old.call(this,b);};});
  // mirror it first, so the picture that goes out must be mirrored too
  await p.evaluate(id=>{window.__ink.state().tattoos.find(t=>t.id===id).flip=true;window.__ink.commitTest();},sun.id);
- await p.click('#trayItems .chip:first-child');await wait(400);
+ await p.click('#ldList .ld-tat');await wait(400);
  assert.equal(await p.evaluate(()=>window.__ink.selected()),sun.id);
  const btn=await p.$eval('#bProcreate',b=>{const r=b.getBoundingClientRect();return {w:r.width,h:r.height,text:b.textContent};});
  assert.equal(btn.text,'Edit in Procreate');assert.ok(btn.w>=44&&btn.h>=44,'button big enough');

@@ -11,7 +11,7 @@ export default async function (p) {
   const t = (await p.evaluate(() => JSON.parse(JSON.stringify(window.__ink.state().tattoos))))[0];
   const get = () => p.evaluate((id) => JSON.parse(JSON.stringify(window.__ink.state().tattoos.find((q) => q.id === id))), t.id);
   const line = async () => { await wait(400); await p.waitForFunction(() => !document.querySelector('#readRow').hidden, { timeout: 15000 }); return p.evaluate(() => window.__ink.reads()); };
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(500);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(500);
   await p.evaluate((id) => { const q = window.__ink.state().tattoos.find((x) => x.id === id); q.width = 0.05; q.locked = false; window.__ink.commitTest(); }, t.id);
   await openMore();
   await p.click('#bSpots'); await wait(500);

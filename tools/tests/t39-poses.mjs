@@ -27,7 +27,7 @@ export default async function(p){
  await wait(500);await settled();
  // select the tattoo in the pose and drag it: it lands on the skin under the finger
  await p.click('#posePop [data-close=posePop]');
- await p.click('#trayItems .chip');await wait(1600);await settled();
+ await p.click('#ldList .ld-tat');await wait(1600);await settled();
  const a=await p.evaluate(id=>window.__ink.projectPoint(window.__ink.viewSpot(id).pos),t.id);
  const under=await p.evaluate((x,y)=>window.__ink.hitBody(x,y),a.x,a.y);
  assert.ok(under&&Math.hypot(...under.point.map((v,i)=>v-t.pos[i]))<0.02,'finger on the posed ink is on the tattoo at rest');

@@ -51,10 +51,10 @@ export default async function(p){
  const back=await p.evaluate(()=>window.__ink.state().tattoos.map(t=>t.id));
  assert.equal(back.length,n0+1,'one undo step');assert.ok(back.includes(sheet.id),'sheet back');
  // a single design offers nothing
- await (await p.$$('#trayItems .chip'))[0].click();await wait(600);
+ await (await p.$$('#ldList .ld-tat'))[0].click();await wait(600);
  assert.equal(await p.evaluate(()=>window.__ink.flashShown()),0,'one design: nothing to split');
  assert.equal(await p.$eval('#bSplit',e=>e.hidden),true);
- await (await p.$$('#trayItems .chip'))[1].click();await wait(600);
+ await (await p.$$('#ldList .ld-tat'))[1].click();await wait(600);
  assert.equal(await p.evaluate(()=>window.__ink.flashShown()),0,'the sprig is one design too');
  await p.screenshot({path:'shots/t104-flash.png'});
 }

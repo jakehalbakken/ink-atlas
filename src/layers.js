@@ -63,7 +63,7 @@ export function openLayers({getState,change,select,getImages=()=>({}),onTransfor
   const previous=document.activeElement;const selected=new Set();let soloActive=false,closed=false,openMore=null,openGroup=null;
   const host=document.createElement('div');host.id='ink-layers';
   host.innerHTML=`<style>${CSS}</style><section class="modal glass il-panel" role="dialog" aria-modal="true" aria-labelledby="il-title"><header><h2 id="il-title">Layers and groups</h2><button class="btn" type="button" data-act="close">Done</button></header>
-<p class="il-explain">Same order as the tray. Tap a name to edit that tattoo, or tick several to change them together.</p>
+<p class="il-explain">Same order as the Layers panel. Tap a name to edit that tattoo, or tick several to change them together.</p>
 <div class="il-bar"><span id="il-count"></span><button class="il-link" type="button" data-act="all">Select all</button><button class="il-link" type="button" data-act="none">Clear</button></div>
 <div class="il-group il-list"></div>
 <div data-sel><h3 class="shHead" data-sel-head>The ticked ones</h3>
@@ -106,7 +106,7 @@ export function openLayers({getState,change,select,getImages=()=>({}),onTransfor
         item.append(acts);}
       list.append(item);
     });
-    if(!state.tattoos.length)list.append(el('p','il-empty','Add a tattoo from the tray to see it here.'));
+    if(!state.tattoos.length)list.append(el('p','il-empty','Add a tattoo with the + at the top of Layers to see it here.'));
     $('#il-count').textContent=selected.size?`${selected.size} ticked`:(state.tattoos.length?'Tick to change several at once':'');
     $('[data-act=all]').hidden=!state.tattoos.length||selected.size===state.tattoos.length;$('[data-act=none]').hidden=!selected.size;
     const any=selected.size>0||soloActive;$('[data-sel]').hidden=!any;

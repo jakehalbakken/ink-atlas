@@ -56,9 +56,9 @@ export default async function(p){
  assert.equal(r2.verdict,'changes');assert.equal(r2.note,'a little smaller please');
  assert.equal(st.asks.find(a=>a.ref===ap.ref).reply.note,'Love the layout');
  assert.match(await p.$eval('#toast',e=>e.textContent),/Sam said yes to 1 and asked for changes to 1/);
- const chips=await p.$$eval('#trayItems .chip',l=>l.map(e=>e.textContent));
+ const chips=await p.$$eval('#ldList .ld-tat',l=>l.map(e=>e.textContent));
  assert.ok(chips.some(c=>/Approved/.test(c))&&chips.some(c=>/Change asked/.test(c)),'tray shows the answers: '+chips);
- await (await p.$$('#trayItems .chip'))[all.findIndex(t=>t.id===ap.ids[1])].click();await wait(300);
+ await (await p.$$('#ldList .ld-tat'))[all.findIndex(t=>t.id===ap.ids[1])].click();await wait(300);
  assert.match(await p.$eval('#review',e=>e.hidden?'':e.textContent),/^Sam asked for a change on .*: "a little smaller please"$/);
  // one undo step takes the answers off; the page record stays
  await p.evaluate(()=>document.querySelector('#undo').click());await wait(300);

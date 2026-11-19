@@ -13,7 +13,7 @@ export default async function (p) {
   const get = (id = t.id) => p.evaluate((id) => JSON.parse(JSON.stringify(window.__ink.state().tattoos.find((q) => q.id === id))), id);
   // the More controls lines fill in a moment after a change (the first time takes longest)
   const line = async () => { await wait(500); await p.waitForFunction(() => !document.querySelector('#evenRow').hidden, { timeout: 15000 }); return p.evaluate(() => window.__ink.even()); };
-  await (await p.$$('#trayItems .chip'))[0].click(); await wait(500);
+  await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(500);
   // put it on the chest, a little left of the middle
   const spot = await p.evaluate((id) => { const h = window.__ink.surfaceAt([0.012, 1.3, 0.6], [0, 0, -1]); const q = window.__ink.state().tattoos.find((x) => x.id === id); q.pos = h.pos; q.normal = h.normal; q.width = 0.07; q.locked = false; window.__ink.commitTest(); return h.pos; }, t.id);
   await openMore();

@@ -22,7 +22,7 @@ import { createAccount } from './account.js';
 import { emailCodes } from './cloud.js';
 import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
-import { createLayersDock, kindShown } from './layers-dock.js';
+import { createLayersDock, kindShown, WIDE as LD_WIDE } from './layers-dock.js';
 import { createInkLook } from './ink-look-panel.js';
 import { makeArtistPacket } from './artist-packet.js';
 import { cleanState, imageKeysFor, REACTIONS, SUGGEST_KEYS } from './project.js';
@@ -201,6 +201,27 @@ const goal = { ...cur };
 // who else has a shared project open (account.js), and whose view this one follows
 let peersHere = [], followId = null;
 let glide = true; let needsRender = true;
+// Lock the view (2026-11-19, Jake: "lock the view in place on the body so that it doesn't move as
+// well, because if you have a view that you really like, that you don't want to screw up"): fingers,
+// the wheel, double-tap and the view buttons leave the camera alone, and picking a tattoo never moves
+// it, until the lock at the end of the view buttons is tapped again. Kept per device with the view
+// it holds (localStorage ia-view-lock), never in the project.
+const VIEW_LOCK_KEY = 'ia-view-lock';
+let viewLocked = false, lockNoteAt = 0;
+function lockNote() {
+  const now = performance.now(); if (now - lockNoteAt < 4000) return; lockNoteAt = now;
+  toast('The view is locked, so it stays put. Tap the lock by the view buttons to move it again.', 'Unlock', () => setViewLock(false), 4200);
+}
+function setViewLock(on, quiet) {
+  viewLocked = !!on; const b = $('#viewLock');
+  if (b) { b.setAttribute('aria-pressed', String(viewLocked)); b.setAttribute('aria-label', viewLocked ? 'Unlock the view' : 'Lock the view'); b.title = viewLocked ? 'Unlock the view' : 'Lock the view'; }
+  document.body.classList.toggle('view-locked', viewLocked);
+  if (viewLocked) { Object.assign(goal, cur); glide = false; }
+  try { if (viewLocked) localStorage.setItem(VIEW_LOCK_KEY, JSON.stringify({ on: true, cam: [cur.theta, cur.phi, cur.roll || 0, cur.r, cur.tx, cur.ty, cur.tz] })); else localStorage.removeItem(VIEW_LOCK_KEY); } catch { /* private mode: for this visit only */ }
+  if (!quiet) { if (viewLocked) markTried('viewLock'); toast(viewLocked ? 'View locked. Taps still pick tattoos, and nothing you do moves the camera until you unlock it.' : 'View unlocked.', viewLocked ? 'Unlock' : null, viewLocked ? () => setViewLock(false) : null, 3600); }
+}
+// picked or added a tattoo: go to it, unless the view is locked
+function userFocus(t) { if (!viewLocked) focusTattoo(t); }
 function fullBodyR() {
   const t = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
   return Math.max(2.7 / (2 * t), 1.35 / (2 * t * camera.aspect));
@@ -208,14 +229,14 @@ function fullBodyR() {
 function fullBody(theta) {
   if (theta != null) goal.theta = theta;
   goal.roll = 0; goal.phi = 1.5; goal.r = fullBodyR(); goal.tx = 0; goal.ty = 0.73; goal.tz = 0.02; glide = true; needsRender = true;
-  // In wide landscape with the edit panel open as a column at the right, the whole body is framed in
-  // the space left of it rather than centred on the screen behind the column.
-  if (!$('#sheet').hidden) try {
+  // With Layers or the edit panel as a column at the right, the whole body is framed in the space
+  // left of it rather than centred on the screen behind the column.
+  try {
     const b = canvas.getBoundingClientRect(), { top, bottom, left, right } = freeArea(), w = right - left, h = bottom - top;
     const tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     if (b.width > 0 && w < b.width * 0.8 && w > 240) {
       const availW = w / b.width;
-      goal.r = Math.max(goal.r, 1.35 / (2 * tn * camera.aspect * availW));
+      goal.r = Math.max(goal.r, 1.6 / (2 * tn * camera.aspect * availW)); // hands out at the sides too
       const side = 2 * goal.r * tn * camera.aspect * ((left + right) / 2 - b.left - b.width / 2) / b.width;
       goal.tx = -Math.cos(goal.theta) * side; goal.tz = 0.02 + Math.sin(goal.theta) * side;
     }
@@ -263,24 +284,26 @@ function placeChrome() {
   if (!fits) { body.classList.add('views-low'); document.documentElement.style.setProperty('--views-top', Math.round($('#top').getBoundingClientRect().bottom - 4) + 'px'); }
   const bottom = Math.max($('#top').getBoundingClientRect().bottom, fits ? 0 : v.getBoundingClientRect().bottom + 8);
   document.documentElement.style.setProperty('--below', Math.round(bottom) + 'px');
-  // panels at the right stop above the tray wherever the tray sits under them
-  const tr2 = $('#tray').getBoundingClientRect(), popLeft = innerWidth - 356;
-  const gap = tr2.height && tr2.right > popLeft ? Math.max(24, Math.round(innerHeight - tr2.top + 12)) : 24;
-  document.documentElement.style.setProperty('--tray-gap', gap + 'px');
+  // nothing sits under the panels at the right any more (the tattoo strip along the bottom went
+  // on 2026-11-19: tattoos are in Layers only), so they run down to the bottom margin
+  document.documentElement.style.setProperty('--tray-gap', '16px');
 }
 addEventListener('resize', () => { placeChrome(); requestAnimationFrame(placeChrome); setTimeout(placeChrome, 300); });
-{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); ro.observe($('#top .toolbar')); ro.observe($('#top')); ro.observe($('#tray')); }
+{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); ro.observe($('#top .toolbar')); ro.observe($('#top')); }
+// the edit panel's height, so Layers can stand above it in the same column
+{ const ro = new ResizeObserver(() => { const sh = $('#sheet'); document.documentElement.style.setProperty('--sheet-h', (sh.hidden ? 0 : Math.round(sh.getBoundingClientRect().height)) + 'px'); }); ro.observe($('#sheet')); }
 if (document.fonts) document.fonts.ready.then(placeChrome);
 placeChrome();
 function freeArea() {
-  const b = canvas.getBoundingClientRect(), d = $('#dock').getBoundingClientRect();
+  const b = canvas.getBoundingClientRect();
   const top = Math.max(b.top, $('#top').getBoundingClientRect().bottom, $('#views').getBoundingClientRect().bottom) + 12;
-  const side = d.height > b.height * 0.5 && d.left > b.left + b.width * 0.4; // the panel stands at the right in landscape
-  const firstShown = [...$('#dock').children].map((n) => n.getBoundingClientRect()).filter((r) => r.height > 0);
-  const dockTop = firstShown.length ? Math.min(...firstShown.map((r) => r.top)) : b.bottom;
-  const bottom = side ? b.bottom - 12 : Math.max(top + 80, Math.min(b.bottom - 12, dockTop - 14));
-  let right = side ? d.left + 4 : b.right - 12;
+  // on an iPad Layers and the edit panel are one column at the right; on a phone the edit panel
+  // is along the bottom and Layers folds to a rail that floats over the body
+  const col = innerWidth >= LD_WIDE, sh = $('#sheet');
+  let right = b.right - 12, bottom = b.bottom - 12;
+  if (!sh.hidden) { const r = sh.getBoundingClientRect(); if (r.width && r.height) { if (col) right = Math.min(right, r.left - 8); else bottom = Math.min(bottom, r.top - 14); } }
   const ld = $('#layersDock'); if (ld && parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--layers-w')) > 0) { const lr = ld.getBoundingClientRect(); if (lr.width) right = Math.min(right, lr.left - 8); }
+  bottom = Math.max(top + 80, bottom);
   // a panel open at the left (Try other spots) takes that side too
   const lk = document.getElementById('inkLook'), sp = lk && !lk.hidden && innerWidth > 600 ? lk : !$('#spotPop').hidden ? $('#spotPop') : $('#bodyMatch'), spr = sp.hidden ? null : sp.getBoundingClientRect();
   const left = spr && spr.right < right - 240 ? spr.right + 12 : b.left + 12;
@@ -350,6 +373,8 @@ function resize() {
 }
 new ResizeObserver(resize).observe(stage); resize();
 cur.r = fullBodyR() * 1.25; fullBody(0);
+// a view locked on this device comes back where it was left
+try { const v = JSON.parse(localStorage.getItem(VIEW_LOCK_KEY) || 'null'); if (v && v.on && Array.isArray(v.cam) && v.cam.length === 7 && v.cam.every(Number.isFinite)) { const [theta, phi, roll, r, tx, ty, tz] = v.cam; Object.assign(cur, { theta, phi, roll, r, tx, ty, tz }); Object.assign(goal, cur); setViewLock(true, true); } } catch { /* nothing kept */ }
 
 /* ---------- raycast helpers ---------- */
 const ray = new THREE.Raycaster();
@@ -852,7 +877,7 @@ const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 let tried = readTried(); // features from New to try that were tried on this device
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { if (id && selfV.mode === 'seen') { selfV.focus = id; selfText(); return; } if (id && selfV.mode) selfOff(); if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; const was = selectedId; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (was !== id && account && account.nudge) account.nudge(); if (t && focus) requestAnimationFrame(() => { if (sel() !== t || gest) return; if (inSight(t)) keepClearOfPanels(t, true); else focusTattoo(t); }); }
+function select(id, focus) { if (id && selfV.mode === 'seen') { selfV.focus = id; selfText(); return; } if (id && selfV.mode) selfOff(); if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; const was = selectedId; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && was !== id && layersDock) layersDock.reveal(t.id); if (was !== id && account && account.nudge) account.nudge(); if (t && focus && !viewLocked) requestAnimationFrame(() => { if (sel() !== t || gest) return; if (inSight(t)) keepClearOfPanels(t, true); else focusTattoo(t); }); }
 // the size said as an everyday thing: about the size of a credit card
 function likeOf(t) { if (!t) return ''; const k = (state.heightCm || 175) / 175, w = t.width * 100 * k / 2.54; return sizeLikeText(w, w / t.aspect); }
 function likeRender(t) { const lk = likeOf(t); $('#likeLine').textContent = lk; $('#likeLine').hidden = !lk; }
@@ -1005,10 +1030,11 @@ canvas.addEventListener('pointermove', (e) => {
     if (gest.hadTwo) return; // the finger left behind after a pinch or pan must not jerk the view or the ink
     if (gest.mode === 'paint') { gest.stroked = gest.stroked || Math.hypot(e.clientX - gest.sx, e.clientY - gest.sy) > 12; paintAt(e.clientX, e.clientY, gest.stroked ? null : gest.dab); return; }
     if (!gest.moved && Math.hypot(e.clientX - gest.sx, e.clientY - gest.sy) < (gest.type === 'mouse' ? 4 : 9)) return;
-    if (!gest.moved) handsOn(true);
+    if (!gest.moved && !(viewLocked && gest.mode === 'cam')) handsOn(true);
     gest.moved = true;
     if (gest.mode === 'self') { selfDrag(dx, dy); return; }
-    if (gest.mode === 'cam') {
+    if (gest.mode === 'cam' && viewLocked) lockNote();
+    else if (gest.mode === 'cam') {
       glide = false; goal.theta -= dx * 0.0085; goal.phi = THREE.MathUtils.clamp(goal.phi - dy * 0.0065, 0.2, Math.PI - 0.35); needsRender = true;
     } else {
       const t = sel(); if (!t) return;
@@ -1025,7 +1051,8 @@ canvas.addEventListener('pointermove', (e) => {
     else if (gest.mode === 'ink' && sel()) {
       const t = sel(); t.width = THREE.MathUtils.clamp(gest.w0 * (s.d / gest.d0), 0.012, 0.9);
       let da = s.ang - gest.a0; da = Math.atan2(Math.sin(da), Math.cos(da)); t.rot = gest.r0 - da; inkDirty = true;
-    } else {
+    } else if (viewLocked) lockNote();
+    else {
       glide = false; if (!tried.has('pan')) markTried('pan'); goal.r = THREE.MathUtils.clamp(goal.r * delta.zoomRatio, 0.22, 7);
       goal.roll=wrapAngle((goal.roll||0)+delta.rollDelta);
       const k = (2 * cur.r * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / canvas.getBoundingClientRect().height;
@@ -1064,7 +1091,7 @@ canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('point
 canvas.addEventListener('lostpointercapture', (e) => { if (pts.has(e.pointerId)) cancelGesture(); });
 window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
-canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (selfV.mode === 'eyes' || selfV.mode === 'mirror') { selfPinch(Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016))); return; } glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
+canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (selfV.mode === 'eyes' || selfV.mode === 'mirror') { selfPinch(Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016))); return; } if (viewLocked) { lockNote(); return; } glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
   if (selfV.mode) { selfTap(x, y); return; }
   if (wrapStudio && wrapStudio.isOpen() && wrapStudio.tapBody(hitBody(x, y))) return;
@@ -1076,13 +1103,13 @@ function tap(x, y) {
   if(tapPlaceId){const t=sel(),h=hitBody(x,y);if(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'){tapPlaceId=null;renderSheet();return;}if(!h){toast('Tap directly on the body, or cancel tap-to-place.');return;}try{const placed=planTapPlacement(t,{pos:h.point.toArray(),normal:h.normal.toArray()});snapshot();Object.assign(t,placed);tapPlaceId=null;commit();toast('Tattoo placed.', 'Undo', undo);}catch(e){toast(e.message);}return;}
   const h = hitBody(x, y),ids=inkIdsAt(x,y,h),now=performance.now();const id=cycleInkHit(ids,lastInkTap,{x,y,time:now});
   if(id){lastInkTap={ids,id,x,y,time:now};select(id,false);lastInkTap.time=performance.now(); // a repeat tap counts from when the selection has shown, so a slow panel never eats it
-    const tapNow=lastInkTap,fresh=()=>{if(lastInkTap===tapNow)tapNow.time=Math.max(tapNow.time,performance.now());};requestAnimationFrame(()=>{fresh();const t=sel();if(t&&t.id===id&&!gest)keepClearOfPanels(t);requestAnimationFrame(fresh);});setTimeout(fresh,0);lastTap={t:0,x,y,empty:false};return;}
+    const tapNow=lastInkTap,fresh=()=>{if(lastInkTap===tapNow)tapNow.time=Math.max(tapNow.time,performance.now());};requestAnimationFrame(()=>{fresh();const t=sel();if(t&&t.id===id&&!gest&&!viewLocked)keepClearOfPanels(t);requestAnimationFrame(fresh);});setTimeout(fresh,0);lastTap={t:0,x,y,empty:false};return;}
   lastInkTap=null;
   // a fingertip just off the selected tattoo, where a drag would take hold of it, keeps it selected
   if (selectedId && onSelectedInk(x, y, 10)) { lastTap = { t: 0, x, y, empty: false }; return; }
   const dbl = lastTap.empty && now - lastTap.t < 380 && Math.hypot(x - lastTap.x, y - lastTap.y) < 40;
   lastTap = { t: now, x, y, empty: true };
-  if (dbl) { fullBody(); lastTap.t = 0; }
+  if (dbl) { if (viewLocked) lockNote(); else fullBody(); lastTap.t = 0; }
   if (selectedId) select(null);
 }
 let inkDirty = false;
@@ -1174,37 +1201,24 @@ for (const [b, kind] of [[hSize, 'size'], [hTurn, 'turn']]) {
 
 /* ---------- UI ---------- */
 function el(tag, props = {}, ...kids) { const n = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'class') n.className = v; else if (k === 'text') n.textContent = v; else if (k.startsWith('on')) n.addEventListener(k.slice(2), v); else if (v !== false && v != null) n.setAttribute(k, v === true ? '' : v); } for (const c of kids) if (c) n.append(c); return n; }
+// The marks a tattoo's line in Layers carries: a review answer, who else is looking at it, and
+// its open comments (with a dot when one has something new from someone else).
+function tatBadges(t) {
+  const out = {};
+  if (t.status !== 'existing' && !t.locked && t.review) out.tag = t.review.verdict === 'approved' ? { text: 'Approved', cls: 'rv-ok' } : { text: 'Change asked', cls: 'rv-chg' };
+  const watching = peersHere.filter((o) => o.look === t.id);
+  if (watching.length) out.peer = { letter: (watching[0].name || '?').slice(0, 1).toUpperCase() + (watching.length > 1 ? '+' : ''), names: watching.map((o) => o.name || 'Someone').join(' and ') };
+  const cs = pinNotes().filter((x) => x.tattooId === t.id && !x.done);
+  if (cs.length) { let fresh = false; try { fresh = cs.some(pinUnread); } catch { /* before comments are set up */ } out.cmts = { n: cs.length, fresh }; }
+  return out.tag || out.peer || out.cmts ? out : null;
+}
+// Tattoos are listed in the Layers panel only (2026-11-19, Jake: "there's two places now to access
+// the existing tattoos, and it just needs to be in the layer panel"). The name is kept for its callers.
 function renderTray() {
-  const tray = $('#trayItems'); tray.replaceChildren();
-  // paint brought back from Procreate lies on the skin as one layer: show it as its own item,
-  // so it can be found, hidden, made into tattoos or removed
-  if (state.paint) {
-    const b = el('button', { id: 'paintChip', class: 'chip' + (state.paint.hidden ? ' off' : ''), type: 'button', 'aria-haspopup': 'dialog', 'aria-label': 'Paint on skin', onclick: () => openPaintPop() },
-      el('i', { class: 'pchip i-pencil', 'aria-hidden': 'true' }), el('span', { text: 'Paint on skin' }));
-    if (state.paint.hidden) b.append(el('i', { class: 'lock', text: 'Hidden' }));
-    tray.append(b);
-  }
-  for (const t of state.tattoos) {
-    const b = el('button', { class: 'chip' + (t.id === selectedId ? ' on' : '') + (t.hidden ? ' off' : ''), type: 'button', 'aria-label': 'Select ' + t.name, 'aria-pressed': t.id === selectedId ? 'true' : 'false', onclick: () => { if (t.id === selectedId) focusTattoo(t); else select(t.id, true); } },
-      el('img', { src: images[t.img], alt: '' }), el('span', { text: t.name }));
-    if (t.status === 'existing') b.append(el('i', { class: 'lock', text: 'On me' })); else if (t.locked) b.append(el('i', { class: 'lock', text: 'Locked' }));
-    else if (t.review) b.append(el('i', { class: 'lock ' + (t.review.verdict === 'approved' ? 'rv-ok' : 'rv-chg'), text: t.review.verdict === 'approved' ? 'Approved' : 'Change asked' }));
-    const watching = peersHere.filter((o) => o.look === t.id);
-    if (watching.length) { const names = watching.map((o) => o.name || 'Someone').join(' and '); b.append(el('b', { class: 'peer', text: (watching[0].name || '?').slice(0, 1).toUpperCase() + (watching.length > 1 ? '+' : ''), title: names + ' looking' })); b.setAttribute('aria-label', 'Select ' + t.name + ', ' + names + ' looking at it'); }
-    // open comments pinned on it, with a dot when one has something new from someone else
-    const cs = pinNotes().filter((x) => x.tattooId === t.id && !x.done);
-    if (cs.length) {
-      let fresh = false; try { fresh = cs.some(pinUnread); } catch { /* before comments are set up */ }
-      b.append(el('b', { class: 'cmts' + (fresh ? ' new' : ''), text: String(cs.length), title: `${cs.length} open comment${cs.length === 1 ? '' : 's'}` }));
-      b.setAttribute('aria-label', b.getAttribute('aria-label') + `, ${cs.length} open comment${cs.length === 1 ? '' : 's'}${fresh ? ', new' : ''}`);
-    }
-    tray.append(b);
-  }
-  $('#count').textContent = state.tattoos.length ? `${state.tattoos.length} on the body` : 'Nothing placed yet';
   if (layersDock) layersDock.render();
 }
 function renderSheet() {
-  const t = sel(); const sh = $('#sheet'); sh.hidden = !t; renderReview(t); if (t && !taught.has('select')) learnt('select'); $('#hint').hidden = !!t || state.tattoos.length === 0 || taught.has('select');
+  const t = sel(); const sh = $('#sheet'); const wasHidden = sh.hidden; sh.hidden = !t; if (wasHidden !== sh.hidden) { document.documentElement.style.setProperty('--sheet-h', (sh.hidden ? 0 : Math.round(sh.getBoundingClientRect().height)) + 'px'); if (layersDock) layersDock.layout(); } renderReview(t); if (t && !taught.has('select')) learnt('select'); $('#hint').hidden = !!t || state.tattoos.length === 0 || taught.has('select');
   $('#empty').hidden = state.tattoos.length > 0;
   if(tapPlaceId&&(!t||t.id!==tapPlaceId||t.locked||t.hidden||t.status==='existing'))tapPlaceId=null;
   $('#tapPlaceBar').hidden=!tapPlaceId;$('#bTapPlace').setAttribute('aria-pressed',String(!!tapPlaceId));$('#bTapPlace').textContent=tapPlaceId?'Cancel tap to place':'Tap to place';$('#bTapPlace').disabled=!t||t.locked||t.hidden||t.status==='existing';canvas.style.cursor=tapPlaceId?'crosshair':'';
@@ -1218,10 +1232,12 @@ function renderSheet() {
   for (const [id, k] of [['#madeArtist', 'artist'], ['#madeStudio', 'studio'], ['#madeWhen', 'when']]) if (document.activeElement !== $(id)) $(id).value = (t.made && t.made[k]) || '';
   $('#size').textContent = sizeText(t); renderGap(); if ($('#editorAdvanced').open) renderInfo();
   const linkedCount=t.artworkId?state.tattoos.filter(x=>x.artworkId===t.artworkId).length:1;
-  $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=!!t.locked; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
+  $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=false; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
   $('#exactWidth').value = (t.width * state.heightCm / 175 * 100 / 2.54).toFixed(2);
-  for (const id of ['rSize','rTurn','rFade','rWrap','rBend','rTaper','bFlip','bFlipVertical','bDraft','bCleanup','bProcreate','exactWidth','resetTransform']) $('#'+id).toggleAttribute('disabled', !!t.locked);
-  document.querySelectorAll('[data-inch],[data-nudge]').forEach(b => b.disabled = !!t.locked);
+  // Lock in place only stops fingers on the body moving it (2026-11-19, Jake: "tapping around doesn't
+  // move it, you know, that's what lock in place should do"): everything in this panel still works
+  for (const id of ['rSize','rTurn','rFade','rWrap','rBend','rTaper','bFlip','bFlipVertical','bDraft','bCleanup','bProcreate','exactWidth','resetTransform']) $('#'+id).toggleAttribute('disabled', false);
+  document.querySelectorAll('[data-inch],[data-nudge]').forEach(b => b.disabled = false);
   $('#rSize').value = Math.round(Math.log(t.width / 0.012) / Math.log(0.9 / 0.012) * 1000);
   $('#rTurn').value = Math.round(((((t.rot * 180 / Math.PI) + 180) % 360 + 360) % 360) - 180);
   $('#rFade').value = Math.round((t.opacity ?? 0.92) * 100);
@@ -1239,9 +1255,9 @@ function renderSheet() {
   if (showWrap) {
     const limb = /leg/.test(wi.L.key) ? 'leg' : 'arm', full = wi.share >= 0.95 && wi.share <= 1.08;
     $('#wrapText').textContent = full ? `Goes all the way round your ${limb}.` : wi.share > 1.08 ? `Longer than the way round your ${limb} here, so its ends overlap.` : `Goes about ${Math.max(5, Math.round(wi.share * 20) * 5)}% of the way round your ${limb}.`;
-    $('#wrapFit').hidden = full || t.locked; $('#wrapFit').textContent = wi.share > 1.08 ? 'Fit it round' : 'Wrap it round';
+    $('#wrapFit').hidden = full; $('#wrapFit').textContent = wi.share > 1.08 ? 'Fit it round' : 'Wrap it round';
   }
-  $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Existing ink stays in place. Change to Planned before moving it.':t.locked?'Locked. Unlock to move it.':isWrap(t)&&!taught.has('wrapMove')?`Drag it sideways to turn it round your ${/leg/.test(wrapInfo(t).L.key)?'leg':'arm'}, up or down to slide it along. Grab it anywhere, even round the back.`:taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
+  $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Already on you, so fingers on the body won\'t move it. The size, turn and nudge controls here still fine-tune it.':t.locked?'Locked in place: fingers on the body won\'t move it, and everything in this panel still works.':isWrap(t)&&!taught.has('wrapMove')?`Drag it sideways to turn it round your ${/leg/.test(wrapInfo(t).L.key)?'leg':'arm'}, up or down to slide it along. Grab it anywhere, even round the back.`:taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
 }
 function renderBody() {
   const sw = $('#skins'); sw.replaceChildren();
@@ -1268,7 +1284,7 @@ function toast(msg, action, fn, ms = 5200) {
   t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, ms);
 }
 let slideSnap = false;
-function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t || t.locked) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); likeRender(t); renderGap(); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
+function slider(id, fn) { const r = $(id); r.addEventListener('input', () => { const t = sel(); if (!t) return; if (!slideSnap) { snapshot(); slideSnap = true; } fn(t, +r.value); syncDecals(); $('#size').textContent = sizeText(t); likeRender(t); renderGap(); }); r.addEventListener('change', () => { slideSnap = false; commit(); }); }
 slider('#rSize', (t, v) => { t.width = 0.012 * Math.pow(0.9 / 0.012, v / 1000); });
 slider('#rTurn', (t, v) => { t.rot = v * Math.PI / 180; });
 slider('#rFade', (t, v) => { t.opacity = v / 100; });
@@ -1303,7 +1319,6 @@ async function peekVersion(v) {
 }
 function useThisVersion() {
   const t = sel(); if (!t || !peek || peek.id !== t.id) return;
-  if (t.locked) { toast('Unlock this tattoo first.'); return; }
   const i = (t.versions || []).findIndex((v) => v.name === peek.v.name && v.img === peek.v.img); if (i < 0) return;
   const name = peek.v.name; snapshot(); useVersion(t, i); peek = null; commit(); markTried('versions');
   toast(`${t.name || 'Tattoo'} is back to ${name}. The other versions are kept.`, 'Undo', undo);
@@ -1335,11 +1350,11 @@ function madeText(m) {
   const who = [m.artist && 'By ' + m.artist, m.studio && (m.artist ? 'at ' : 'At ') + m.studio].filter(Boolean).join(' ');
   return [who, when].filter(Boolean).join(', ');
 }
-$('#bFlip').addEventListener('click', () => { const t = sel(); if (!t) return; if (t.locked) { toast('Unlock this tattoo first.'); return; } snapshot(); t.flip = !t.flip; commit(); });
-$('#bLock').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.locked = !t.locked; commit(); });
+$('#bFlip').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.flip = !t.flip; commit(); });
+$('#bLock').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.locked = !t.locked; commit(); if (t.locked) { markTried('lockEdit'); toast('Locked in place. Taps and drags on the body won\'t move it. The controls here still fine-tune it.', 'Undo', undo, 3600); } });
 $('#bStatus').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.status = t.status === 'existing' ? 'planned' : 'existing'; t.locked = t.status === 'existing'; commit(); });
 $('#bHide').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.hidden = !t.hidden; commit(); });
-$('#bFlipVertical').addEventListener('click',()=>{const t=sel();if(!t||t.locked)return;snapshot();t.imageTopDown=!t.imageTopDown;commit();});
+$('#bFlipVertical').addEventListener('click',()=>{const t=sel();if(!t)return;snapshot();t.imageTopDown=!t.imageTopDown;commit();});
 // Copy to other side: the same artwork, mirrored, at the matching spot on the other side of the
 // body (the body is symmetric left to right). It shares the artwork, so cleaning one up offers
 // to clean both.
@@ -1539,7 +1554,7 @@ $('#bInkCheck').addEventListener('click', () => showInkCheck(true));
 $('#icClose').addEventListener('click', () => showInkCheck(false));
 $('#icResize').addEventListener('click', () => {
   const t = state.tattoos.find((x) => x.id === ic.id); if (!t || !ic.wantIn) return;
-  if (t.locked || t.status === 'existing') { toast(t.locked ? 'Unlock it first to change its size.' : 'Ink already on you keeps its size.'); return; }
+  if (t.status === 'existing') { toast('Ink already on you keeps its size.'); return; }
   snapshot(); t.width = Math.max(0.012, Math.min(0.9, ic.wantIn * 2.54 / 100 * 175 / state.heightCm)); commit();
   toast('Made bigger.', 'Undo', () => { undo(); if (!$('#inkCheck').hidden) runInkCheck(); });
   runInkCheck();
@@ -1639,13 +1654,13 @@ $('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; sn
 $('#bDelTop').addEventListener('click', () => $('#bDel').click());
 $('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
 function setWidthInches(value) {
- const t = sel(); if (!t || t.locked || !Number.isFinite(value) || value <= 0) return;
+ const t = sel(); if (!t || !Number.isFinite(value) || value <= 0) return;
  snapshot(); t.width = Math.max(.012, Math.min(.9, value * 2.54 / 100 * 175 / state.heightCm)); commit();
 }
 $('#exactWidth').addEventListener('change', () => setWidthInches(+$('#exactWidth').value));
 document.querySelectorAll('[data-inch]').forEach(b => b.addEventListener('click',()=>setWidthInches(+b.dataset.inch)));
 document.querySelectorAll('[data-nudge]').forEach(b => b.addEventListener('click',()=>{
- const t=sel(); if(!t || t.locked) return; const [x,y]=b.dataset.nudge.split(',').map(Number), f=frameOf(t);
+ const t=sel(); if(!t) return; const [x,y]=b.dataset.nudge.split(',').map(Number), f=frameOf(t);
  const p=new V3(...t.pos).addScaledVector(f.right,x*.002*175/state.heightCm).addScaledVector(f.up,y*.002*175/state.heightCm).addScaledVector(f.n,.03);
  const h=surfaceAt(p,f.n.clone().negate()); if(!h) return; snapshot();t.pos=h.pos;t.normal=h.normal;commit();
 }));
@@ -1678,14 +1693,13 @@ document.addEventListener('keydown', (e) => {
   else if (mod) used = false;
   else if (k === 'Delete' || k === 'Backspace') $('#bDel').click();
   else if (arrows[k] || k === '[' || k === ']' || k === '{' || k === '}' || k === '-' || k === '_' || k === '=' || k === '+') {
-    if (t.locked) toast('Unlock this tattoo first.');
-    else if (arrows[k]) keyMove(t, arrows[k][0] * big, arrows[k][1] * big);
+    if (arrows[k]) keyMove(t, arrows[k][0] * big, arrows[k][1] * big);
     else if ('[]{}'.includes(k)) { keyStep('turn'); t.rot = wrapAngle((t.rot || 0) + ('[{'.includes(k) ? -1 : 1) * (e.shiftKey ? 15 : 5) * Math.PI / 180); commit(); }
     else { keyStep('size'); const f = '-_'.includes(k) ? 1 / (e.shiftKey ? 1.2 : 1.05) : (e.shiftKey ? 1.2 : 1.05); t.width = Math.min(0.9, Math.max(0.012, t.width * f)); commit(); }
   } else used = false;
   if (used) { e.preventDefault(); markTried('keys'); }
 });
-$('#resetTransform').addEventListener('click',()=>{const t=sel();if(!t || t.locked)return;snapshot();t.rot=0;t.wrap=0;t.bend=0;t.taper=0;commit();});
+$('#resetTransform').addEventListener('click',()=>{const t=sel();if(!t)return;snapshot();t.rot=0;t.wrap=0;t.bend=0;t.taper=0;commit();});
 // what the edge of a tattoo's picture looks like (see edgeKind): read from a small copy of it
 function backgroundOf(t) {
   const im = imgEls[t.img]; if (!im || !im.naturalWidth) return 'clear';
@@ -1695,7 +1709,6 @@ function backgroundOf(t) {
 }
 async function cleanupSelected(linked=false) {
   const t = sel(); if (!t) return;
-  if (t.locked) { toast('Unlock this tattoo before editing its artwork.'); return; }
   cancelGesture();
   const id = t.id, prior = t.img;
   const art = state.artworks?.[t.artworkId];
@@ -1706,7 +1719,7 @@ async function cleanupSelected(linked=false) {
   if (!result) return;
   if (typeof result.linked === 'boolean') linked = result.linked;
   const current = state.tattoos.find(x => x.id === id);
-  if (!current || current.img !== prior || current.locked) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
+  if (!current || current.img !== prior) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
   const key = uid(); images[key] = result.dataUrl;
   if(!await loadImg(key)){delete images[key];toast('The cleaned image could not be opened. Nothing changed.');return;}
   snapshot();
@@ -1721,7 +1734,6 @@ async function cleanupSelected(linked=false) {
 function editInProcreate() {
   markTried('edit-procreate');
   const t = sel(); if (!t) return;
-  if (t.locked) { toast('Unlock this tattoo before editing its artwork.'); return; }
   cancelGesture();
   const im = imgEls[t.img];
   if (!im) { loadImg(t.img); toast('Getting the artwork ready. Tap Edit in Procreate again.'); return; }
@@ -1838,7 +1850,7 @@ $('#pmPaintHide').addEventListener('click', () => { if (!state.paint) return; sn
 $('#pmPaintSplit').addEventListener('click', () => paintToTattoos());
 // Body > Reset to plain body: takes off everything painted onto the skin from Procreate, keeps every tattoo
 function resetPlainBody() {
-  const n = state.tattoos.length, tats = n === 1 ? 'Your tattoo stays in the tray' : n ? `Your ${n} tattoos stay in the tray` : 'No tattoos are placed';
+  const n = state.tattoos.length, tats = n === 1 ? 'Your tattoo stays in Layers' : n ? `Your ${n} tattoos stay in Layers` : 'No tattoos are placed';
   if (!state.paint) { toast(`The body is already plain: there is no paint from Procreate on it. ${tats}${n ? ': select one and tap the bin to remove it.' : '.'}`); return false; }
   snapshot(); delete state.paint; toggle('#paintPop', false); commit(); renderPcMenu();
   toast(`Plain body back. ${tats}.`, 'Undo', undo); return true;
@@ -1887,7 +1899,6 @@ async function bringBackFromProcreate(blob) {
   const now = procreatePending();
   if (now?.p.kind === 'new') return bringBackNewDrawing(blob, now.p.patch);
   if (!now) { toast('That tattoo is no longer in this project.'); writePending(null); renderProcreateBar(); return; }
-  if (now.t.locked) { toast('Unlock this tattoo first, then bring the picture back.'); return; }
   const pic = await normalisePicture(blob), key = uid(); images[key] = pic.dataUrl;
   if (!await loadImg(key)) { delete images[key]; toast('That picture could not be opened. Nothing changed.'); return; }
   const id = now.t.id; cancelGesture(); snapshot();
@@ -1933,7 +1944,14 @@ $('#undo').addEventListener('contextmenu', (e) => { e.preventDefault(); clearTim
 $('#historyList').addEventListener('click', (e) => { const b = e.target.closest('[data-steps]'); if (!b) return; toggle('#historyPop', false); undoSteps(+b.dataset.steps); });
 $('#undo').addEventListener('click', (e) => { if (undoHeld) { undoHeld = false; e.preventDefault(); return; } undo(); });
 $('#redo').addEventListener('click', redo);
-$('#full').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); select(null); fullBody(); });
+$('#viewLock').addEventListener('click', () => { cancelGesture(); setViewLock(!viewLocked); });
+// Fold the edit panel down to its name line, to see more of the body while it stays selected
+{ let min = false; try { min = localStorage.getItem('ia-sheet-min') === '1'; } catch { /* private mode */ }
+  const setMin = (v) => { min = !!v; $('#sheet').classList.toggle('min', min); const b = $('#bSheetMin'); b.setAttribute('aria-expanded', String(!min)); b.setAttribute('aria-label', min ? 'Open the panel' : 'Fold the panel down'); b.title = b.getAttribute('aria-label'); try { localStorage.setItem('ia-sheet-min', min ? '1' : '0'); } catch { /* private mode */ } };
+  setMin(min); $('#bSheetMin').addEventListener('click', () => { setMin(!min); if (min) markTried('sheetMin'); }); }
+$('#emptyAdd').addEventListener('click', () => $('#add').click());
+$('#emptyDraw').addEventListener('click', () => $('#drawNew').click());
+$('#full').addEventListener('click', () => { cancelGesture(); toggle('#bodyPop', false); select(null); if (viewLocked) lockNote(); else fullBody(); });
 // Before / after: left of the line shows only ink already on the body, right shows the plans too.
 const beforeAfter = createBeforeAfter({ after: $('#stage'), onChange: () => { needsRender = true; $('#baBtn').setAttribute('aria-pressed', String(beforeAfter.on)); } });
 function plannedShown() { return state.tattoos.filter((t) => t.status !== 'existing' && decals[t.id] && decals[t.id].mesh.visible); }
@@ -2111,14 +2129,13 @@ function spotNotes(t) {
 }
 function spotPlace(id) {
   const t = sel(), spot = SPOTS.find((s) => s.id === id); if (!t || !spot) return false;
-  if (t.locked) { toast('Unlock this tattoo first.'); return false; }
   if (poseView.active) { toast('Turn off the pose first, then try spots.'); return false; }
   const hit = spotHit(spot, spotSide); if (!hit) { toast('That spot could not be found on this body.'); return false; }
   const h = hit, aim = hit.aim, n = hit.normal;
   snapshot();
   t.pos = h.point.toArray(); t.normal = n.toArray(); t.rot = 0;
   const up0 = frameOf(t).up.toArray(); t.rot = turnAlong(up0, aim.along, t.normal);
-  spotId = id; markTried('spots'); if (spotNotesShown && spotNotesShown[id]) markTried('spotCompare'); commit(); focusTattoo(t); renderSpots();
+  spotId = id; markTried('spots'); if (spotNotesShown && spotNotesShown[id]) markTried('spotCompare'); commit(); userFocus(t); renderSpots();
   return true;
 }
 $('#spotChoices').innerHTML = SPOTS.map((s) => `<button class="btn" type="button" data-spot="${s.id}"><span>${s.label}</span><span class="spotsub" hidden></span></button>`).join('');
@@ -2541,6 +2558,12 @@ function needTattoo() {
 var infoQuietUntil = 0, infoByShow = false; // More controls opened by a Show me: pointed at, not tried
 const SHOW = {
   wrapGrab: () => { const t = sel() || state.tattoos.find((x) => !x.hidden && isWrap(x)) || state.tattoos.find((x) => !x.hidden && wrapInfo(x)); if (!t) return [null, 'Put a long piece on an arm or leg, tap Wrap it round under its name, then drag it anywhere on it: sideways turns it round, up or down slides it along.']; if (sel() !== t) select(t.id, true); else revealTattoo(t); renderSheet(); return $('#wrapRow').hidden ? [null, 'Move the tattoo onto an arm or leg: Wrap it round shows under its name. Then drag it anywhere on it, even round the back.'] : [$('#wrapFit').hidden ? '#wrapRow' : '#wrapFit', $('#wrapFit').hidden ? 'It goes all the way round. Drag it anywhere on it: sideways turns it round the limb, up or down slides it along.' : 'Tap Wrap it round: the long side goes round the limb with the ends meeting at the back. Then drag it anywhere on it, sideways to turn it, up or down to slide it.']; },
+  layersOnly: () => { layersDock.setOpen(true, true); return ['#ldAdds', 'Every tattoo is in Layers now, and the strip along the bottom is gone. The + adds a tattoo and the pencil opens Procreate. Fold the panel to its slim rail with the arrow and both stay at the top of it.']; },
+  sheetColumn: () => { const t = needTattoo(); if (!t) return null; layersDock.setOpen(true, true); return ['#sheet', 'The panel for a selected tattoo now sits under Layers in the same column at the right, so the body keeps the rest of the screen. The arrow next to the bin folds it down to its name line.']; },
+  sheetMin: () => { const t = needTattoo(); if (!t) return null; return ['#bSheetMin', 'Tap this arrow to fold the panel down to its name line and see more of the body. Tap it again to open it.']; },
+  lockEdit: () => { const t = needTattoo(); if (!t) return null; return ['#bLock', 'Lock in place stops taps and drags on the body from moving it. Size, turn, nudge, blend and colour here still work, so you can fine-tune it without knocking it.']; },
+  viewLock: () => ['#viewLock', 'Tap the lock to keep this view. Dragging, pinching, double-tap and the view buttons leave the camera where it is until you tap the lock again. Taps still pick tattoos.'],
+  layersReveal: () => { layersDock.setOpen(true, true); return ['#ldList', 'Tap a tattoo on the body and Layers opens at its line, with its group unfolded.']; },
   layersDock: () => { layersDock.setOpen(true, true); return ['#layersDock', 'This is the Layers panel. Tap a line to work on that tattoo, the eye to hide it, and the arrow at the top to fold the panel to a slim rail.']; },
   hideKinds: () => { layersDock.setOpen(true, true); return ['#ldKinds', 'Tap Hide planned to see only the ink already on you, or Hide existing to see only your plans. Tap again to bring them back. Nothing in the project changes.']; },
   layersSheet: () => { toggle('#planMenu', true); return ['#openLayers', 'Tap Layers and groups. Each tattoo is one line with an eye to hide it and dots to move or lock it; tick several and the actions for them show below.']; },
@@ -2577,8 +2600,8 @@ const SHOW = {
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
   bodySections: () => { toggle('#bodyPop', true); return ['#bodyPop .sec', 'Body in short sections: shape, your photos, skin, hair, eyes and each part.']; },
-  plainBody: () => { toggle('#bodyPop', true); return ['#plainBody', 'Takes off anything painted on the skin from Procreate and keeps every tattoo in the tray as its own item. Undo puts it back.']; },
-  paintChip: () => [state.paint ? '#paintChip' : null, state.paint ? 'Paint you brought back from Procreate shows here in the tattoo list. Tap it to make it movable tattoos, hide it, or remove it.' : 'Paint you bring back from Procreate now shows in the tattoo list as Paint on skin. Tap it to make it movable tattoos, hide it, or remove it for the plain body.'],
+  plainBody: () => { toggle('#bodyPop', true); return ['#plainBody', 'Takes off anything painted on the skin from Procreate and keeps every tattoo in Layers as its own item. Undo puts it back.']; },
+  paintChip: () => { if (layersDock && !layersDock.isOpen()) layersDock.setOpen(true, true); return [state.paint ? '#ldPaint' : null, state.paint ? 'Paint you brought back from Procreate shows here in Layers. Tap it to make it movable tattoos, hide it, or remove it.' : 'Paint you bring back from Procreate now shows in Layers as Paint on skin. Tap it to make it movable tattoos, hide it, or remove it for the plain body.']; },
   layout: () => ['#top .toolbar', 'Everything starts here: Body, Preview, Plan and Share, with Undo and Redo as the arrows. Select a tattoo for its own controls.'],
   history: () => { if (!$('#undo').disabled) openHistory(); return ['#undo', 'Press and hold Undo for a list of your last steps. Tap one to go back to just before it. Redo brings them back.']; },
   undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],
@@ -2783,7 +2806,6 @@ function suggestUse(n) {
   const g = n && n.suggest, t = g && state.tattoos.find((x) => x.id === g.tattooId);
   if (!t) { toast('That tattoo is not on the body any more.'); return; }
   if (commentOnly) return;
-  if (t.locked) { toast(`${t.name || 'This tattoo'} is locked. Unlock it first.`); return; }
   snapshot();
   for (const k of SUGGEST_KEYS) { if (g[k] !== undefined) t[k] = JSON.parse(JSON.stringify(g[k])); else if (k === 'wrap' || k === 'bend' || k === 'taper') delete t[k]; }
   state.notes = state.notes.map((x) => (x.id === n.id ? { ...x, done: { by: myName(), at: todayIso() } } : x));
@@ -3169,7 +3191,7 @@ $('#refTry').addEventListener('click', async () => {
   toggle('#refs', false); snapshot();
   const t = await addImage(images[r.img], (r.note || 'From the reference board').slice(0, 40), viewCenterSpot());
   if (!t) return;
-  t.status = 'planned'; selectedId = t.id; markTried('refTry'); commit(); focusTattoo(t);
+  t.status = 'planned'; selectedId = t.id; markTried('refTry'); commit(); userFocus(t);
   toast('On the body as a planned tattoo. Clean up takes away its background.', 'Undo', undo);
 });
 $('#refRemove').addEventListener('click', () => {
@@ -3277,7 +3299,7 @@ function bringInAnswers(text) {
   const parts = []; if (yes) parts.push(`said yes to ${yes}`); if (chg) parts.push(`asked for changes to ${chg}`);
   toggle('#answers', false); $('#ansText').value = ''; $('#ansNote').textContent = '';
   const first = hits.find((a) => a.verdict === 'changes') || hits[0];
-  toast(`${who} ${parts.join(' and ')}.${r.note ? ` "${r.note}"` : ''}`, 'Show', () => { const t = state.tattoos.find((x) => x.id === first.id); if (t) { select(t.id, true); focusTattoo(t); } });
+  toast(`${who} ${parts.join(' and ')}.${r.note ? ` "${r.note}"` : ''}`, 'Show', () => { const t = state.tattoos.find((x) => x.id === first.id); if (t) { select(t.id, true); userFocus(t); } });
   return true;
 }
 $('#cApprove').addEventListener('click', () => { toggle('#share', false); askApproval(); });
@@ -3966,7 +3988,6 @@ function evenRender(t) {
 }
 function evenFix() {
   const t = sel(), e = t && evenOf(t); if (!e || e.even) return;
-  if (t.locked) { toast('Unlock this tattoo first.'); return; }
   if (poseView.active) { toast('Turn off the pose first, then line it up.'); return; }
   let m = null;
   if (e.kind === 'centre') {
@@ -4001,7 +4022,6 @@ $('#wrapFit').addEventListener('click', () => {
 });
 $('#lineFix').addEventListener('click', () => {
   const t = sel(), l = lineOf(t); if (!l || l.offDeg < 1.5) return;
-  if (t.locked) { toast('Unlock this tattoo first.'); return; }
   snapshot(); t.rot = l.rot; commit(); markTried('straight');
   toast(`${t.name} is straight ${l.name === 'body' ? 'up' : 'along the ' + l.name}.`, 'Undo', undo);
 });
@@ -4016,7 +4036,6 @@ function readRender(t) {
 }
 $('#readFix').addEventListener('click', () => {
   const t = sel(), r = readOf(t); if (!r || !r.turn) return;
-  if (t.locked) { toast('Unlock this tattoo first.'); return; }
   snapshot(); t.rot = Math.atan2(Math.sin((t.rot || 0) + Math.PI), Math.cos((t.rot || 0) + Math.PI)); commit(); markTried('reads');
   const now = readOf(t); toast(now && now.who === 'you' ? `${t.name} now reads for you.` : `${t.name} now reads for others.`, 'Undo', undo);
 });
@@ -4086,12 +4105,11 @@ async function flashOf(t) {
 let flashShown = 0;
 function flashRender(t) {
   const b = $('#bSplit'); b.hidden = true; flashShown = 0;
-  if (!t || t.locked || t.status === 'existing' || commentOnly) return;
+  if (!t || t.status === 'existing' || commentOnly) return;
   flashOf(t).then((f) => { if (sel() !== t || !f) return; b.hidden = false; b.textContent = `Split into ${f.boxes.length} designs`; flashShown = f.boxes.length; });
 }
 async function splitFlash(id) {
   const t = state.tattoos.find((q) => q.id === id); if (!t || commentOnly) return false;
-  if (t.locked) { toast('Unlock this tattoo first.'); return false; }
   const f = await flashOf(t), im = imgEls[t.img]; if (!f || !im) { toast('This picture holds one design.'); return false; }
   snapshot();
   // each keeps its size next to the others; a small sheet is scaled up so the biggest piece is
@@ -4115,7 +4133,7 @@ async function splitFlash(id) {
   }
   if (!made.length) { undo(); toast('The designs could not be split.'); return false; }
   state.tattoos = state.tattoos.filter((q) => q !== t);
-  selectedId = made[0].id; commit(); focusTattoo(made[0]); markTried('flash');
+  selectedId = made[0].id; commit(); userFocus(made[0]); markTried('flash');
   toast(`Split into ${made.length} tattoos. The first is where the sheet was. Undo puts the sheet back.`);
   return made.length;
 }
@@ -4154,7 +4172,7 @@ function stretchRender(t) {
 $('#stretchShow').addEventListener('click', () => {
   const t = sel(), r = stretchShown; if (!t || !r || !POSE_CATALOG[r.key]) return;
   poseView.choose(r.key); renderPose(); markTried('stretch'); needsRender = true;
-  requestAnimationFrame(() => { if (sel() === t) focusTattoo(t); });
+  requestAnimationFrame(() => { if (sel() === t) userFocus(t); });
   toast(`${POSE_CATALOG[r.key].label}. Preview, then Pose, then Standing puts you back.`);
 });
 function renderInfo() {
@@ -4197,7 +4215,7 @@ $('#lookBtn').addEventListener('click', () => { cancelGesture(); toggle('#newPop
 for (const id of ['#baBtn', '#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn', '#tapeBtn', '#pinsBtn']) $(id).addEventListener('click', () => showLook(false));
 new MutationObserver(renderLook).observe($('#lookMenu'), { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-pressed'] });
 renderLook();
-document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => fullBody(+b.dataset.view * Math.PI / 2)));
+document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => { if (viewLocked) lockNote(); else fullBody(+b.dataset.view * Math.PI / 2); }));
 $('#add').addEventListener('click', () => $('#file').click());
 $('#file').addEventListener('change', async (e) => {
   const files = [...e.target.files]; e.target.value = ''; if (!files.length) return;
@@ -4212,7 +4230,7 @@ $('#file').addEventListener('change', async (e) => {
     const t = await addImage(url, f.name.replace(/\.[^.]+$/, '').slice(0, 100), first ? viewCenterSpot() : null); if (t) {first = false;last = t;}
   }
   if (last) {
-    selectedId = last.id; commit(); focusTattoo(last);
+    selectedId = last.id; commit(); userFocus(last);
     // one picture with several designs on it: offer to split it
     if (files.length === 1) flashOf(last).then((f) => {
       if (sel() !== last) return;
@@ -4323,7 +4341,7 @@ $('#fitReset').addEventListener('click', () => { snapshot(); reshape(() => { sta
 // a tap never turns into a cancelled click; the page itself cannot scroll anyway.
 document.addEventListener('touchmove', (e) => {
   if (e.touches.length === 1 && controlAt(e.target)) return;
-  if (e.touches.length > 1 || !(e.target instanceof Element) || !e.target.closest('.pop,.modal,#trayItems,#sheet,[aria-modal=true],[data-scroll],textarea')) e.preventDefault();
+  if (e.touches.length > 1 || !(e.target instanceof Element) || !e.target.closest('.pop,.modal,#sheet,[aria-modal=true],[data-scroll],textarea')) e.preventDefault();
 }, { passive: false });
 installPenTap();
 for (const name of ['gesturestart', 'gesturechange']) document.addEventListener(name, (e) => e.preventDefault(), { passive: false });
@@ -4443,7 +4461,7 @@ $('#openArtworkLibrary').addEventListener('click',async()=>{
   if(!await loadImg(plan.outputKey))throw new Error('Artwork image unavailable. Nothing placed.');
   if(state.tattoos.some(t=>t.id===plan.tattoo.id))throw new Error('Placement identity already exists.');
   const place=viewCenterSpot()||nextSlot();snapshot();state.artworks||={};if(plan.artwork)state.artworks[plan.artworkId]=plan.artwork;
-  const tattoo={...plan.tattoo,pos:place.pos,normal:place.normal};state.tattoos.push(tattoo);selectedId=tattoo.id;commit();focusTattoo(tattoo);toast('Artwork placed as a new planned tattoo.','Undo',undo);
+  const tattoo={...plan.tattoo,pos:place.pos,normal:place.normal};state.tattoos.push(tattoo);selectedId=tattoo.id;commit();userFocus(tattoo);toast('Artwork placed as a new planned tattoo.','Undo',undo);
  }});}catch(e){toast('Artwork library: '+e.message);}
 });
 async function openDraftEditor(){
@@ -4467,14 +4485,17 @@ function openLayersSheet(){toggle('#planMenu',false);markTried('layersSheet');op
 $('#openLayers').addEventListener('click',openLayersSheet);
 // The Layers panel at the right: folded to a slim rail or open the full height of the screen
 layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:()=>selectedId,kinds:kindOff,
-  pick:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id===selectedId)focusTattoo(t);else select(t.id,true);},
+  pick:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id===selectedId){if(!viewLocked)focusTattoo(t);}else select(t.id,true);},
+  adds:[$('#add'),$('#drawNew')],badges:t=>tatBadges(t),sheetShown:()=>!$('#sheet').hidden,
   change:fn=>{snapshot();fn(state);commit();},openSheet:openLayersSheet,onPaint:()=>openPaintPop(),openLook:id=>openInkLook(id),
   onKinds:kind=>{markTried('hideKinds');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}const n=state.tattoos.filter(x=>(x.status==='existing'?'existing':'planned')===kind).length;if(n)toast(kindOff[kind]?`${kind==='existing'?'Existing':'Planned'} tattoos hidden on this screen. Tap again to bring them back.`:`${kind==='existing'?'Existing':'Planned'} tattoos showing again.`,null,null,3200);},
   onOpen:open=>{if(open)markTried('layersDock');},
   onLayout:()=>{placeChrome();needsRender=true;}});
+// the body is first framed before Layers takes its column, so frame it again in the room left of it
+if(!viewLocked){fullBody(0);Object.assign(cur,goal);}
 // Blend and colour for one tattoo: blend mode and colour changes, live on the body, one undo step a change
 inkLook=createInkLook({get:()=>state.tattoos.find(x=>x.id===inkLookId)||null,
-  live:fn=>{const t=state.tattoos.find(x=>x.id===inkLookId);if(!t||t.locked)return;if(!lookSnap){snapshot();lookSnap=true;}lookDraft=t.id;fn(t);syncDecals();if(layersDock)layersDock.render();},
+  live:fn=>{const t=state.tattoos.find(x=>x.id===inkLookId);if(!t)return;if(!lookSnap){snapshot();lookSnap=true;}lookDraft=t.id;fn(t);syncDecals();if(layersDock)layersDock.render();},
   done:()=>{const was=lookDraft;lookDraft=null;if(lookSnap){lookSnap=false;commit();}else if(was)syncDecals();},
   onClose:()=>{inkLookId=null;renderSheetLook();needsRender=true;},
   onUse:k=>markTried(k==='blend'?'blendModes':k==='colour'?'inkColours':'blendModes')});
@@ -4486,7 +4507,7 @@ $('#bLook').addEventListener('click',()=>{const t=sel();if(!t)return;if(inkLook.
 $('#openUnplaced').addEventListener('click',()=>{
  toggle('#planMenu',false);const host=el('section',{class:'scrim',role:'dialog','aria-modal':'true','aria-label':'Saved artwork to place'});host.style.zIndex=10000;const panel=el('div',{class:'modal glass'},el('h2',{text:'Saved artwork to place'}),el('p',{text:'These pieces had no body position in the imported project. Place one deliberately, then adjust it on the body.'}));
  for(const record of state.unplacedTattoos||[])panel.append(el('button',{class:'card',text:'Place '+record.name+' on body',onclick:async()=>{
-  const image=await loadImg(record.img);if(!image){toast('That saved image could not be opened.');return;}const spot=viewCenterSpot()||nextSlot();snapshot();state.unplacedTattoos=state.unplacedTattoos.filter(t=>t.id!==record.id);const t={...record,pos:spot.pos,normal:spot.normal,locked:false};state.tattoos.push(t);selectedId=t.id;commit();focusTattoo(t);host.remove();toast('Adjust the placement, then lock it when ready.');
+  const image=await loadImg(record.img);if(!image){toast('That saved image could not be opened.');return;}const spot=viewCenterSpot()||nextSlot();snapshot();state.unplacedTattoos=state.unplacedTattoos.filter(t=>t.id!==record.id);const t={...record,pos:spot.pos,normal:spot.normal,locked:false};state.tattoos.push(t);selectedId=t.id;commit();userFocus(t);host.remove();toast('Adjust the placement, then lock it when ready.');
  }}));panel.append(el('button',{class:'btn',text:'Done',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.onkeydown=e=>{e.stopPropagation();if(e.key==='Escape')host.remove();};
 });
 async function compareSavedLayouts({a,b}){
@@ -5218,7 +5239,7 @@ async function sketchPatch() {
     },onApply:async result=>{
       if(state.sketchPatch?.id!==pendingId)throw new Error('The pending patch changed. Reopen to review it.');
       if(bodySignature()!==pending.shape)throw new Error('The body changed. Restore its earlier shape, or discard this guide and create a fresh patch.');
-      snapshot();const t=await addImage(result.dataUrl,'Procreate patch',pending.patch);if(!t)throw new Error('The returned artwork could not be added.');t.status='planned';selectedId=t.id;delete state.sketchPatch;commit();focusTattoo(t);toast('Returned artwork added as a new planned tattoo.');
+      snapshot();const t=await addImage(result.dataUrl,'Procreate patch',pending.patch);if(!t)throw new Error('The returned artwork could not be added.');t.status='planned';selectedId=t.id;delete state.sketchPatch;commit();userFocus(t);toast('Returned artwork added as a new planned tattoo.');
     }});
   }catch(e){toast('Could not open sketch patch: '+e.message);}finally{geometry?.dispose();}
 }
@@ -5324,7 +5345,7 @@ async function importPainted(file, undoStep = true) {
     if (undoStep) snapshot();
     const added = await tattoosFrom(r);
     if (!added.length) { toast('No new drawing found on that model.'); return []; }
-    selectedId = added[0].id; commit(); focusTattoo(added[0]);
+    selectedId = added[0].id; commit(); userFocus(added[0]);
     toast(added.length === 1 ? 'Added 1 new tattoo from the model.' : `Added ${added.length} new tattoos from the model.`);
     return added.map((t) => t.id);
   } catch (e) { toast('Could not read that model: ' + ((e && e.message) || 'something went wrong')); return []; }
@@ -5418,7 +5439,7 @@ async function bringBack(file) {
     }
     if (!added.length) { if (undoStack.length > before) { undoStack.pop(); refreshUndo(); } toast(layered ? 'No new layers to bring back. Layers that came back before are already tattoos here.' : 'No new drawing found on that model.'); return []; }
     if (replaced.length) syncDecals();
-    selectedId = added[0].id; commit(); focusTattoo(added[0]); markTried('paintLayers');
+    selectedId = added[0].id; commit(); userFocus(added[0]); markTried('paintLayers');
     const n = added.length;
     toast((n === 1 ? 'Added 1 new tattoo' : `Added ${n} new tattoos`) + (layered ? ' from your layers.' : ' from separate areas of paint. Share as Procreate to keep layers apart.'));
     return added.map((t) => t.id);
@@ -5444,7 +5465,7 @@ async function paintToTattoos() {
     snapshot();
     const added = await tattoosFrom({ P, S, map, skin, baseline, pixels });
     if (!added.length) { undoStack.pop(); refreshUndo(); toast('No separate drawings found in the paint.'); return []; }
-    delete state.paint; selectedId = added[0].id; commit(); focusTattoo(added[0]);
+    delete state.paint; selectedId = added[0].id; commit(); userFocus(added[0]);
     toast(added.length === 1 ? 'The paint is now 1 movable tattoo.' : `The paint is now ${added.length} movable tattoos.`);
     return added.map((t) => t.id);
   } catch (e) { toast('Could not make tattoos from the paint: ' + ((e && e.message) || 'something went wrong')); return []; }

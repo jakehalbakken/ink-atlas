@@ -6,7 +6,7 @@ import { SPOTS } from '../../src/spots.js';
 export default async function(p){
  const wait=(n=300)=>new Promise(r=>setTimeout(r,n));
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
- await (await p.$$('#trayItems .chip'))[1].click();await wait(300);
+ await (await p.$$('#ldList .ld-tat'))[1].click();await wait(300);
  const id=await p.evaluate(()=>window.__ink.selected());
  const before=await p.evaluate(id=>JSON.stringify(window.__ink.state().tattoos.find(t=>t.id===id)),id);
  await p.evaluate(()=>{document.querySelector('#editorAdvanced').open=true;});
