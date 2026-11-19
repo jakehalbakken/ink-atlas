@@ -1716,8 +1716,10 @@ async function cleanupSelected(linked=false) {
   const source = art?.source || prior;
   const linkedCount = t.artworkId ? state.tattoos.filter(x => x.artworkId === t.artworkId).length : 1;
   markTried('cleanupStudio');
-  const result = await editArtwork(images[source] || images[prior], images[prior], art?.cleanupSession, { linkedCount, linked });
+  const result = await editArtwork(images[source] || images[prior], images[prior], art?.cleanupSession, { linkedCount, linked, widthInches: inchesOf(t).w });
   if (!result) return;
+  if (result.used?.includes('select')) markTried('cleanupSelect');
+  if (result.used?.includes('move')) markTried('cleanupMove');
   if (typeof result.linked === 'boolean') linked = result.linked;
   const current = state.tattoos.find(x => x.id === id);
   if (!current || current.img !== prior) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
@@ -1727,7 +1729,9 @@ async function cleanupSelected(linked=false) {
   const was=new Map(state.tattoos.map(q=>[q.id,q]));
   const revision=applyArtworkRevision(state,id,key,result.aspect,{linked,session:result.session,settings:result.settings});
   state=revision.nextState;
-  for(const cid of revision.changedIds){const q=state.tattoos.find(x=>x.id===cid);keepVersion(was.get(cid),q);}
+  for(const cid of revision.changedIds){const q=state.tattoos.find(x=>x.id===cid);keepVersion(was.get(cid),q);
+    // a piece moved past the edge grew the picture: the tattoo grows with it so every piece keeps its real size
+    if(result.widthScale>0&&Number.isFinite(result.widthScale)&&q)q.width*=result.widthScale;}
   if(revision.artworkId)state.artworks[revision.artworkId].cleanup=result.settings || {};
   commit(); toast(`${revision.changedIds.length>1?`Artwork cleaned up on ${revision.changedIds.length} copies.`:'Artwork cleaned up.'} Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
 }

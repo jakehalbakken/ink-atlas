@@ -1,4 +1,5 @@
 // Local-only artwork editor. The caller retains the untouched source artwork.
+import { rectMask, lassoMask, pieceMask, combineMasks, invertMask, isEmptyMask, maskBounds, identityFor, pieceToLocal, growPads, snapStraight, snapTurn, twoFingerTransform, moveWords } from './cleanup-select.js';
 // No image leaves the device. All edits remain a draft until Apply.
 export function removeLightPixels(data, threshold = 235) {
   const out = new Uint8ClampedArray(data);
@@ -106,6 +107,8 @@ const ICONS = {
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   compare: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M12 3.5v17"/><path d="M12 3.5h5.5a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H12z" fill="currentColor" opacity=".4"/>',
   backdrop: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M3.5 3.5H12V12H3.5zM12 12h8.5v8.5H12z" fill="currentColor" opacity=".4" stroke="none"/>',
+  select: '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M12 4h2M18 4h.5A1.5 1.5 0 0 1 20 5.5V8M20 12v2M20 18v.5a1.5 1.5 0 0 1-1.5 1.5H18M14 20h-2M8 20H5.5A1.5 1.5 0 0 1 4 18.5V18M4 14v-2"/>',
+  move: '<path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
   minus: '<path d="M6 12h12"/>', plus: '<path d="M12 6v12M6 12h12"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -115,10 +118,13 @@ const TOOLS = [
   ['color', 'Background', 'Tap the background to remove that colour where it touches, or remove the white paper in one go.'],
   ['erase', 'Erase', 'Drag over anything you don’t want. Pinch to get closer.'],
   ['restore', 'Restore', 'Drag to paint the original picture back.'],
+  ['select', 'Select', 'Tap a piece of the design to select it, or drag a box or a loop round what you want.'],
+  ['move', 'Move', 'Drag the selection to move it. The corners size it, the dot above turns it, and two fingers on it do both. With nothing selected, the whole picture moves.'],
   ['crop', 'Crop', 'Drag a box round what to keep, then Crop.'],
   ['lines', 'Lines', 'Slide to darken faint lines. It shows as you slide.'],
 ];
-const TOOL_KEYS = { w: 'cutout', b: 'color', e: 'erase', r: 'restore', c: 'crop', l: 'lines' };
+const TOOL_KEYS = { w: 'cutout', b: 'color', e: 'erase', r: 'restore', m: 'select', v: 'move', c: 'crop', l: 'lines' };
+const MOVE_KINDS = ['move', 'scale', 'turn', 'xform2'];
 
 const STYLE = `
 #ink-cleanup{--ic-bg:var(--bg,#121318);--ic-text:var(--text,#f1f2f6);--ic-muted:var(--muted,#a0a5b3);--ic-card:var(--surface-raised,#23252e);--ic-fill:var(--fill,rgba(255,255,255,.07));--ic-fill2:var(--fill-strong,rgba(255,255,255,.12));--ic-line:var(--line,rgba(255,255,255,.12));--ic-accent:var(--stencil,#8474ff);--ic-on:var(--seg-on,#4b4e5a);--ic-danger:var(--danger,#ff8f86);
@@ -189,6 +195,17 @@ const STYLE = `
 #ink-cleanup ink-slider .sl-track{position:absolute;left:0;right:0;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:var(--ic-fill2);pointer-events:none}
 #ink-cleanup ink-slider .sl-fill{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--ic-accent)}
 #ink-cleanup ink-slider .sl-thumb{position:absolute;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.45);pointer-events:none}
+#ink-cleanup canvas.ic-sel{position:absolute;left:50%;top:50%;pointer-events:none;filter:none;display:none}
+#ink-cleanup canvas.ic-float{position:absolute;left:0;top:0;pointer-events:none;display:none;transform-origin:center}
+#ink-cleanup .ic-xbox{position:absolute;left:0;top:0;display:none;pointer-events:none;border:1.5px dashed #fff;box-shadow:0 0 0 1px rgba(0,0,0,.5),inset 0 0 0 1px rgba(0,0,0,.35);transform-origin:center}
+#ink-cleanup .ic-xbox [data-handle]{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;pointer-events:auto;touch-action:none;cursor:nwse-resize}
+#ink-cleanup .ic-xbox [data-handle]::after{content:'';position:absolute;left:15px;top:15px;width:14px;height:14px;border-radius:4px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.5),0 1px 4px rgba(0,0,0,.4)}
+#ink-cleanup .ic-xbox .h-tl{left:0;top:0}#ink-cleanup .ic-xbox .h-tr{left:100%;top:0;cursor:nesw-resize}#ink-cleanup .ic-xbox .h-br{left:100%;top:100%}#ink-cleanup .ic-xbox .h-bl{left:0;top:100%;cursor:nesw-resize}
+#ink-cleanup .ic-xbox .h-turn{left:50%;top:-36px;cursor:grab}#ink-cleanup .ic-xbox .h-turn::after{border-radius:50%;background:var(--ic-accent)}
+#ink-cleanup .ic-xbox .h-stick{position:absolute;left:50%;top:-36px;height:36px;border-left:1.5px solid #fff;pointer-events:none}
+#ink-cleanup .ic-readout{margin:0;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+#ink-cleanup .ic-sec .ic-hint[hidden]{display:none}
+@media (max-width:560px){#ink-cleanup .ic-tools{grid-auto-columns:minmax(56px,1fr);overflow-x:auto;scrollbar-width:none}}
 #ink-cleanup .ic-linked{border-top:0;padding:0 16px;background:var(--ic-card);border-radius:16px}
 @media (min-width:980px) and (orientation:landscape){
  #ink-cleanup{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto minmax(0,1fr);column-gap:12px}
@@ -222,7 +239,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
  <div class="ic-title"><h2 id="ic-title">Clean up</h2><span class="ic-note">Your original picture is kept</span></div>
  <div class="ic-side"><button type="button" class="ic-icon ic-plain" data-action="undo" aria-label="Undo" title="Undo" disabled>${icon('undo')}</button><button type="button" class="ic-icon ic-plain" data-action="redo" aria-label="Redo" title="Redo" disabled>${icon('redo')}</button><button type="button" class="ic-icon ic-plain" data-action="compare" aria-pressed="false" aria-label="Show original" title="Show original">${icon('compare')}</button><button type="button" class="ic-primary" data-action="apply">Done</button></div>
 </header>
-<div class="ic-work"><canvas aria-label="Tattoo picture"></canvas><div class="ic-cropbox"></div><div class="ic-ring"></div><p class="ic-status" role="status" aria-live="polite"></p>
+<div class="ic-work"><canvas aria-label="Tattoo picture"></canvas><canvas class="ic-sel" aria-hidden="true"></canvas><canvas class="ic-float" aria-hidden="true"></canvas><div class="ic-xbox"><span class="h-stick"></span><span data-handle="turn" class="h-turn" aria-label="Turn"></span><span data-handle="scale" class="h-tl"></span><span data-handle="scale" class="h-tr"></span><span data-handle="scale" class="h-br"></span><span data-handle="scale" class="h-bl"></span></div><div class="ic-cropbox"></div><div class="ic-ring"></div><p class="ic-status" role="status" aria-live="polite"></p>
  <div class="ic-view"><button type="button" class="ic-icon" data-action="backdrop" aria-label="Change the backdrop" title="Backdrop">${icon('backdrop')}</button><select id="ic-backdrop" aria-label="Backdrop"><option value="checker">Checker</option><option value="white">White</option><option value="dark">Dark</option></select><button type="button" class="ic-icon" data-action="zoomout" aria-label="Zoom out">${icon('minus')}</button><button type="button" class="ic-icon" data-action="fit" aria-label="Fit the picture" title="Fit"><output id="ic-zoom">100%</output></button><button type="button" class="ic-icon" data-action="zoomin" aria-label="Zoom in">${icon('plus')}</button></div>
 </div>
 <div class="ic-dock">
@@ -235,7 +252,18 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
    <label class="ic-field">Brush size<ink-slider id="ic-brush" min="2" max="150" step="1" value="24" default="24" unit=" pt" aria-label="Brush size"></ink-slider></label>
    <label class="ic-field">Soft edge<ink-slider id="ic-feather" min="0" max="100" step="1" value="0" default="0" unit="%" aria-label="Soft edge"></ink-slider></label>
    <label class="ic-switch">Only the Pencil draws<input id="ic-stylus-only" type="checkbox"></label>
-   <label class="ic-switch">Press harder for a bigger brush<input id="ic-pressure" type="checkbox"></label></div>
+   <label class="ic-switch">Press harder for a bigger brush<input id="ic-pressure" type="checkbox"></label><p class="ic-hint" data-hint-sel hidden>Only the selected part changes. Clear the selection in Select to work on all of it.</p></div>
+  <div class="ic-sec" data-for="select">${hint('select')}<p class="ic-readout" data-sel-info>Nothing selected</p>
+   <div class="ic-seg-label">Drag to draw</div><div class="ic-seg" data-select="ic-sel-shape"></div><select id="ic-sel-shape" aria-label="What a drag draws"><option value="box">Box</option><option value="lasso">Freehand loop</option></select>
+   <div class="ic-seg-label">A new selection</div><div class="ic-seg" data-select="ic-sel-op"></div><select id="ic-sel-op" aria-label="What a new selection does"><option value="new">Replaces</option><option value="add">Adds</option><option value="subtract">Takes away</option></select>
+   <div class="ic-row"><button type="button" class="ic-primary" data-action="tomove">Move it</button><button type="button" data-action="selall">Select all</button><button type="button" data-action="selinvert">Invert</button></div>
+   <div class="ic-row"><button type="button" data-action="selnone">Clear selection</button><button type="button" class="ic-danger" data-action="seldelete">Delete it</button></div>
+   <label class="ic-field">Tap joins bits closer than<ink-slider id="ic-sel-reach" min="0" max="60" step="1" value="2" default="2" unit=" px" aria-label="Gaps a tap joins"></ink-slider></label></div>
+  <div class="ic-sec" data-for="move">${hint('move')}<p class="ic-readout" data-readout>Nothing to move</p>
+   <div class="ic-row"><button type="button" data-action="flipx">Flip across</button><button type="button" data-action="flipy">Flip up and down</button><button type="button" data-action="turn90">Turn 90°</button></div>
+   <div class="ic-row"><button type="button" data-action="duplicate">Duplicate</button><button type="button" data-action="putback">Put it back</button><button type="button" class="ic-primary" data-action="place">Place it</button></div>
+   <label class="ic-switch">Snap straight across or up and down<input id="ic-snap" type="checkbox" checked></label>
+   <details><summary>Exact amounts</summary><div class="ic-nums"><label>Right<input id="ic-mx" type="number" step="0.01" value="0" inputmode="decimal"></label><label>Down<input id="ic-my" type="number" step="0.01" value="0" inputmode="decimal"></label><label>Size %<input id="ic-ms" type="number" min="5" max="2000" step="1" value="100" inputmode="decimal"></label><label>Turn °<input id="ic-mr" type="number" step="1" value="0" inputmode="decimal"></label></div><p class="ic-hint" data-units></p><div class="ic-row"><button type="button" data-action="exactmove">Move by these</button></div></details></div>
   <div class="ic-sec" data-for="crop">${hint('crop')}<div class="ic-row"><button type="button" class="ic-primary" data-action="crop" disabled>Crop</button><button type="button" data-action="trim">Trim empty edges</button></div><div class="ic-row"><button type="button" data-action="uncrop">Show the whole picture</button></div>
    <details><summary>Exact size in pixels</summary><div class="ic-nums"><label>X<input id="ic-x" type="number" min="0" value="0" inputmode="numeric"></label><label>Y<input id="ic-y" type="number" min="0" value="0" inputmode="numeric"></label><label>Width<input id="ic-w" type="number" min="1" inputmode="numeric"></label><label>Height<input id="ic-h" type="number" min="1" inputmode="numeric"></label></div><div class="ic-row"><button type="button" data-action="exactcrop">Crop to these</button></div></details></div>
   <div class="ic-sec" data-for="lines">${hint('lines')}<label class="ic-field">Darker lines<ink-slider id="ic-contrast" min="-80" max="150" step="1" value="25" default="25" origin="0" unit="%" aria-label="How much darker"></ink-slider></label><div class="ic-row"><button type="button" data-action="contrast">Darken lines</button></div></div>
@@ -246,6 +274,8 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     (document.querySelector('#viewport') || document.body).append(host);
     const $ = (s) => host.querySelector(s);
     const view = $('canvas'), work = canvasOf(1, 1), original = canvasOf(1, 1), wctx = work.getContext('2d', { willReadFrequently: true });
+    const selOver = $('canvas.ic-sel'), floatView = $('canvas.ic-float'), xbox = $('.ic-xbox');
+    let sel = null, selVer = 0, float = null, pendingBox = null, grow = 1, nudge = null, lookCache = null, selCache = null, infoCache = null; const used = new Set();
     const status = $('.ic-status'), stage = $('.ic-work'), ring = $('.ic-ring'), cropbox = $('.ic-cropbox'), confirmBox = $('.ic-confirm');
     const full = canvasOf(1, 1), baseline = canvasOf(1, 1); let rect = { x: 0, y: 0, w: 1, h: 1 };
     let zoom = 1, panX = 0, panY = 0;
@@ -256,10 +286,14 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const say = (text, hold = false) => { status.textContent = text; status.classList.toggle('on', !!text); clearTimeout(statusTimer); if (text && !hold) statusTimer = setTimeout(() => status.classList.remove('on'), 4200); };
     const setImage = image => { const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight)); work.width = Math.max(1, Math.round(image.naturalWidth * scale)); work.height = Math.max(1, Math.round(image.naturalHeight * scale)); wctx.drawImage(image, 0, 0, work.width, work.height); original.width = work.width; original.height = work.height; original.getContext('2d').drawImage(work, 0, 0); full.width = baseline.width = work.width; full.height = baseline.height = work.height; full.getContext('2d').drawImage(work, 0, 0); baseline.getContext('2d').drawImage(work, 0, 0); rect = { x: 0, y: 0, w: work.width, h: work.height }; };
     const merge = () => { const ctx = full.getContext('2d'); ctx.clearRect(rect.x, rect.y, rect.w, rect.h); ctx.drawImage(work, rect.x, rect.y); };
-    const capture = () => ({ fw: full.width, fh: full.height, full: full.getContext('2d').getImageData(0, 0, full.width, full.height), baseline: baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height), rect: { ...rect }, w: work.width, h: work.height, pixels: wctx.getImageData(0, 0, work.width, work.height), original: original.getContext('2d').getImageData(0, 0, original.width, original.height) });
-    const trim = stack => { while (stack.length > 1 && stack.reduce((n, s) => n + (s.w * s.h + s.fw * s.fh) * 8, 0) > 48 * 1024 * 1024) stack.shift(); };
+    const capture = () => ({ fw: full.width, fh: full.height, full: full.getContext('2d').getImageData(0, 0, full.width, full.height), baseline: baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height), rect: { ...rect }, w: work.width, h: work.height, pixels: wctx.getImageData(0, 0, work.width, work.height), original: original.getContext('2d').getImageData(0, 0, original.width, original.height), sel, grow, float: float ? { ...float, T: { ...float.T } } : null });
+    const trim = stack => { while (stack.length > 1 && stack.reduce((n, s) => n + (s.selOnly ? 0 : (s.w * s.h + s.fw * s.fh) * 8 + (s.float ? s.float.w * s.float.h * 8 : 0)) + (s.sel ? s.sel.length : 0), 0) > 48 * 1024 * 1024) stack.shift(); };
     const snapshot = () => { history.push(capture()); trim(history); future = []; };
-    const restore = state => { work.width = original.width = state.w; work.height = original.height = state.h; wctx.putImageData(state.pixels, 0, 0); original.getContext('2d').putImageData(state.original, 0, 0); full.width = baseline.width = state.fw; full.height = baseline.height = state.fh; full.getContext('2d').putImageData(state.full, 0, 0); baseline.getContext('2d').putImageData(state.baseline, 0, 0); rect = { ...state.rect }; crop = null; };
+    const restore = state => { work.width = original.width = state.w; work.height = original.height = state.h; wctx.putImageData(state.pixels, 0, 0); original.getContext('2d').putImageData(state.original, 0, 0); full.width = baseline.width = state.fw; full.height = baseline.height = state.fh; full.getContext('2d').putImageData(state.full, 0, 0); baseline.getContext('2d').putImageData(state.baseline, 0, 0); rect = { ...state.rect }; crop = null; sel = state.sel || null; selVer++; grow = state.grow || 1; float = state.float ? { ...state.float, T: { ...state.float.T } } : null; nudge = null; };
+    // a selection change alone is a light undo step: only the selection is kept
+    const snapshotSel = () => { history.push({ selOnly: true, sel }); trim(history); future = []; };
+    const restoreEntry = e => { if (e.selOnly) { sel = e.sel && e.sel.length === work.width * work.height ? e.sel : null; selVer++; } else restore(e); };
+    const entryNow = e => e.selOnly ? { selOnly: true, sel } : capture();
     const fit = () => { zoom = 1; panX = panY = 0; };
     const boundedValue = (id, min, max) => { const n = Number($(id).value); return Math.min(max, Math.max(min, Number.isFinite(n) ? n : min)); };
     const brushMode = () => mode === 'erase' || mode === 'restore';
@@ -275,9 +309,10 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       panX = Math.max(-limX, Math.min(limX, panX)); panY = Math.max(-limY, Math.min(limY, panY));
       view.style.width = w + 'px'; view.style.height = h + 'px'; view.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
       $('#ic-zoom').value = Math.round(zoom * 100) + '%'; button('zoomin').disabled = zoom >= 8; button('zoomout').disabled = zoom <= 1;
-      placeCropbox();
+      Object.assign(selOver.style, { width: w + 'px', height: h + 'px', marginLeft: -w / 2 + 'px', marginTop: -h / 2 + 'px', transform: view.style.transform });
+      placeCropbox(); placeMoving();
     };
-    const dirty = () => history.length > 0;
+    const dirty = () => history.some(e => !e.selOnly);
     const draw = () => {
       const scale = Math.min(1, 1600 / Math.max(source.naturalWidth, source.naturalHeight));
       view.width = comparing ? Math.max(1, Math.round(source.naturalWidth * scale)) : work.width; view.height = comparing ? Math.max(1, Math.round(source.naturalHeight * scale)) : work.height;
@@ -285,6 +320,9 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       button('undo').disabled = !history.length; button('redo').disabled = !future.length; button('crop').disabled = !crop || Math.abs(crop.w) < 2 || Math.abs(crop.h) < 2;
       button('uncrop').disabled = rect.x === 0 && rect.y === 0 && rect.w === full.width && rect.h === full.height;
       button('compare').setAttribute('aria-pressed', String(comparing)); stage.classList.toggle('ic-original', comparing);
+      pendingBox = null;
+      if (mode === 'move' && !float && !comparing) { const b = maskBounds(sel, work.width, work.height, wctx.getImageData(0, 0, work.width, work.height).data); if (b) pendingBox = { w: b.w, h: b.h, T: identityFor(b) }; }
+      drawOverlay(); readouts();
       layout();
     };
     const pos = event => { const r = view.getBoundingClientRect(); return { pressure: brushPressureScale(event.pointerType, event.pressure, $('#ic-pressure').checked), x: Math.max(0, Math.min(work.width, (event.clientX - r.left) * work.width / r.width)), y: Math.max(0, Math.min(work.height, (event.clientY - r.top) * work.height / r.height)) }; };
@@ -305,6 +343,151 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (!on || !brushMode() || comparing) { ring.style.display = 'none'; return; }
       const s = stage.getBoundingClientRect(), d = boundedValue('#ic-brush', 2, 150) * brushPressureScale(e.pointerType, e.pressure, $('#ic-pressure').checked) * zoom;
       Object.assign(ring.style, { display: 'block', width: d + 'px', height: d + 'px', transform: `translate(${e.clientX - s.left - d / 2}px,${e.clientY - s.top - d / 2}px)` });
+    };
+
+    // Select and Move. A selection is a mask over the picture (one byte a pixel). Move lifts the selected
+    // ink (or the whole picture) as a floating piece with its own size, turn and flip, drawn over the
+    // picture until it is placed, so moving it again never blurs it. Each drag is one undo step. A piece
+    // moved past the edge grows the picture evenly on both sides, so its middle and every piece's real size
+    // on the body stay the same (the width grows by `grow`).
+    const widthIn = Number(options.widthInches) > 0 ? Number(options.widthInches) : 0;
+    const ppi = () => widthIn ? work.width / (widthIn * grow) : 0;
+    const maskCanvas = (m, w, h) => { const c = canvasOf(w, h), d = new ImageData(w, h); for (let i = 0; i < m.length; i++) { const j = i * 4; d.data[j] = d.data[j + 1] = d.data[j + 2] = 255; d.data[j + 3] = m[i]; } c.getContext('2d').putImageData(d, 0, 0); return c; };
+    const selCanvas = () => { if (!sel) return null; if (!selCache || selCache.ver !== selVer) selCache = { ver: selVer, c: maskCanvas(sel, work.width, work.height) }; return selCache.c; };
+    const setSel = m => { sel = m && m.length === work.width * work.height && !isEmptyMask(m) ? m : null; selVer++; };
+    const maskFrom = (c, w, h) => { const d = c.getContext('2d').getImageData(0, 0, w, h).data, m = new Uint8Array(w * h); for (let i = 0; i < m.length; i++) m[i] = d[i * 4 + 3] >= 128 ? 255 : 0; return m; };
+    const drawPiece = (ctx, src, f, T = f.T) => { ctx.save(); ctx.translate(T.cx, T.cy); ctx.rotate(T.rot); ctx.scale(T.s * T.fx, T.s * T.fy); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(src, -f.w / 2, -f.h / 2); ctx.restore(); };
+    const workPt = (x, y) => { const r = view.getBoundingClientRect(); return { x: (x - r.left) * work.width / r.width, y: (y - r.top) * work.height / r.height }; };
+    const onPiece = e => {
+      const f = float || pendingBox; if (!f) return false;
+      const p = workPt(e.clientX, e.clientY), l = pieceToLocal(f.T, f.w, f.h, p.x, p.y), slop = 16 * work.width / Math.max(1, view.getBoundingClientRect().width) / f.T.s;
+      return l.x >= -slop && l.y >= -slop && l.x <= f.w + slop && l.y <= f.h + slop;
+    };
+    const selLook = t => {
+      const key = selVer + ':' + t + ':' + work.width + 'x' + work.height; if (lookCache?.key === key) return lookCache.c;
+      const w = work.width, h = work.height, m = selCanvas(), c = canvasOf(w, h), g = c.getContext('2d');
+      g.fillStyle = 'rgba(10,10,14,.42)'; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'destination-out'; g.drawImage(m, 0, 0);
+      // an edge just outside the selection: white on a darker band, so it shows on any picture
+      const ring = (k, color) => { const o = canvasOf(w, h), q = o.getContext('2d'); for (const [dx, dy] of [[-k, 0], [k, 0], [0, -k], [0, k], [-k, -k], [k, k], [-k, k], [k, -k]]) q.drawImage(m, dx, dy); q.globalCompositeOperation = 'destination-out'; q.drawImage(m, 0, 0); q.globalCompositeOperation = 'source-in'; q.fillStyle = color; q.fillRect(0, 0, w, h); return o; };
+      g.globalCompositeOperation = 'source-over'; g.drawImage(ring(t * 2, 'rgba(0,0,0,.65)'), 0, 0); g.drawImage(ring(t, '#fff'), 0, 0);
+      lookCache = { key, c }; return c;
+    };
+    const drawOverlay = (preview = null) => {
+      const on = !comparing && !float && (sel || preview) && (mode === 'select' || mode === 'move' || brushMode());
+      if (!on) { selOver.style.display = 'none'; return; }
+      if (selOver.width !== work.width || selOver.height !== work.height) { selOver.width = work.width; selOver.height = work.height; }
+      selOver.style.display = 'block';
+      const g = selOver.getContext('2d'), r = view.getBoundingClientRect(), t = Math.max(1, Math.round(1.5 * work.width / Math.max(1, r.width)));
+      g.clearRect(0, 0, selOver.width, selOver.height); if (sel) g.drawImage(selLook(t), 0, 0);
+      if (preview) {
+        g.save(); g.lineWidth = t * 1.5; g.strokeStyle = '#fff'; g.shadowColor = 'rgba(0,0,0,.8)'; g.shadowBlur = t * 2; g.setLineDash([t * 6, t * 4]); g.beginPath();
+        if (preview.box) g.rect(preview.box.x, preview.box.y, preview.box.w, preview.box.h); else { preview.path.forEach((q, i) => i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)); g.closePath(); }
+        g.stroke(); g.restore();
+      }
+    };
+    const placeMoving = () => {
+      const r = view.getBoundingClientRect(), s = stage.getBoundingClientRect(), k = r.width / work.width;
+      const at = f => ({ x: r.left - s.left + f.T.cx * k, y: r.top - s.top + f.T.cy * k });
+      if (!float || comparing) floatView.style.display = 'none';
+      else {
+        if (floatView._src !== float.src) { floatView.width = float.w; floatView.height = float.h; const g = floatView.getContext('2d'); g.clearRect(0, 0, float.w, float.h); g.drawImage(float.src, 0, 0); floatView._src = float.src; }
+        const p = at(float), w = float.w * k, h = float.h * k, T = float.T;
+        Object.assign(floatView.style, { display: 'block', width: w + 'px', height: h + 'px', transform: `translate(${p.x - w / 2}px,${p.y - h / 2}px) rotate(${T.rot}rad) scale(${T.s * T.fx},${T.s * T.fy})` });
+      }
+      const f = mode === 'move' && !comparing ? (float || pendingBox) : null;
+      if (!f) { xbox.style.display = 'none'; return; }
+      const p = at(f), w = f.w * f.T.s * k, h = f.h * f.T.s * k;
+      Object.assign(xbox.style, { display: 'block', width: w + 'px', height: h + 'px', transform: `translate(${p.x - w / 2}px,${p.y - h / 2}px) rotate(${f.T.rot}rad)` });
+    };
+    const inches = (px, digits = 2) => (px / ppi()).toFixed(digits) + ' in';
+    const readoutText = () => float ? moveWords(float.T0, float.T, float.w, float.h, ppi())
+      : pendingBox ? `${sel ? 'The selection' : 'The whole picture'}, ${ppi() ? `${inches(pendingBox.w)} × ${inches(pendingBox.h)}` : `${pendingBox.w} × ${pendingBox.h} px`}. Drag it to move it.` : sel ? 'There is no ink in the selection.' : 'Nothing to move.';
+    const readouts = () => {
+      const r = $('[data-readout]'); if (r) r.textContent = readoutText();
+      $('[data-hint-sel]').hidden = !sel || !brushMode();
+      const info = $('[data-sel-info]');
+      if (info && infoCache?.ver !== selVer + ':' + work.width) { const b = sel && maskBounds(sel, work.width, work.height); infoCache = { ver: selVer + ':' + work.width }; info.textContent = !b ? 'Nothing selected' : `Selected: ${ppi() ? `${inches(b.w)} × ${inches(b.h)}` : `${b.w} × ${b.h} px`}`; }
+      $('[data-units]').textContent = ppi() ? 'Right and Down are in inches at the tattoo’s real size, from where it was picked up.' : 'Right and Down are in pixels, from where it was picked up.';
+      const T = float?.T, T0 = float?.T0 || T, unit = ppi() || 1, set = (id, v) => { const n = $(id); if (document.activeElement !== n) n.value = v; };
+      set('#ic-mx', T ? +((T.cx - T0.cx) / unit).toFixed(ppi() ? 2 : 0) : 0); set('#ic-my', T ? +((T.cy - T0.cy) / unit).toFixed(ppi() ? 2 : 0) : 0);
+      set('#ic-ms', T ? Math.round(T.s * 100) : 100); set('#ic-mr', T ? Math.round(T.rot * 180 / Math.PI) : 0);
+    };
+    const showMoving = (live = false) => { placeMoving(); readouts(); if (live) say(readoutText(), true); };
+    // Lift the selected ink, or all of it with nothing selected. A copy leaves the original where it is.
+    const liftPiece = (copy = false) => {
+      if (float) return true;
+      const b = maskBounds(sel, work.width, work.height, wctx.getImageData(0, 0, work.width, work.height).data);
+      if (!b) { say(sel ? 'There is no ink in the selection to move.' : 'There is nothing in the picture to move.'); return false; }
+      endLive(); cut = null; snapshot();
+      const src = canvasOf(b.w, b.h), g = src.getContext('2d'); g.drawImage(work, -b.x, -b.y);
+      let mask = null;
+      if (sel) { const mc = selCanvas(); g.globalCompositeOperation = 'destination-in'; g.drawImage(mc, -b.x, -b.y); mask = canvasOf(b.w, b.h); mask.getContext('2d').drawImage(mc, -b.x, -b.y); }
+      if (!copy) { wctx.save(); if (sel) { wctx.globalCompositeOperation = 'destination-out'; wctx.drawImage(selCanvas(), 0, 0); } else wctx.clearRect(0, 0, work.width, work.height); wctx.restore(); }
+      float = { src, mask, w: b.w, h: b.h, T: identityFor(b), T0: identityFor(b), copy };
+      used.add('move'); pendingBox = null; draw(); return true;
+    };
+    const startStep = () => float ? (snapshot(), true) : liftPiece();
+    const loadRect = () => { work.width = original.width = rect.w; work.height = original.height = rect.h; wctx.drawImage(full, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); original.getContext('2d').drawImage(baseline, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); };
+    const resizeCanvas = (c, w, h, draw) => { const n = canvasOf(w, h), g = n.getContext('2d'); g.imageSmoothingQuality = 'high'; draw(g, c); c.width = w; c.height = h; c.getContext('2d').drawImage(n, 0, 0); };
+    // Grow evenly: the uncropped picture and the restore picture get the same transparent margin.
+    const growPicture = (px, py) => {
+      const W = work.width; merge();
+      for (const c of [full, baseline]) resizeCanvas(c, c.width + 2 * px, c.height + 2 * py, (g, from) => g.drawImage(from, px, py));
+      rect = { x: rect.x, y: rect.y, w: rect.w + 2 * px, h: rect.h + 2 * py };
+      const fc = full.getContext('2d'); fc.clearRect(rect.x, rect.y, rect.w, rect.h); fc.drawImage(work, rect.x + px, rect.y + py);
+      loadRect(); setSel(null);
+      grow *= work.width / W;
+    };
+    // Keep the picture inside the 1600 px the cleanup works in: scale everything down together.
+    const fitLimit = () => {
+      const big = Math.max(full.width, full.height); if (big <= 1600) return;
+      const k = 1600 / big, m = sel ? maskCanvas(sel, work.width, work.height) : null; merge();
+      for (const c of [full, baseline]) resizeCanvas(c, Math.max(1, Math.round(c.width * k)), Math.max(1, Math.round(c.height * k)), (g, from) => g.drawImage(from, 0, 0, Math.max(1, Math.round(from.width * k)), Math.max(1, Math.round(from.height * k))));
+      const x = Math.min(full.width - 1, Math.round(rect.x * k)), y = Math.min(full.height - 1, Math.round(rect.y * k));
+      rect = { x, y, w: Math.max(1, Math.min(full.width - x, Math.round(rect.w * k))), h: Math.max(1, Math.min(full.height - y, Math.round(rect.h * k))) }; loadRect();
+      if (m) { const c = canvasOf(work.width, work.height); c.getContext('2d').drawImage(m, 0, 0, work.width, work.height); setSel(maskFrom(c, work.width, work.height)); } else setSel(null);
+    };
+    // Place the floating piece. No undo step of its own: the picture looks the same before and after.
+    const commitFloat = () => {
+      if (!float) return false; const f = float; float = null; nudge = null;
+      const { px, py } = growPads(f.T, f.w, f.h, work.width, work.height);
+      if (px || py) growPicture(px, py);
+      const T = { ...f.T, cx: f.T.cx + px, cy: f.T.cy + py };
+      drawPiece(wctx, f.src, f, T);
+      if (f.mask) { const c = canvasOf(work.width, work.height); drawPiece(c.getContext('2d'), f.mask, f, T); setSel(maskFrom(c, work.width, work.height)); } else setSel(null);
+      fitLimit();
+      if (px || py) say('The picture grew to fit it. The tattoo keeps its real size and its spot on the body.');
+      return true;
+    };
+    const selOpNow = e => e?.shiftKey ? 'add' : e?.altKey ? 'subtract' : $('#ic-sel-op').value;
+    const changeSel = (m, op) => {
+      commitFloat(); endLive(); cut = null;
+      const next = combineMasks(sel, m, op); if (next === sel) { draw(); return false; }
+      snapshotSel(); setSel(next); used.add('select'); draw(); return true;
+    };
+    const tapSelect = (p, e) => {
+      const r = view.getBoundingClientRect(), m = pieceMask(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height, p.x, p.y, boundedValue('#ic-sel-reach', 0, 60), 24 * work.width / Math.max(1, r.width)), op = selOpNow(e);
+      if (!m) { if (op === 'new' && sel) { changeSel(null, 'new'); say('Selection cleared.'); } else say('No ink there. Tap a piece of the design.'); return; }
+      changeSel(m, op); say(op === 'subtract' ? 'Taken out of the selection.' : op === 'add' ? 'Added to the selection.' : 'Piece selected. Tap Move it to drag it, or pick Adds and tap more pieces.');
+    };
+    const previewOf = s => { const a = s.path[0], b = s.path.at(-1); return $('#ic-sel-shape').value === 'box' ? { box: { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y } } : { path: s.path }; };
+    const finishSelDraw = (s, e) => {
+      const pv = previewOf(s), m = pv.box ? rectMask(work.width, work.height, pv.box) : lassoMask(work.width, work.height, pv.path);
+      if (isEmptyMask(m)) { say('That was too small to select anything.'); drawOverlay(); return; }
+      const op = selOpNow(e); changeSel(m, op); say(op === 'subtract' ? 'Taken out of the selection.' : 'Selected. Tap Move it to drag it.');
+    };
+    const nudgeBy = (dx, dy) => {
+      const now = performance.now();
+      if (!float) { if (!liftPiece()) return; nudge = { at: now, n: history.length }; }
+      else if (!nudge || now - nudge.at > 800 || nudge.n !== history.length) { snapshot(); nudge = { at: now, n: history.length }; }
+      nudge.at = now; float.T = { ...float.T, cx: float.T.cx + dx, cy: float.T.cy + dy }; showMoving(true);
+    };
+    // with a selection, Erase and Restore only change what is selected: outside it the stroke is put back
+    const keepOutside = (a, b) => {
+      if (!stroke?.outside || !sel) return;
+      const r = view.getBoundingClientRect(), size = boundedValue('#ic-brush', 2, 150) * work.width / r.width + 4;
+      const x0 = Math.floor(Math.min(a.x, b.x) - size), y0 = Math.floor(Math.min(a.y, b.y) - size), x1 = Math.ceil(Math.max(a.x, b.x) + size), y1 = Math.ceil(Math.max(a.y, b.y) + size);
+      wctx.save(); wctx.beginPath(); wctx.rect(x0, y0, x1 - x0, y1 - y0); wctx.clip(); wctx.globalCompositeOperation = 'destination-in'; wctx.drawImage(selCanvas(), 0, 0); wctx.globalCompositeOperation = 'source-over'; wctx.drawImage(stroke.outside, 0, 0); wctx.restore();
     };
 
     // Paper strength and darker lines show as you slide: the first change takes one undo step and keeps
@@ -361,11 +544,11 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     $('#ic-backdrop').addEventListener('change', e => { stage.dataset.backdrop = e.target.value; });
 
     const setTool = m => {
-      cancelStroke(); endLive(); mode = m; comparing = false; crop = null; hideConfirm();
+      cancelStroke(); endLive(); if (mode === 'move' && m !== 'move') commitFloat(); mode = m; comparing = false; crop = null; hideConfirm();
       host.querySelectorAll('[data-mode]').forEach(n => n.setAttribute('aria-pressed', String(n.dataset.mode === m)));
       host.querySelectorAll('.ic-sec').forEach(s => { s.hidden = !s.dataset.for.split(' ').includes(m); });
       $('[data-hint-erase]').hidden = m !== 'erase'; $('[data-hint-restore]').hidden = m !== 'restore';
-      stage.style.cursor = brushMode() ? 'none' : m === 'crop' ? 'crosshair' : m === 'lines' ? 'grab' : 'pointer';
+      stage.style.cursor = brushMode() ? 'none' : m === 'crop' || m === 'select' ? 'crosshair' : m === 'move' ? 'move' : m === 'lines' ? 'grab' : 'pointer';
       ring.style.display = 'none'; draw();
     };
     host.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.mode)));
@@ -376,11 +559,17 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
 
     // Pointers: one finger or the Pencil uses the tool, two fingers pinch and pan in every tool.
     // A drag in a tap tool (Cut out, Background, Lines) moves the picture instead.
+    const startMove = st => {
+      st.future = future; st.undoTo = history.length;
+      if (!startStep()) { st.kind = 'pan'; return false; }
+      st.started = true; st.T0 = { ...float.T }; return true;
+    };
     const stagePoint = (x, y) => { const s = stage.getBoundingClientRect(); return { x: x - s.left - s.width / 2, y: y - s.top - s.height / 2 }; };
     const cancelStroke = () => { if (stroke && stage.hasPointerCapture?.(stroke.id)) { try { stage.releasePointerCapture(stroke.id); } catch (_) { /* gone */ } } stroke = null; };
     const takeBackStroke = () => {
       if (!stroke) return;
-      if (stroke.kind === 'brush' && stroke.undoTo != null) { while (history.length > stroke.undoTo) restore(history.pop()); future = stroke.future; }
+      if ((stroke.kind === 'brush' || MOVE_KINDS.includes(stroke.kind)) && stroke.undoTo != null) { while (history.length > stroke.undoTo) restoreEntry(history.pop()); future = stroke.future; }
+      if (stroke.kind === 'sel') drawOverlay();
       if (stroke.kind === 'crop') crop = stroke.cropBefore;
       cancelStroke(); draw();
     };
@@ -390,8 +579,17 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       hideConfirm();
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
       const touches = [...pts.values()].filter(p => p.type === 'touch');
+      if (touches.length === 2 && stroke && stroke.type === 'touch' && (stroke.kind === 'move' || stroke.kind === 'piece') && mode === 'move') {
+        const other = [...pts.entries()].find(([id, p]) => id !== stroke.id && p.type === 'touch');
+        if (other && (stroke.started || startMove(stroke))) {
+          const a = workPt(pts.get(stroke.id).x, pts.get(stroke.id).y), b = workPt(other[1].x, other[1].y);
+          Object.assign(stroke, { kind: 'xform2', id2: other[0], a0: a, b0: b, T0: { ...float.T }, moved: true });
+          try { stage.setPointerCapture(e.pointerId); } catch (_) { /* synthetic */ }
+          e.preventDefault(); return;
+        }
+      }
       if (touches.length === 2 && (!stroke || stroke.type === 'touch')) {
-        if (stroke && (stroke.moved || stroke.kind === 'brush' || stroke.kind === 'crop')) takeBackStroke(); else cancelStroke();
+        if (stroke && (stroke.moved || stroke.kind === 'brush' || stroke.kind === 'crop' || (MOVE_KINDS.includes(stroke.kind) && stroke.started))) takeBackStroke(); else cancelStroke();
         const [a, b] = touches, mid = stagePoint((a.x + b.x) / 2, (a.y + b.y) / 2);
         pinch = { d0: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), zoom0: zoom, mid0: mid, pan0: { x: panX, y: panY } }; ring.style.display = 'none'; e.preventDefault(); return;
       }
@@ -407,8 +605,12 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (comparing) kind = 'pan';
       else if (brushMode() || mode === 'crop') { if (stylusOnly) { kind = 'pan'; say('Only the Pencil draws. Fingers move the picture.'); } else if (insidePicture(e)) kind = brushMode() ? 'brush' : 'crop'; }
       else if (mode === 'cutout' || mode === 'color') kind = insidePicture(e) ? 'tap' : 'pan';
+      else if (mode === 'select') kind = 'seltap';
+      else if (mode === 'move') { const h = e.target.closest?.('[data-handle]'); kind = h ? h.dataset.handle : onPiece(e) ? 'move' : 'pan'; }
       stroke = { id: e.pointerId, type: e.pointerType, kind, start, pan0: { x: panX, y: panY }, moved: false, last: null };
-      if (kind === 'brush') { endLive(); cut = null; stroke.future = future; stroke.undoTo = history.length; snapshot(); stroke.last = pos(e); brush(stroke.last, stroke.last); showRing(e, true); draw(); }
+      if (kind === 'seltap') stroke.path = [workPt(e.clientX, e.clientY)];
+      if (kind === 'scale' || kind === 'turn') startMove(stroke);
+      if (kind === 'brush') { endLive(); cut = null; stroke.future = future; stroke.undoTo = history.length; snapshot(); if (sel) { stroke.outside = canvasOf(work.width, work.height); const o = stroke.outside.getContext('2d'); o.drawImage(work, 0, 0); o.globalCompositeOperation = 'destination-out'; o.drawImage(selCanvas(), 0, 0); } stroke.last = pos(e); brush(stroke.last, stroke.last); keepOutside(stroke.last, stroke.last); showRing(e, true); draw(); }
       else if (kind === 'crop') { endLive(); stroke.cropBefore = crop; const p = pos(e); crop = { x: p.x, y: p.y, w: 0, h: 0 }; draw(); }
     });
     stage.addEventListener('pointermove', e => {
@@ -419,25 +621,60 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
         zoom = Math.max(1, Math.min(8, pinch.zoom0 * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d0));
         const p = pinchPan(pinch.mid0, pinch.pan0, pinch.zoom0, mid, zoom); panX = p.x; panY = p.y; layout(); return;
       }
+      if (stroke?.kind === 'xform2' && (e.pointerId === stroke.id || e.pointerId === stroke.id2)) {
+        e.preventDefault(); const p1 = pts.get(stroke.id), p2 = pts.get(stroke.id2); if (!p1 || !p2 || !float) return;
+        const T = twoFingerTransform(stroke.T0, stroke.a0, stroke.b0, workPt(p1.x, p1.y), workPt(p2.x, p2.y));
+        float.T = { ...T, rot: $('#ic-snap').checked ? snapTurn(T.rot) : T.rot }; showMoving(true); return;
+      }
       if (!stroke || e.pointerId !== stroke.id) { if (e.pointerType === 'pen' && !pts.size) showRing(e, true); return; }
       e.preventDefault();
+      if (MOVE_KINDS.includes(stroke.kind)) {
+        if (!stroke.moved && Math.hypot(e.clientX - stroke.start.x, e.clientY - stroke.start.y) > 4) stroke.moved = true;
+        if (!stroke.moved || (!stroke.started && !startMove(stroke))) return;
+        const r = view.getBoundingClientRect(), k = work.width / r.width, T0 = stroke.T0, snap = $('#ic-snap').checked;
+        if (stroke.kind === 'move') { const d = snap ? snapStraight((e.clientX - stroke.start.x) * k, (e.clientY - stroke.start.y) * k, 7, e.shiftKey) : { dx: (e.clientX - stroke.start.x) * k, dy: (e.clientY - stroke.start.y) * k }; float.T = { ...T0, cx: T0.cx + d.dx, cy: T0.cy + d.dy }; }
+        else {
+          const c = { x: r.left + T0.cx / k, y: r.top + T0.cy / k }, d0 = Math.max(4, Math.hypot(stroke.start.x - c.x, stroke.start.y - c.y)), d1 = Math.hypot(e.clientX - c.x, e.clientY - c.y);
+          if (stroke.kind === 'scale') float.T = { ...T0, s: Math.max(0.05, Math.min(20, T0.s * d1 / d0)) };
+          else { const rot = T0.rot + Math.atan2(e.clientY - c.y, e.clientX - c.x) - Math.atan2(stroke.start.y - c.y, stroke.start.x - c.x); float.T = { ...T0, rot: snap ? snapTurn(rot) : rot }; }
+        }
+        showMoving(true); return;
+      }
+      if (stroke.kind === 'seltap' || stroke.kind === 'sel') {
+        if (stroke.kind === 'seltap' && Math.hypot(e.clientX - stroke.start.x, e.clientY - stroke.start.y) > 8) stroke.kind = 'sel';
+        if (stroke.kind === 'sel') { stroke.path.push(workPt(e.clientX, e.clientY)); drawOverlay(previewOf(stroke)); }
+        return;
+      }
       if (!stroke.moved && Math.hypot(e.clientX - stroke.start.x, e.clientY - stroke.start.y) > 8) stroke.moved = true;
       if (stroke.kind === 'tap' && stroke.moved) stroke.kind = 'pan';
       if (stroke.kind === 'pan') { panX = stroke.pan0.x + e.clientX - stroke.start.x; panY = stroke.pan0.y + e.clientY - stroke.start.y; layout(); return; }
       if (stroke.kind === 'crop') { const p = pos(e); crop.w = p.x - crop.x; crop.h = p.y - crop.y; draw(); return; }
-      if (stroke.kind === 'brush') { const p = pos(e); brush(stroke.last, p); stroke.last = p; showRing(e, true); draw(); }
+      if (stroke.kind === 'brush') { const p = pos(e); brush(stroke.last, p); keepOutside(stroke.last, p); stroke.last = p; showRing(e, true); draw(); }
     });
-    const lift = (e, cancelled) => {
+    const endPointer = (e, cancelled) => {
       pts.delete(e.pointerId);
       if (pinch) { if ([...pts.values()].filter(p => p.type === 'touch').length < 2) pinch = null; return; }
+      if (stroke?.kind === 'xform2' && (e.pointerId === stroke.id || e.pointerId === stroke.id2)) {
+        if (cancelled) { takeBackStroke(); return; }
+        const other = e.pointerId === stroke.id ? stroke.id2 : stroke.id; cancelStroke(); try { stage.releasePointerCapture(other); } catch (_) { /* gone */ }
+        say(readoutText()); draw(); return;
+      }
       if (!stroke || e.pointerId !== stroke.id) return;
+      if (MOVE_KINDS.includes(stroke.kind)) {
+        if (cancelled) { takeBackStroke(); return; }
+        const s = stroke; cancelStroke(); if (s.started) { say(readoutText()); draw(); } return;
+      }
+      if (stroke.kind === 'sel' || stroke.kind === 'seltap') {
+        const s = stroke; cancelStroke(); if (cancelled) { drawOverlay(); return; }
+        if (s.kind === 'sel') finishSelDraw(s, e); else tapSelect(workPt(e.clientX, e.clientY), e); return;
+      }
       const s = stroke; cancelStroke(); if (e.pointerType !== 'pen') showRing(e, false);
       if (s.kind === 'tap' && !cancelled) { const p = pos(e); if (mode === 'cutout') runCutout(p); else removeColourAt(p); }
       if (s.kind === 'crop') { if (!crop || Math.abs(crop.w) < 2 || Math.abs(crop.h) < 2) crop = null; else { const b = boxOf(crop); $('#ic-x').value = b.x; $('#ic-y').value = b.y; $('#ic-w').value = b.w; $('#ic-h').value = b.h; say('Tap Crop to keep what is inside the box.'); } draw(); }
     };
-    stage.addEventListener('pointerup', e => lift(e, false));
-    stage.addEventListener('pointercancel', e => lift(e, true));
-    stage.addEventListener('lostpointercapture', e => { if (stroke && e.pointerId === stroke.id && !pts.has(e.pointerId)) cancelStroke(); });
+    stage.addEventListener('pointerup', e => endPointer(e, false));
+    stage.addEventListener('pointercancel', e => endPointer(e, true));
+    stage.addEventListener('lostpointercapture', e => { if (stroke && e.pointerId === stroke.id && !pts.has(e.pointerId) && stroke.kind !== 'xform2') cancelStroke(); });
     stage.addEventListener('pointerleave', e => { if (!stroke) showRing(e, false); });
     stage.addEventListener('wheel', e => {
       e.preventDefault();
@@ -457,6 +694,13 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (cmd && k === 'z') { e.preventDefault(); act(e.shiftKey ? 'redo' : 'undo'); return; }
       if (cmd && k === 'y') { e.preventDefault(); act('redo'); return; }
       if (cmd && e.key === 'Enter') { e.preventDefault(); act('apply'); return; }
+      if (cmd && k === 'a') { e.preventDefault(); act('selall'); return; }
+      if (cmd && k === 'd') { e.preventDefault(); act('selnone'); return; }
+      if (cmd && e.shiftKey && k === 'i') { e.preventDefault(); act('selinvert'); return; }
+      const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (arrows && mode === 'move' && !cmd && !(e.target instanceof HTMLElement && e.target.closest('ink-slider'))) { e.preventDefault(); const n = e.shiftKey ? 10 : 1; nudgeBy(arrows[0] * n, arrows[1] * n); return; }
+      if (e.key === 'Enter' && mode === 'move' && float && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); act('place'); return; }
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (sel || float)) { e.preventDefault(); act('seldelete'); return; }
       if (cmd || e.altKey) return;
       if (TOOL_KEYS[k] && !(e.target instanceof HTMLElement && e.target.closest('ink-slider'))) { e.preventDefault(); setTool(TOOL_KEYS[k]); return; }
       if (e.key === '[' || e.key === ']') { e.preventDefault(); const s = $('#ic-brush'); s.value = Math.round(s.value * (e.key === '[' ? 1 / 1.25 : 1.25)); return; }
@@ -468,10 +712,41 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     // a box drawn either way, in whole pixels inside the picture (the exact size fields show it too)
     const boxOf = c => { const x = Math.max(0, Math.floor(Math.min(c.x, c.x + c.w))), y = Math.max(0, Math.floor(Math.min(c.y, c.y + c.h))); return { x, y, w: Math.max(1, Math.min(work.width - x, Math.round(Math.abs(c.w)))), h: Math.max(1, Math.min(work.height - y, Math.round(Math.abs(c.h)))) }; };
     const syncFields = () => { $('#ic-x').value = $('#ic-y').value = 0; $('#ic-w').value = work.width; $('#ic-h').value = work.height; };
-    const applyCrop = c => { const { x, y, w, h } = exactCrop(c, work.width, work.height); endLive(); snapshot(); merge(); rect = { x: rect.x + x, y: rect.y + y, w, h }; const p = wctx.getImageData(x, y, w, h), o = original.getContext('2d').getImageData(x, y, w, h); work.width = original.width = w; work.height = original.height = h; wctx.putImageData(p, 0, 0); original.getContext('2d').putImageData(o, 0, 0); crop = null; fit(); syncFields(); };
+    const applyCrop = c => { const { x, y, w, h } = exactCrop(c, work.width, work.height); endLive(); snapshot(); merge(); rect = { x: rect.x + x, y: rect.y + y, w, h }; const p = wctx.getImageData(x, y, w, h), o = original.getContext('2d').getImageData(x, y, w, h); work.width = original.width = w; work.height = original.height = h; wctx.putImageData(p, 0, 0); original.getContext('2d').putImageData(o, 0, 0); crop = null; setSel(null); fit(); syncFields(); };
     const observer = new ResizeObserver(layout); observer.observe(stage);
 
     const VIEW_ONLY = ['fit', 'zoomin', 'zoomout', 'compare', 'cancel', 'apply', 'undo', 'backdrop', 'discard', 'keep'];
+    // actions that leave a floating piece up (the rest place it first)
+    const FLOAT_KEEP = ['fit', 'zoomin', 'zoomout', 'compare', 'cancel', 'discard', 'keep', 'backdrop', 'undo', 'redo', 'flipx', 'flipy', 'turn90', 'putback', 'duplicate', 'exactmove', 'seldelete', 'tomove'];
+    const pieceStep = change => { if (!startStep()) return true; float.T = change({ ...float.T }); showMoving(); say(readoutText()); return true; };
+    const selectAction = action => {
+      if (action === 'selall') { changeSel(rectMask(work.width, work.height, { x: 0, y: 0, w: work.width, h: work.height }), 'new'); say('Everything is selected.'); return true; }
+      if (action === 'selnone') { if (!sel) say('Nothing is selected.'); else { changeSel(null, 'new'); say('Selection cleared.'); } return true; }
+      if (action === 'selinvert') { if (!sel) { say('Select something first, then flip the selection to everything else.'); return true; } changeSel(invertMask(sel), 'new'); say(sel ? 'Now everything else is selected.' : 'Nothing is left outside the selection.'); return true; }
+      if (action === 'seldelete') {
+        if (float) { snapshot(); float = null; setSel(null); say('Deleted. Undo brings it back.'); return true; }
+        if (!sel) { say('Select something first.'); return true; }
+        endLive(); cut = null; snapshot(); wctx.save(); wctx.globalCompositeOperation = 'destination-out'; wctx.drawImage(selCanvas(), 0, 0); wctx.restore(); say('Deleted. Undo brings it back.'); return true;
+      }
+      if (action === 'tomove') { setTool('move'); say(pendingBox ? 'Drag the selection to move it. Use the corners to size it and the dot to turn it.' : readoutText()); return true; }
+      if (action === 'flipx') return pieceStep(T => ({ ...T, fx: -T.fx }));
+      if (action === 'flipy') return pieceStep(T => ({ ...T, fy: -T.fy }));
+      if (action === 'turn90') return pieceStep(T => ({ ...T, rot: snapTurn(T.rot + Math.PI / 2, 0.001) }));
+      if (action === 'putback') { if (!float) { say('Nothing has been moved yet.'); return true; } return pieceStep(() => ({ ...float.T0 })); }
+      if (action === 'place') { if (commitFloat()) say('Placed.'); else say('Nothing to place.'); return true; }
+      if (action === 'duplicate') {
+        commitFloat(); if (!liftPiece(true)) return true;
+        const k = work.width / Math.max(1, view.getBoundingClientRect().width); float.T = { ...float.T, cx: float.T.cx + 24 * k, cy: float.T.cy + 24 * k }; float.T0 = { ...float.T };
+        if (mode !== 'move') setTool('move'); showMoving(); say('A copy is up. Drag it where you want it.'); return true;
+      }
+      if (action === 'exactmove') {
+        const num = id => { const n = Number($(id).value); return Number.isFinite(n) ? n : 0; }, unit = ppi() || 1;
+        if (!float) { if (!liftPiece()) return true; } else snapshot();
+        const T0 = float.T0; float.T = { ...float.T, cx: T0.cx + num('#ic-mx') * unit, cy: T0.cy + num('#ic-my') * unit, s: Math.max(0.05, Math.min(20, (num('#ic-ms') || 100) / 100)), rot: num('#ic-mr') * Math.PI / 180 };
+        showMoving(); say(readoutText()); return true;
+      }
+      return false;
+    };
     async function act(action) {
       if (settled) return; cancelStroke();
       if (action !== 'cancel') hideConfirm();
@@ -479,9 +754,11 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (action === 'cancel') return askCancel();
       if (action === 'discard') return finish(null);
       if (action === 'keep') return;
+      if (!FLOAT_KEEP.includes(action)) commitFloat();
+      if (selectAction(action)) { draw(); return; }
       if (action === 'apply') {
         host.querySelectorAll('button,input').forEach(b => b.disabled = true);
-        try { merge(); const dataUrl = work.toDataURL('image/png'), saved = validateCleanupSession({ version: 1, sourceHash, outputHash: await fingerprint(dataUrl), workingDataUrl: full.toDataURL('image/png'), restoreDataUrl: baseline.toDataURL('image/png'), crop: { ...rect } }); return finish({ dataUrl, aspect: work.width / work.height, session: saved, linked: linkedCount >= 2 ? !!$('#ic-linked')?.checked : undefined, settings: { paperThreshold: boundedValue('#ic-threshold', 100, 255), contrast: boundedValue('#ic-contrast', -80, 150) } }); }
+        try { merge(); const dataUrl = work.toDataURL('image/png'), saved = validateCleanupSession({ version: 1, sourceHash, outputHash: await fingerprint(dataUrl), workingDataUrl: full.toDataURL('image/png'), restoreDataUrl: baseline.toDataURL('image/png'), crop: { ...rect } }); return finish({ dataUrl, aspect: work.width / work.height, session: saved, linked: linkedCount >= 2 ? !!$('#ic-linked')?.checked : undefined, widthScale: Math.abs(grow - 1) > 1e-6 ? grow : undefined, used: [...used], settings: { paperThreshold: boundedValue('#ic-threshold', 100, 255), contrast: boundedValue('#ic-contrast', -80, 150) } }); }
         catch (error) { host.querySelectorAll('button,input').forEach(b => b.disabled = false); say(error.message, true); draw(); return; }
       }
       if (action === 'backdrop') { const s = $('#ic-backdrop'); s.value = backdrops[(backdrops.indexOf(s.value) + 1) % backdrops.length]; s.dispatchEvent(new Event('change')); say(`Backdrop: ${s.selectedOptions[0].textContent}.`); return; }
@@ -494,17 +771,19 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
         if (c.x === 0 && c.y === 0 && c.w === work.width && c.h === work.height) { say('Already trimmed.'); return; }
         crop = c; applyCrop(c); say(action === 'trim' ? 'Empty edges trimmed. Undo puts them back.' : 'Cropped. Undo puts it back.'); draw(); return;
       }
-      if (action === 'undo' && history.length) { endLive(); future.push(capture()); trim(future); restore(history.pop()); say('Undone.'); }
-      if (action === 'redo' && future.length) { endLive(); history.push(capture()); trim(history); restore(future.pop()); say('Redone.'); }
-      if (action === 'reset') { endLive(); snapshot(); setImage(source); crop = null; say('Back to the original. Undo brings your edits back.'); }
+      const dims = work.width + 'x' + work.height;
+      if (action === 'undo' && history.length) { endLive(); const e = history.pop(); future.push(entryNow(e)); trim(future); restoreEntry(e); say(e.selOnly ? 'Selection undone.' : 'Undone.'); }
+      if (action === 'redo' && future.length) { endLive(); const e = future.pop(); history.push(entryNow(e)); trim(history); restoreEntry(e); say('Redone.'); }
+      if ((action === 'undo' || action === 'redo') && float && mode !== 'move') setTool('move');
+      if (action === 'reset') { endLive(); snapshot(); setImage(source); crop = null; float = null; setSel(null); grow = 1; say('Back to the original. Undo brings your edits back.'); }
       if (action === 'paper') {
         if (live?.kind === 'paper') say('White paper is already off. Slide Light shades kept to the left to take away more.');
         else { runLive('paper'); say($('#ic-paper-scope').value === 'edges' ? 'White paper at the edges removed. Light areas inside the lines are kept.' : 'White paper removed. Slide Light shades kept to take away more or less.'); }
       }
       if (action === 'contrast') { if (live?.kind === 'lines') say('Slide Darker lines to change how much.'); else { runLive('lines'); say('Lines darkened. Slide to change how much.'); } }
-      if (action === 'uncrop') { endLive(); snapshot(); merge(); work.width = original.width = full.width; work.height = original.height = full.height; wctx.drawImage(full, 0, 0); original.getContext('2d').drawImage(baseline, 0, 0); rect = { x: 0, y: 0, w: full.width, h: full.height }; crop = null; say('The whole picture is back. Your edits are kept.'); }
+      if (action === 'uncrop') { endLive(); snapshot(); merge(); work.width = original.width = full.width; work.height = original.height = full.height; wctx.drawImage(full, 0, 0); original.getContext('2d').drawImage(baseline, 0, 0); rect = { x: 0, y: 0, w: full.width, h: full.height }; crop = null; setSel(null); say('The whole picture is back. Your edits are kept.'); }
       if (action === 'crop' && crop) { applyCrop(boxOf(crop)); say('Cropped. Undo puts it back.'); }
-      if (['undo', 'redo', 'reset', 'uncrop'].includes(action)) { fit(); syncFields(); }
+      if (['reset', 'uncrop'].includes(action) || (['undo', 'redo'].includes(action) && dims !== work.width + 'x' + work.height)) { fit(); syncFields(); }
       draw();
     }
     host.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b || b.disabled) return; act(b.dataset.action); });

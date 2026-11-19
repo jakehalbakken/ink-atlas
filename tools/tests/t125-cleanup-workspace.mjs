@@ -100,7 +100,7 @@ export default async function (p) {
     assert.deepEqual(r.out, [], name + ': nothing off screen');
     assert(r.scrollW <= 0, name + ': no sideways scroll');
     assert(r.stage[0] > 300 && r.stage[1] > 300, name + ': the picture keeps most of the screen ' + r.stage);
-    assert.equal(r.tools, 6);
+    assert.equal(r.tools, 8);
     await p.screenshot({ path: `shots/t125-${name}-${theme}.png` });
     await p.click('[data-action=cancel]'); await wait(200); assert.equal(await p.$('#ink-cleanup'), null, 'Cancel with no changes just closes');
   };
