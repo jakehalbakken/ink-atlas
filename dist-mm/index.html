@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Ink Atlas Studio</title>
+<meta name="description" content="iPad-first 3D tattoo placement studio.">
+<meta name="theme-color" content="#17181d">
+<link rel="icon" type="image/svg+xml" href="/ink-atlas/favicon.svg">
+<link rel="apple-touch-icon" href="/ink-atlas/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ink Atlas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* One visual system. Dark is a dim studio, light a paper desk; the working colour is stencil violet.
+     The canvas fills the screen and the chrome floats over it. Spacing 4/8/12/16/24, type 12/13/15/17/22. */
+  --bg:#121318; --surface:rgba(25,27,34,.82); --surface-solid:#1b1d24; --surface-raised:#23252e;--seg-on:#4b4e5a;
+  --fill:rgba(255,255,255,.07); --fill-soft:rgba(255,255,255,.035); --fill-strong:rgba(255,255,255,.12);
+  --line:var(--fill-strong); --line-strong:rgba(255,255,255,.2);
+  --text:#f1f2f6; --muted:#a0a5b3; --faint:#6f7382;
+  --stencil:#8474ff; --accent:var(--stencil); --stencil-soft:rgba(132,116,255,.2); --on-accent:#fff; --danger:#ff8f86; --good:#5fcf8f;
+  --shadow:0 12px 34px rgba(0,0,0,.34); --hairline:inset 0 1px 0 var(--fill-soft);
+  --r-sm:10px; --r-md:14px; --r-lg:20px;
+  --panel:var(--surface); --panel-solid:var(--surface-solid);
+  --stage-a:#474b59; --stage-b:#2a2d37; --stage-c:#17181d;
+  --below:84px;
+  --display:"Bricolage Grotesque",system-ui,sans-serif; --body:-apple-system,BlinkMacSystemFont,"Figtree",system-ui,sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){:root{
+  --bg:#e9e7e3; --surface:rgba(251,250,248,.86); --surface-solid:#fbfaf8; --surface-raised:#ffffff;--seg-on:#ffffff;
+  --fill:rgba(24,26,34,.055); --fill-soft:rgba(24,26,34,.03); --fill-strong:rgba(24,26,34,.1);
+  --line:rgba(24,26,34,.11); --line-strong:rgba(24,26,34,.22);
+  --text:#1b1c22; --muted:#5d6170; --faint:#8b8f9c;
+  --stencil:#6b59f2; --stencil-soft:rgba(107,89,242,.14); --danger:#cf3f36; --good:#1f9a5a;
+  --shadow:0 10px 30px rgba(40,36,30,.14); --hairline:inset 0 1px 0 rgba(255,255,255,.6);
+  --stage-a:#fbfaf7; --stage-b:#e6e3de; --stage-c:#cfcbc4;
+  color-scheme:light;
+}}
+*{box-sizing:border-box}
+/* The page itself can never pan, bounce or zoom: only the canvas and the panels below take gestures. */
+html,body{position:fixed;inset:0;width:100%;height:100%;margin:0;overflow:hidden;overscroll-behavior:none;touch-action:none}
+body{background:var(--bg);color:var(--text);accent-color:var(--stencil);font:500 15px/1.35 var(--body);-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+#viewport{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:0 0;transform:translate(0,0);overflow:hidden}
+#inkCheck{position:fixed;inset:0;z-index:9;background:#16171c;overflow:hidden;touch-action:none}#inkCheck[hidden]{display:none}#icView{position:absolute;inset:76px 16px 220px;display:flex;align-items:center;justify-content:center}#icCanvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 2px 14px rgba(0,0,0,.4)}#icTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#icBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:8px;max-width:640px;margin:0 auto;max-height:190px;overflow:auto;overscroll-behavior:contain}#icList{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}#icList li{display:flex;gap:10px;align-items:flex-start;line-height:1.3}#icList .key{flex:none;width:14px;height:14px;margin-top:3px;border-radius:4px;border:1px solid #fff6}#icBar .row{display:flex;gap:8px}#icBar .row .btn{flex:1}#icBar .row[hidden],#icResize[hidden]{display:none}
+#answers textarea{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill,rgba(255,255,255,.06));color:inherit;resize:vertical;min-height:140px}#answers .row{display:flex;gap:8px}#answers .row .btn{flex:1}#ansNote{min-height:1.4em;margin:8px 0}#review{margin:2px 4px 8px;font-weight:600;line-height:1.35}#review[hidden]{display:none}#review.ok{color:var(--good,#5fd39a)}#review.chg{color:var(--warn,#ffb35c)}@media (prefers-color-scheme:light){#review.chg,.chip .lock.rv-chg{color:var(--warn,#b8650a)}#review.ok,.chip .lock.rv-ok{color:var(--good)}}.chip .lock.rv-ok{color:var(--good,#5fd39a)}.chip .lock.rv-chg{color:var(--warn,#ffb35c)}
+#roomBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:560px}#roomCover,#roomNote{font-size:13px!important;line-height:1.3}#roomText{font-size:15px;line-height:1.3}#roomBar[hidden]{display:none}#roomCover{margin:0 6px;text-align:center;font-size:14px;color:var(--text)}#roomCover[hidden]{display:none}#roomBar .row{display:flex;gap:8px;align-items:center}.roomKey{flex:1;display:flex;align-items:center;gap:8px;font-size:14px;margin-left:6px}.roomKey[hidden]{display:none}#roomKeyAll i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#8c858c,#ccedda 11%,#73d9b3 29%,#1aa39e 57%,#0a5c85)}.roomKey b{width:16px;height:16px;border-radius:4px;flex:none}.roomKey b.fit{background:#29bd70}.roomKey b.tight{background:#99949a}#roomText{margin:0 6px;text-align:center;font-weight:600}#roomText:empty{display:none}#roomNote{margin:0 6px 2px;text-align:center}@media (max-width:520px){#roomText,#roomNote{font-size:13px}}#likeLine,#whereLine,#estLine,#evenLine,#showsLine,#wearLine{font-size:14px;color:var(--text)}#likeLine[hidden]{display:none}#evenRow,#lineRow,#readRow{align-items:center}#wrapRow{align-items:center;gap:8px}#wrapRow[hidden],#wrapFit[hidden]{display:none}#wrapText{flex:1;font-size:13px;line-height:1.35;color:var(--text)}#wrapFit{flex:none}#stretchRow{align-items:center}#stretchRow[hidden],#stretchShow[hidden]{display:none}#stretchText{flex:1;font-size:14px;color:var(--text)}#stretchShow{flex:none}#evenRow[hidden],#evenFix[hidden],#lineRow[hidden],#lineFix[hidden],#readRow[hidden],#readFix[hidden]{display:none}#evenLine,#lineText,#readText{flex:1;font-size:14px;color:var(--text)}#evenFix,#lineFix,#readFix{flex:none}#verBox{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--muted)}#verBox[hidden],#verActs[hidden]{display:none}#verBox small{font-size:13px}#verList{display:flex;gap:8px;overflow-x:auto;padding:2px}#verList button{flex:none;width:64px;min-height:84px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:var(--text);font:600 13px var(--body)}#verList button img{width:54px;height:54px;object-fit:contain;background:#fff;border-radius:8px}#verList button[aria-pressed=true]{border-color:var(--stencil);box-shadow:0 0 0 2px var(--stencil)}#verActs .btn{flex:1}#sitBox{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--muted)}#sitBox[hidden],#sitHealed[hidden],#sitDry[hidden],#sitWear[hidden],#sitSleep[hidden],#sitCal[hidden],#sitClash[hidden],#sitClash [hidden]{display:none}#sitClash{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border-radius:12px;background:rgba(253,204,56,.14);border:1px solid rgba(253,204,56,.5)}#sitClashText{margin:0;color:var(--text)}#sitClash .btn{flex:1}#sitBox small{font-size:13px}#sitList{margin:0;padding:0 0 0 22px;color:var(--text);display:flex;flex-direction:column;gap:4px}#sitList b{font-weight:600}#sitBox .row{display:flex;gap:8px;flex-wrap:wrap}#sitBox label{display:flex;flex-direction:column;gap:4px;flex:1 1 140px}#sitStart,#sitGap,#sitAway{min-height:44px;font:16px var(--body);color:var(--text);background:var(--fill);border:1px solid var(--line);border-radius:12px;padding:8px 12px}#noteBox,#madeBox{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--muted)}#madeBox[hidden]{display:none}#madeBox .row{display:flex;gap:8px;flex-wrap:wrap}#tNote,#madeBox input{min-height:44px;font:16px var(--body);color:var(--text);background:var(--fill);border:1px solid var(--line);border-radius:12px;padding:10px 12px;-webkit-user-select:text;user-select:text}#tNote{resize:vertical;width:100%}#madeArtist,#madeStudio{flex:1 1 120px;min-width:0}#madeWhen{flex:0 1 170px}#estRow{align-items:center}#estRow label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:14px}
+#approveRow[hidden],#changeBox[hidden]{display:none}#approveRow{margin:0 0 6px;flex-wrap:wrap}#approveRow .btn{flex:1}#changeBox{margin:0 0 8px}#changeBox textarea,#pinNote{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill,rgba(255,255,255,.06));color:inherit;resize:vertical;min-height:60px;margin-bottom:6px;touch-action:auto}
+#pinBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#pinBar[hidden],#pinBar [hidden]{display:none}#pinBar .row{display:flex;gap:6px;align-items:center}#pinBar .row .btn{flex:1;padding:0 10px}#pinText{flex:3;margin:0 6px;font-weight:600}#pinBody{margin:2px 6px;font-weight:600;white-space:pre-wrap;word-break:break-word;max-height:30vh;overflow:auto;overscroll-behavior:contain}#pinWho{margin:0 6px 4px}#pinReplies{list-style:none;margin:0 6px 6px;padding:0;max-height:24vh;overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px}#pinReplies:empty{display:none}#pinList .row .btn[aria-pressed="true"]{background:var(--accent,var(--stencil));color:var(--on-accent,#fff)}#pinListFind{width:100%;font:inherit;font-size:16px;min-height:44px;padding:8px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill,rgba(255,255,255,.06));color:inherit;touch-action:auto}#pinListItems{list-style:none;margin:0;padding:0;max-height:40vh;overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px}#pinListItems button{width:100%;min-height:44px;text-align:left;padding:8px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill,rgba(255,255,255,.06));color:inherit;font:inherit;cursor:pointer}#pinListItems button b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#pinListItems button small{display:block;opacity:.7;font-size:13px}#pinListItems li.done button{opacity:.6}#pinReplies li{padding:6px 10px;border-radius:10px;background:var(--fill,rgba(255,255,255,.06));white-space:pre-wrap;word-break:break-word}#pinReplies li small{display:block;opacity:.7;font-size:13px}#pinReply{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill,rgba(255,255,255,.06));color:inherit;resize:vertical;min-height:44px;touch-action:auto}#pinRead.done #pinBody{opacity:.6}#pinTyping{margin:0 6px 4px;font-style:italic}#suggestBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:9;width:420px;max-width:calc(100% - 32px);padding:10px;display:flex;flex-direction:column;gap:8px}#suggestBar[hidden]{display:none}#suggestBar p{margin:0 6px;font-weight:600}#suggestBar .row{display:flex;gap:6px}#suggestBar .row .btn{flex:1}#suggestNote{width:100%;font:inherit;font-size:16px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--fill,rgba(255,255,255,.06));color:inherit;min-height:44px;resize:vertical}body.comment-only.suggesting #handles{display:block!important}body.suggesting #sheet{display:none}#pinSuggest{margin:0 6px 6px}#pinSuggest[hidden]{display:none}#pinSuggest .row{display:flex;gap:6px}#pinSuggestPeek{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}#pinSuggest .btn{flex:1}#pinReacts{display:flex;gap:6px;margin:0 6px 6px}#pinReacts[hidden]{display:none}#pinReacts .react{flex:0 0 auto;min-width:56px;min-height:44px;padding:0 10px;gap:4px;font-size:18px}#pinReacts .react small{font-size:14px;font-weight:600}#pinReacts .react[aria-pressed="true"]{background:rgba(139,124,246,.35);border-color:rgba(139,124,246,.8)}.mention-chips{display:flex;flex-wrap:wrap;gap:6px}.mention-chips[hidden]{display:none}.mention-chips .btn{flex:0 0 auto;min-height:44px;padding:0 14px}mark.at-me{background:rgba(139,124,246,.35);color:inherit;border-radius:4px;padding:0 2px}#pinTyping[hidden]{display:none}
+#pinLayer{position:fixed;inset:0;z-index:4;pointer-events:none}#pinLayer button{position:fixed;width:44px;height:44px;margin:-35px 0 0 -9px;border:0;padding:0;background:none;pointer-events:auto;touch-action:none;cursor:pointer}#pinLayer button[hidden]{display:none}#pinLayer button i{display:flex;align-items:center;justify-content:center;width:26px;height:26px;margin:9px;border-radius:50% 50% 50% 4px;background:#ffc83d;color:#1b1b1f;font:700 13px system-ui;font-style:normal;box-shadow:0 2px 8px rgba(0,0,0,.45);border:2px solid #1b1b1f}#pinLayer button.on i{background:var(--accent,var(--stencil))}#pinLayer button.done i{background:#7d8088;opacity:.75}#pinLayer button.unread i{position:relative}#pinLayer button.unread i::after{content:'';position:absolute;top:-6px;right:-6px;width:10px;height:10px;border-radius:50%;background:var(--alert,#e5484d);border:2px solid #1b1b1f}#lookBtn.has-new::after,#pinsBtn.has-new::after{content:'';display:inline-block;width:8px;height:8px;margin-left:6px;border-radius:50%;background:var(--alert,#e5484d);vertical-align:middle}body.hands-on #pinLayer{opacity:.5}
+#selfBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:480px}#selfBar[hidden],#selfBar [hidden]{display:none}#selfBar .row{display:flex;gap:8px;align-items:center}#selfBar .seg.two{display:grid;grid-template-columns:1fr 1fr;flex:1}#selfHead{flex:1;margin-left:8px;font-weight:650}#selfText{margin:0 6px;text-align:center;font-weight:600}#selfText:empty{display:none}#selfTip{margin:0 6px 2px;text-align:center}#selfBestText{flex:1;font-size:14px;margin-left:6px;color:var(--text)}#selfSaveRow .btn{flex:1}#selfieFrame{position:fixed;left:0;right:0;top:0;bottom:0;margin:auto;width:min(100vw,75vh);height:min(100vh,133.33vw);pointer-events:none;z-index:3;border:1px solid rgba(255,255,255,.55);box-shadow:0 0 0 100vmax rgba(0,0,0,.42)}#selfieFrame[hidden]{display:none}body.self-mirror #selfBar{top:auto;bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom,0px))}body.self-cam #dock,body.self-cam #handles,body.self-cam #views{display:none!important}@media (max-width:520px){#selfBar .seg .btn{font-size:13px}#selfText,#selfTip{font-size:13px}}
+#painBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#painBar[hidden]{display:none}#painBar .row{display:flex;gap:8px;align-items:center}#painKey{flex:1;display:flex;align-items:center;gap:8px;font-size:14px;margin-left:6px}#painKey i{flex:1;height:10px;border-radius:5px;background:linear-gradient(90deg,#29bd70,#9ed64d 33%,#fdcc38 55%,#e6332e)}#painText{margin:0 6px;text-align:center;font-weight:600}#painText:empty{display:none}#painNote[hidden],#roomNote[hidden]{display:none}#painNote{margin:0 6px 2px;text-align:center}@media (max-width:520px){#painText,#painNote{font-size:13px}#painNote{margin-top:-2px}}#tapeBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px;display:flex;flex-direction:column;gap:6px;max-width:calc(100% - 32px);width:440px}#tapeBar[hidden]{display:none}#tapeBar .row{display:flex;gap:6px}#tapeBar .row .btn{flex:1;padding:0 10px}#tapeBar .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#tapeText{margin:0 6px 2px;text-align:center;font-weight:600}#tapeLabel{position:fixed;z-index:4;transform:translate(-50%,-140%);padding:4px 10px;border-radius:10px;background:#ffc83d;color:#1b1b1f;font-weight:700;font-size:15px;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.35)}#tapeLabel[hidden]{display:none}body.hands-on #tapeLabel{opacity:.5}
+#handles{position:fixed;inset:0;pointer-events:none}#handles[hidden]{display:none}.hnd{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;pointer-events:auto;touch-action:none;cursor:grab}.hnd[hidden]{display:none}.hnd::after{content:"";position:absolute;left:12px;top:12px;width:20px;height:20px;box-sizing:border-box;background:#fff;border:2.5px solid var(--stencil);box-shadow:0 1px 5px rgba(0,0,0,.4)}#hSize::after{border-radius:5px}#hTurn::after{border-radius:50%}.hnd.on::after{background:var(--stencil)}body.hands-on #handles{opacity:0}
+#tryOn{position:fixed;inset:0;z-index:9;background:#0d0e12;overflow:hidden;touch-action:none}#tryOn[hidden]{display:none}#toVideo,#toPhoto{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}#toVideo.mirror{transform:scaleX(-1)}#toPhoto[hidden],#toVideo[hidden]{display:none}#toArt{position:absolute;left:0;top:0;transform-origin:50% 50%;mix-blend-mode:multiply;pointer-events:none}#toTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#toBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#toBar .row{display:flex;gap:8px;flex-wrap:wrap}#toBar .row[hidden]{display:none}#toBar .row .btn{flex:1;min-width:120px}
+#realSize{position:fixed;inset:0;z-index:9;background:var(--rs-skin,#e0b394);overflow:hidden;touch-action:none}#realSize[hidden]{display:none}#rsArt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#rsImg{display:block;width:100%;height:100%;mix-blend-mode:multiply}#rsTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#rsCal{position:absolute;left:16px;right:16px;bottom:16px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}#rsCal p{margin:0}#rsCard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px dashed #2b2f38;border-radius:12px;pointer-events:none}#rsCard[hidden]{display:none}#stencil{position:fixed;inset:0;z-index:9;background:#f4f4f2;overflow:hidden;touch-action:none}#stencil[hidden]{display:none}#stView{position:absolute;inset:76px 16px 168px;display:flex;align-items:center;justify-content:center}#stCanvas{max-width:100%;max-height:100%;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.18)}#stTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#stBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#stBar .row{display:flex;gap:8px;flex-wrap:wrap}#stBar .row .btn{flex:1;min-width:140px}#stBar .row .btn[hidden]{display:none}
+#rsCheck{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;background:rgba(20,22,28,.7)}
+#paintBar{position:fixed;top:var(--below);left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}#paintBar[hidden]{display:none}#paintBar p{margin:0}body.painting #newBtn,body.painting #dock,body.painting #lookBtn,body.painting #full{display:none}
+#stage{position:fixed;inset:0}
+#stage canvas{display:block;outline:none}
+button,input{font:inherit;color:inherit}
+input,textarea,select{font-size:16px}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outline-offset:2px}
+[hidden]{display:none!important}
+.glass{background:var(--surface);border:1px solid var(--line);backdrop-filter:blur(22px) saturate(1.4);-webkit-backdrop-filter:blur(22px) saturate(1.4);border-radius:var(--r-lg);box-shadow:var(--shadow),var(--hairline)}
+.btn{min-height:44px;min-width:44px;padding:0 14px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--fill);display:inline-flex;align-items:center;justify-content:center;gap:8px;font:600 15px/1.2 var(--body);letter-spacing:-.005em;white-space:nowrap;transition:background .15s ease,border-color .15s ease}
+@media (hover:hover){.btn:hover{background:var(--fill-strong)}.btn.primary:hover{filter:brightness(1.08);background:var(--stencil)}}
+.btn:active{background:var(--fill-strong)}
+.btn.primary:active{filter:brightness(.92)}
+.btn:disabled{opacity:.35}
+.btn.primary{background:var(--stencil);border-color:transparent;color:var(--on-accent);box-shadow:0 4px 14px rgba(108,90,255,.32)}
+[class*=" i-"]::before,[class^="i-"]::before{content:"";flex:none;width:20px;height:20px;background:currentColor;-webkit-mask:center/contain no-repeat;mask:center/contain no-repeat}
+.i-undo::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%2014%204%209l5-5%22/%3E%3Cpath%20d%3D%22M4%209h10.5a5.5%205.5%200%200%201%200%2011H11%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M9%2014%204%209l5-5%22/%3E%3Cpath%20d%3D%22M4%209h10.5a5.5%205.5%200%200%201%200%2011H11%22/%3E%3C/svg%3E")}
+.i-redo::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m15%2014%205-5-5-5%22/%3E%3Cpath%20d%3D%22M20%209H9.5a5.5%205.5%200%200%200%200%2011H13%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m15%2014%205-5-5-5%22/%3E%3Cpath%20d%3D%22M20%209H9.5a5.5%205.5%200%200%200%200%2011H13%22/%3E%3C/svg%3E")}
+.i-body::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%224.5%22%20r%3D%222.2%22/%3E%3Cpath%20d%3D%22M5%208.5c2.3.9%204.6%201.3%207%201.3s4.7-.4%207-1.3%22/%3E%3Cpath%20d%3D%22M12%209.8V15m0%200-3%206m3-6%203%206%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%224.5%22%20r%3D%222.2%22/%3E%3Cpath%20d%3D%22M5%208.5c2.3.9%204.6%201.3%207%201.3s4.7-.4%207-1.3%22/%3E%3Cpath%20d%3D%22M12%209.8V15m0%200-3%206m3-6%203%206%22/%3E%3C/svg%3E")}
+.i-eye::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M2.5%2012S6%205.5%2012%205.5%2021.5%2012%2021.5%2012%2018%2018.5%2012%2018.5%202.5%2012%202.5%2012Z%22/%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%223%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M2.5%2012S6%205.5%2012%205.5%2021.5%2012%2021.5%2012%2018%2018.5%2012%2018.5%202.5%2012%202.5%2012Z%22/%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%223%22/%3E%3C/svg%3E")}
+.i-plan::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2216%22%20height%3D%2217%22%20rx%3D%222.5%22/%3E%3Cpath%20d%3D%22M8%209h8M8%2013h8M8%2017h5%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2216%22%20height%3D%2217%22%20rx%3D%222.5%22/%3E%3Cpath%20d%3D%22M8%209h8M8%2013h8M8%2017h5%22/%3E%3C/svg%3E")}
+.i-share::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%2015V3.5m0%200-4%204m4-4%204%204%22/%3E%3Cpath%20d%3D%22M7%2011H6a2%202%200%200%200-2%202v6a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2v-6a2%202%200%200%200-2-2h-1%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%2015V3.5m0%200-4%204m4-4%204%204%22/%3E%3Cpath%20d%3D%22M7%2011H6a2%202%200%200%200-2%202v6a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2v-6a2%202%200%200%200-2-2h-1%22/%3E%3C/svg%3E")}
+.i-spark::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v4M12%2017v4M3%2012h4M17%2012h4M6%206l2.5%202.5M15.5%2015.5%2018%2018M18%206l-2.5%202.5M8.5%2015.5%206%2018%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v4M12%2017v4M3%2012h4M17%2012h4M6%206l2.5%202.5M15.5%2015.5%2018%2018M18%206l-2.5%202.5M8.5%2015.5%206%2018%22/%3E%3C/svg%3E")}
+.i-plus::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%205v14M5%2012h14%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%205v14M5%2012h14%22/%3E%3C/svg%3E")}
+.i-trash::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%207h16M9%207V4.5h6V7M6.5%207l1%2013h9l1-13M10%2011v6M14%2011v6%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%207h16M9%207V4.5h6V7M6.5%207l1%2013h9l1-13M10%2011v6M14%2011v6%22/%3E%3C/svg%3E")}
+#bDelTop{color:var(--muted);flex:none}#bDelTop:hover{color:var(--danger)}body.comment-only #bDelTop{display:none!important}
+.i-pencil::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%2020l1-4.5L15.5%205a2.1%202.1%200%200%201%203%203L8%2018.5%204%2020Z%22/%3E%3Cpath%20d%3D%22m13.5%207%203%203%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%2020l1-4.5L15.5%205a2.1%202.1%200%200%201%203%203L8%2018.5%204%2020Z%22/%3E%3Cpath%20d%3D%22m13.5%207%203%203%22/%3E%3C/svg%3E")}
+.i-full::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%209V4h5M20%209V4h-5M4%2015v5h5M20%2015v5h-5%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%209V4h5M20%209V4h-5M4%2015v5h5M20%2015v5h-5%22/%3E%3C/svg%3E")}
+.btn.quiet{border-color:transparent;background:transparent;color:var(--muted)}
+.btn[aria-pressed="true"]{background:var(--stencil-soft);border-color:var(--stencil)}
+.btn.danger{color:var(--danger)}
+#top{position:fixed;top:0;left:0;right:0;display:flex;align-items:center;gap:12px;padding:calc(12px + env(safe-area-inset-top,0px)) 16px 12px;pointer-events:none;z-index:3}
+#top .toolbar{margin-left:auto}
+#top>*{pointer-events:auto}
+.brand{display:flex;flex-direction:column;justify-content:center;gap:1px;min-height:52px;padding:0 14px;border-radius:var(--r-lg);flex:none}
+.brand b{font:700 19px/1.05 var(--display);letter-spacing:-.015em}
+.brand small{color:var(--muted);font-size:12px;font-weight:500}
+.brand small.bad{color:var(--danger);font-weight:600}
+.cluster{display:flex;gap:4px;align-items:center;padding:4px;flex:none}
+.toolbar .btn{border-color:transparent;background:transparent;padding:0 12px}
+/* an iPad Air or Pro 11 in landscape: tighter padding so the view switcher, with its lock, stays in the top row */
+@media (min-width:621px) and (max-width:1279px){#top{gap:10px}#top .brand{padding:0 10px}#top .toolbar .btn:not(.ico){padding:0 10px}#top .toolbar #newBtn{padding:0 10px 0 8px}}
+.toolbar .btn.primary{background:var(--stencil);margin-left:4px}
+.toolbar .btn.ico{padding:0;width:44px;color:var(--text)}
+.toolbar .btn.ico:disabled{opacity:.3}
+.toolbar .btn[aria-expanded=true],.toolbar .btn.active{background:var(--stencil-soft);color:var(--text)}
+.tb-sep{flex:none;width:1px;height:24px;margin:0 4px;background:var(--line)}
+#lookBtn{max-width:230px;overflow:hidden;text-overflow:ellipsis;display:inline-flex;justify-content:flex-start}
+#newBtn{padding:0 12px 0 10px;gap:6px;color:var(--stencil)}#newBtn .count-badge{margin:0}
+#views{display:flex;align-items:center;gap:2px;padding:4px;flex:none}
+body.views-low #views{position:fixed;left:50%;transform:translateX(-50%);top:var(--views-top,76px)}
+#views .btn{min-width:46px;padding:0 8px;border-color:transparent;background:transparent;color:var(--muted)}
+#views #full{color:var(--text);gap:6px;padding:0 10px 0 8px}#views .tb-sep{margin:0 2px}
+#views .btn:active{color:var(--text);background:var(--fill-strong)}
+@media (hover:hover){#views .btn:hover{color:var(--text)}}
+#dock{position:fixed;left:0;right:var(--layers-w,0px);bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
+#dock>*{pointer-events:auto}
+#foot{position:fixed;left:0;right:var(--layers-w,0px);bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px calc(16px + env(safe-area-inset-bottom,0px));pointer-events:none}
+#foot>#empty{pointer-events:auto}#adds[hidden]{display:none}
+#empty .row{gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+#bSheetMin{flex:none;width:44px;padding:0;color:var(--muted)}#bSheetMin svg{transition:transform .2s ease}#sheet.min #bSheetMin svg{transform:rotate(180deg)}
+#sheet.min>*:not(.row:first-child),#sheet.min #size,#sheet.min #gap{display:none!important}#sheet.min{overflow:hidden}
+#viewLock{min-width:44px;width:44px;padding:0}#viewLock .vl-shut,#viewLock[aria-pressed=true] .vl-open{display:none}#viewLock[aria-pressed=true] .vl-shut{display:block}#viewLock[aria-pressed=true]{color:var(--on-accent,#fff)!important;background:var(--stencil)!important}
+/* fingers on the body: everything floating fades almost away until they lift */
+#top,#views,#lookMenu,#dock,#foot,.pop{transition:opacity .25s ease}
+body.hands-on #top,body.hands-on #views,body.hands-on #lookMenu,body.hands-on #dock,body.hands-on #foot,body.hands-on .pop{opacity:.08;transition:opacity .12s ease}
+#procreateBar{position:fixed;top:var(--below);left:50%;transform:translateX(-50%);z-index:7;width:min(560px,calc(100% - 32px));padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+#procreateBar[hidden]{display:none}
+#procreateBar p{margin:0;font-size:14px;line-height:1.35;color:var(--muted)}#procreateBar p b{color:var(--text)}
+#procreateBar .row{gap:8px}#procreateBar #pcPaste{flex:1}
+#newBtn[hidden]{display:none}.count-badge{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:var(--stencil);color:var(--on-accent);font-weight:700;font-size:13px;margin-left:6px}
+#newPop{z-index:6;width:400px;max-height:calc(100% - var(--below) - 24px)}
+.newrow{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}.newrow b{display:block;font-size:15px}.newrow small{display:block;font-size:13px;color:var(--muted);line-height:1.35;margin-top:2px}.newrow.done b{color:var(--muted);text-decoration:line-through}
+.tick{width:44px;height:44px;border-radius:12px;border:2px solid var(--line-strong);background:none;color:var(--on-accent);font-size:22px;font-weight:800;padding:0}.tick[aria-checked=true]{background:var(--stencil);border-color:var(--stencil)}.tick[aria-checked=true]::after{content:"\2713"}
+#pointRing{position:fixed;z-index:30;pointer-events:none;border:3px solid var(--stencil);border-radius:14px;box-shadow:0 0 0 4px rgba(132,116,255,.35),0 0 24px rgba(132,116,255,.6);animation:coachPulse 1.1s ease-in-out infinite}#pointRing[hidden],#pointTip[hidden]{display:none}@keyframes coachPulse{50%{box-shadow:0 0 0 10px rgba(132,116,255,.15),0 0 30px rgba(132,116,255,.75)}}
+#pointTip{position:fixed;z-index:30;max-width:min(320px,calc(100% - 32px));padding:10px 14px;pointer-events:none;font-size:14px;line-height:1.35}
+#lookMenu{position:fixed;top:var(--below);right:16px;z-index:5;display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:8px;width:300px;max-width:calc(100vw - 16px)}
+#lookMenu[hidden]{display:none}
+#lookMenu .btn{justify-content:flex-start;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border-color:transparent;background:transparent;padding:0 12px}
+#lookMenu .menu-head{grid-column:1/-1;margin:6px 10px 2px;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}#lookMenu .menu-head:first-child{margin-top:2px}
+#lookMenu #baBtn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
+#bodyMatch{left:16px;right:auto;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#bmPic{display:block;width:auto;height:auto;max-width:100%;max-height:44vh;border-radius:12px;background:#0003;margin:4px auto 6px}#bmActions{display:flex;flex-direction:column;gap:8px}#bmText{min-height:2.6em}#bmInk{display:flex;flex-direction:column;gap:8px;margin:0 0 12px;padding:10px;border-radius:12px;background:#7ee0b014;border:1px solid #7ee0b040}#bmInkText{margin:0}#bmMirror[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#spotPop{left:16px;right:auto;z-index:5;width:380px;max-height:calc(100% - 190px);overflow:auto}#spotPop .posegrid{grid-template-columns:repeat(2,1fr)}#spotPop .posegrid .btn{font-size:14px;padding:0 6px}#spotPop .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#spotSide{display:flex;gap:8px;margin:0 0 8px}#spotChoices .btn{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 6px;min-height:44px}.spotsub{font-size:11.5px;opacity:.72;font-weight:400;line-height:1.15}#spotSide .btn{flex:1}
+#undo{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}#historyPop{left:auto;right:16px;z-index:6;width:340px;max-height:calc(100% - 190px);overflow:auto}#historyList{display:flex;flex-direction:column;gap:6px}#historyList .btn{display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:44px;text-align:left}#historyList .spotsub{font-size:12px;opacity:.7;flex:none}@media (max-width:600px){#historyPop{left:16px;right:16px;width:auto}}#agePop,#lightPop{z-index:5;width:360px}
+#agePop .posegrid,#lightPop .posegrid{grid-template-columns:repeat(4,1fr)}#lightPop .posegrid .btn{padding:0 4px;font-size:13px}#lightPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#agePop .posegrid .btn{padding:0 4px;font-size:13px}#agePop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
+#clothesPop{z-index:5;width:360px}
+#clothesPop .posegrid{grid-template-columns:repeat(4,1fr)}#clothesPop .posegrid .btn{padding:0 4px;font-size:13px}
+#clothesPop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
+#clothesPop .posegrid .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
+#clothesShow{margin:0;font-size:14px;line-height:1.4}
+#posePop{z-index:5;width:340px}
+#posePop h4{margin:4px 0 0;font-size:13px;color:var(--muted);font-weight:600}
+.posegrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}.posegrid .btn{padding:0 8px;font-size:14px;line-height:1.15}
+.posegrid .btn[aria-pressed=true],#posePop .seg .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
+#motionKind{flex:1;min-height:44px;border-radius:12px;background:var(--fill);color:inherit;border:1px solid var(--line);padding:0 10px}
+#beforeAfter{position:absolute;inset:0;pointer-events:none}
+#beforeAfter .ba-line{position:absolute;top:0;bottom:0;width:44px;margin-left:-22px;pointer-events:auto;touch-action:none;cursor:ew-resize;outline:none}
+#beforeAfter .ba-line::before{content:"";position:absolute;top:0;bottom:0;left:21px;width:2px;background:#fff;box-shadow:0 0 6px rgba(0,0,0,.55)}
+#beforeAfter .ba-grip{position:absolute;top:50%;left:50%;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+#beforeAfter .ba-grip::before,#beforeAfter .ba-grip::after{content:"";position:absolute;top:50%;margin-top:-6px;border:6px solid transparent}
+#beforeAfter .ba-grip::before{left:6px;border-right-color:#333}
+#beforeAfter .ba-grip::after{right:6px;border-left-color:#333}
+#beforeAfter .ba-line:focus-visible .ba-grip{outline:2px solid var(--stencil);outline-offset:2px}
+#beforeAfter .ba-label{position:absolute;top:calc(var(--below) + 64px);background:rgba(0,0,0,.45);color:#fff;font-size:13px;font-weight:600;padding:5px 10px;border-radius:999px;white-space:nowrap}
+#hint,#moveTip{color:var(--muted);font-size:13px;text-align:center;margin:0}
+#hint{background:var(--surface);border:1px solid var(--line);padding:6px 14px;border-radius:999px;pointer-events:none;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+body.panel-open #hint{visibility:hidden}
+#sheet{max-height:55vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.sec{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--line)}.sec:first-child{border-top:0;padding-top:0}
+.sec>h5{margin:0;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.sec .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px}.sec .grid .btn{justify-content:flex-start;padding:0 12px}
+.sec .info{display:flex;flex-direction:column;gap:0;background:var(--fill-soft);border-radius:var(--r-md);overflow:hidden;clip-path:inset(1px 0 0 0 round var(--r-md))}.sec .info:empty,.sec .info:not(:has(>:not([hidden]))){display:none}#estRow,#planSits,#sitBox,#verBox,#noteBox,#madeBox{background:var(--fill-soft);border-radius:var(--r-md);padding:12px 14px}#estRow{justify-content:space-between;row-gap:6px;padding:8px 8px 8px 14px;min-height:56px}#estRow #estLine{flex:1 1 160px;min-width:0}#planLine{margin:-2px 4px 0}#planSits{display:flex;flex-direction:column;gap:6px}#planSits>p{margin:0}#planSits>.btn{align-self:flex-start}#sitBox>span,#verBox>span,#madeBox>span{color:var(--text);font-weight:600}#sitBox>span small,#verBox>span small{font-weight:400;color:var(--muted)}#sitBox>.tip{margin:0;padding-top:8px;border-top:1px solid var(--line)}#sitBox>.tip+.tip{border-top:0;padding-top:0}#sitBox>#sitCal{align-self:flex-start}#noteBox{color:var(--text);font-weight:600}#noteBox textarea{font-weight:400}.sec .info>*{margin:0;padding:11px 14px;box-shadow:inset 0 1px 0 var(--line);font-size:14px;line-height:1.35}.sec .info>.row{flex-wrap:nowrap;gap:12px;padding:8px 8px 8px 14px;min-height:52px}.sec .info>.row>span{flex:1;min-width:0}.sec .info>.row>.btn{flex:none;min-height:44px;font-size:14px}#estRate,#exactWidth{min-height:44px;font:inherit;font-size:16px;color:var(--text);background:var(--fill);border:1px solid var(--line);border-radius:12px;padding:0 12px;margin-left:6px;-webkit-appearance:none;appearance:none}#estRate::placeholder{color:var(--faint,var(--muted))}
+#editorAdvanced>summary{min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;list-style:none;padding:0 12px;border-radius:var(--r-md);background:var(--fill-soft)}#editorAdvanced>summary::-webkit-details-marker{display:none}#editorAdvanced>summary::before{content:"+";font-size:20px;color:var(--muted);width:14px}#editorAdvanced[open]>summary::before{content:"−"}#editorAdvanced>summary span{font-weight:400;color:var(--muted);font-size:12px}#editorAdvanced .editor-advanced-content{display:flex;flex-direction:column;gap:14px;padding:12px 2px 2px}.editor-quick{gap:6px}.editor-quick .btn{flex:1;white-space:nowrap;padding:0 10px}#sheet #moveTip{font-size:12px;line-height:1.35}@media(orientation:landscape) and (max-height:650px){#sheet{max-height:50vh;padding:8px 12px;gap:5px}#sheet #moveTip{display:none}#dock{gap:6px;padding-bottom:8px}#editorAdvanced>summary span{display:none}}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#name{flex:1 1 160px;min-height:44px;background:var(--fill);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:600;-webkit-user-select:text;user-select:text}
+#size{font-variant-numeric:tabular-nums;color:var(--text);font-size:14px;white-space:pre}
+#gap{font-variant-numeric:tabular-nums;color:var(--muted);font-size:13px;flex-basis:100%;order:4}
+.sliders{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.sliders .lbl{font-size:12.5px}
+ink-slider{display:block;position:relative;height:44px;touch-action:pan-y;cursor:pointer;outline:none;-webkit-tap-highlight-color:transparent}
+ink-slider .sl-track{position:absolute;left:0;right:0;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:var(--fill-strong);pointer-events:none}
+ink-slider .sl-fill{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--stencil)}
+ink-slider .sl-thumb{position:absolute;top:50%;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;background:#fff;box-shadow:0 1px 5px rgba(0,0,0,.45);pointer-events:none}
+ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offset:2px}
+#fitGroups{display:flex;flex-direction:column;gap:6px}
+#fitGroups details{border:1px solid var(--line);border-radius:14px;background:var(--fill-soft)}
+#fitGroups summary{min-height:44px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;font-weight:600;cursor:pointer;list-style:none;-webkit-tap-highlight-color:transparent}
+#fitGroups summary::-webkit-details-marker{display:none}
+#fitGroups summary::after{content:"+";color:var(--muted);font-size:20px;font-weight:400}
+#fitGroups details[open] summary::after{content:"\2212"}
+#fitGroups summary i{font-style:normal;font-size:12px;color:var(--stencil);margin:0 8px 0 auto}
+#wrapBox,#preciseBox{border:1px solid var(--line);border-radius:12px;background:var(--fill-soft);margin-top:8px}
+#preciseBox summary,#wrapBox summary{min-height:44px;padding:0 14px;display:flex;align-items:center;font-weight:600;cursor:pointer;list-style:none;-webkit-tap-highlight-color:transparent}
+#wrapBox summary::-webkit-details-marker,#preciseBox summary::-webkit-details-marker{display:none}
+#wrapBox summary::after,#preciseBox summary::after{content:"+";margin-left:auto;color:var(--muted);font-size:20px}
+#wrapBox[open] summary::after,#preciseBox[open] summary::after{content:"\2212"}
+#wrapBox i{font-style:normal;font-size:12px;color:var(--stencil);margin-left:8px}
+#wrapBox .grp{padding:2px 14px 10px;display:flex;flex-direction:column;gap:4px}
+#preciseBox>.row,#preciseBox>.tip{padding:0 14px}#preciseBox[open]{padding-bottom:10px}#preciseBox .row{flex-wrap:wrap}
+#fitGroups .grp{padding:0 14px 10px;display:flex;flex-direction:column;gap:4px}.mrow{display:flex;align-items:center;gap:8px}.mrow ink-slider{flex:1;min-width:0}.mval{flex:none;width:84px;min-height:44px;padding:0 6px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:var(--text);font:600 15px var(--body);font-variant-numeric:tabular-nums;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent}.mval.set{color:var(--stencil);border-color:var(--stencil)}.mval.drift{color:var(--warn,#d98a1e)}input.mval{font-size:16px;-webkit-user-select:text;user-select:text}input.hput{width:180px}.mhint{font-size:12.5px;color:var(--muted)}.mhint[hidden]{display:none}#measureAgain[hidden]{display:none}
+.mval.typing,#hText.typing{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 35%,transparent)}
+.numpad{display:flex;flex-direction:column;gap:10px;font-family:var(--body)}
+.numpad.glass{position:absolute;z-index:6;padding:14px;border-radius:20px;background:var(--panel-solid);box-shadow:0 12px 40px rgba(0,0,0,.35);touch-action:manipulation}
+.numpad:not(.inline){animation:ia-rise .25s cubic-bezier(.2,.9,.25,1.04)}
+.np-head{display:flex;flex-direction:column;gap:2px}.np-title{font:600 17px var(--body);color:var(--text)}.np-title:empty{display:none}.np-hint{font-size:13px;color:var(--muted)}
+.np-show{min-height:64px;display:flex;align-items:baseline;justify-content:center;gap:4px;border-radius:14px;background:var(--fill);border:1px solid var(--line);font-variant-numeric:tabular-nums;padding:6px 12px}
+.np-num{font:600 38px/1.3 var(--body);color:var(--text)}.np-unit{font:500 20px var(--body);color:var(--muted)}.np-show.empty .np-num{color:var(--muted)}.np-show.fresh .np-num{color:var(--accent)}
+.np-units{display:flex}.np-units .btn{flex:1 1 0;min-width:0;white-space:nowrap;padding:0 8px}
+.np-keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.np-extra{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.np-k{min-height:52px;font:500 22px var(--body);font-variant-numeric:tabular-nums}.np-frac{min-height:44px;font-size:20px}.np-k[hidden]{display:none}
+.np-foot{display:flex;gap:8px}.np-foot .btn{flex:1;min-height:48px}.np-foot .btn[hidden]{display:none}
+#scanSheet .modal{width:min(520px,100%)}.scan-busy{display:flex;flex-direction:column;gap:12px;padding:8px 2px 4px}#scanMsg{font-weight:600;font-size:17px;margin:0}.scan-prog{height:8px;border-radius:4px;background:var(--fill);overflow:hidden}.scan-prog i{display:block;height:100%;width:0;background:var(--stencil);transition:width .3s}.scan-busy.err .scan-prog{display:none}
+#scanHow .modal{width:min(560px,100%)}.scan-how{overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.scan-how ol{padding-left:22px;display:flex;flex-direction:column;gap:10px;margin:12px 0}.scan-how li{line-height:1.4}.scan-how .btn{width:100%;margin-top:8px}
+#scanBar{position:fixed;left:50%;transform:translateX(-50%);z-index:8;padding:10px;display:flex;flex-direction:column;gap:8px;max-width:calc(100% - 32px);width:520px;top:auto;bottom:calc(16px + env(safe-area-inset-bottom,0px))}#scanBar[hidden]{display:none}#scanBar .row{display:flex;gap:8px}#scanBar .row .btn{flex:1;padding:0 10px;white-space:nowrap}#scanText{margin:0 6px;font-weight:600;text-align:center}#scanMeas{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}#scanMeas b{color:var(--text);font-weight:600}
+body:has(#scanBar:not([hidden])) #foot{visibility:hidden}
+#measureMe .modal{width:min(900px,100%);height:min(760px,100%)}
+.mm{display:flex;gap:24px;flex:1;min-height:0}.mm[data-step=done],.mm[data-step=busy]{display:block}
+.mm-left{flex:0 0 38%;display:flex;align-items:center;justify-content:center;min-width:0}.mm-fig{width:100%;max-width:260px}
+.mdiag{width:100%;height:auto;display:block}.mdiag .md-body{fill:var(--fill);stroke:var(--line);stroke-width:1.5}.mdiag .md-limb{fill:none;stroke:var(--fill);stroke-linecap:round;stroke-linejoin:round}
+.mdiag .md-tape{fill:none;stroke:var(--accent);stroke-width:4;stroke-linecap:round}.mdiag .md-tape.back{stroke-dasharray:3 4;opacity:.7}
+.mm-right{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}
+.mm-count{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}.mm-bar{height:4px;border-radius:2px;background:var(--fill);overflow:hidden}.mm-bar i{display:block;height:100%;background:var(--accent);transition:width .2s}
+.mm-name{margin:4px 0 0;font:600 24px var(--body);color:var(--text)}.mm-tip{margin:0;color:var(--muted);font-size:15px;line-height:1.4}.mm-model{margin:0;font-size:13.5px;color:var(--muted)}
+.mm-pad{max-width:380px;width:100%}
+.mm-table{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:12px 0}
+.mm-row{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.3fr;gap:8px;padding:10px 14px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums;align-items:center;min-height:44px}
+.mm-row:first-child{border-top:0}.mm-th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);min-height:0}.mm-row.ok .mm-n{color:var(--good)}.mm-row.off .mm-n{color:var(--warn,#d98a1e);font-size:13px}
+.mm-foot{display:flex;gap:10px;justify-content:flex-end}.mm-foot .btn{min-height:48px;padding:0 20px}
+@media (max-width:700px){#measureMe{padding:8px}#measureMe .modal{height:100%}.mm{display:grid;grid-template-columns:76px 1fr;align-content:start;gap:6px 12px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.mm-left,.mm-right{display:contents}.mm-fig{grid-column:1;grid-row:1 / span 4;width:76px;max-width:76px;align-self:start}.mm-right>:not(.mm-pad):not(.mm-model){grid-column:2}.mm-pad,.mm-model{grid-column:1 / -1}.mm-pad{max-width:none}.mm-name{font-size:21px}.mm-tip{font-size:14px}.np-k{min-height:44px}.numpad{gap:8px}}
+#fitGroups .grp .btn{align-self:flex-start;margin-bottom:4px}
+.tip{color:var(--muted);font-size:13px;margin:0}
+.pophead{display:flex;align-items:center;justify-content:space-between;position:sticky;top:-16px;margin:-16px -16px 0;padding:10px 10px 10px 18px;background:var(--surface-solid);border-bottom:1px solid var(--line);border-radius:var(--r-lg) var(--r-lg) 0 0;z-index:1}
+.chip{flex:none;display:flex;align-items:center;gap:9px;min-height:52px;padding:5px 12px 5px 5px;border-radius:var(--r-md);border:1.5px solid transparent;background:var(--fill);max-width:210px;position:relative;font:500 14px/1.2 var(--body)}
+.chip img{width:42px;height:42px;border-radius:10px;object-fit:contain;background:#f4f1ec}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+.chip.on{border-color:var(--stencil);background:var(--stencil-soft)}
+.chip.off{opacity:.45}
+.chip .lock{font-style:normal;font-size:11px;color:var(--muted)}
+.chip .pchip{width:42px;height:42px;border-radius:10px;display:grid;place-items:center;background:var(--stencil-soft);color:var(--stencil);flex:none}
+.chip .pchip::before{width:22px;height:22px}
+.ppActs{display:flex;flex-direction:column;gap:8px}.ppActs .btn{flex-direction:column;align-items:flex-start;text-align:left;height:auto;min-height:56px;padding:10px 14px;gap:2px}.ppActs small{font-weight:500;font-size:12.5px;color:var(--muted);line-height:1.35}
+#empty{padding:10px 14px;display:flex;gap:12px;align-items:center}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.seg.four{grid-template-columns:repeat(4,1fr)}.lbl.sub{margin-bottom:-4px}#bodyPop .sec:first-of-type{border-top:1px solid var(--line);padding-top:12px}.seg .btn{padding:0 8px}.lbl{color:var(--muted);font-size:13px;display:flex;flex-direction:column;gap:2px}
+
+.pop{position:fixed;z-index:3;top:var(--below);right:16px;width:340px;max-width:calc(100% - 32px);max-height:calc(100% - var(--below) - var(--tray-gap,110px));overflow-x:hidden;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.pop>*{flex:none}
+.pop h3,.modal h2{margin:0;font:600 17px/1.25 var(--body);letter-spacing:-.01em}.modal h2{font-size:20px;font-weight:700}
+.pop h4{margin:6px 0 -2px;font:650 11.5px/1.2 var(--body)!important;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+#skins,#hairCols,#eyeCols{display:flex;flex-wrap:wrap;gap:4px}#skins .sw,#hairCols .sw,#eyeCols .sw{flex:none}#eyeCols .sw.photo,#hairCols .sw.photo{box-shadow:inset 0 0 0 3px rgba(255,255,255,.35)}#hairCols[hidden]{display:none}
+.sw{width:44px;height:44px;border-radius:50%;border:2px solid transparent}
+.sw.on{border-color:#fff;box-shadow:0 0 0 3px var(--stencil)}.sw.own{background:conic-gradient(#f6e2d3,#d37d5f,#6a422a,#45291a,#b99d7a,#f6e2d3);display:grid;place-items:center;color:#20232c;font-weight:700;font-size:20px;line-height:1}.sw.own.set{font-size:0}#skinOwn{display:flex;flex-direction:column;gap:8px;margin-top:6px}#skinOwn[hidden]{display:none}
+#skinPick{position:fixed;inset:0;z-index:9;background:#0d0e12;touch-action:none}#skinPick[hidden]{display:none}#spImg{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}#spTop{position:absolute;top:16px;left:16px;right:16px;padding:10px 16px}#spTop p{margin:0}#spRing{position:absolute;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.6);pointer-events:none}#spRing[hidden]{display:none}#spBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}#spSwatch{width:44px;height:44px;border-radius:50%;border:2px solid rgba(255,255,255,.7);flex:none}#spMsg{flex:1;min-width:160px}
+.acct-btn svg{flex:none}.acct-btn.signed{padding:0;width:44px;border-radius:22px;background:var(--accent,var(--stencil));border-color:transparent;color:var(--on-accent,#fff)}.acct-btn.signed svg{display:none}.acct-btn.signed span{font:700 18px/1 var(--display)}
+@media (max-width:720px){
+  .cards{grid-template-columns:1fr}.acct-btn:not(.signed) span{display:none}.acct-btn:not(.signed){padding:0}}
+/* phones: the whole top bar fits, Share and the account button included */
+@media (max-width:620px){#top{padding:calc(8px + env(safe-area-inset-top,0px)) 8px 8px}#top .brand{display:none}#top .toolbar{margin:0 auto;max-width:100%}#top .toolbar .btn{padding:0 9px}#top .toolbar .tb{font-size:0;gap:0;width:44px;padding:0;justify-content:center}#top .toolbar .tb[class*=" i-"]::before{width:22px;height:22px}}
+#linkCards:has(#cLink[hidden]){display:none}
+.acct{width:min(560px,100%)}.acct p{margin:0;line-height:1.45}.acct .muted{color:var(--muted);font-size:14px}
+.acct-form{display:flex;flex-direction:column;gap:10px}.acct-form.inline{flex-direction:row;flex-wrap:wrap;width:100%}.acct-form.inline input{flex:1;min-width:160px}
+.acct input[type=text],.acct input[type=email],.acct input[type=password]{min-height:48px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:var(--fill,rgba(255,255,255,.06));color:inherit;width:100%;box-sizing:border-box}
+.acct input:focus{outline:2px solid var(--stencil);outline-offset:1px}
+.acct-seg{display:flex;gap:2px;padding:3px;border-radius:var(--r-md,14px);background:var(--fill,rgba(127,127,127,.14))}.acct-seg .btn{flex:1 1 0;min-width:0;min-height:44px;padding:0 10px;border:0;border-radius:calc(var(--r-md,14px) - 3px);background:transparent;color:var(--muted);font-weight:600;box-shadow:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .18s ease,color .18s ease}.acct-seg .btn[aria-pressed=true]{background:var(--surface-raised,var(--surface-solid));color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.acct-bar h2{flex:1;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.btn.acct-back{padding:0 12px 0 4px;gap:4px;color:var(--accent,var(--stencil))}.acct-back::before{content:"";width:10px;height:10px;margin:0 0 0 6px;border-left:2.4px solid currentColor;border-bottom:2.4px solid currentColor;transform:rotate(45deg)}
+.modal .cards.acct-choices,.modal .cards.acct-group{grid-template-columns:1fr}.modal .acct-choices .card{min-height:72px}
+.acct-row{display:flex;flex-wrap:wrap;gap:8px}.acct-col{display:flex;flex-direction:column;gap:8px}
+.acct-msg{min-height:1.2em;color:var(--danger);font-weight:600}.acct-msg:empty{min-height:0}.acct-msg.good{color:var(--good,#5fd39a)}
+.acct-here{display:flex;flex-direction:column;gap:10px;padding:12px 14px;border:1px solid var(--line);border-radius:14px}.acct-here.good,p.acct-here{color:var(--good,#5fd39a);font-weight:600}
+.acct-list{display:flex;flex-direction:column}.acct-item{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:10px 0;border-top:1px solid var(--line)}.acct-item.here .acct-name b::after{content:"";}
+.acct-name{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 180px}.acct-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acct-name small{color:var(--muted)}
+.acct-actions{display:flex;gap:6px;flex-wrap:wrap}
+.acct-check{display:flex;gap:10px;align-items:center;min-height:44px}.acct-check input{width:22px;height:22px}.acct-check[hidden]{display:none}
+.acct-more{border-top:1px solid var(--line)}.acct-group{margin-bottom:12px}.modal .card.acct-go{padding-right:44px}.modal .card.acct-go::after{content:"";position:absolute;right:20px;top:50%;width:8px;height:8px;border-top:2.2px solid var(--faint,var(--muted));border-right:2.2px solid var(--faint,var(--muted));transform:translateY(-50%) rotate(45deg)}.modal .card.acct-go[class*=" i-"]{position:relative}.acct-together{display:flex;flex-direction:column;gap:8px}.acct-together>.shHead{margin:0}.acct-together>.acct-row{margin-top:4px}.btn.acct-switch,.btn.acct-switch[aria-pressed]{width:100%;min-height:52px;justify-content:space-between;padding:0;border:0;background:transparent;box-shadow:none;color:var(--text)}.acct-switch i{position:relative;flex:none;width:51px;height:31px;border-radius:16px;background:var(--fill-strong);transition:background .2s ease}.acct-switch i::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;box-shadow:0 2px 5px rgba(0,0,0,.28);transition:transform .2s ease}.acct-switch[aria-pressed=true] i{background:var(--good,#34c759)}.acct-switch[aria-pressed=true] i::after{transform:translateX(20px)}.acct-more summary{min-height:48px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;color:var(--text);font-weight:600;list-style:none}.acct-more summary::-webkit-details-marker{display:none}.acct-more summary::after{content:"";width:9px;height:9px;margin-right:8px;border-right:2.2px solid var(--faint,var(--muted));border-bottom:2.2px solid var(--faint,var(--muted));transform:rotate(45deg) translate(-2px,-2px);transition:transform .2s ease}.acct-more[open] summary::after{transform:rotate(-135deg) translate(-2px,-2px)}.acct-more>p,.acct-more>.acct-row{margin-bottom:10px}.acct-more .acct-row{padding-top:6px}
+.acct-link{font-size:15px!important}
+#refsGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:12px 0}
+.refTile{display:flex;flex-direction:column;gap:4px;padding:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--fill-soft);color:inherit;text-align:left;min-height:44px}
+.refTile img{width:100%;aspect-ratio:1;object-fit:cover;display:block;background:var(--fill)}.refTile span{font-size:13px;padding:2px 8px 8px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#refImg{width:100%;max-height:52vh;object-fit:contain;border-radius:12px;background:var(--fill-soft)}
+#refText{width:100%;box-sizing:border-box;min-height:64px;border-radius:12px;border:1px solid var(--line);background:var(--fill);color:inherit;padding:10px;font:inherit;font-size:16px;margin:8px 0}
+.refFor{display:flex;align-items:center;gap:10px;min-height:44px}.refFor select{min-height:44px;flex:1;font-size:16px;border-radius:12px}
+#refsGrid:empty{display:none}
+.coach-comment{display:none!important}body.comment-only .coach-comment{display:grid!important}body.comment-only .coach-place,body.comment-only #bodyBtn,body.comment-only #add,body.comment-only #drawNew,body.comment-only #empty,body.comment-only .editor-quick,body.comment-only #editorAdvanced,body.comment-only #handles,body.comment-only #planMenu .card:not(#openNew):not(#openRefs),body.comment-only #cAnswers,body.comment-only #cPainted,body.comment-only #cRecover,body.comment-only #cSketch{display:none!important}
+#showSpotBtn[hidden]{display:none}#showSpotBtn.on{background:var(--stencil-soft);color:var(--text)}.i-point::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%221.9%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Ccircle%20cx=%2212%22%20cy=%2212%22%20r=%222.6%22/%3E%3Ccircle%20cx=%2212%22%20cy=%2212%22%20r=%227.2%22/%3E%3Cpath%20d=%22M12%202v2.2M12%2019.8V22M2%2012h2.2M19.8%2012H22%22/%3E%3C/svg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2024%2024%22%20fill=%22none%22%20stroke=%22black%22%20stroke-width=%221.9%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Ccircle%20cx=%2212%22%20cy=%2212%22%20r=%222.6%22/%3E%3Ccircle%20cx=%2212%22%20cy=%2212%22%20r=%227.2%22/%3E%3Cpath%20d=%22M12%202v2.2M12%2019.8V22M2%2012h2.2M19.8%2012H22%22/%3E%3C/svg%3E")}#spotLayer{position:fixed;inset:0;z-index:4;pointer-events:none}.spotMark{position:fixed;width:0;height:0}.spotMark[hidden]{display:none}.spotMark i{position:absolute;left:-18px;top:-18px;width:36px;height:36px;border-radius:50%;border:3px solid var(--warn,#ffb35c);box-shadow:0 0 0 3px rgba(0,0,0,.35);animation:spotPulse 1s ease-out infinite}.spotMark.mine i{border-color:#fff}.spotMark span{position:absolute;left:22px;top:-12px;padding:2px 8px;border-radius:10px;background:rgba(20,20,26,.85);color:#fff;font:600 13px/20px system-ui,sans-serif;white-space:nowrap}@keyframes spotPulse{0%{transform:scale(.6);opacity:1}100%{transform:scale(1.4);opacity:.35}}
+#followBar{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);z-index:7;display:flex;gap:12px;align-items:center;padding:6px 6px 6px 16px;border-radius:999px;font-weight:600}#followBar[hidden]{display:none}.acct-follow{min-height:44px}
+.here-now{min-width:44px;padding:0 4px;gap:0}.here-now[hidden]{display:none}.here-now i{display:inline-grid;place-items:center;width:30px;height:30px;margin-left:-8px;border-radius:15px;background:var(--accent,var(--stencil));color:var(--on-accent,#fff);border:2px solid var(--bg,#fff);font:700 14px/1 var(--display);font-style:normal}.here-now i:first-child{margin-left:0}.here-now i.more{background:var(--fill-strong,#666);font-size:12px}.chip b.cmts{position:absolute;bottom:3px;left:3px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:rgba(20,20,28,.85);border:1px solid var(--line);color:#fff;font:700 11px/18px system-ui,sans-serif;text-align:center;pointer-events:none}.chip b.cmts.new{background:var(--alert,#e5484d);border-color:var(--alert,#e5484d)}.chip b.peer{position:absolute;top:4px;left:4px;width:22px;height:22px;border-radius:11px;background:var(--accent,var(--stencil));color:#fff;font:700 12px/22px system-ui,sans-serif;text-align:center;pointer-events:none}.acct-here-now[hidden]{display:none}
+.acct-btn{position:relative}.acct-badge{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--alert,#e5484d);color:#fff;font:700 12px/20px system-ui,sans-serif;font-style:normal;text-align:center;pointer-events:none}.acct-badge[hidden]{display:none}
+.acct-turn{font-weight:600}.acct-name small.acct-turn.yours{color:var(--stencil)}.acct-name small.acct-turn.done{color:var(--good,#5fd39a)}
+.acct-glance{margin:4px 0 10px}
+.scrim{position:fixed;inset:0;background:rgba(8,9,12,.62);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
+.modal{width:min(720px,100%);max-height:100%;overflow-x:hidden;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:16px;background:var(--panel-solid);touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.modal header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.modal h2{font-size:22px}
+.modal header{position:sticky;top:-20px;margin:-20px -22px 0;padding:14px 14px 14px 22px;background:var(--surface-solid);border-bottom:1px solid var(--line);z-index:1}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.card{min-height:84px;text-align:left;padding:14px 16px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--fill-soft);display:flex;flex-direction:column;justify-content:flex-start;gap:4px;transition:background .15s ease,border-color .15s ease}
+@media (hover:hover){.card:hover{background:var(--fill);border-color:var(--line-strong)}}
+.card:active{background:var(--stencil-soft);border-color:var(--stencil)}
+.card b{font:650 16px/1.25 var(--body);letter-spacing:-.005em}
+.card span{color:var(--muted);font-size:13px;line-height:1.35}
+.shHead{margin:10px 0 -4px;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+#shMore summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--muted)}#shMore[open] summary{margin-bottom:12px}
+.pmPaint{padding:12px 16px;border-radius:16px;border:1px solid var(--stencil);background:var(--stencil-soft)}.pmPaint p{margin:0 0 10px}.pmPaint .row{display:flex;flex-wrap:wrap;gap:8px}
+.card.slim{min-height:64px;padding:12px 16px;gap:2px;width:100%}
+.card.slim b{font-size:16px}
+#rcList{display:flex;flex-direction:column;gap:8px}
+#pvImg{max-width:100%;max-height:56vh;border-radius:12px;align-self:center;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;background:#fff}
+#pvNote{color:var(--muted);font-size:14px;margin:0}
+#coach{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,calc(100% - 32px));padding:28px 24px 20px;display:flex;flex-direction:column;gap:20px;background:var(--panel-solid);z-index:4;border-radius:var(--r-lg,22px)}
+#coach h2{margin:0;text-align:center;font:700 24px/1.15 var(--body);letter-spacing:-.015em}
+#coach ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:16px}
+#coach li{display:grid;grid-template-columns:44px 1fr;column-gap:14px;align-items:center}
+#coach li::before{grid-row:1/span 2;width:44px;height:44px;border-radius:12px;background:var(--stencil);-webkit-mask-size:26px;mask-size:26px}
+#coach li b{font:600 15px/1.25 var(--body);color:var(--text)}#coach li span{font-size:13px;line-height:1.35;color:var(--muted)}
+#coach .btn{min-height:50px;font-size:17px}
+#coach:not([hidden]){animation:ia-fade .25s ease-out}
+#empty{flex-direction:column;align-items:center;text-align:center;gap:4px;padding:14px 18px}#empty b{font:600 17px/1.25 var(--body)}#empty span{font-size:13px;color:var(--muted)}
+#toast{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);padding:10px 14px;display:flex;gap:12px;align-items:center;z-index:6;border-radius:999px}
+#toast button{background:none;border:0;color:var(--stencil);font-weight:600;min-height:44px;min-width:44px;padding:0 6px}
+/* Keep turn controls clear of the right-hand actions on tablet widths. */
+#tapPlaceBar{top:var(--below)!important}
+@media (max-width:900px){.brand small{display:none}.brand{min-height:44px;padding:0 4px;background:none!important;border:0!important;box-shadow:none!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}}
+@media (max-width:720px){
+  .sliders{grid-template-columns:1fr 1fr}
+  .cards{grid-template-columns:1fr}
+}
+/* The Layers panel at the right (layers-dock.js) sets --layers-w to the room the right-hand
+   column takes (Layers, with the edit panel under it or beside the rail): the bars across the
+   top and the hint at the bottom keep clear of it. */
+:root:has(#wrapStudio:not([hidden])),body.painting{--layers-w:0px!important}
+#tapeBar,#roomBar,#pinBar,#painBar,#selfBar,#paintBar,#procreateBar,#followBar,#toast,#tapPlaceBar,#scanBar{margin-left:calc((var(--left-w,0px) - var(--layers-w,0px)) / 2);max-width:max(220px,calc(100% - 32px - var(--layers-w,0px) - var(--left-w,0px)))!important}
+/* the tape measure and Open skin bars sit along the bottom, where the long strip of tattoos used to be, so the head, chest and arms you tap on stay clear (2026-11-19) */
+@media (min-width:700px){#tapeBar,#roomBar{top:auto!important;bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom,0px))}body:has(#tapeBar:not([hidden])) #foot,body:has(#roomBar:not([hidden])) #foot{visibility:hidden}}
+/* with a sheet like Plan or Share open in the middle, messages drop to the bottom so they never sit over its buttons */
+body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) + env(safe-area-inset-bottom,0px));margin-left:0;max-width:calc(100% - 32px)!important}
+/* a panel open at the left (Blend and colour, Match a photo, Try other spots): messages centre in the space between it and the right column, so they never sit over its buttons */
+@media (min-width:700px){body:has(#inkLook:not([hidden])){--left-w:352px}body:has(#bodyMatch:not([hidden])),body:has(#spotPop:not([hidden])){--left-w:396px}}
+/* An iPad either way round (700 px and up): one column at the right. Layers on top, the edit
+   panel under it when a tattoo is selected (or beside the folded rail), so the middle of the
+   screen, where the body is, stays clear. Anything opened from the top bar takes that same
+   column while it is open, and Layers and the edit panel step out of its way (kept in place, so
+   nothing moves when it closes). */
+@media (min-width:700px){
+  #dock{left:auto;right:calc(12px + var(--rail-w,0px) + env(safe-area-inset-right,0px));top:var(--below);width:340px;justify-content:flex-end;align-items:stretch;padding:0 0 calc(16px + env(safe-area-inset-bottom,0px))}
+  #sheet{width:100%;max-height:none;flex:0 1 auto;min-height:0}
+  body.ld-open #sheet{max-height:calc(100% - 236px)}
+  #sheet #size{flex-basis:100%;order:3}
+  #sheet .row:first-child{flex-wrap:wrap}
+  .editor-quick{flex-wrap:wrap}.editor-quick .btn{flex:1 1 40%;min-width:0;padding:0 8px;font-size:14px}
+  #procreateBar{width:min(520px,calc(100% - 472px))}#paintBar{width:min(560px,calc(100% - 160px))}
+  .pop:not(#bodyMatch):not(#spotPop),#lookMenu{right:calc(12px + env(safe-area-inset-right,0px));max-height:calc(100% - var(--below) - 16px - var(--kb,0px))}
+  #lookMenu{grid-auto-rows:max-content;overflow-y:auto;overscroll-behavior:contain}
+  body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #layersDock,body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #dock,
+  body:has(#lookMenu:not([hidden])) #layersDock,body:has(#lookMenu:not([hidden])) #dock{visibility:hidden;pointer-events:none}
+}
+#sheet .row:first-child #name{flex:1 1 90px}#sheet .row:first-child{flex-wrap:wrap}#sheet #size{flex-basis:100%;order:3}
+/* a phone: the edit panel runs along the bottom, so the Layers rail steps aside while it is open,
+   and the view buttons drop the words Full body to keep the lock in reach */
+@media (max-width:699px){body:has(#sheet:not([hidden])) #layersDock.rail{display:none!important}
+  body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #layersDock,body:has(#lookMenu:not([hidden])) #layersDock,body:has(#inkLook:not([hidden])) #layersDock{visibility:hidden;pointer-events:none}}
+@media (max-width:520px){#views .btn{min-width:44px;padding:0 9px}#views #full{font-size:0;gap:0;width:44px;min-width:44px;padding:0;justify-content:center}#views #full::before{margin:0}}
+/* Phones: the pain map and open skin bars take the tattoo list's place at the bottom while they
+   are on, so the head, neck and chest stay in view. */
+@media (max-width:600px),(max-height:500px){
+  body.wash-on #painBar,body.wash-on #roomBar{top:auto!important;bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom,0px))}
+  body.wash-on #dock{display:none}
+}
+.i-ba::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223.5%22%20y%3D%224.5%22%20width%3D%2217%22%20height%3D%2215%22%20rx%3D%222.5%22%2F%3E%3Cpath%20d%3D%22M12%202.5v19%22%2F%3E%3Cpath%20d%3D%22M14.5%208.5h3M14.5%2012h3M14.5%2015.5h3%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223.5%22%20y%3D%224.5%22%20width%3D%2217%22%20height%3D%2215%22%20rx%3D%222.5%22%2F%3E%3Cpath%20d%3D%22M12%202.5v19%22%2F%3E%3Cpath%20d%3D%22M14.5%208.5h3M14.5%2012h3M14.5%2015.5h3%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E")}
+.i-pose::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2213.5%22%20cy%3D%224.5%22%20r%3D%222%22%2F%3E%3Cpath%20d%3D%22M6%209.5l4.2%201.6%203.3-1.6%203.8-4.5%22%2F%3E%3Cpath%20d%3D%22M13.5%209.5v5l-3.2%206.5M13.5%2014.5l3.5%206.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2213.5%22%20cy%3D%224.5%22%20r%3D%222%22%2F%3E%3Cpath%20d%3D%22M6%209.5l4.2%201.6%203.3-1.6%203.8-4.5%22%2F%3E%3Cpath%20d%3D%22M13.5%209.5v5l-3.2%206.5M13.5%2014.5l3.5%206.5%22%2F%3E%3C%2Fsvg%3E")}
+.i-clothes::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M8.5%204%203.8%206.6l1.8%204.1%202.4-1.1V20h8V9.6l2.4%201.1%201.8-4.1L15.5%204c-.6%201.5-1.9%202.4-3.5%202.4S9.1%205.5%208.5%204Z%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M8.5%204%203.8%206.6l1.8%204.1%202.4-1.1V20h8V9.6l2.4%201.1%201.8-4.1L15.5%204c-.6%201.5-1.9%202.4-3.5%202.4S9.1%205.5%208.5%204Z%22%2F%3E%3C%2Fsvg%3E")}
+.i-age::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M6.5%203.5h11M6.5%2020.5h11M7.5%203.5c0%204.5%204.5%205.8%204.5%208.5s-4.5%204-4.5%208.5M16.5%203.5c0%204.5-4.5%205.8-4.5%208.5s4.5%204%204.5%208.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M6.5%203.5h11M6.5%2020.5h11M7.5%203.5c0%204.5%204.5%205.8%204.5%208.5s-4.5%204-4.5%208.5M16.5%203.5c0%204.5-4.5%205.8-4.5%208.5s4.5%204%204.5%208.5%22%2F%3E%3C%2Fsvg%3E")}
+.i-sun::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%224%22%2F%3E%3Cpath%20d%3D%22M12%202.5v2M12%2019.5v2M2.5%2012h2M19.5%2012h2M5.3%205.3l1.4%201.4M17.3%2017.3l1.4%201.4M5.3%2018.7l1.4-1.4M17.3%206.7l1.4-1.4%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%224%22%2F%3E%3Cpath%20d%3D%22M12%202.5v2M12%2019.5v2M2.5%2012h2M19.5%2012h2M5.3%205.3l1.4%201.4M17.3%2017.3l1.4%201.4M5.3%2018.7l1.4-1.4M17.3%206.7l1.4-1.4%22%2F%3E%3C%2Fsvg%3E")}
+.i-tape::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%222.5%22%20y%3D%228%22%20width%3D%2219%22%20height%3D%228%22%20rx%3D%221.8%22%2F%3E%3Cpath%20d%3D%22M6.5%208v3M10%208v4.5M13.5%208v3M17%208v4.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%222.5%22%20y%3D%228%22%20width%3D%2219%22%20height%3D%228%22%20rx%3D%221.8%22%2F%3E%3Cpath%20d%3D%22M6.5%208v3M10%208v4.5M13.5%208v3M17%208v4.5%22%2F%3E%3C%2Fsvg%3E")}
+.i-pain::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M13.5%202.5%205%2013.5h6.2l-1.2%208%208.5-11.2h-6.2l1.2-7.8Z%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M13.5%202.5%205%2013.5h6.2l-1.2%208%208.5-11.2h-6.2l1.2-7.8Z%22%2F%3E%3C%2Fsvg%3E")}
+.i-room::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%222.5%22%20stroke-dasharray%3D%222.6%202.6%22%2F%3E%3Cpath%20d%3D%22M12%208.5v7M8.5%2012h7%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224%22%20y%3D%224%22%20width%3D%2216%22%20height%3D%2216%22%20rx%3D%222.5%22%20stroke-dasharray%3D%222.6%202.6%22%2F%3E%3Cpath%20d%3D%22M12%208.5v7M8.5%2012h7%22%2F%3E%3C%2Fsvg%3E")}
+.i-chat::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4.5%205h15A1.5%201.5%200%200%201%2021%206.5v9a1.5%201.5%200%200%201-1.5%201.5H10l-4.5%203.5V17h-1A1.5%201.5%200%200%201%203%2015.5v-9A1.5%201.5%200%200%201%204.5%205Z%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4.5%205h15A1.5%201.5%200%200%201%2021%206.5v9a1.5%201.5%200%200%201-1.5%201.5H10l-4.5%203.5V17h-1A1.5%201.5%200%200%201%203%2015.5v-9A1.5%201.5%200%200%201%204.5%205Z%22%2F%3E%3C%2Fsvg%3E")}
+.i-check::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%20stroke-width%3D%222.3%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%20stroke-width%3D%222.3%22%2F%3E%3C%2Fsvg%3E")}
+/* Preview is a menu like the iPad's own: one column, a glyph and a word per row, a check mark beside
+   what is on. */
+#lookMenu{grid-template-columns:1fr;width:264px;gap:2px;padding:6px}
+#lookMenu .btn{gap:12px;font-weight:500;border-radius:10px}
+#lookMenu .btn::before{color:var(--muted)}
+#lookMenu .btn:hover{background:var(--fill)}
+#lookMenu .btn[aria-pressed=true],#lookMenu .btn.on{background:transparent;color:var(--text);border-color:transparent}
+#lookMenu #baBtn[aria-pressed=true]{background:transparent;color:var(--text);border-color:transparent}
+#lookMenu .btn[aria-pressed=true]::after,#lookMenu .btn.on::after{content:"";margin-left:auto;flex:none;width:18px;height:18px;background:var(--stencil);-webkit-mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%20stroke-width%3D%222.3%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%2012.5l4.5%204.5L19%207.5%22%20stroke-width%3D%222.3%22%2F%3E%3C%2Fsvg%3E") center/contain no-repeat}
+#lookMenu .btn[aria-pressed=true]::before,#lookMenu .btn.on::before{color:var(--stencil)}
+#lookMenu .menu-head{margin:8px 12px 2px}
+#lookMenu .menu-head+.btn{margin-top:0}
+#lookMenu .menu-head:not(:first-child){border-top:1px solid var(--line);padding-top:10px;margin-top:6px}
+.count-badge[hidden],#moveTip:empty{display:none}
+.i-target::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%227.5%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%222.6%22%2F%3E%3Cpath%20d%3D%22M12%201.8v3M12%2019.2v3M1.8%2012h3M19.2%2012h3%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%227.5%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2212%22%20r%3D%222.6%22%2F%3E%3Cpath%20d%3D%22M12%201.8v3M12%2019.2v3M1.8%2012h3M19.2%2012h3%22%2F%3E%3C%2Fsvg%3E")}
+.i-wand::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%2020%2015.5%208.5M13.5%206.5l4%204%22%2F%3E%3Cpath%20d%3D%22M18%202.8v3M16.5%204.3h3M20.5%209v2.2M19.4%2010.1h2.2M9.5%203.2v2.2M8.4%204.3h2.2%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%2020%2015.5%208.5M13.5%206.5l4%204%22%2F%3E%3Cpath%20d%3D%22M18%202.8v3M16.5%204.3h3M20.5%209v2.2M19.4%2010.1h2.2M9.5%203.2v2.2M8.4%204.3h2.2%22%2F%3E%3C%2Fsvg%3E")}
+.i-lock::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224.5%22%20y%3D%2210.5%22%20width%3D%2215%22%20height%3D%2210%22%20rx%3D%222.2%22%2F%3E%3Cpath%20d%3D%22M8%2010.5V7.5a4%204%200%200%201%208%200v3%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%224.5%22%20y%3D%2210.5%22%20width%3D%2215%22%20height%3D%2210%22%20rx%3D%222.2%22%2F%3E%3Cpath%20d%3D%22M8%2010.5V7.5a4%204%200%200%201%208%200v3%22%2F%3E%3C%2Fsvg%3E")}
+.i-photo::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223%22%20y%3D%224.5%22%20width%3D%2218%22%20height%3D%2215%22%20rx%3D%222.5%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2210%22%20r%3D%221.8%22%2F%3E%3Cpath%20d%3D%22m21%2016-5-5-8.5%208.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223%22%20y%3D%224.5%22%20width%3D%2218%22%20height%3D%2215%22%20rx%3D%222.5%22%2F%3E%3Ccircle%20cx%3D%229%22%20cy%3D%2210%22%20r%3D%221.8%22%2F%3E%3Cpath%20d%3D%22m21%2016-5-5-8.5%208.5%22%2F%3E%3C%2Fsvg%3E")}
+/* The edit sheet: quick actions as tiles with a glyph over the word, like the iPad's own action rows;
+   slider labels say their value. */
+.lbl-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.lbl-row .val{font-variant-numeric:tabular-nums;color:var(--text);font-weight:600}
+#sheet .editor-quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+#sheet .editor-quick .btn{flex-direction:column;gap:6px;min-height:66px;padding:8px 4px;white-space:normal;text-align:center;font-size:12px;line-height:1.15;font-weight:600;border-color:transparent}
+#sheet .editor-quick .btn::before{width:22px;height:22px}
+#sheet .editor-quick .btn[aria-pressed=true]{background:var(--stencil-soft);color:var(--text)}
+#sheet .editor-quick .btn[aria-pressed=true]::before{color:var(--stencil)}
+#refRow .btn{flex:1;justify-content:flex-start;gap:10px;border-color:transparent}
+#refRow .btn::before{color:var(--muted)}
+#refRow{flex-wrap:wrap}#refRow .btn{min-width:min(100%,180px)}
+#bLook span{display:flex;flex-direction:column;align-items:flex-start;min-width:0;text-align:left}#bLook small{color:var(--muted);font-size:12px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}#bLook small:empty{display:none}
+#sheet #name{min-width:0} /* an input is as wide as 20 letters by default, which pushed Done to its own line */
+.i-link::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M10%2014a4.5%204.5%200%200%200%206.4%200l3-3a4.5%204.5%200%200%200-6.4-6.4l-1%201%22%2F%3E%3Cpath%20d%3D%22M14%2010a4.5%204.5%200%200%200-6.4%200l-3%203a4.5%204.5%200%200%200%206.4%206.4l1-1%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M10%2014a4.5%204.5%200%200%200%206.4%200l3-3a4.5%204.5%200%200%200-6.4-6.4l-1%201%22%2F%3E%3Cpath%20d%3D%22M14%2010a4.5%204.5%200%200%200-6.4%200l-3%203a4.5%204.5%200%200%200%206.4%206.4l1-1%22%2F%3E%3C%2Fsvg%3E")}
+.i-approve::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4.5%205h15A1.5%201.5%200%200%201%2021%206.5v9a1.5%201.5%200%200%201-1.5%201.5H10l-4.5%203.5V17h-1A1.5%201.5%200%200%201%203%2015.5v-9A1.5%201.5%200%200%201%204.5%205Z%22%2F%3E%3Cpath%20d%3D%22m8.5%2011%202.5%202.5%204.5-5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4.5%205h15A1.5%201.5%200%200%201%2021%206.5v9a1.5%201.5%200%200%201-1.5%201.5H10l-4.5%203.5V17h-1A1.5%201.5%200%200%201%203%2015.5v-9A1.5%201.5%200%200%201%204.5%205Z%22%2F%3E%3Cpath%20d%3D%22m8.5%2011%202.5%202.5%204.5-5%22%2F%3E%3C%2Fsvg%3E")}
+.i-inbox::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%2013.5%205.5%205h13l2.5%208.5V19a1.5%201.5%200%200%201-1.5%201.5h-15A1.5%201.5%200%200%201%203%2019v-5.5Z%22%2F%3E%3Cpath%20d%3D%22M3%2013.5h5l1.5%202.5h5l1.5-2.5h5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%2013.5%205.5%205h13l2.5%208.5V19a1.5%201.5%200%200%201-1.5%201.5h-15A1.5%201.5%200%200%201%203%2019v-5.5Z%22%2F%3E%3Cpath%20d%3D%22M3%2013.5h5l1.5%202.5h5l1.5-2.5h5%22%2F%3E%3C%2Fsvg%3E")}
+.i-text::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%206.5h14M5%2011h14M5%2015.5h9%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5%206.5h14M5%2011h14M5%2015.5h9%22%2F%3E%3C%2Fsvg%3E")}
+.i-doc::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M6.5%202.5h7l5%205v12.5a1.5%201.5%200%200%201-1.5%201.5H6.5A1.5%201.5%200%200%201%205%2020V4a1.5%201.5%200%200%201%201.5-1.5Z%22%2F%3E%3Cpath%20d%3D%22M13.5%202.5v5h5M8.5%2013h7M8.5%2016.5h5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M6.5%202.5h7l5%205v12.5a1.5%201.5%200%200%201-1.5%201.5H6.5A1.5%201.5%200%200%201%205%2020V4a1.5%201.5%200%200%201%201.5-1.5Z%22%2F%3E%3Cpath%20d%3D%22M13.5%202.5v5h5M8.5%2013h7M8.5%2016.5h5%22%2F%3E%3C%2Fsvg%3E")}
+.i-tag::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3.5%2012.2V4.5a1%201%200%200%201%201-1h7.7l8.3%208.3a1.5%201.5%200%200%201%200%202.1l-6.1%206.1a1.5%201.5%200%200%201-2.1%200Z%22%2F%3E%3Ccircle%20cx%3D%228%22%20cy%3D%228%22%20r%3D%221.4%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3.5%2012.2V4.5a1%201%200%200%201%201-1h7.7l8.3%208.3a1.5%201.5%200%200%201%200%202.1l-6.1%206.1a1.5%201.5%200%200%201-2.1%200Z%22%2F%3E%3Ccircle%20cx%3D%228%22%20cy%3D%228%22%20r%3D%221.4%22%2F%3E%3C%2Fsvg%3E")}
+.i-print::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M7%209V3.5h10V9%22%2F%3E%3Crect%20x%3D%223.5%22%20y%3D%229%22%20width%3D%2217%22%20height%3D%227.5%22%20rx%3D%221.8%22%2F%3E%3Cpath%20d%3D%22M7%2014h10v6.5H7Z%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M7%209V3.5h10V9%22%2F%3E%3Crect%20x%3D%223.5%22%20y%3D%229%22%20width%3D%2217%22%20height%3D%227.5%22%20rx%3D%221.8%22%2F%3E%3Cpath%20d%3D%22M7%2014h10v6.5H7Z%22%2F%3E%3C%2Fsvg%3E")}
+.i-three::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%222.5%22%20y%3D%2210%22%20width%3D%225%22%20height%3D%226%22%20rx%3D%221%22%2F%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%226%22%20height%3D%228%22%20rx%3D%221.2%22%2F%3E%3Crect%20x%3D%2216.5%22%20y%3D%225.5%22%20width%3D%225%22%20height%3D%2211%22%20rx%3D%221.2%22%2F%3E%3Cpath%20d%3D%22M2.5%2019.5h19%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%222.5%22%20y%3D%2210%22%20width%3D%225%22%20height%3D%226%22%20rx%3D%221%22%2F%3E%3Crect%20x%3D%229%22%20y%3D%228%22%20width%3D%226%22%20height%3D%228%22%20rx%3D%221.2%22%2F%3E%3Crect%20x%3D%2216.5%22%20y%3D%225.5%22%20width%3D%225%22%20height%3D%2211%22%20rx%3D%221.2%22%2F%3E%3Cpath%20d%3D%22M2.5%2019.5h19%22%2F%3E%3C%2Fsvg%3E")}
+.i-mirror::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v18%22%2F%3E%3Cpath%20d%3D%22M8.5%207%204%2012l4.5%205M15.5%207l4.5%205-4.5%205%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v18%22%2F%3E%3Cpath%20d%3D%22M8.5%207%204%2012l4.5%205M15.5%207l4.5%205-4.5%205%22%2F%3E%3C%2Fsvg%3E")}
+.i-unroll::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223%22%20y%3D%225%22%20width%3D%2218%22%20height%3D%2214%22%20rx%3D%222%22%2F%3E%3Cpath%20d%3D%22M9%205v14M15%205v14M3%2012h18%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223%22%20y%3D%225%22%20width%3D%2218%22%20height%3D%2214%22%20rx%3D%222%22%2F%3E%3Cpath%20d%3D%22M9%205v14M15%205v14M3%2012h18%22%20stroke-width%3D%221.4%22%2F%3E%3C%2Fsvg%3E")}
+.i-spin::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20%2012a8%208%200%201%201-2.3-5.7%22%2F%3E%3Cpath%20d%3D%22M20%204v4.5h-4.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M20%2012a8%208%200%201%201-2.3-5.7%22%2F%3E%3Cpath%20d%3D%22M20%204v4.5h-4.5%22%2F%3E%3C%2Fsvg%3E")}
+.i-layers::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m12%203%209%205-9%205-9-5%209-5Z%22%2F%3E%3Cpath%20d%3D%22m3%2012.5%209%205%209-5%22%2F%3E%3Cpath%20d%3D%22m3%2016.5%209%205%209-5%22%20opacity%3D%22.6%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m12%203%209%205-9%205-9-5%209-5Z%22%2F%3E%3Cpath%20d%3D%22m3%2012.5%209%205%209-5%22%2F%3E%3Cpath%20d%3D%22m3%2016.5%209%205%209-5%22%20opacity%3D%22.6%22%2F%3E%3C%2Fsvg%3E")}
+.i-cube::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m12%202.8%208%204.6v9.2l-8%204.6-8-4.6V7.4l8-4.6Z%22%2F%3E%3Cpath%20d%3D%22m4%207.4%208%204.6%208-4.6M12%2012v9.2%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22m12%202.8%208%204.6v9.2l-8%204.6-8-4.6V7.4l8-4.6Z%22%2F%3E%3Cpath%20d%3D%22m4%207.4%208%204.6%208-4.6M12%2012v9.2%22%2F%3E%3C%2Fsvg%3E")}
+.i-palette::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203a9%209%200%201%200%200%2018c1.2%200%201.8-.8%201.8-1.7%200-1.4-1.3-1.8-1.3-3%200-1%20.8-1.8%201.8-1.8h2.2A4.5%204.5%200%200%200%2021%2010c0-3.9-4-7-9-7Z%22%2F%3E%3Ccircle%20cx%3D%227.5%22%20cy%3D%2211%22%20r%3D%221.1%22%2F%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%227%22%20r%3D%221.1%22%2F%3E%3Ccircle%20cx%3D%2214.5%22%20cy%3D%227%22%20r%3D%221.1%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203a9%209%200%201%200%200%2018c1.2%200%201.8-.8%201.8-1.7%200-1.4-1.3-1.8-1.3-3%200-1%20.8-1.8%201.8-1.8h2.2A4.5%204.5%200%200%200%2021%2010c0-3.9-4-7-9-7Z%22%2F%3E%3Ccircle%20cx%3D%227.5%22%20cy%3D%2211%22%20r%3D%221.1%22%2F%3E%3Ccircle%20cx%3D%2210%22%20cy%3D%227%22%20r%3D%221.1%22%2F%3E%3Ccircle%20cx%3D%2214.5%22%20cy%3D%227%22%20r%3D%221.1%22%2F%3E%3C%2Fsvg%3E")}
+.i-bringback::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v11m0%200-4-4m4%204%204-4%22%2F%3E%3Cpath%20d%3D%22M4%2015v3.5A1.5%201.5%200%200%200%205.5%2020h13a1.5%201.5%200%200%200%201.5-1.5V15%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v11m0%200-4-4m4%204%204-4%22%2F%3E%3Cpath%20d%3D%22M4%2015v3.5A1.5%201.5%200%200%200%205.5%2020h13a1.5%201.5%200%200%200%201.5-1.5V15%22%2F%3E%3C%2Fsvg%3E")}
+.i-box::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3.5%207.5h17v3h-17Z%22%2F%3E%3Cpath%20d%3D%22M5%2010.5h14v8a1.5%201.5%200%200%201-1.5%201.5h-11A1.5%201.5%200%200%201%205%2018.5v-8Z%22%2F%3E%3Cpath%20d%3D%22M10%2014h4%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3.5%207.5h17v3h-17Z%22%2F%3E%3Cpath%20d%3D%22M5%2010.5h14v8a1.5%201.5%200%200%201-1.5%201.5h-11A1.5%201.5%200%200%201%205%2018.5v-8Z%22%2F%3E%3Cpath%20d%3D%22M10%2014h4%22%2F%3E%3C%2Fsvg%3E")}
+.i-folder::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%207a1.5%201.5%200%200%201%201.5-1.5h5l2%202.5h8A1.5%201.5%200%200%201%2021%209.5v9a1.5%201.5%200%200%201-1.5%201.5h-15A1.5%201.5%200%200%201%203%2018.5V7Z%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%207a1.5%201.5%200%200%201%201.5-1.5h5l2%202.5h8A1.5%201.5%200%200%201%2021%209.5v9a1.5%201.5%200%200%201-1.5%201.5h-15A1.5%201.5%200%200%201%203%2018.5V7Z%22%2F%3E%3C%2Fsvg%3E")}
+.i-stack::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%227%22%20y%3D%223%22%20width%3D%2213%22%20height%3D%2213%22%20rx%3D%222%22%2F%3E%3Cpath%20d%3D%22M4%207.5v11A2.5%202.5%200%200%200%206.5%2021h11%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%227%22%20y%3D%223%22%20width%3D%2213%22%20height%3D%2213%22%20rx%3D%222%22%2F%3E%3Cpath%20d%3D%22M4%207.5v11A2.5%202.5%200%200%200%206.5%2021h11%22%2F%3E%3C%2Fsvg%3E")}
+.i-pin::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%2021s-6.5-6-6.5-11a6.5%206.5%200%200%201%2013%200c0%205-6.5%2011-6.5%2011Z%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2210%22%20r%3D%222.3%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%2021s-6.5-6-6.5-11a6.5%206.5%200%200%201%2013%200c0%205-6.5%2011-6.5%2011Z%22%2F%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%2210%22%20r%3D%222.3%22%2F%3E%3C%2Fsvg%3E")}
+.i-note::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5.5%203.5h13A1.5%201.5%200%200%201%2020%205v10l-5%205.5H5.5A1.5%201.5%200%200%201%204%2019V5a1.5%201.5%200%200%201%201.5-1.5Z%22%2F%3E%3Cpath%20d%3D%22M14.5%2020.5V15h5.5M8%208.5h8M8%2012h5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M5.5%203.5h13A1.5%201.5%200%200%201%2020%205v10l-5%205.5H5.5A1.5%201.5%200%200%201%204%2019V5a1.5%201.5%200%200%201%201.5-1.5Z%22%2F%3E%3Cpath%20d%3D%22M14.5%2020.5V15h5.5M8%208.5h8M8%2012h5%22%2F%3E%3C%2Fsvg%3E")}
+.i-align::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%202.5v19%22%20stroke-dasharray%3D%222%202.4%22%2F%3E%3Crect%20x%3D%224%22%20y%3D%226%22%20width%3D%225.5%22%20height%3D%225.5%22%20rx%3D%221%22%2F%3E%3Crect%20x%3D%2214.5%22%20y%3D%2212.5%22%20width%3D%225.5%22%20height%3D%225.5%22%20rx%3D%221%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%202.5v19%22%20stroke-dasharray%3D%222%202.4%22%2F%3E%3Crect%20x%3D%224%22%20y%3D%226%22%20width%3D%225.5%22%20height%3D%225.5%22%20rx%3D%221%22%2F%3E%3Crect%20x%3D%2214.5%22%20y%3D%2212.5%22%20width%3D%225.5%22%20height%3D%225.5%22%20rx%3D%221%22%2F%3E%3C%2Fsvg%3E")}.i-move::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v18M3%2012h18M9%206l3-3%203%203M9%2018l3%203%203-3M6%209l-3%203%203%203M18%209l3%203-3%203%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M12%203v18M3%2012h18M9%206l3-3%203%203M9%2018l3%203%203-3M6%209l-3%203%203%203M18%209l3%203-3%203%22%2F%3E%3C%2Fsvg%3E")}
+.i-person::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%227.5%22%20r%3D%223.5%22%2F%3E%3Cpath%20d%3D%22M4.5%2020.5c.6-4%203.6-6.5%207.5-6.5s6.9%202.5%207.5%206.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Ccircle%20cx%3D%2212%22%20cy%3D%227.5%22%20r%3D%223.5%22%2F%3E%3Cpath%20d%3D%22M4.5%2020.5c.6-4%203.6-6.5%207.5-6.5s6.9%202.5%207.5%206.5%22%2F%3E%3C%2Fsvg%3E")}
+.i-brush::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M14.5%204.5%2019.5%209.5%2011%2018l-5-5%208.5-8.5Z%22%2F%3E%3Cpath%20d%3D%22M6%2013c-2%200-3%201.5-3%203.5S2.5%2020%202.5%2020s3%20.5%204.5-.5S9%2017%209%2016%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M14.5%204.5%2019.5%209.5%2011%2018l-5-5%208.5-8.5Z%22%2F%3E%3Cpath%20d%3D%22M6%2013c-2%200-3%201.5-3%203.5S2.5%2020%202.5%2020s3%20.5%204.5-.5S9%2017%209%2016%22%2F%3E%3C%2Fsvg%3E")}
+/* Sheets hold grouped lists like the iPad's Settings: a glyph, a title and one short line per row, rows
+   joined in one rounded group with hairlines between them, two columns where there is room. */
+.modal .cards{flex:none;gap:0;background:var(--fill-soft);border-radius:var(--r-md);overflow:hidden;clip-path:inset(1px 0 0 0 round var(--r-md))}
+@media (min-width:700px){.modal .cards{grid-template-columns:1fr 1fr}}
+.modal .card{min-height:62px;border:0;border-radius:0;background:transparent;box-shadow:inset 0 1px 0 var(--line);padding:11px 16px;justify-content:center}
+.modal .card[class*=" i-"]{display:grid;grid-template-columns:24px 1fr;column-gap:14px;row-gap:1px;align-content:center}
+.modal .card[class*=" i-"]::before{grid-row:1/span 2;align-self:center;width:24px;height:24px;background:var(--stencil)}
+.modal .card b{font:600 15px/1.25 var(--body)}.modal .card span{font-size:13px;line-height:1.3}
+.modal .card:hover{background:var(--fill)}.modal .card:active{background:var(--stencil-soft)}
+.modal .shHead{margin:12px 4px -6px}
+/* Motion, the way the iPad moves: short springs, interruptible, all off with Reduce Motion (below).
+   Only opacity and the separate translate property animate: the transform a panel uses to centre
+   itself is never touched, and nothing is ever smaller than its 44 pt while it arrives. */
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pair[hidden]{display:none}
+.seg{flex:none;gap:2px;padding:3px;border-radius:var(--r-md,14px);background:var(--fill)}
+.seg .btn{border:0;border-radius:calc(var(--r-md,14px) - 3px);background:transparent;color:var(--muted);font-weight:600;box-shadow:none;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg .btn:hover{background:var(--fill-soft)}
+.seg .btn[aria-pressed=true],#posePop .seg .btn[aria-pressed=true]{background:var(--seg-on);color:var(--text);border-color:transparent;box-shadow:0 1px 3px rgba(0,0,0,.2),0 0 0 .5px rgba(0,0,0,.06)}
+@keyframes ia-grow{from{opacity:0;translate:0 -8px}}
+@keyframes ia-rise{from{opacity:0;translate:0 22px}}
+@keyframes ia-drop{from{opacity:0;translate:0 -10px}}
+@keyframes ia-fade{from{opacity:0}}
+.pop:not([hidden]),#lookMenu:not([hidden]){animation:ia-grow .24s cubic-bezier(.2,.95,.3,1.08);transform-origin:top right}
+#lookMenu:not([hidden]){transform-origin:top center}
+#bodyMatch:not([hidden]),#spotPop:not([hidden]){transform-origin:top left}
+body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none}
+.scrim:not([hidden]){animation:ia-fade .2s ease-out}.scrim:not([hidden]) .modal{animation:ia-rise .3s cubic-bezier(.2,.9,.25,1.04)}
+#sheet:not([hidden]){animation:ia-rise .26s cubic-bezier(.2,.9,.25,1.04)}
+#tapeBar:not([hidden]),#pinBar:not([hidden]),#painBar:not([hidden]),#selfBar:not([hidden]),#roomBar:not([hidden]),#followBar:not([hidden]),#suggestBar:not([hidden]),#paintBar:not([hidden]),#procreateBar:not([hidden]),#tapPlaceBar:not([hidden]){animation:ia-drop .22s cubic-bezier(.2,.9,.3,1.05)}
+.btn{transition:background .15s ease,border-color .15s ease,color .15s ease,scale .16s cubic-bezier(.3,.7,.4,1.5)}
+.btn:active:not(:disabled){scale:.96;transition-duration:.06s}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+  <script type="module" crossorigin src="/ink-atlas/assets/index-BoBfIN9N.js"></script>
+  <link rel="modulepreload" crossorigin href="/ink-atlas/assets/three-N284fpim.js">
+  <link rel="modulepreload" crossorigin href="/ink-atlas/assets/body-DOiEkad_.js">
+<link rel="manifest" href="/ink-atlas/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/ink-atlas/registerSW.js"></script></head>
+<body>
+<div id="viewport">
+<div id="stage" aria-label="3D body. Drag to look around. Pinch, pan and twist the view with two fingers away from selected ink. Tap a tattoo to select it."></div>
+<div id="scanBar" class="glass" role="group" aria-label="Your scan" hidden><p id="scanText" aria-live="polite"></p><div id="scanMeas"></div><div class="row"><button class="btn" id="scanHeight" type="button"></button><button class="btn" id="scanTurn" type="button">Turn it round</button><button class="btn primary" id="scanDone" type="button">Done</button></div></div>
+<div id="tapeBar" class="glass" role="group" aria-label="Tape measure" hidden><div class="row"><button class="btn" id="tapeAlong" type="button" aria-pressed="true">Along the skin</button><button class="btn" id="tapeAround" type="button" aria-pressed="false">Around</button><button class="btn" id="tapeDone" type="button">Done</button></div><p id="tapeText" aria-live="polite">Tap two points on the body.</p></div>
+<div id="tapeLabel" hidden></div>
+<div id="spotLayer" aria-hidden="true"></div>
+<div id="suggestBar" class="glass" role="group" aria-label="Suggest a new spot" hidden><p id="suggestText"></p><textarea id="suggestNote" data-scroll maxlength="500" rows="1" aria-label="Note with your suggestion" placeholder="Add a note (optional)"></textarea><div class="row"><button class="btn primary" id="suggestSend" type="button">Send suggestion</button><button class="btn" id="suggestCancel" type="button">Cancel</button></div></div>
+<div id="followBar" class="glass" role="status" hidden><span id="followText">Following their view</span><button class="btn" id="followStop" type="button">Stop</button></div>
+<div id="pinBar" class="glass" role="group" aria-label="Comments on the body" hidden><div class="row"><p id="pinText" aria-live="polite">Tap the body to pin a comment there. Tap a pin to read it.</p><button class="btn" id="pinListBtn" type="button" aria-expanded="false" hidden>List</button><button class="btn" id="pinsDone" type="button">Done</button></div>
+  <div id="pinList" hidden><div class="row" role="group" aria-label="Which comments"><button class="btn" id="pinListOpen" type="button" aria-pressed="true">Open</button><button class="btn" id="pinListAll" type="button" aria-pressed="false">All</button><button class="btn" id="pinListMe" type="button" aria-pressed="false" hidden>Mentions you</button></div><input id="pinListFind" type="search" enterkeyhint="search" autocomplete="off" maxlength="80" aria-label="Find a comment" placeholder="Find a comment, a name or a tattoo" hidden><ol id="pinListItems" data-scroll></ol><p class="tip" id="pinListEmpty" hidden>No open comments. Tap All to see the resolved ones.</p></div>
+  <div id="pinEdit" hidden><textarea id="pinNote" data-scroll maxlength="500" rows="2" aria-label="Comment" placeholder="Like: move this up an inch"></textarea><div class="mention-chips" id="pinNoteAt" role="group" aria-label="Mention someone" hidden></div><div class="row"><button class="btn primary" id="pinSave" type="button">Pin comment</button><button class="btn" id="pinCancel" type="button">Cancel</button></div></div>
+  <div id="pinRead" hidden><p id="pinBody" data-scroll></p><p class="tip" id="pinWho"></p><div id="pinSuggest" hidden><p class="tip" id="pinSuggestText"></p><div class="row"><button class="btn" id="pinSuggestPeek" type="button" aria-pressed="false">Hold to see it there</button><button class="btn primary" id="pinSuggestUse" type="button">Use this spot</button></div></div><div class="react-row" id="pinReacts" role="group" aria-label="React to this comment" hidden></div><ol id="pinReplies" data-scroll aria-label="Replies"></ol><p class="tip" id="pinTyping" aria-live="polite" hidden></p><textarea id="pinReply" data-scroll maxlength="500" rows="1" aria-label="Reply" placeholder="Reply, or type @ to mention someone"></textarea><div class="mention-chips" id="pinReplyAt" role="group" aria-label="Mention someone" hidden></div><div class="row"><button class="btn" id="pinReplySend" type="button">Reply</button><button class="btn" id="pinResolve" type="button">Resolve</button><button class="btn" id="pinClose" type="button">Done</button><button class="btn quiet danger" id="pinDelete" type="button">Delete</button></div></div></div>
+<div id="pinLayer" aria-label="Comments on the body"></div>
+<div id="selfBar" class="glass" role="group" aria-label="How I see it" hidden><div class="row"><span id="selfHead">How I see it</span><button class="btn" id="selfDone" type="button">Done</button></div><div class="seg" id="selfModes" role="group" aria-label="View"><button class="btn" type="button" data-self="eyes" aria-pressed="false">My eyes</button><button class="btn" type="button" data-self="seen" aria-pressed="false">What I can&rsquo;t see</button><button class="btn" type="button" data-self="mirror" aria-pressed="false">Mirror selfie</button></div><div class="row" id="selfMirrorRow" hidden><div class="seg two" id="selfHand" role="group" aria-label="Hand"><button class="btn" type="button" data-hand="R" aria-pressed="true">Right hand</button><button class="btn" type="button" data-hand="L" aria-pressed="false">Left hand</button></div><div class="seg two" id="selfHigh" role="group" aria-label="Phone height"><button class="btn" type="button" data-high="0" aria-pressed="true">Chest</button><button class="btn" type="button" data-high="1" aria-pressed="false">Face</button></div></div><p id="selfText" aria-live="polite"></p><div class="row" id="selfBestRow" hidden><span id="selfBestText"></span><button class="btn" id="selfBest" type="button">Show that pose</button></div><div class="row" id="selfSaveRow" hidden><button class="btn" id="selfSave" type="button">Save picture</button></div><p class="tip" id="selfTip"></p></div>
+<div id="selfieFrame" aria-hidden="true" hidden></div>
+<div id="painBar" class="glass" role="group" aria-label="Pain map" hidden><div class="row"><div id="painKey" aria-hidden="true"><span>Low</span><i></i><span>Very high</span></div><button class="btn" id="painDone" type="button">Done</button></div><p id="painText" aria-live="polite"></p><p class="tip" id="painNote">From common tattoo pain charts. Everyone feels it differently.</p></div>
+<div id="roomBar" class="glass" role="group" aria-label="Open skin" hidden><div class="row"><div id="roomKeyAll" class="roomKey" aria-hidden="true"><span>No room</span><i></i><span>Lots</span></div><div id="roomKeyFit" class="roomKey" aria-hidden="true" hidden><b class="fit"></b><span>Fits</span><b class="tight"></b><span>Too tight</span></div><button class="btn" id="roomAll" type="button" hidden>All room</button><button class="btn" id="roomDone" type="button">Done</button></div><p id="roomText" aria-live="polite"></p><p id="roomCover" hidden></p><p class="tip" id="roomNote">Measured along the skin. Face, scalp, fingers and groin are left out.</p></div>
+<div id="handles" hidden><button id="hSize" class="hnd" type="button" aria-label="Drag to resize the tattoo"></button><button id="hTurn" class="hnd" type="button" aria-label="Drag to turn the tattoo"></button></div>
+<svg id="alignmentGuides" hidden aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:2"></svg>
+<div id="tapPlaceBar" class="glass" hidden style="position:absolute;left:50%;top:var(--below);transform:translateX(-50%);z-index:8;padding:8px 8px 8px 16px;max-width:calc(100% - 32px);display:flex;gap:12px;align-items:center;font-weight:600"><span>Tap the body to place the selected tattoo</span><button id="cancelTapPlace" class="btn" type="button">Cancel</button></div>
+
+<div id="top">
+  <div class="brand glass"><b>Ink Atlas</b><small id="saved">Loading</small></div>
+  <div id="views" class="glass" role="group" aria-label="Turn the body">
+    <button class="btn i-full" id="full" type="button">Full body</button>
+    <span class="tb-sep" aria-hidden="true"></span>
+    <button class="btn" type="button" data-view="0">Front</button>
+    <button class="btn" type="button" data-view="1">Left</button>
+    <button class="btn" type="button" data-view="2">Back</button>
+    <button class="btn" type="button" data-view="3">Right</button>
+    <span class="tb-sep" aria-hidden="true"></span>
+    <button class="btn ico" id="viewLock" type="button" aria-pressed="false" aria-label="Lock the view" title="Lock the view"><svg class="vl-open" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 6.8-1.2"/></svg><svg class="vl-shut" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/></svg></button>
+  </div>
+  <div class="cluster glass toolbar">
+    <button class="btn quiet ico i-undo" id="undo" type="button" aria-label="Undo" title="Undo (hold for more)" disabled></button>
+    <button class="btn quiet ico i-redo" id="redo" type="button" aria-label="Redo" title="Redo" disabled></button>
+    <span class="tb-sep" aria-hidden="true"></span>
+    <button class="btn i-spark" id="newBtn" type="button" aria-expanded="false" aria-controls="newPop" title="New to try" hidden><span id="newCount" class="count-badge">0</span></button>
+    <button class="btn tb i-body" id="bodyBtn" type="button">Body</button>
+    <button class="btn tb i-eye" id="lookBtn" type="button" aria-expanded="false" aria-controls="lookMenu">Preview</button>
+    <button class="btn tb i-plan" id="projectsBtn" type="button">Plan</button>
+    <button class="btn primary tb i-share" id="shareBtn" type="button">Share</button>
+    <button class="btn tb i-point" id="showSpotBtn" type="button" aria-pressed="false" title="Point at a spot for everyone" hidden>Point</button>
+    <button class="btn here-now" id="hereNow" type="button" hidden></button>
+    <button class="btn acct-btn" id="accountBtn" type="button" aria-label="Sign in" hidden><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Sign in</span></button>
+  </div>
+</div>
+
+<div id="bodyPop" class="pop glass" hidden>
+  <div class="pophead"><h3>Body</h3><button class="btn" type="button" data-close="bodyPop">Done</button></div>
+  <div class="seg" role="group" aria-label="Body type">
+    <button class="btn" type="button" data-fig="male">Male</button>
+    <button class="btn" type="button" data-fig="neutral">Neutral</button>
+    <button class="btn" type="button" data-fig="female">Female</button>
+  </div>
+  <button class="btn" id="plainBody" type="button">Reset to plain body</button>
+  <section class="sec"><h5>Shape</h5>
+  <div class="lbl">Muscle: less to more<ink-slider id="rMuscle" min="0" max="100" default="50" origin="50" aria-label="Muscle"></ink-slider></div>
+  <div class="lbl">Weight: lighter to heavier<ink-slider id="rWeight" min="0" max="100" default="50" origin="50" aria-label="Weight"></ink-slider></div>
+  <div class="lbl">Height, used for real-world sizes<ink-slider id="rHeight" min="150" max="205" step="1" aria-label="Height"></ink-slider></div>
+  <button class="btn quiet" id="hText" type="button" aria-label="Height: type your own" style="font-variant-numeric:tabular-nums;align-self:flex-start"></button>
+  <button class="btn" id="measureMeBtn" type="button">Measure me with a tape</button>
+  </section>
+  <section class="sec"><h5>From your photos and scans</h5>
+  <button class="btn" id="bodyPhotoBtn" type="button">Match a photo of me</button>
+  <input type="file" id="bodyPhotoFile" accept="image/*" hidden>
+  <button class="btn" id="faceBtn" type="button">Add my face</button>
+  <div class="pair" role="group" aria-label="Your face" id="faceRow" hidden>
+    <button class="btn" id="faceShow" type="button">Hide my face</button>
+    <button class="btn" id="faceRemove" type="button">Remove</button>
+  </div>
+  <input type="file" id="faceFile" accept="image/*" hidden>
+  <button class="btn" id="scanBtn" type="button">Bring in a 3D scan of me</button>
+  <div class="pair" role="group" aria-label="Your scan" id="scanRow" hidden>
+    <button class="btn" id="scanShow" type="button">Hide my scan</button>
+    <button class="btn" id="scanRemove" type="button">Remove</button>
+  </div>
+  <p class="tip" id="scanPaused" hidden>Your scan is off while the sliders differ from it.</p>
+  <button class="btn" id="scanBack" type="button" hidden>Back to my scan</button>
+  <button class="btn quiet" id="scanHowBtn" type="button">How to scan yourself</button>
+  <input type="file" id="scanFile" hidden>
+  </section>
+  <section class="sec"><h5>Skin</h5>
+  <div id="skins"></div>
+  <div id="skinOwn" hidden>
+    <div class="lbl">Lighter to deeper<ink-slider id="rSkinDepth" min="0" max="100" aria-label="Skin: lighter to deeper"></ink-slider></div>
+    <div class="lbl">Cooler to warmer<ink-slider id="rSkinWarm" min="-100" max="100" default="0" origin="0" aria-label="Skin: cooler to warmer"></ink-slider></div>
+    <button class="btn" id="skinPhotoBtn" type="button">Match a photo of your skin</button>
+    <input type="file" id="skinPhotoFile" accept="image/*" hidden>
+  </div>
+  </section>
+  <section class="sec"><h5>Hair</h5>
+  <div class="seg" role="group" aria-label="Hair" id="hairRow"><button class="btn" type="button" data-hair="none">Bald</button><button class="btn" type="button" data-hair="buzz">Shaved</button><button class="btn" type="button" data-hair="short">Buzz cut</button><button class="btn" type="button" data-hair="crop">Short</button><button class="btn" type="button" data-hair="medium">Medium</button><button class="btn" type="button" data-hair="long">Long</button></div>
+  <div id="hairCols" hidden></div>
+  <span class="lbl sub">Beard</span>
+  <div class="seg four" role="group" aria-label="Beard" id="beardRow"><button class="btn" type="button" data-beard="none">None</button><button class="btn" type="button" data-beard="stubble">Stubble</button><button class="btn" type="button" data-beard="short">Short</button><button class="btn" type="button" data-beard="full">Full</button></div>
+  <span class="lbl sub">Body hair</span>
+  <div class="seg" role="group" aria-label="Body hair" id="bodyHairRow"><button class="btn" type="button" data-bhair="none">None</button><button class="btn" type="button" data-bhair="light">Light</button><button class="btn" type="button" data-bhair="full">Full</button></div>
+  <button class="btn" id="hairPhotoBtn" type="button">Match my hair from a photo</button>
+  <input type="file" id="hairPhotoFile" accept="image/*" hidden>
+  </section>
+  <section class="sec"><h5>Eyes</h5>
+  <div id="eyeCols" role="group" aria-label="Eye colour"></div>
+  </section>
+  <section class="sec"><h5>Fine-tune each part</h5>
+  <p class="tip" id="measureTip">Each number is that part measured with a tape. Tap one to type your own, in inches or cm, and the body changes to match.</p>
+  <button class="btn" id="measureAgain" type="button" hidden>Match my measurements again</button>
+  <div id="fitGroups"></div>
+  <p class="tip">Double-tap a slider to put it back to standard.</p>
+  <button class="btn quiet" id="fitReset" type="button">Reset body shape</button>
+  </section>
+</div>
+
+<div id="newPop" class="pop glass" hidden>
+  <div class="pophead"><h3>New to try</h3><button class="btn" type="button" data-close="newPop">Done</button></div>
+  <p class="tip">The newest features and where to find them. Tick each one once you have tried it. Using a feature ticks it for you.</p>
+  <div id="newList"></div>
+  <p class="tip" id="buildStamp"></p>
+</div>
+<div id="pointRing" hidden></div><div id="pointTip" class="glass" hidden></div>
+<div id="lookMenu" class="glass" role="group" aria-label="Preview" hidden>
+  <p class="menu-head">See it</p>
+  <button class="btn i-ba" id="baBtn" type="button" aria-pressed="false">Before / after</button>
+  <button class="btn i-pose" id="poseBtn" type="button" aria-expanded="false">Pose</button>
+  <button class="btn i-clothes" id="clothesBtn" type="button" aria-expanded="false">Clothes</button>
+  <button class="btn i-age" id="ageBtn" type="button" aria-expanded="false">Aging</button>
+  <button class="btn i-sun" id="lightBtn" type="button" aria-expanded="false">Light</button>
+  <button class="btn i-person" id="selfBtn" type="button" aria-pressed="false">How I see it</button>
+  <p class="menu-head">Check the body</p>
+  <button class="btn i-tape" id="tapeBtn" type="button" aria-pressed="false">Tape measure</button>
+  <button class="btn i-pain" id="painBtn" type="button" aria-pressed="false">Pain map</button><button class="btn i-room" id="roomBtn" type="button" aria-pressed="false">Open skin</button>
+  <button class="btn i-chat" id="pinsBtn" type="button" aria-pressed="false">Comments</button>
+</div>
+<div id="posePop" class="pop glass" hidden>
+  <div class="pophead"><h3>Pose</h3><button class="btn" type="button" data-close="posePop">Done</button></div>
+  <p class="tip">Your tattoos move with the body, and you can still move, resize and place them in any pose. Poses are only for looking. They are not saved.</p>
+  <div id="poseList"></div>
+  <h4>Moving</h4>
+  <div class="row"><select id="motionKind" aria-label="Movement"></select><button class="btn" id="motionPlay" type="button" aria-pressed="false">Play</button></div>
+  <div class="seg" role="group" aria-label="Speed"><button class="btn" type="button" data-speed="0.5">Slow</button><button class="btn" type="button" data-speed="1">Normal</button><button class="btn" type="button" data-speed="1.5">Fast</button></div>
+  <div class="lbl">Step through the movement<ink-slider id="motionScrub" min="0" max="100" default="0" origin="0" aria-label="Step through the movement"></ink-slider></div>
+</div>
+<div id="clothesPop" class="pop glass" hidden>
+  <div class="pophead"><h3>Clothes</h3><button class="btn" type="button" data-close="clothesPop">Done</button></div>
+  <p class="tip">See which tattoos show in everyday clothes. They fit your body and follow any pose. Only for looking, not saved.</p>
+  <h4>Top</h4><div class="posegrid" id="clothesTop"></div>
+  <h4>Bottom</h4><div class="posegrid" id="clothesBottom"></div>
+  <h4>Hair</h4><div class="posegrid" id="clothesHair"></div>
+  <p id="clothesShow" aria-live="polite"></p>
+</div>
+<div id="bodyMatch" class="pop glass" hidden>
+  <div class="pophead"><h3>Match a photo of me</h3><button class="btn" type="button" id="bmClose">Done</button></div>
+  <canvas id="bmPic" aria-label="Your photo with what was measured"></canvas>
+  <p id="bmText" class="tip" aria-live="polite"></p>
+  <div id="bmInk" hidden>
+    <p id="bmInkText" class="tip" aria-live="polite"></p>
+    <button class="btn" id="bmMirror" type="button" aria-pressed="false">It's a mirror selfie</button>
+    <button class="btn primary" id="bmInkAdd" type="button">Add to the body</button>
+  </div>
+  <div id="bmActions">
+    <button class="btn primary" id="bmKeep" type="button" hidden>Keep this body</button>
+    <button class="btn" id="bmBack" type="button" hidden>Put back</button>
+    <button class="btn" id="bmAgain" type="button">Add another photo</button>
+  </div>
+  <p class="tip">Any photo of you works: head to toe, a mirror selfie of your upper body, or your back. I match the parts I can see and leave the rest, so each photo adds more. Arms a little out from your sides and fitted clothes help. Photos stay on this iPad and are not kept.</p>
+</div>
+<div id="spotPop" class="pop glass" hidden>
+  <div class="pophead"><h3 id="spotTitle">Try it on</h3><button class="btn" type="button" data-close="spotPop">Done</button></div>
+  <p class="tip">Tap a spot to move the tattoo there. Undo puts it back. Under each spot: how much it usually hurts, and what hides a piece this size.</p>
+  <div class="seg" id="spotSide" role="group" aria-label="Side"><button class="btn" type="button" data-side="L">Left side</button><button class="btn" type="button" data-side="R">Right side</button></div>
+  <div class="posegrid" id="spotChoices"></div>
+</div>
+<div id="historyPop" class="pop glass" hidden>
+  <div class="pophead"><h3>Go back to</h3><button class="btn" type="button" data-close="historyPop">Done</button></div>
+  <p class="tip">Tap a step to go back to just before it. Redo brings the steps back.</p>
+  <p class="tip" id="historyEmpty" hidden>Nothing to go back to yet.</p>
+  <div id="historyList"></div>
+</div>
+<div id="lightPop" class="pop glass" hidden>
+  <div class="pophead"><h3>Light</h3><button class="btn" type="button" data-close="lightPop">Done</button></div>
+  <p class="tip">Ink looks different in different light. Check your design in the light you will see it in most. This only changes the view.</p>
+  <div class="posegrid" id="lightChoices"></div>
+</div>
+<div id="paintPop" class="pop glass" hidden>
+  <div class="pophead"><h3>Paint on skin</h3><button class="btn" type="button" data-close="paintPop">Done</button></div>
+  <p class="tip">What you painted on the 3D body in Procreate lies on the skin as one layer. It is not a tattoo yet, so it can't be moved or deleted on its own. Your tattoos are not part of it.</p>
+  <div class="ppActs">
+    <button class="btn" id="ppSplit" type="button">Make movable tattoos<small>Each separate drawing becomes its own tattoo you can move, resize or delete.</small></button>
+    <button class="btn" id="ppHide" type="button">Hide paint<small>See the plain body with your tattoos, keep the paint for later.</small></button>
+    <button class="btn danger" id="ppRemove" type="button">Remove paint<small>Back to the plain body. Your tattoos stay. Undo brings the paint back.</small></button>
+  </div>
+</div>
+<div id="agePop" class="pop glass" hidden>
+  <div class="pophead"><h3>Aging</h3><button class="btn" type="button" data-close="agePop">Done</button></div>
+  <p class="tip">See how your tattoos may look as they age. Lines soften and spread a little, and black ink lightens. A rough guide, not a promise. Only for looking, not saved.</p>
+  <div class="posegrid" id="ageChoices"></div>
+  <p class="tip">Very fine lines and small lettering blur first. If a design still reads at 10 years, it will hold up.</p>
+</div>
+<div id="foot">
+  <p id="hint">Tap a tattoo to work on it. Double-tap empty space for the full body.</p>
+  <div id="empty" class="glass" hidden>
+    <b>Plan your next tattoo</b>
+    <span>Add a photo or drawing of a tattoo, or draw one in Procreate.</span>
+    <div class="row"><button class="btn primary i-plus" id="emptyAdd" type="button">Add tattoo</button><button class="btn i-pencil" id="emptyDraw" type="button" aria-haspopup="dialog">Draw in Procreate</button></div>
+  </div>
+</div>
+<div id="adds" hidden>
+  <button class="btn primary i-plus" id="add" type="button">Add tattoo</button>
+  <button class="btn i-pencil" id="drawNew" type="button" aria-haspopup="dialog">Procreate</button>
+</div>
+<div id="dock">
+  <div id="sheet" class="glass" hidden>
+    <div class="row">
+      <label for="name" hidden>Name</label>
+      <input id="name" type="text" maxlength="40" autocomplete="off" aria-label="Tattoo name">
+      <span id="size"></span>
+      <span id="gap" hidden></span>
+      <button class="btn quiet ico i-trash" id="bDelTop" type="button" aria-label="Remove tattoo" title="Remove tattoo"></button>
+      <button class="btn quiet ico" id="bSheetMin" type="button" aria-expanded="true" aria-label="Fold the panel down" title="Fold the panel down"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+      <button class="btn primary" id="bDone" type="button">Done</button>
+    </div>
+    <p id="review" hidden></p>
+    <div id="approveRow" class="row" role="group" aria-label="Your answer on this tattoo" hidden><button class="btn" id="bApprove" type="button">Looks good</button><button class="btn" id="bAskChange" type="button" aria-expanded="false">Ask for a change</button><button class="btn quiet" id="bUnreview" type="button" hidden>Take back</button><button class="btn" id="bSuggest" type="button" hidden>Suggest a new spot</button><button class="btn" id="bApproveAll" type="button" hidden>Looks good on all</button></div>
+    <div id="changeBox" hidden><textarea id="changeNote" maxlength="300" rows="2" aria-label="What should change" placeholder="What should change? Like: move it up an inch"></textarea><div class="row"><button class="btn primary" id="bSendChange" type="button">Save</button><button class="btn" id="bCancelChange" type="button">Cancel</button></div></div>
+    <div class="row editor-quick">
+      <button class="btn i-target" id="bTapPlace" type="button" aria-pressed="false">Tap to place</button>
+      <button class="btn i-wand" id="bCleanup" type="button">Clean up artwork</button>
+      <button class="btn i-lock" id="bLock" type="button">Lock in place</button>
+      <button class="btn i-pencil" id="bProcreate" type="button">Edit in Procreate</button>
+    </div>
+    <div class="row" id="wrapRow" hidden><span id="wrapText"></span><button class="btn" id="wrapFit" type="button">Wrap it round</button></div>
+    <div class="row" id="refRow"><button class="btn i-palette" id="bLook" type="button" aria-expanded="false"><span>Blend and colour<small id="bLookMode"></small></span></button><button class="btn i-photo" id="bRefs" type="button">Add reference pictures</button><button class="btn i-chat" id="bPinsFor" type="button" hidden>Comments</button></div>
+    <details id="editorAdvanced"><summary>More controls <span>size, checks, plan and actions</span></summary><div class="editor-advanced-content">
+    <section class="sec"><h5>Size and shape</h5>
+    <div class="sliders">
+      <div class="lbl">Size<ink-slider id="rSize" min="0" max="1000" aria-label="Size"></ink-slider></div>
+      <div class="lbl">Turn<ink-slider id="rTurn" unit="°" min="-180" max="180" aria-label="Turn"></ink-slider></div>
+      <div class="lbl">Ink strength<ink-slider id="rFade" unit="%" min="15" max="100" default="92" aria-label="Ink strength"></ink-slider></div>
+    </div>
+    <details id="preciseBox"><summary>Precise placement</summary>
+      <div class="row"><label style="min-height:44px;display:flex;align-items:center;gap:8px"><input id="liveGuides" type="checkbox" checked style="width:22px;height:22px">Show drag alignment guides</label><label id="snapLabel" style="min-height:44px;display:flex;align-items:center;gap:8px"><input id="snapGuides" type="checkbox" style="width:22px;height:22px">Snap to guides</label></div>
+      <p class="tip">Lines show when the tattoo lines up with another one. Snapping is off unless you turn it on.</p>
+      <div class="row"><label>Width (inches) <input id="exactWidth" type="number" min="0.1" max="36" step="0.1" style="width:90px;min-height:44px;font-size:16px"></label>
+      <button class="btn" data-inch="1">1 in</button><button class="btn" data-inch="2">2 in</button><button class="btn" data-inch="3">3 in</button><button class="btn" data-inch="4">4 in</button></div>
+      <div class="row"><span>Nudge 2 mm</span><button class="btn" data-nudge="-1,0">Left</button><button class="btn" data-nudge="1,0">Right</button><button class="btn" data-nudge="0,1">Up</button><button class="btn" data-nudge="0,-1">Down</button><button class="btn" id="resetTransform">Reset turn and wrap</button></div>
+      <div class="row"><button class="btn" id="bDraft" type="button">Try exact numbers</button><span class="tip">Type a size, angle or wrap and save it only when it looks right.</span></div>
+      <p class="tip">Sizes are approximate and depend on your body height setting.</p>
+    </details>
+    <details id="wrapBox">
+      <summary>Bend and taper<i id="wrapMark"></i></summary>
+      <div class="grp">
+        <p class="tip">Ink lies on the skin like a stencil and follows it round an arm or leg by itself.</p>
+        <div class="lbl" hidden>Wrap<ink-slider id="rWrap" min="0" max="100" default="0" origin="0" aria-label="Wrap"></ink-slider></div>
+        <div class="lbl">Bend<ink-slider id="rBend" unit="%" min="-100" max="100" default="0" aria-label="Bend"></ink-slider></div>
+        <div class="lbl">Taper<ink-slider id="rTaper" unit="%" min="-75" max="75" default="0" aria-label="Taper"></ink-slider></div>
+      </div>
+    </details>
+    </section>
+    <section class="sec"><h5>About this spot</h5><div class="info">
+    <p id="likeLine" hidden></p><p id="whereLine" hidden></p>
+    <p id="showsLine" hidden></p>
+    <p id="wearLine" hidden></p>
+    <div class="row" id="stretchRow" hidden><span id="stretchText"></span><button class="btn" id="stretchShow" type="button" hidden>Show that pose</button></div>
+    <div class="row" id="lineRow" hidden><span id="lineText"></span><button class="btn" id="lineFix" type="button" hidden>Straighten</button></div><div class="row" id="readRow" hidden><span id="readText"></span><button class="btn" id="readFix" type="button" hidden>Turn it to face me</button></div>
+    <div class="row" id="evenRow" hidden><span id="evenLine"></span><button class="btn" id="evenFix" type="button" hidden>Centre it</button></div>
+    </div></section>
+    <section class="sec"><h5>Check it</h5><div class="grid">
+      <button class="btn" id="bInkCheck" type="button">Ink check</button>
+      <button class="btn" id="bSpots" type="button">Try other spots</button>
+      <button class="btn" id="bRoom" type="button">Find room for it</button>
+      <button class="btn" id="bRealSize" type="button">Real size on screen</button>
+      <button class="btn" id="bTryOn" type="button">Try on with camera</button>
+    </div></section>
+    <section class="sec"><h5>Plan it</h5>
+    <div class="row" id="estRow"><span id="estLine"></span><label for="estRate">Artist's rate $<input id="estRate" type="number" inputmode="decimal" min="0" max="2000" step="5" placeholder="per hour" style="width:124px;min-height:44px;font-size:16px"></label></div>
+    <p id="planLine" class="tip" hidden></p><div id="planSits" hidden><p id="planNext" class="tip"></p><p id="planClash" class="tip" hidden></p><button class="btn" id="planCal" type="button">Add every sitting to calendar</button></div>
+    <div id="sitBox" hidden><span>Sittings <small>with time to heal between them</small></span><ol id="sitList"></ol><div class="row"><label for="sitStart">First sitting<input id="sitStart" type="date"></label><label for="sitGap">Weeks between<select id="sitGap"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select></label><label for="sitAway">Trip or beach day<input id="sitAway" type="date"></label></div><p id="sitHealed" class="tip" hidden></p><p id="sitDry" class="tip" hidden></p><p id="sitWear" class="tip" hidden></p><p id="sitSleep" class="tip" hidden></p><div id="sitClash" hidden><p id="sitClashText"></p><div class="row"><button class="btn" id="sitLater" type="button">Start after it</button><button class="btn" id="sitEarlier" type="button">Finish before it</button></div></div><button class="btn" id="sitCal" type="button" hidden>Add to calendar</button></div>
+    <div id="verBox" hidden><span>Versions <small>tap one to see it on the body</small></span><div id="verList" role="group" aria-label="Versions"></div><p id="verText" class="tip" aria-live="polite"></p><div class="row" id="verActs" hidden><button class="btn" id="verUse" type="button">Use this one</button><button class="btn" id="verSide" type="button">Side by side</button></div></div>
+    <label id="noteBox" for="tNote">Note for your artist<textarea id="tNote" maxlength="500" rows="2" placeholder="Like: fine lines, black and grey only"></textarea></label>
+    <div id="madeBox" hidden><span>Who did it and when</span><div class="row"><input id="madeArtist" type="text" maxlength="60" autocomplete="off" placeholder="Artist" aria-label="Artist"><input id="madeStudio" type="text" maxlength="60" autocomplete="off" placeholder="Studio" aria-label="Studio"><input id="madeWhen" type="month" aria-label="Month it was done"></div></div>
+    </section>
+    <section class="sec"><h5>Copy and arrange</h5><div class="grid">
+      <button class="btn" id="bFlip" type="button">Mirror</button>
+      <button class="btn" id="bFlipVertical" type="button">Flip vertical</button>
+      <button class="btn" id="bDup" type="button">Duplicate</button>
+      <button class="btn" id="bOtherSide" type="button">Copy to other side</button>
+      <button class="btn" id="bSplit" type="button" hidden>Split into designs</button>
+      <button class="btn" id="bCleanupLinked" type="button" hidden>Clean up linked copies</button>
+      <button class="btn" id="bStencil" type="button">Stencil for your artist</button>
+    </div></section>
+    <section class="sec"><h5>This tattoo</h5><div class="grid">
+      <button class="btn" id="bStatus" type="button">Planned</button>
+      <button class="btn" id="bHide" type="button">Hide</button>
+      <button class="btn danger" id="bDel" type="button">Remove</button>
+    </div></section>
+    </div></details>
+    <p id="moveTip"></p>
+  </div>
+</div>
+<div id="paintBar" class="glass" hidden><p><b>Paint the area you want to draw on.</b> Use a finger or the Pencil on the body. Two fingers move the view.</p><div class="row"><button class="btn primary" id="paintGo" type="button" disabled>Draw in Procreate</button><button class="btn" id="paintClear" type="button" disabled>Clear</button><button class="btn quiet" id="paintCancel" type="button">Cancel</button></div></div>
+<div id="procreateBar" class="glass" role="region" aria-label="Bring back from Procreate" hidden>
+  <p><b id="pcHead">Bring back your tattoo from Procreate.</b> <span id="pcHow"></span></p>
+  <div class="row"><button class="btn primary" id="pcPaste" type="button">Paste</button><button class="btn" id="pcSend" type="button" hidden>Send the guide again</button><button class="btn" id="pcFile" type="button">From Photos or Files</button><button class="btn quiet" id="pcCancel" type="button">Cancel</button></div>
+</div>
+<input id="procreateFile" type="file" accept="image/*" hidden>
+<input id="modelFile" type="file" accept=".glb,model/gltf-binary" hidden>
+<input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
+<input id="paintedFile" type="file" hidden>
+
+<div id="scanSheet" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="scanTitle"><header><h2 id="scanTitle">Your 3D scan</h2><button class="btn" type="button" id="scanCancel">Cancel</button></header>
+<div class="scan-busy"><p id="scanMsg" aria-live="polite">Reading your scan…</p><div class="scan-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="scanProg"></i></div><p class="tip" id="scanSub">This takes about half a minute. The body is moved onto your scan, so tattoos, poses and sharing all work on it.</p></div>
+</div></div>
+<div id="scanHow" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="scanHowTitle"><header><h2 id="scanHowTitle">How to scan yourself</h2><button class="btn" type="button" data-close="scanHow">Done</button></header>
+<div class="scan-how">
+<p>Two free iPhone and iPad apps make a 3D model of you that comes in here: <b>Scaniverse</b> and <b>Polycam</b>. Both need someone to hold the phone.</p>
+<ol>
+<li><b>Wear tight clothes.</b> Shorts and a fitted top, or swimwear. Loose clothes scan as your shape.</li>
+<li><b>Stand still, arms slightly out.</b> Feet a little apart, hands a hand's width from your hips, looking straight ahead.</li>
+<li><b>Someone walks round you.</b> Slowly, twice: once with the phone at chest height, once lower for the legs and feet. Good, even light helps.</li>
+<li><b>Export the model.</b> In the app, share or export the scan as GLB (or OBJ or USDZ) and save it to Files.</li>
+<li><b>Bring it in.</b> Body, Bring in a 3D scan of me, and pick the file.</li>
+</ol>
+<p class="tip">The scan stays on this device. Only the body shape it gives goes into your project.</p>
+<button class="btn primary" id="scanHowPick" type="button">Pick a scan file</button>
+</div></div></div>
+<div id="measureMe" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="mmTitle"><header><h2 id="mmTitle">Measure me</h2><button class="btn" type="button" id="mmClose">Close</button></header><div id="mmHost" style="display:flex;flex-direction:column;flex:1;min-height:0"></div></div></div>
+<div id="pcMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="pcmTitle"><header><h2 id="pcmTitle">Procreate</h2><button class="btn" type="button" data-close="pcMenu">Done</button></header>
+<h3 class="shHead">Paint the whole body in 3D</h3>
+<div class="cards">
+<button class="card i-cube" id="pm3dSend" type="button"><b>1. Send the 3D body</b><span>Paint on the body in 3D with your skin, tattoos and paint on it.</span></button>
+<button class="card i-layers" id="pm3dLayers" type="button"><b>Send it with each tattoo separate</b><span>In Procreate’s Layers, the skin and every tattoo are their own groups, named like here.</span></button>
+<button class="card i-bringback" id="pm3dBack" type="button"><b>2. Bring back your drawing as tattoos</b><span>Save it to Files from Procreate’s Share, Procreate. Each layer comes back as its own tattoo.</span></button>
+</div>
+<div id="pmPaint" class="pmPaint" hidden><p>Your paint is on the body. Send the 3D body again to keep painting.</p><div class="row"><button class="btn" id="pmPaintHide" type="button">Hide paint</button><button class="btn" id="pmPaintSplit" type="button">Make movable tattoos</button><button class="btn" id="pmPaintRemove" type="button">Remove paint</button></div></div>
+<h3 class="shHead">Draw on one spot</h3>
+<div class="cards"><button class="card i-brush" id="pmSpot" type="button"><b>Draw on a spot you paint</b><span>Paint a spot, draw on a flat guide in Procreate, then Copy All and Paste here.</span></button></div>
+</div></div>
+<div id="planMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="planTitle"><header><h2 id="planTitle">Plan</h2><button class="btn" data-close="planMenu">Done</button></header>
+<h3 class="shHead">This project</h3><div class="cards">
+<button class="card i-folder" id="openProjects"><b>Projects</b><span>Separate projects and earlier copies on this device.</span></button>
+<button class="card i-stack" id="openPlanning"><b>Layouts and saved views</b><span>Other layouts with the same tattoos, saved and compared.</span></button>
+<button class="card i-layers" id="openLayers"><b>Layers and groups</b><span>Order, hide, solo and group tattoos.</span></button>
+<button class="card i-photo" id="openArtworkLibrary"><b>Artwork library</b><span>Every picture in the project, to place again.</span></button>
+<button class="card i-photo" id="openUnplaced" hidden><b>Saved artwork to place</b><span>Imported artwork that has no spot on the body yet.</span></button>
+</div>
+<h3 class="shHead">Notes and references</h3><div class="cards">
+<button class="card i-photo" id="openRefs"><b>Reference board</b><span>Inspiration pictures for the project or one tattoo.</span></button>
+<button class="card i-note" id="openNotes"><b>Artist notes</b><span>Instructions for the plan or each piece.</span></button>
+<button class="card i-pin" id="openBodyTools"><b>Pins and drawing on the body</b><span>Pin notes to the skin or sketch a rough line on it.</span></button>
+</div>
+<h3 class="shHead">Fit and line up</h3><div class="cards">
+<button class="card i-person" id="openPhotoFit"><b>Line up with your photos</b><span>A photo of you beside the body, to match it.</span></button>
+<button class="card i-tape" id="openWrap"><b>Measured wrap</b><span>A wrap round an arm or leg from your own tape measurements, around a tattoo you already have.</span></button>
+<button class="card i-align" id="openPlacement"><b>Line up tattoos</b><span>Line one tattoo up with another or the middle of the body.</span></button>
+</div>
+<h3 class="shHead">Help</h3><div class="cards">
+<button class="card i-spark" id="openNew"><b>New to try</b><span>The newest features and where to find them.</span></button>
+</div>
+</div></div>
+<div id="share" class="scrim" hidden>
+  <div class="modal glass" role="dialog" aria-labelledby="shTitle">
+    <header><h2 id="shTitle">Share</h2><button class="btn" type="button" data-close="share">Done</button></header>
+    <div class="cards" id="linkCards"><button class="card i-link" id="cLink" type="button" hidden><b>Send to someone</b><span>A link to a copy they can keep in their own account.</span></button></div>
+    <h3 class="shHead">Ask and agree</h3>
+    <div class="cards">
+      <button class="card i-approve" id="cApprove" type="button"><b>Ask for approval</b><span>A page your artist or client opens to say yes or ask for a change.</span></button>
+      <button class="card i-inbox" id="cAnswers" type="button"><b>Bring in answers</b><span>Paste the reply you got back onto each tattoo.</span></button>
+      <button class="card i-text" id="cMessage" type="button"><b>Plan as a message</b><span>Every planned tattoo in a few lines, to paste into a text.</span></button>
+    </div>
+    <h3 class="shHead">For your artist</h3>
+    <div class="cards">
+      <button class="card i-doc" id="cPacket" type="button"><b>Full artist packet</b><span>Front, back and side views with every size. Prints well.</span></button>
+      <button class="card i-note" id="cSheet" type="button"><b>Artist sheet</b><span>This view and up to seven tattoos on one page.</span></button>
+      <button class="card i-tag" id="cLabels" type="button"><b>Picture with sizes</b><span>This view with each tattoo’s name and size beside it.</span></button>
+      <button class="card i-print" id="cPrint" type="button"><b>Print at real size</b><span>Each tattoo at true size to cut out and hold on your skin.</span></button>
+    </div>
+    <h3 class="shHead">Pictures</h3>
+    <div class="cards">
+      <button class="card i-photo" id="cView" type="button"><b>Picture of this view</b><span>Exactly what is on screen now.</span></button>
+      <button class="card i-ba" id="cCompare" type="button"><b>Before and after</b><span>Now and with your planned tattoos, side by side.</span></button>
+      <button class="card i-three" id="cSizes" type="button"><b>Three sizes</b><span>Smaller, as it is and bigger, side by side.</span></button>
+      <button class="card i-pose" id="cPoses" type="button"><b>As you move</b><span>Four poses that stretch and turn it.</span></button>
+      <button class="card i-mirror" id="cMirror" type="button"><b>In a mirror</b><span>How it looks in a mirror, where lettering reads backwards.</span></button>
+      <button class="card i-unroll" id="cSleeve" type="button"><b>Arms and legs, unrolled</b><span>Each arm and leg laid flat, to plan a sleeve.</span></button>
+      <button class="card i-eye" id="cDistance" type="button"><b>From a distance</b><span>Close up, across a table, a room and a street.</span></button>
+      <button class="card i-age" id="cAging" type="button"><b>How it ages</b><span>Fresh, healed, at 10 and at 20 years.</span></button>
+      <button class="card i-body" id="cBodyChange" type="button"><b>If your body changes</b><span>On a slimmer, heavier and more muscular you.</span></button>
+      <button class="card i-spin" id="cSpin" type="button"><b>Spin video</b><span>A few seconds of the body turning once.</span></button>
+    </div>
+    <h3 class="shHead">Procreate</h3>
+    <div class="cards">
+      <button class="card i-pencil" id="cSketch" type="button"><b>Sketch on a body patch</b><span>A flat square of skin to draw on and send back.</span></button>
+      <button class="card i-person" id="cBlank" type="button"><b>Blank body to sketch on</b><span>This view with no ink, to draw on top.</span></button>
+      <button class="card i-layers" id="cPsd" type="button"><b>Layered file</b><span>The body and each tattoo on its own layer.</span></button>
+      <button class="card i-cube" id="cUsdz" type="button"><b>3D body for Procreate</b><span>Paint on the body in Procreate’s 3D view.</span></button>
+      <button class="card i-layers" id="cUsdzLayers" type="button"><b>3D body, tattoos separate</b><span>Each tattoo is its own group in Procreate’s Layers.</span></button>
+      <button class="card i-palette" id="cSwatches" type="button"><b>Colour palette</b><span>Your skin tone and ink colours as a palette.</span></button>
+      <button class="card i-bringback" id="cPainted" type="button"><b>Bring back the painted body</b><span>Your paint from Procreate lands on the same skin.</span></button>
+    </div>
+    <h3 class="shHead">Keep it safe</h3>
+    <div class="cards">
+      <button class="card i-box" id="cBackup" type="button"><b>Back up project</b><span>One file with all your artwork and placements.</span></button>
+    </div>
+    <details id="shMore"><summary>Other 3D files and the old app</summary>
+    <div class="cards">
+      <button class="card i-cube" id="cObjBaked" type="button"><b>3D model for computer apps</b><span>The painted body as an OBJ, for Blender and similar apps.</span></button>
+      <button class="card i-cube" id="cGlb" type="button"><b>3D model with separate ink</b><span>A GLB with the body and each tattoo as its own piece.</span></button>
+      <button class="card i-cube" id="cObj" type="button"><b>OBJ with separate ink</b><span>An OBJ with the body and each tattoo as separate pieces.</span></button>
+      <button class="card i-eye" id="cModelOpen" type="button"><b>Look at a GLB model</b><span>Open a 3D file to look at. Your project stays as it is.</span></button>
+      <button class="card i-doc" id="cV47Source" type="button" hidden><b>Save the old app's original file</b><span>The project exactly as it came from the old Ink Atlas.</span></button>
+      <button class="card i-doc" id="cV47" type="button"><b>Copy for the old Ink Atlas</b><span>A file the old ChatGPT version can open.</span></button>
+    </div></details>
+    <button class="btn quiet" id="cRestore" type="button">Open a backup file, including older Ink Atlas .ink.json</button>
+    <button class="btn quiet" id="cRecover" type="button">Go back to an earlier save</button>
+  </div>
+</div>
+
+<div id="recover" class="scrim" hidden>
+  <div class="modal glass" role="dialog" aria-labelledby="rcTitle">
+    <header><h2 id="rcTitle">Earlier saves</h2><button class="btn" type="button" data-close="recover">Done</button></header>
+    <p class="tip">Copies kept on this device as you work, and before any backup is opened. Opening one replaces what is on screen. Undo brings it back.</p>
+    <div id="rcList"></div>
+  </div>
+</div>
+
+<div id="skinPick" hidden role="dialog" aria-label="Match your skin tone">
+  <img id="spImg" alt="Your photo">
+  <div id="spTop" class="glass"><p>Tap your skin where the light is even. Avoid shadows, shine and tattoos.</p></div>
+  <div id="spRing" hidden></div>
+  <div id="spBar" class="glass"><span id="spSwatch"></span><span id="spMsg">No spot picked yet.</span><button class="btn" type="button" id="spCancel">Cancel</button><button class="btn primary" type="button" id="spUse" disabled>Use this tone</button></div>
+</div>
+<div id="tryOn" hidden role="dialog" aria-label="Try it on with the camera">
+  <video id="toVideo" playsinline muted autoplay></video>
+  <img id="toPhoto" alt="Your photo" hidden>
+  <canvas id="toArt"></canvas>
+  <div id="toTop" class="glass"><span id="toText"></span><button class="btn primary" type="button" id="toClose">Done</button></div>
+  <div id="toBar" class="glass">
+    <div class="lbl" id="toCurveBox">Curve around an arm or leg<ink-slider id="rToCurve" min="0" max="100" default="0" origin="0" aria-label="Curve around an arm or leg"></ink-slider></div>
+    <div class="row" id="toLive"><button class="btn" type="button" id="toSwitch">Switch camera</button><button class="btn" type="button" id="toPhotoBtn">Use a photo</button><button class="btn primary" type="button" id="toSnap">Take photo</button></div>
+    <div class="row" id="toDone" hidden><button class="btn" type="button" id="toRetake">Back to camera</button><button class="btn primary" type="button" id="toShare">Save or share</button></div>
+    <input type="file" id="toFile" accept="image/*" hidden>
+  </div>
+</div>
+<div id="realSize" hidden role="dialog" aria-label="Real size on screen">
+  <div id="rsArt"><img id="rsImg" alt=""></div>
+  <div id="rsTop" class="glass"><span id="rsText"></span><button class="btn primary" type="button" id="rsClose">Done</button></div>
+  <div id="rsCal" class="glass" hidden><p>Hold a bank card on the outline and match its size.</p><div class="row"><button class="btn" type="button" id="rsSmaller">Smaller</button><button class="btn" type="button" id="rsBigger">Bigger</button><button class="btn primary" type="button" id="rsCalDone">It matches</button></div></div>
+  <div id="rsCard" hidden></div>
+  <button class="btn quiet" type="button" id="rsCheck">Check the scale with a bank card</button>
+</div>
+<div id="stencil" hidden role="dialog" aria-label="Stencil for your artist">
+  <div id="stView"><canvas id="stCanvas"></canvas></div>
+  <div id="stTop" class="glass"><span id="stText"></span><button class="btn primary" type="button" id="stClose">Done</button></div>
+  <div id="stBar" class="glass">
+    <div class="lbl">Detail: bold lines to fine shading<ink-slider id="rStDetail" min="0" max="100" default="50" origin="0" aria-label="Detail"></ink-slider></div>
+    <div class="row"><button class="btn" type="button" id="stShare" disabled>Share picture</button><button class="btn primary" type="button" id="stPrint" disabled>Print at real size</button><button class="btn" type="button" id="stAll" hidden>All planned pieces</button></div>
+  </div>
+</div>
+<div id="inkCheck" hidden role="dialog" aria-label="Ink check">
+  <div id="icView"><canvas id="icCanvas"></canvas></div>
+  <div id="icTop" class="glass"><span id="icText"></span><button class="btn primary" type="button" id="icClose">Done</button></div>
+  <div id="icBar" data-scroll class="glass">
+    <ul id="icList"></ul>
+    <div class="row"><button class="btn" type="button" id="icResize" hidden>Make it bigger</button></div>
+  </div>
+</div>
+<div id="answers" class="scrim" hidden>
+  <div class="modal glass" role="dialog" aria-labelledby="ansTitle">
+    <header><h2 id="ansTitle">Bring in answers</h2><button class="btn" type="button" data-close="answers">Done</button></header>
+    <p class="tip">Copy the reply from your artist or client, in Messages or Mail, and paste it here.</p>
+    <textarea id="ansText" rows="7" placeholder="1 yes&#10;2 change: a little smaller"></textarea>
+    <p id="ansNote" aria-live="polite"></p>
+    <div class="row"><button class="btn" id="ansPaste" type="button">Paste</button><button class="btn primary" id="ansRead" type="button">Bring in</button></div>
+  </div>
+</div>
+<div id="refs" class="scrim" hidden>
+  <div class="modal glass" role="dialog" aria-labelledby="refsTitle">
+    <header><h2 id="refsTitle">Reference pictures</h2><button class="btn" type="button" data-close="refs">Done</button></header>
+    <div id="refsList">
+      <div class="seg" id="refsFor" role="group" aria-label="Show pictures for"></div>
+      <div id="refsGrid"></div>
+      <p id="refsNote" class="tip" aria-live="polite"></p>
+      <div class="row"><button class="btn primary" id="refsAdd" type="button">Add pictures</button><button class="btn" id="refsPaste" type="button">Paste</button></div>
+    </div>
+    <div id="refView" hidden>
+      <img id="refImg" alt="Reference picture">
+      <p id="refWho" class="tip"></p>
+      <textarea id="refText" maxlength="300" rows="2" placeholder="A note, like: this linework, not the colours" aria-label="Note on this picture"></textarea>
+      <label class="refFor">For <select id="refTattoo" aria-label="Which tattoo it is for"></select></label>
+      <div class="row"><button class="btn" id="refBack" type="button">Back to all</button><button class="btn" id="refTry" type="button">Try it on the body</button><button class="btn danger" id="refRemove" type="button">Remove</button></div>
+    </div>
+    <input type="file" id="refsFile" accept="image/*" multiple hidden>
+  </div>
+</div>
+<div id="preview" class="scrim" hidden>
+  <div class="modal glass" role="dialog" aria-labelledby="pvTitle">
+    <header><h2 id="pvTitle">Picture</h2><button class="btn" type="button" data-close="preview">Done</button></header>
+    <img id="pvImg" alt="Export preview">
+    <p id="pvNote"></p>
+    <button class="btn primary" id="pvSave" type="button">Save or share</button>
+  </div>
+</div>
+
+<div id="coach" class="glass" hidden>
+  <h2>Three moves run everything</h2>
+  <ol>
+    <li class="i-spin"><b>Look around</b><span>Drag with one finger. Pinch with two to zoom.</span></li>
+    <li class="i-point"><b>Pick a tattoo</b><span>Tap it to work on it.</span></li>
+    <li class="coach-place i-move"><b>Place it</b><span>Drag the selected tattoo. Two fingers on it resize and turn.</span></li>
+    <li class="coach-comment i-chat"><b>Have your say</b><span>Looks good or Ask for a change under its name. Comments are under Preview.</span></li>
+  </ol>
+  <button class="btn primary" id="coachOk" type="button">Got it</button>
+</div>
+<div id="toast" class="glass" role="status" hidden></div>
+</div>
+</body>
+</html>

@@ -21,7 +21,7 @@ function arm(J, s) {
   return { bend: deg(Math.acos(Math.min(1, dot(up, fo)))), below: deg(Math.asin(-up[1])), forward: deg(Math.asin(up[2])), out: Math.abs(wr[0]) - Math.abs(sh[0]), wr };
 }
 assert.equal(POSE_GROUPS[1], 'Straight arms', 'the group sits right under Standing');
-assert.deepEqual(Object.keys(POSE_CATALOG).filter((k) => POSE_CATALOG[k].group === 'Straight arms'), ['straightDown', 'straightOut', 'straightPalms']);
+assert.deepEqual(Object.keys(POSE_CATALOG).filter((k) => POSE_CATALOG[k].group === 'Straight arms'), ['straightDown', 'straightOut', 'straightPalms', 'relaxedSides']);
 const rest = arm(joints({}), 'L'); assert.ok(rest.bend > 30, 'the standing body has its elbows bent: ' + rest.bend.toFixed(1));
 for (const shape of [{}, { figure: 'female' }, { muscle: 1, weight: 1 }, { muscle: 0, weight: 0 }]) {
   for (const key of ['straightDown', 'straightOut', 'straightPalms']) {

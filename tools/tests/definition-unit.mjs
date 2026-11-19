@@ -25,4 +25,9 @@ for (const shape of [{}, { figure: 'female', muscle: 0.2, weight: 0.9 }, { figur
   assert.ok([sh, el, hip, knee, ankle].every((v) => v[0] > 0.05), 'all on the left side');
   assert.ok(el[0] > sh[0], 'elbow outside the shoulder');
 }
-console.log('PASS definition-unit: muscle shows, fat hides, sliders add, always in range, limbs on the skeleton');
+// the elbow's bones show on every body: always some, more when lean, less under fat
+for (const m of [0, 0.5, 1]) for (const w of [0, 0.5, 1]) { const e = d({ figure: 'male', muscle: m, weight: w }).elbow; assert.ok(e >= 0.45 && e <= 1, `elbow in range ${e}`); }
+assert.ok(d({ muscle: 0.5, weight: 0.1 }).elbow > d({ muscle: 0.5, weight: 0.95 }).elbow, 'lean shows the elbow more');
+assert.ok(d({ figure: 'female', muscle: 0.5, weight: 0.5 }).elbow >= 0.45, 'every body has an elbow');
+{ const j = limbJoints({}); assert.equal(j.length, 6, 'the wrist is passed too, for the forearm and the elbow'); assert.ok(j[5][1] < j[1][1] && j[5][0] > 0.05, 'wrist below the elbow, on the left'); }
+console.log('PASS definition-unit: muscle shows, fat hides, sliders add, always in range, limbs on the skeleton, elbows on everyone');

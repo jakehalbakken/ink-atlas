@@ -2,7 +2,7 @@
 // Rotations are quaternions on world axes, applied in the parent's frame. Big arm
 // movements are shared along clavicle, shoulder and upper arm so the shoulder keeps
 // its volume. The lowest foot stays on the floor (pose-view.js); a seated pose has no chair.
-import {axisAngle,createRestRig,POSE_BONES,poseTransforms} from './pose.js';
+import {axisAngle,boneWeightSum,createRestRig,POSE_BONES,poseTransforms,skinPose} from './pose.js';
 const AX={x:[1,0,0],y:[0,1,0],z:[0,0,1]};
 const axisOf=a=>typeof a==='string'?AX[a]:a;
 const mul=(a,b)=>[a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1],a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0],a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3],a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2]];
@@ -80,6 +80,35 @@ const still=(group,label,angles,fit)=>({group,label,angles,fit});
 // a pose that fits the body it is shown on (fit(rig) -> angles), for the exact straight elbow
 const fitted=(group,label,opts)=>still(group,label,both(opts),(rig)=>both({...opts,rig}));
 export const STRAIGHT_DOWN=Object.freeze({lift:-.45,straight:1}),STRAIGHT_OUT=Object.freeze({lift:.85,straight:1}),PALMS_FORWARD=1.2;
+// Arms relaxed at the sides: the upper arm hangs straight down, the elbow keeps a small natural
+// bend so the forearm comes a little forward, palms to the thighs, fingers loosely curled. How far
+// in the arm can hang depends on the body: it comes down as far as it can while the forearm and
+// hand still clear the hip and thigh by a finger's width (RELAXED_GAP), as a real arm would.
+export const RELAXED=Object.freeze({straight:1,elbow:.28,fist:.12}),RELAXED_GAP=.015,RELAXED_LIFT=Object.freeze([-.72,-.3]);
+let FORE=null;
+const foreSets=()=>FORE||(FORE=(()=>{const n=POSE_BONES.map(b=>b.name),w=re=>boneWeightSum(n.filter(x=>re.test(x)));return {fore:w(/^(lowerarm|wrist|finger|metacarpal).*\.L$/),arm:w(/^(upperarm|lowerarm|wrist|finger|metacarpal|shoulder|clavicle)/)};})());
+// nearest the left forearm and hand come to the standing body (units), with the arms at this lift
+export function relaxedGap(rig,lift){
+ const {fore,arm:near}=foreSets(),R=rig.positions,n=Math.min(fore.length,R.length/3),el=restJointOf('lowerarm01.L','head',rig)[1];
+ const body=[];for(let v=0;v<n;v++)if(near[v]<.05&&R[v*3]>.02&&R[v*3+1]<el+.02)body.push(v);
+ const P=skinPose(rig,pack(arm('L',{...RELAXED,lift,rig}))).positions,fv=[],lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];
+ for(let v=0;v<n;v++)if(fore[v]>.5){fv.push(v);for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],P[v*3+k]);hi[k]=Math.max(hi[k],P[v*3+k]);}}
+ // only the skin within reach of the forearm and hand can be the nearest
+ const m=.06,close=body.filter(b=>R[b*3]>lo[0]-m&&R[b*3]<hi[0]+m&&R[b*3+1]>lo[1]-m&&R[b*3+1]<hi[1]+m&&R[b*3+2]>lo[2]-m&&R[b*3+2]<hi[2]+m);
+ let g=m*m;
+ for(const v of fv){const x=P[v*3],y=P[v*3+1],z=P[v*3+2];for(const b of close){const dx=x-R[b*3],dy=y-R[b*3+1],dz=z-R[b*3+2],d=dx*dx+dy*dy+dz*dz;if(d<g)g=d;}}
+ return Math.sqrt(g);
+}
+const LIFTS=new WeakMap();
+export function relaxedLift(rig){
+ if(!rig||!rig.positions)return -.6;
+ const key=rig.joints||rig;if(LIFTS.has(key))return LIFTS.get(key);
+ let [lo,hi]=RELAXED_LIFT,out=hi;
+ if(relaxedGap(rig,lo)>=RELAXED_GAP)out=lo;
+ else if(relaxedGap(rig,hi)<RELAXED_GAP)out=hi;
+ else{for(let i=0;i<6;i++){const m=(lo+hi)/2;if(relaxedGap(rig,m)>=RELAXED_GAP)hi=m;else lo=m;}out=hi;}
+ LIFTS.set(key,out);return out;
+}
 export const POSE_GROUPS=Object.freeze(['Standing','Straight arms','Arms','One arm','Torso','Legs']);
 export const POSE_CATALOG=Object.freeze({
  neutral:still('Standing','Standing',{}),
@@ -88,6 +117,7 @@ export const POSE_CATALOG=Object.freeze({
  straightDown:fitted('Straight arms','Arms straight down',STRAIGHT_DOWN),
  straightOut:fitted('Straight arms','Arms straight out',STRAIGHT_OUT),
  straightPalms:fitted('Straight arms','Palms forward',{...STRAIGHT_DOWN,palm:PALMS_FORWARD}),
+ relaxedSides:still('Straight arms','Arms relaxed at sides',both({...RELAXED,lift:-.6}),(rig)=>both({...RELAXED,lift:relaxedLift(rig),rig})),
  armsLifted:still('Arms','Arms out to the sides',both({lift:.78})),
  raisedBoth:still('Arms','Arms overhead',both({lift:2.15,elbow:.1})),
  doubleBiceps:still('Arms','Double biceps',both({lift:.9,curl:.95,palm:1.3,fist:1})),

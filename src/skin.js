@@ -53,7 +53,7 @@ float segD(vec2 p, vec2 a, vec2 b) { vec2 ab = b - a; float t = clamp(dot(p - a,
 // Arms and legs: each limb is a segment between two joints of the skeleton (left side; the right
 // is its mirror). s: x = how far along (0 at the top joint), y = angle around it (0 = front,
 // +pi/2 = the outside), z = distance from the bone, w = segment length.
-uniform vec3 uLimb[5];
+uniform vec3 uLimb[6];
 uniform float uLimbDef;
 vec4 limbSeg(vec3 q, vec3 a, vec3 b) {
   vec3 d = b - a; float L = length(d); d /= L;
@@ -102,10 +102,51 @@ vec2 limbH(vec3 p) {
     h += cm * (calf - 0.5 * split + tib - 0.3 * shin);
     cr += cm * (0.35 * split + 0.2 * shin);
   }
+  // forearm, elbow to wrist: the muscle on the thumb side just below the elbow, the flexors on the
+  // palm side, the extensors behind, and the groove down the back along the ulna
+  vec4 f = nearSeg(q, uLimb[1], uLimb[5], 0.08) ? limbSeg(q, uLimb[1], uLimb[5]) : vec4(-1.0, 0.0, 1.0, 1.0);
+  float fm = smoothstep(0.075, 0.055, f.z) * smoothstep(0.04, 0.24, f.x) * smoothstep(0.85, 0.6, f.x);
+  if (fm > 0.001) {
+    float br = lump(f, 0.26, 0.45, 0.07, 0.02), flex = 0.8 * lump(f, 0.3, -1.45, 0.08, 0.024), ext = 0.55 * lump(f, 0.3, 1.85, 0.08, 0.02);
+    float ulna = lump(f, 0.42, 2.95, 0.2, 0.0075);
+    h += fm * (0.8 * br + flex + ext - 0.45 * ulna);
+    cr += fm * 0.3 * ulna;
+  }
   return vec2(h * 2.6 * uLimbDef, cr * uLimbDef);
 }
+// The elbow: bone shows through the skin there on everyone, a little less under more body fat
+// (uElbowDef). The point of the elbow (olecranon) behind the joint with loose skin creased over it,
+// the bony bump on the inside (medial epicondyle) and a smaller one outside, the dimple between the
+// point and the outside bump, and in front the crease of the bend over a soft hollow. All found from
+// the shoulder, elbow and wrist joints in the standing skeleton, so it follows every shape and pose.
+uniform float uElbowDef;
+vec2 elbowH(vec3 p) {
+  vec3 q = vec3(abs(p.x), p.y, p.z), E = uLimb[1];
+  vec3 w = q - E; float r = length(w);
+  if (r > 0.085 || r < 1e-4) return vec2(0.0);
+  vec3 u = normalize(E - uLimb[0]), fw = normalize(uLimb[5] - E);
+  vec3 m = normalize(cross(u, fw)), back = normalize(u - fw), along = normalize(u + fw);
+  vec3 dir = w / r;
+  // arc distance over the skin from the direction d, about the joint
+  #define ARC(d) (acos(clamp(dot(dir, normalize(d)), -1.0, 1.0)) * r)
+  float near = smoothstep(0.085, 0.055, r);
+  float ole = mg(ARC(back), 0.02);
+  float ridge = mg(ARC(back - fw * 0.9), 0.016); // the point runs on a little down the forearm
+  float med = mg(ARC(m * 0.95 + back * 0.3 + u * 0.08), 0.014);
+  float lat = mg(ARC(-m * 0.95 + back * 0.25 + u * 0.05), 0.012);
+  float dimple = mg(ARC(-m * 0.6 + back * 0.8 - u * 0.15), 0.01);
+  // fine creases across the point of the elbow, the loose skin that lets it bend
+  float wrinkle = ole * smoothstep(0.4, 1.0, sin(dot(w, along) * 900.0)) * smoothstep(0.03, 0.015, abs(dot(w, along)));
+  float front = smoothstep(0.62, 0.95, dot(dir, -back));
+  float fold = mg(dot(w, along), 0.006) * front;
+  float pit = mg(ARC(-back + fw * 0.5), 0.016) * front;
+  float h = near * (0.62 * ole + 0.24 * ridge + 0.38 * med + 0.14 * lat - 0.14 * dimple - 0.1 * fold - 0.12 * pit);
+  float cr = near * (0.22 * wrinkle + 0.2 * fold + 0.18 * dimple + 0.1 * pit);
+  #undef ARC
+  return vec2(h * 2.6 * uElbowDef, cr * uElbowDef);
+}
 vec2 muscleH(vec3 p) {
-  vec2 lh = uLimbDef > 0.001 ? limbH(p) : vec2(0.0);
+  vec2 lh = (uLimbDef > 0.001 ? limbH(p) : vec2(0.0)) + (uElbowDef > 0.001 ? elbowH(p) : vec2(0.0));
   if (uDef.x + uDef.y < 0.001) return vec2(lh.x * 0.0055, clamp(lh.y, 0.0, 1.0));
   float nipY = 0.5 * (uNipL.y + uNipR.y), hw = max(0.5 * abs(uNipL.x - uNipR.x), 0.05);
   float L = max(nipY - uNavel.y, 0.08), W = hw * 0.8, ax = abs(p.x);
@@ -173,7 +214,7 @@ export function limbJoints(shape) {
   try {
     const { joints } = createRestRig(shape);
     const at = (name, end) => { const b = POSE_BONES.find((x) => x.name === name); if (!b) return null; const i = b[end] * 3; return [joints[i], joints[i + 1], joints[i + 2]]; };
-    out = [at('upperarm01.L', 'head'), at('lowerarm01.L', 'head'), at('upperleg01.L', 'head'), at('lowerleg01.L', 'head'), at('lowerleg02.L', 'tail')];
+    out = [at('upperarm01.L', 'head'), at('lowerarm01.L', 'head'), at('upperleg01.L', 'head'), at('lowerleg01.L', 'head'), at('lowerleg02.L', 'tail'), at('wrist.L', 'head')];
     if (out.some((v) => !v || v.some((x) => !Number.isFinite(x)))) out = null;
   } catch { out = null; }
   jointsFor = key; jointsAt = out; return out;
@@ -188,7 +229,9 @@ export function definition(shape = {}) {
   const lean = c(1.25 - 1.3 * (wt - 0.3), 0, 1), base = c(0.55 + 1.2 * (mus - 0.5), 0.12, 1.15) * lean * (1 - 0.6 * fem);
   const front = c(base * (1 + 0.9 * (+fit.abs || 0)), 0, 1.3), back = c(base * (1 + 0.9 * (+fit.back || 0)), 0, 1.3);
   const limbs = c(c(0.55 + 1.2 * (mus - 0.5), 0.12, 1.15) * lean * (1 - 0.45 * fem), 0, 1.2);
-  return { front, back, chest: c(1 - 0.85 * fem, 0, 1), limbs };
+  // the elbow's bones show on everyone: plainer under more fat, clearer when lean
+  const elbow = c(0.5 + 0.5 * lean * c(0.6 + 0.8 * (mus - 0.5), 0.3, 1), 0.45, 1);
+  return { front, back, chest: c(1 - 0.85 * fem, 0, 1), limbs, elbow };
 }
 
 // "My face": one texture and one switch shared by every skin material, so the main body, the posed
@@ -280,7 +323,7 @@ export function createSkin(geo, color) {
   if (!geo.attributes.beard) geo.setAttribute('beard', new THREE.BufferAttribute(new Float32Array(n).fill(-0.02), 1));
   if (!geo.attributes.bhair) geo.setAttribute('bhair', new THREE.BufferAttribute(new Float32Array(n * 4), 4));
   const V = () => ({ value: new THREE.Vector3() });
-  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, ...HAIR_U, ...BEARD_U, ...BODYHAIR_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 } };
+  const uniforms = { uEyeL: V(), uEyeR: V(), uNipL: V(), uNipR: V(), uNavel: V(), uAreolaR: { value: 0.016 }, ...FACE_U, ...HAIR_U, ...BEARD_U, ...BODYHAIR_U, uBrow: { value: Array.from({ length: 10 }, () => new THREE.Vector3()) }, uBrowOn: { value: 0 }, uDef: { value: new THREE.Vector3(0.38, 0.38, 1) }, uLimb: { value: [0, 1, 2, 3, 4, 5].map(() => new THREE.Vector3()) }, uLimbDef: { value: 0 }, uElbowDef: { value: 0 } };
   const mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.54, metalness: 0, specularIntensity: 0.45, sheen: 0.35, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffd9c8') });
   // A posed body keeps its standing positions in 'rest', so painted detail stays on the same
   // skin when the body bends; a standing body paints straight from its positions.
@@ -466,6 +509,6 @@ export function updateSkin(geo, uniforms, areola, shape) {
   if (shape) {
     const d = definition(shape); uniforms.uDef.value.set(d.front, d.back, d.chest);
     const j = limbJoints(shape);
-    if (j) { j.forEach((v, i) => uniforms.uLimb.value[i].set(v[0], v[1], v[2])); uniforms.uLimbDef.value = d.limbs; } else uniforms.uLimbDef.value = 0;
+    if (j) { j.forEach((v, i) => uniforms.uLimb.value[i].set(v[0], v[1], v[2])); uniforms.uLimbDef.value = d.limbs; uniforms.uElbowDef.value = d.elbow; } else { uniforms.uLimbDef.value = 0; uniforms.uElbowDef.value = 0; }
   }
 }
