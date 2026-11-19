@@ -41,7 +41,7 @@ export default async function(p){
   const at2=await p.evaluate(id=>window.__ink.projectPoint(window.__ink.viewSpot(id).pos),sun),top2=await p.$eval('#sheet',e=>e.getBoundingClientRect().top);
   assert.ok(at2.y<top2&&at2.y>top2-120,`slid just above the panel (${Math.round(at.y)} to ${Math.round(at2.y)}, panel at ${Math.round(top2)})`);
  } else console.log('  (tattoo not low enough to test the slide: '+Math.round(at.y)+')');
- await p.click('#bDone');await wait(300);
+ if(!await p.$eval('#sheet',e=>e.hidden)){await p.click('#bDone');await wait(300);}
  // 2. a wobbly two-finger pan: the view moves, but does not turn or zoom
  const b=await cam();
  const steps=[];let ax=300,ay=600,bx=480,by=600;steps.push(['pointerdown',7,ax,ay],['pointerdown',8,bx,by]);

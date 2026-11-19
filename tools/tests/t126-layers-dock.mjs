@@ -17,8 +17,11 @@ export default async function (p) {
   const json = () => p.evaluate(() => JSON.stringify(window.__ink.state()));
   const overlap = (a, b) => Math.min(a.r, b.r) > Math.max(a.x, b.x) && Math.min(a.b, b.b) > Math.max(a.y, b.y);
 
+  // open by default on an iPad (2026-11-19, it is now the only list of tattoos); its arrow folds it
+  assert.equal(await p.$eval('#layersDock', (e) => e.classList.contains('open')), true, 'starts open on an iPad');
+  await p.click('#ldToggle'); await wait(500);
   // folded: a slim rail at the right edge, under the top bar, with big enough buttons
-  assert.equal(await p.$eval('#layersDock', (e) => e.classList.contains('rail')), true, 'starts as a slim rail');
+  assert.equal(await p.$eval('#layersDock', (e) => e.classList.contains('rail')), true, 'folds to a slim rail');
   const rail = await box('#layersDock'), below = await p.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--below')));
   assert.ok(rail.w <= 64 && rail.r <= 1180 && rail.y >= below - 1, `rail at the right under the chrome: ${JSON.stringify(rail)}`);
   const small = await p.$$eval('#layersDock button', (a) => a.filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect()).filter((r) => r.width < 44 || r.height < 44).length);
@@ -32,7 +35,7 @@ export default async function (p) {
   assert.equal(await p.$eval('#layersDock', (e) => e.classList.contains('open')), true, 'opens');
   assert.ok(panel.w >= 300 && panel.y <= below + 2 && panel.b >= 820 - 40, `full height at the right: ${JSON.stringify(panel)}`);
   assert.equal(await lw(), panel.w + 12, 'the rest of the screen makes room for it');
-  for (const sel of ['#tray', '#top .toolbar']) assert.equal(overlap(await box(sel), panel), false, `${sel} clear of the panel`);
+  for (const sel of ['#top .toolbar']) assert.equal(overlap(await box(sel), panel), false, `${sel} clear of the panel`);
   const n = await p.evaluate(() => window.__ink.state().tattoos.length);
   assert.ok(n >= 2, 'the sample tattoos');
   assert.equal(await p.$$eval('#ldList .ld-row[data-id]', (a) => a.length), n, 'a line per tattoo');
@@ -132,7 +135,6 @@ export default async function (p) {
   await wait(300);
   const pp = { ...(await box('#layersDock')), iw: await p.evaluate(() => innerWidth) };
   assert.ok(pp.b >= 1180 - 40 && pp.r <= pp.iw, `full height in portrait: ${JSON.stringify(pp)}`);
-  assert.equal(overlap(await box('#tray'), pp), false, 'tray clear of the panel in portrait');
   await p.screenshot({ path: 'shots/t126-portrait.png' });
   await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 }); await wait(700);
   const ph = await box('#layersDock');

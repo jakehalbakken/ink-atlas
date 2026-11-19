@@ -32,7 +32,7 @@ export default async function (p) {
     const m = await p.evaluate(() => { const a = document.querySelector('#lookMenu').getBoundingClientRect(), b = document.querySelector('#lookBtn').getBoundingClientRect(); return { top: a.top, left: a.left, right: a.right, btnB: b.bottom, btnL: b.left, w: innerWidth }; });
     assert.ok(m.top >= m.btnB - 1 && m.left >= 0 && m.right <= m.w, `Preview menu under its button at ${name}: ${JSON.stringify(m)}`);
     await p.screenshot({ path: `shots/t114-${theme}-${name}-preview.png` });
-    await p.click('#lightBtn'); await wait(250);
+    await p.click('#lightBtn'); await p.waitForFunction(() => !document.querySelector('#lightPop').getAnimations().length, { timeout: 10000 }); // its grow-in has finished, on a slow headless frame too
     const pop = await p.evaluate(() => document.querySelector('#lightPop').getBoundingClientRect().top);
     assert.ok(pop >= r.below - 1, `Light panel under the chrome at ${name}`);
     await p.click('[data-close="lightPop"]'); await wait(150);

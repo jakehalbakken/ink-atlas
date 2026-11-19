@@ -31,12 +31,13 @@ export default async function (p) {
   }, hidden);
   const openPage = async () => {
     const ctx = await p.browser().createBrowserContext(); const q = await ctx.newPage();
+    await q.evaluateOnNewDocument(() => { try { localStorage.setItem('ia-coach', '1'); } catch { /* fine */ } }); // a second person who signs in from a link sees no welcome card over the body
     await q.setViewport({ width: 820, height: 1180, deviceScaleFactor: 1 });
     q.on('pageerror', (e) => console.log('PAGEERROR(2)', e.message));
     q.on('console', (m) => { const t = m.text(); if (/error/i.test(m.type()) && !/GPU stall|fonts\.g|ERR_|Failed to load resource/.test(t)) console.log('console(2):', t); });
     return q;
   };
-  const ready = async (pg, url) => { if (url) await pg.goto(url, { waitUntil: 'load' }); await until(pg, () => window.__ink && window.__ink.ready() && window.__ink.account(), null, 'app ready'); await pg.evaluate(() => { const c = document.querySelector('#coachOk'); if (c && c.offsetParent) c.click(); }); };
+  const ready = async (pg, url) => { if (url) await pg.goto(url, { waitUntil: 'load' }); await until(pg, () => window.__ink && window.__ink.ready() && window.__ink.account(), null, 'app ready'); await pg.evaluate(() => { const c = document.querySelector('#coachOk'); if (c && c.offsetParent) c.click(); try { localStorage.setItem('ia-coach', '1'); } catch { /* fine */ } const w = document.querySelector('#coach'); if (w) w.hidden = true; }); };
   const makeAccount = async (pg, name, email, pass) => {
     await until(pg, () => document.querySelector('#account input[type=email]'), null, 'sign in form');
     await type(pg, '#account input[autocomplete=name]', name);

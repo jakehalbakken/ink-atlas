@@ -90,12 +90,16 @@ export default async function (p) {
   await p.click('#views [data-view="2"]'); await wait(500); await p.click('#full'); await wait(600);
   assert.equal(await p.evaluate(() => window.__ink.cam().map((v) => v.toFixed(4)).join()), cam0, 'drag, wheel, double-tap and the view buttons leave a locked view alone');
   // a tap still picks a tattoo, and Layers opens at its line without moving the camera
-  const t2 = await p.evaluate(() => window.__ink.state().tattoos.at(-1).id);
+  await p.waitForFunction(() => document.querySelector('#toast').hidden, { timeout: 10000 }).catch(() => {}); // the View is locked note has gone
   await p.evaluate(() => { const d = window.__ink.layersDock(); d.setOpen(false, true); });
-  const c2 = await p.evaluate((id) => window.__ink.projectPoint(window.__ink.viewSpot(id).pos), t2);
+  // a tattoo with ink in sight in the locked view (the middle of a piece can be bare paper, or on the far side)
+  const pick = await p.evaluate(({ l, r, t, bb }) => { const k = window.__ink; for (const tt of k.state().tattoos.slice().reverse()) { if (tt.id === k.selected()) continue; const c = k.projectPoint(k.viewSpot(tt.id).pos); for (let rr = 0; rr <= 90; rr += 5) for (let a = 0; a < 6.28; a += rr ? 0.4 : 7) { const x = c.x + rr * Math.cos(a), y = c.y + rr * Math.sin(a); if (x < l + 10 || x > r - 420 || y < t + 120 || y > bb - 20) continue; const ids = k.inkIdsAt(x, y) || []; if (ids[0] === tt.id) return { id: tt.id, x, y }; } } return null; }, { l: b.l, r: b.r, t: b.t, bb: b.b });
+  const t2 = pick && pick.id, c2 = pick || { x: -1, y: -1 };
+  assert.ok(pick, 'some tattoo is in sight to tap');
   if (c2.x > b.l && c2.x < b.r - 420 && c2.y > b.t + 120 && c2.y < b.b - 20) {
+    const hit2 = await p.evaluate(({ x, y }) => { const h = document.elementFromPoint(x, y); return h && h.tagName + '#' + (h.closest('[id]') || {}).id + ' ' + JSON.stringify(window.__ink.inkIdsAt(x, y)); }, c2);
     await p.mouse.click(c2.x, c2.y); await wait(700);
-    assert.equal(await p.evaluate(() => window.__ink.selected()), t2, 'a tap on the body still picks');
+    assert.equal(await p.evaluate(() => window.__ink.selected()), t2, 'a tap on the body still picks: ' + hit2 + ' ' + JSON.stringify(c2));
     assert.equal(await p.$eval('#layersDock', (e) => e.classList.contains('open')), true, 'Layers opens');
     assert.equal(await p.$eval(`#ldList .ld-row[data-id="${t2}"]`, (e) => e.classList.contains('on')), true, 'its line is marked');
     assert.equal(await p.evaluate(() => window.__ink.cam().map((v) => v.toFixed(4)).join()), cam0, 'picking does not move a locked view');

@@ -21,11 +21,12 @@ export default async function (p) {
   const type = async (pg, sel, text) => { await wait(150); await pg.$eval(sel, (e) => { e.value = ''; }); await pg.type(sel, text); assert.equal(await pg.$eval(sel, (e) => e.value), text, 'typed into ' + sel); };
   const openPage = async () => {
     const ctx = await p.browser().createBrowserContext(); const q = await ctx.newPage();
+    await q.evaluateOnNewDocument(() => { try { localStorage.setItem('ia-coach', '1'); } catch { /* fine */ } }); // a second person who signs in from a link sees no welcome card over the body
     await q.setViewport({ width: 820, height: 1180, deviceScaleFactor: 1 });
     q.on('pageerror', (e) => console.log('PAGEERROR(2)', e.message));
     return q;
   };
-  const ready = async (pg, url) => { if (url) await pg.goto(url, { waitUntil: 'load' }); await until(pg, () => window.__ink && window.__ink.ready() && window.__ink.account(), null, 'app ready'); await pg.evaluate(() => { const c = document.querySelector('#coachOk'); if (c && c.offsetParent) c.click(); }); };
+  const ready = async (pg, url) => { if (url) await pg.goto(url, { waitUntil: 'load' }); await until(pg, () => window.__ink && window.__ink.ready() && window.__ink.account(), null, 'app ready'); await pg.evaluate(() => { const c = document.querySelector('#coachOk'); if (c && c.offsetParent) c.click(); try { localStorage.setItem('ia-coach', '1'); } catch { /* fine */ } const w = document.querySelector('#coach'); if (w) w.hidden = true; }); };
   try {
     const url = p.url().split('?')[0];
     await ready(p);

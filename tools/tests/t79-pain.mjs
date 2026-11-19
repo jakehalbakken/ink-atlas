@@ -26,7 +26,7 @@ export default async function(p){
  // colours: green on the outer arm, red on the ribs
  const col=await p.evaluate(()=>{const st=window.__ink.pain();return st.colours();});assert.ok(col&&col.length===30);
  // a tap on the body reads that spot
- const box=await p.evaluate(()=>{const r=document.querySelector('canvas').getBoundingClientRect();for(let f=0.55;f<0.9;f+=0.03)for(const dx of [0,-12,12,-24,24]){const x=r.left+r.width/2+dx,y=r.top+r.height*f;if(window.__ink.hitBody(x,y))return {x,y};}return null;});
+ const box=await p.evaluate(()=>{const r=document.querySelector('canvas').getBoundingClientRect(),a=window.__ink.freeArea();for(let f=0.55;f<0.9;f+=0.03)for(const dx of [0,-12,12,-24,24]){const x=(a.left+a.right)/2+dx,y=r.top+r.height*f;if(window.__ink.hitBody(x,y))return {x,y};}return null;});
  assert.ok(box,'found the body on screen');
  await p.mouse.click(box.x,box.y);await wait(300);
  pn=await p.evaluate(()=>window.__ink.pain());assert.match(pn.text,/^[A-Z][^:]+: (low|moderate|high|very high), about \d+ out of 10\.$/,'reads the spot: '+pn.text);

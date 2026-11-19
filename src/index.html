@@ -98,6 +98,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 .brand small.bad{color:var(--danger);font-weight:600}
 .cluster{display:flex;gap:4px;align-items:center;padding:4px;flex:none}
 .toolbar .btn{border-color:transparent;background:transparent;padding:0 12px}
+/* an iPad Air or Pro 11 in landscape: tighter padding so the view switcher, with its lock, stays in the top row */
+@media (min-width:621px) and (max-width:1279px){#top{gap:10px}#top .brand{padding:0 10px}#top .toolbar .btn:not(.ico){padding:0 10px}#top .toolbar #newBtn{padding:0 10px 0 8px}}
 .toolbar .btn.primary{background:var(--stencil);margin-left:4px}
 .toolbar .btn.ico{padding:0;width:44px;color:var(--text)}
 .toolbar .btn.ico:disabled{opacity:.3}
@@ -107,8 +109,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 #newBtn{padding:0 12px 0 10px;gap:6px;color:var(--stencil)}#newBtn .count-badge{margin:0}
 #views{display:flex;align-items:center;gap:2px;padding:4px;flex:none}
 body.views-low #views{position:fixed;left:50%;transform:translateX(-50%);top:var(--views-top,76px)}
-#views .btn{min-width:52px;padding:0 11px;border-color:transparent;background:transparent;color:var(--muted)}
-#views #full{color:var(--text);gap:6px;padding:0 12px 0 10px}
+#views .btn{min-width:46px;padding:0 8px;border-color:transparent;background:transparent;color:var(--muted)}
+#views #full{color:var(--text);gap:6px;padding:0 10px 0 8px}#views .tb-sep{margin:0 2px}
 #views .btn:active{color:var(--text);background:var(--fill-strong)}
 @media (hover:hover){#views .btn:hover{color:var(--text)}}
 #dock{position:fixed;left:0;right:var(--layers-w,0px);bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
@@ -117,7 +119,7 @@ body.views-low #views{position:fixed;left:50%;transform:translateX(-50%);top:var
 #foot>#empty{pointer-events:auto}#adds[hidden]{display:none}
 #empty .row{gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
 #bSheetMin{flex:none;width:44px;padding:0;color:var(--muted)}#bSheetMin svg{transition:transform .2s ease}#sheet.min #bSheetMin svg{transform:rotate(180deg)}
-#sheet.min>*:not(.row:first-child){display:none!important}#sheet.min{overflow:hidden}
+#sheet.min>*:not(.row:first-child),#sheet.min #size,#sheet.min #gap{display:none!important}#sheet.min{overflow:hidden}
 #viewLock{min-width:44px;width:44px;padding:0}#viewLock .vl-shut,#viewLock[aria-pressed=true] .vl-open{display:none}#viewLock[aria-pressed=true] .vl-shut{display:block}#viewLock[aria-pressed=true]{color:var(--on-accent,#fff)!important;background:var(--stencil)!important}
 /* fingers on the body: everything floating fades almost away until they lift */
 #top,#views,#lookMenu,#dock,#foot,.pop{transition:opacity .25s ease}
@@ -295,7 +297,13 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
    column takes (Layers, with the edit panel under it or beside the rail): the bars across the
    top and the hint at the bottom keep clear of it. */
 :root:has(#wrapStudio:not([hidden])),body.painting{--layers-w:0px!important}
-#roomBar,#pinBar,#painBar,#selfBar,#paintBar,#procreateBar,#followBar,#toast,#tapPlaceBar{margin-left:calc(var(--layers-w,0px) / -2);max-width:calc(100% - 32px - var(--layers-w,0px))!important}
+#tapeBar,#roomBar,#pinBar,#painBar,#selfBar,#paintBar,#procreateBar,#followBar,#toast,#tapPlaceBar{margin-left:calc((var(--left-w,0px) - var(--layers-w,0px)) / 2);max-width:max(220px,calc(100% - 32px - var(--layers-w,0px) - var(--left-w,0px)))!important}
+/* the tape measure and Open skin bars sit along the bottom, where the long strip of tattoos used to be, so the head, chest and arms you tap on stay clear (2026-11-19) */
+@media (min-width:700px){#tapeBar,#roomBar{top:auto!important;bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom,0px))}body:has(#tapeBar:not([hidden])) #foot,body:has(#roomBar:not([hidden])) #foot{visibility:hidden}}
+/* with a sheet like Plan or Share open in the middle, messages drop to the bottom so they never sit over its buttons */
+body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) + env(safe-area-inset-bottom,0px));margin-left:0;max-width:calc(100% - 32px)!important}
+/* a panel open at the left (Blend and colour, Match a photo, Try other spots): messages centre in the space between it and the right column, so they never sit over its buttons */
+@media (min-width:700px){body:has(#inkLook:not([hidden])){--left-w:352px}body:has(#bodyMatch:not([hidden])),body:has(#spotPop:not([hidden])){--left-w:396px}}
 /* An iPad either way round (700 px and up): one column at the right. Layers on top, the edit
    panel under it when a tattoo is selected (or beside the folded rail), so the middle of the
    screen, where the body is, stays clear. Anything opened from the top bar takes that same
@@ -310,13 +318,15 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   .editor-quick{flex-wrap:wrap}.editor-quick .btn{flex:1 1 40%;min-width:0;padding:0 8px;font-size:14px}
   #procreateBar{width:min(520px,calc(100% - 472px))}#paintBar{width:min(560px,calc(100% - 160px))}
   .pop:not(#bodyMatch):not(#spotPop),#lookMenu{right:calc(12px + env(safe-area-inset-right,0px));max-height:calc(100% - var(--below) - 16px - var(--kb,0px))}
+  #lookMenu{grid-auto-rows:max-content;overflow-y:auto;overscroll-behavior:contain}
   body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #layersDock,body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #dock,
   body:has(#lookMenu:not([hidden])) #layersDock,body:has(#lookMenu:not([hidden])) #dock{visibility:hidden;pointer-events:none}
 }
 #sheet .row:first-child #name{flex:1 1 90px}#sheet .row:first-child{flex-wrap:wrap}#sheet #size{flex-basis:100%;order:3}
 /* a phone: the edit panel runs along the bottom, so the Layers rail steps aside while it is open,
    and the view buttons drop the words Full body to keep the lock in reach */
-@media (max-width:699px){body:has(#sheet:not([hidden])) #layersDock.rail{display:none!important}}
+@media (max-width:699px){body:has(#sheet:not([hidden])) #layersDock.rail{display:none!important}
+  body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #layersDock,body:has(#lookMenu:not([hidden])) #layersDock,body:has(#inkLook:not([hidden])) #layersDock{visibility:hidden;pointer-events:none}}
 @media (max-width:520px){#views .btn{min-width:44px;padding:0 9px}#views #full{font-size:0;gap:0;width:44px;min-width:44px;padding:0;justify-content:center}#views #full::before{margin:0}}
 /* Phones: the pain map and open skin bars take the tattoo list's place at the bottom while they
    are on, so the head, neck and chest stay in view. */

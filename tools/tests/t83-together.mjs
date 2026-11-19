@@ -27,12 +27,13 @@ export default async function (p) {
   const toastText = (pg) => pg.$eval('#toast', (e) => (e.hidden ? '' : e.textContent));
   const openPage = async () => {
     const ctx = await p.browser().createBrowserContext(); const q = await ctx.newPage();
+    await q.evaluateOnNewDocument(() => { try { localStorage.setItem('ia-coach', '1'); } catch { /* fine */ } }); // a second person who signs in from a link sees no welcome card over the body
     await q.setViewport({ width: 820, height: 1180, deviceScaleFactor: 1 });
     q.on('pageerror', (e) => console.log('PAGEERROR(2)', e.message));
     q.on('console', (m) => { const t = m.text(); if (/error/i.test(m.type()) && !/GPU stall|fonts\.g|ERR_|Failed to load resource/.test(t)) console.log('console(2):', t); });
     return q;
   };
-  const ready = async (pg, url) => { if (url) await pg.goto(url, { waitUntil: 'load' }); await until(pg, () => window.__ink && window.__ink.ready() && window.__ink.account(), null, 'app ready'); await pg.evaluate(() => { const c = document.querySelector('#coachOk'); if (c && c.offsetParent) c.click(); }); };
+  const ready = async (pg, url) => { if (url) await pg.goto(url, { waitUntil: 'load' }); await until(pg, () => window.__ink && window.__ink.ready() && window.__ink.account(), null, 'app ready'); await pg.evaluate(() => { const c = document.querySelector('#coachOk'); if (c && c.offsetParent) c.click(); try { localStorage.setItem('ia-coach', '1'); } catch { /* fine */ } const w = document.querySelector('#coach'); if (w) w.hidden = true; }); };
   const makeAccount = async (pg, name, email, pass) => {
     await until(pg, () => document.querySelector('#account input[type=email]'), null, 'sign in form');
     await type(pg, '#account input[autocomplete=name]', name);
@@ -93,7 +94,7 @@ export default async function (p) {
     const look = await q.evaluate(() => window.__ink.state().tattoos[1].id), lookName = await q.evaluate(() => window.__ink.state().tattoos[1].name);
     await q.evaluate((id) => window.__ink.select(id), look);
     await until(p, (id) => window.__ink.peers().some((o) => o.name === 'Liv' && o.look === id), look, 'Jake sees which tattoo she has selected', 10000);
-    const chip = await p.evaluate((n) => { const c = [...document.querySelectorAll('#ldList .ld-tat')].find((x) => x.querySelector('span').textContent === n); const m = c && c.querySelector('b.peer'); return { mark: m && m.textContent, label: c && c.getAttribute('aria-label') }; }, lookName);
+    const chip = await p.evaluate((n) => { const c = [...document.querySelectorAll('#ldList .ld-tat')].find((x) => x.querySelector('span:not(.ld-thumb) > b').textContent === n); const m = c && c.querySelector('b.peer'); return { mark: m && m.textContent, label: c && c.getAttribute('aria-label') }; }, lookName);
     assert.equal(chip.mark, 'L', 'her initial on that tattoo in the tray'); assert.match(chip.label, /Liv looking at it/);
     assert.equal(await p.$$eval('#ldList b.peer', (e) => e.length), 1, 'and on no other');
     await p.click('#hereNow');

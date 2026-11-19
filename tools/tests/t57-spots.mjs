@@ -48,10 +48,12 @@ export default async function(p){
  await p.$eval('#spotChoices [data-spot="calf"]',e=>e.click());await wait(60);const c1=await tat();
  await p.$eval('#spotChoices [data-spot="shin"]',e=>e.click());await wait(60);
  await p.$eval('#undo',e=>e.click());await wait(60);assert.deepEqual(await tat(),c1,'undo puts it back');
- // locked: refuses
+ // locked in place (2026-11-19): only taps and drags on the body are stopped, so a spot picked here still moves it, one undo step
  await p.evaluate(id=>{window.__ink.state().tattoos.find(t=>t.id===id).locked=true;window.__ink.commitTest();},id);
  await p.$eval('#spotChoices [data-spot="shin"]',e=>e.click());await wait(60);
- assert.deepEqual(await tat(),c1,'locked stays');assert.match(await p.$eval('#toast',e=>e.textContent),/Unlock/);
+ assert.notDeepEqual(await tat(),c1,'a locked tattoo still goes to the spot picked here');
+ await p.$eval('#undo',e=>e.click());await wait(60);assert.deepEqual(await tat(),c1,'and undo puts it back');
+ assert.equal(await p.evaluate(id=>window.__ink.state().tattoos.find(t=>t.id===id).locked,id),true,'still locked');
  await p.evaluate(id=>{window.__ink.state().tattoos.find(t=>t.id===id).locked=false;window.__ink.commitTest();},id);
  // Escape closes the panel
  await p.keyboard.press('Escape');await wait(100);assert.equal(await p.$eval('#spotPop',e=>e.hidden),true,'Escape closes');

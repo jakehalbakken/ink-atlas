@@ -52,10 +52,11 @@ export default async function (p) {
   await p.keyboard.press('Backspace'); await wait(200);
   assert.equal(await count(), 2, 'Backspace in the name does not remove the tattoo');
   await p.$eval('#name', (e, name) => { e.value = name; e.dispatchEvent(new Event('change')); e.blur(); }, before.name); await wait(200);
-  // locked: says so, does not move
+  // locked in place (2026-11-19): only taps and drags on the body are stopped, so the keys still fine-tune it
   await p.evaluate((id) => { const q = window.__ink.state().tattoos.find((x) => x.id === id); q.locked = true; window.__ink.commitTest(); }, t.id); await wait(200);
   const lk = await get(); await p.keyboard.press('ArrowLeft'); await wait(300);
-  assert.deepEqual((await get()).pos, lk.pos, 'locked: no move');
+  assert.notDeepEqual((await get()).pos, lk.pos, 'locked: the arrow keys still nudge it');
+  await p.click('#undo'); await wait(400); assert.deepEqual((await get()).pos, lk.pos, 'and undo puts it back');
   await p.evaluate((id) => { const q = window.__ink.state().tattoos.find((x) => x.id === id); q.locked = false; window.__ink.commitTest(); }, t.id); await wait(200);
   // Cmd+D duplicates, Delete removes the selected one with Undo
   const n0 = await count();

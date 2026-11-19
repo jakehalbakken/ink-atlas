@@ -22,9 +22,10 @@ export default async function(p){
  const a=await front(0.09,1.33),b=await front(-0.09,1.33);assert.ok(a&&b,'chest points on screen');
  await p.mouse.click(a.x,a.y);await wait(250);
  s=await p.evaluate(()=>window.__ink.tape());assert.equal(s.pts,1);assert.match(s.text,/second point/);
+ const hitB=await p.evaluate(({x,y})=>{const h=document.elementFromPoint(x,y);return h&&(h.tagName+'#'+(h.closest('[id]')||{}).id);},b);
  await p.mouse.click(b.x,b.y);await wait(400);
  s=await p.evaluate(()=>window.__ink.tape());
- assert.ok(s.result&&s.result.len>0,'measured: '+s.text);
+ assert.ok(s.result&&s.result.len>0,'measured: '+s.text+' '+JSON.stringify([a,b,hitB]));
  const H=await p.evaluate(()=>window.__ink.state().heightCm),cm=l=>l*H/1.75;
  assert.ok(cm(s.result.len)>=cm(s.result.straight)-0.01,'along the skin is at least the straight line');
  assert.ok(cm(s.result.len)>12&&cm(s.result.len)<45,'across the chest '+cm(s.result.len).toFixed(1)+' cm');
@@ -79,7 +80,7 @@ export default async function(p){
  assert.equal(s.label,standing.label,'same label');
  await p.screenshot({path:'shots/t75-tape-pose.png'});
  // tapping in a pose measures the skin under the finger
- const pa=await p.evaluate(()=>{const r=document.querySelector('canvas').getBoundingClientRect();for(let f=0.3;f<0.6;f+=0.02){const x=r.left+r.width/2+30,y=r.top+r.height*f;if(window.__ink.hitBody(x,y))return {x,y};}return null;});
+ const pa=await p.evaluate(()=>{const r=document.querySelector('canvas').getBoundingClientRect(),a=window.__ink.freeArea();for(let f=0.3;f<0.6;f+=0.02){const x=(a.left+a.right)/2+30,y=r.top+r.height*f;if(window.__ink.hitBody(x,y))return {x,y};}return null;});
  assert.ok(pa,'posed body on screen');
  await p.click('#tapeAround');await wait(200);await p.mouse.click(pa.x,pa.y);await wait(500);
  s=await p.evaluate(()=>window.__ink.tape());

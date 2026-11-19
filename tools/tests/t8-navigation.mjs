@@ -31,7 +31,7 @@ export default async function (p) {
   await visible('landscape');
   await p.evaluate(() => { Object.assign(window.__ink.goal,{r:0.22,tx:.7,ty:1.9,tz:.5}); });
   await p.click('#full'); await wait(300); await p.waitForFunction(() => window.__ink.settled(), { timeout: 10000 });
-  assert(await p.evaluate(() => window.__ink.cur.r > 3 && Math.abs(window.__ink.cur.tx)<.01), 'Full body resets camera');
+  assert(await p.evaluate(() => { const k = window.__ink, a = k.freeArea(), c = k.projectPoint([0, 0.9, 0]); return k.cur.r > 3 && Math.abs(k.cur.ty - 0.73) < .01 && Math.abs(c.x - (a.left + a.right) / 2) < 40; }), 'Full body resets camera, the body in the middle of the space beside Layers');
   // Cancel a two-pointer gesture, then confirm fresh one-finger orbit is accepted.
   const recovered = await p.evaluate(() => {
     const c = document.querySelector('canvas'), fire = (type,id,x,y) => c.dispatchEvent(new PointerEvent(type,{pointerId:id,pointerType:'touch',clientX:x,clientY:y,bubbles:true}));
