@@ -21,8 +21,10 @@ export default async function(p){
  a=await read();assert.equal(a.w,b.w,'ink untouched');assert.ok(a.r<b.r,'view zoomed');
  await p.click('#trayItems .chip');await wait(300);await p.waitForFunction(()=>window.__ink.settled(),{timeout:30000});
  const c=await read();
+ // picking the chip may slide the zoomed view clear of the panels, so find a spot off the ink again
+ const off3=await p.evaluate(([x,y])=>{const a=window.__ink,clear=(u)=>[-20,0,20].every((k)=>!a.inkIdsAt(u+k,y).length&&!a.inkIdsAt(u+k+20,y+20).length);for(let d=260;d<520;d+=10)if(x-d>30&&clear(x-d))return x-d;return 30;},[c.pt.x,c.pt.y]);
  // 3. first finger off and already moving (a view drag), then a second finger on the ink: stays a view gesture
- await send([['pointerdown',75,off,c.pt.y],['pointermove',75,off+20,c.pt.y+20]]);await send([['pointerdown',76,c.pt.x,c.pt.y],['pointermove',76,c.pt.x+30,c.pt.y],['pointerup',75,off+20,c.pt.y+20],['pointerup',76,c.pt.x+30,c.pt.y]]);await wait();
+ await send([['pointerdown',75,off3,c.pt.y],['pointermove',75,off3+20,c.pt.y+20]]);await send([['pointerdown',76,c.pt.x,c.pt.y],['pointermove',76,c.pt.x+30,c.pt.y],['pointerup',75,off3+20,c.pt.y+20],['pointerup',76,c.pt.x+30,c.pt.y]]);await wait();
  a=await read();assert.equal(a.w,c.w,'a view drag already under way is not hijacked by a second finger');
  console.log('PASS t35 two-finger order: second finger on ink edits it, off-ink pinch moves the view, a moving view drag is never hijacked');
 }

@@ -22,6 +22,7 @@ import { createAccount } from './account.js';
 import { emailCodes } from './cloud.js';
 import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
+import { createLayersDock, kindShown } from './layers-dock.js';
 import { makeArtistPacket } from './artist-packet.js';
 import { cleanState, imageKeysFor, REACTIONS, SUGGEST_KEYS } from './project.js';
 import { openStore } from './store.js';
@@ -101,6 +102,10 @@ let selectedId = null;
 let tapPlaceId = null;
 const tape = { on: false, mode: 'along', pts: [], result: null, key: -1, group: null, nb: null, nbOf: null }; // the tape measure (only for looking, never saved)
 let soloIds = null;
+// Hide planned / Hide existing in the Layers panel: what this screen shows, never saved
+const kindOff = { planned: false, existing: false };
+function viewShows(t) { return (!soloIds || soloIds.has(t.id)) && kindShown(t, kindOff); }
+let layersDock = null;
 const undoStack = [];
 const redoStack = [];
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -269,7 +274,8 @@ function freeArea() {
   const firstShown = [...$('#dock').children].map((n) => n.getBoundingClientRect()).filter((r) => r.height > 0);
   const dockTop = firstShown.length ? Math.min(...firstShown.map((r) => r.top)) : b.bottom;
   const bottom = side ? b.bottom - 12 : Math.max(top + 80, Math.min(b.bottom - 12, dockTop - 14));
-  const right = side ? d.left + 4 : b.right - 12;
+  let right = side ? d.left + 4 : b.right - 12;
+  const ld = $('#layersDock'); if (ld && parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--layers-w')) > 0) { const lr = ld.getBoundingClientRect(); if (lr.width) right = Math.min(right, lr.left - 8); }
   // a panel open at the left (Try other spots) takes that side too
   const sp = !$('#spotPop').hidden ? $('#spotPop') : $('#bodyMatch'), spr = sp.hidden ? null : sp.getBoundingClientRect();
   const left = spr && spr.right < right - 240 ? spr.right + 12 : b.left + 12;
@@ -287,13 +293,15 @@ function inSight(t) {
 }
 // After a tap opens the edit panel over the very tattoo you tapped, slide the picture just far
 // enough to clear the panel. Same zoom, same angle: only a small shift, and only when covered.
-function keepClearOfPanels(t) {
-  const spot = viewSpot(t), p = screenOf(new V3(...spot.pos)), f = freeArea(), m = 40;
+// With panelsOnly (a tray or layers line picked a tattoo already in sight) it only moves when the
+// edit panel or the layers panel at the right or bottom would sit on it.
+function keepClearOfPanels(t, panelsOnly) {
+  const spot = viewSpot(t), p = screenOf(new V3(...spot.pos)), f = freeArea(), m = panelsOnly ? 32 : 40;
   const toCam = camera.position.clone().sub(new V3(...spot.pos)).normalize();
   if (new V3(...spot.normal).dot(toCam) < 0.1) return;
   let dx = 0, dy = 0;
-  if (p.y > f.bottom - m) dy = f.bottom - m - p.y; else if (p.y < f.top + m) dy = f.top + m - p.y;
-  if (p.x > f.right - m) dx = f.right - m - p.x; else if (p.x < f.left + m) dx = f.left + m - p.x;
+  if (p.y > f.bottom - m) dy = f.bottom - m - p.y; else if (!panelsOnly && p.y < f.top + m) dy = f.top + m - p.y;
+  if (p.x > f.right - m) dx = f.right - m - p.x; else if (!panelsOnly && p.x < f.left + m) dx = f.left + m - p.x;
   if (!dx && !dy) return;
   const k = (2 * cur.r * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / canvas.getBoundingClientRect().height;
   const right = new V3().setFromMatrixColumn(camera.matrixWorld, 0), up = new V3().setFromMatrixColumn(camera.matrixWorld, 1);
@@ -600,7 +608,7 @@ function syncDecals() {
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, shapeKey].join('|');
     if (d.geoKey !== gk) { d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
-    d.mesh.visible = !t.hidden && !!d.tex && (!soloIds || soloIds.has(t.id)); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting;
+    d.mesh.visible = !t.hidden && !!d.tex && viewShows(t); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting;
   });
   syncPaint();
   needsRender = true;
@@ -792,7 +800,7 @@ const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 let tried = readTried(); // features from New to try that were tried on this device
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; const was = selectedId; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (was !== id && account && account.nudge) account.nudge(); if (t && focus) requestAnimationFrame(() => { if (sel() === t && !gest) revealTattoo(t); }); }
+function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; const was = selectedId; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (was !== id && account && account.nudge) account.nudge(); if (t && focus) requestAnimationFrame(() => { if (sel() !== t || gest) return; if (inSight(t)) keepClearOfPanels(t, true); else focusTattoo(t); }); }
 // the size said as an everyday thing: about the size of a credit card
 function likeOf(t) { if (!t) return ''; const k = (state.heightCm || 175) / 175, w = t.width * 100 * k / 2.54; return sizeLikeText(w, w / t.aspect); }
 function likeRender(t) { const lk = likeOf(t); $('#likeLine').textContent = lk; $('#likeLine').hidden = !lk; }
@@ -844,7 +852,7 @@ function drawLiveGuides(){const svg=$('#alignmentGuides');if(!liveGuidePlan){svg
 }
 // the middle of the body: a guide down the centre line, snapped to when snapping is on
 function centreGuide(t){const plan=findCentreLine(t);if(!plan)return;liveGuidePlan=plan;markTried('centre');if(!$('#snapGuides').checked)return;const n=new V3(...t.normal),hit=surfaceAt(new V3(...plan.candidate).addScaledVector(n,.03),n.clone().negate());if(hit&&Math.abs(hit.pos[0])<.001&&Math.hypot(...hit.pos.map((v,i)=>v-plan.candidate[i]))<.012&&new V3(...hit.normal).dot(n)>.85){t.pos=hit.pos;t.normal=hit.normal;guideSnapApplied=true;}}
-function updateLiveGuides(t){clearLiveGuides();if(!$('#liveGuides').checked||poseView.active)return;const refs=state.tattoos.filter(r=>!soloIds||soloIds.has(r.id)),plan=findLiveAlignment(t,refs);if(!plan){centreGuide(t);return;}const ref=state.tattoos.find(r=>r.id===plan.referenceId);
+function updateLiveGuides(t){clearLiveGuides();if(!$('#liveGuides').checked||poseView.active)return;const refs=state.tattoos.filter(r=>viewShows(r)),plan=findLiveAlignment(t,refs);if(!plan){centreGuide(t);return;}const ref=state.tattoos.find(r=>r.id===plan.referenceId);
  // A close normal match alone is not sufficient across adjacent body parts.
  const connected=projectGroupSurface(ref.pos,ref.normal,t);if(!connected||Math.hypot(...connected.pos.map((v,i)=>v-ref.pos[i]))>.012)return;
  liveGuidePlan=plan;if($('#snapGuides').checked){const hit=projectGroupSurface(plan.candidate,t.normal,t);if(hit&&Math.hypot(...hit.pos.map((v,i)=>v-plan.candidate[i]))<.012&&new V3(...hit.normal).dot(new V3(...t.normal))>.85){t.pos=hit.pos;t.normal=hit.normal;guideSnapApplied=true;}}
@@ -1137,6 +1145,7 @@ function renderTray() {
     tray.append(b);
   }
   $('#count').textContent = state.tattoos.length ? `${state.tattoos.length} on the body` : 'Nothing placed yet';
+  if (layersDock) layersDock.render();
 }
 function renderSheet() {
   const t = sel(); const sh = $('#sheet'); sh.hidden = !t; renderReview(t); if (t && !taught.has('select')) learnt('select'); $('#hint').hidden = !!t || state.tattoos.length === 0 || taught.has('select');
@@ -2462,6 +2471,8 @@ function needTattoo() {
 var infoQuietUntil = 0, infoByShow = false; // More controls opened by a Show me: pointed at, not tried
 const SHOW = {
   wrapGrab: () => { const t = sel() || state.tattoos.find((x) => !x.hidden && isWrap(x)) || state.tattoos.find((x) => !x.hidden && wrapInfo(x)); if (!t) return [null, 'Put a long piece on an arm or leg, tap Wrap it round under its name, then drag it anywhere on it: sideways turns it round, up or down slides it along.']; if (sel() !== t) select(t.id, true); else revealTattoo(t); renderSheet(); return $('#wrapRow').hidden ? [null, 'Move the tattoo onto an arm or leg: Wrap it round shows under its name. Then drag it anywhere on it, even round the back.'] : [$('#wrapFit').hidden ? '#wrapRow' : '#wrapFit', $('#wrapFit').hidden ? 'It goes all the way round. Drag it anywhere on it: sideways turns it round the limb, up or down slides it along.' : 'Tap Wrap it round: the long side goes round the limb with the ends meeting at the back. Then drag it anywhere on it, sideways to turn it, up or down to slide it.']; },
+  layersDock: () => { layersDock.setOpen(true, true); return ['#layersDock', 'This is the Layers panel. Tap a line to work on that tattoo, the eye to hide it, and the arrow at the top to fold the panel to a slim rail.']; },
+  hideKinds: () => { layersDock.setOpen(true, true); return ['#ldKinds', 'Tap Hide planned to see only the ink already on you, or Hide existing to see only your plans. Tap again to bring them back. Nothing in the project changes.']; },
   layersSheet: () => { toggle('#planMenu', true); return ['#openLayers', 'Tap Layers and groups. Each tattoo is one line with an eye to hide it and dots to move or lock it; tick several and the actions for them show below.']; },
   layouts: () => { toggle('#planMenu', true); return ['#openPlanning', 'Tap Layouts and views. Name the layout on the body and tap Save; each saved one has Open, and the dots beside it hold Rename, What’s different and Archive.']; },
   measuredWrap: () => { toggle('#planMenu', true); return ['#openWrap', 'Tap Measured wrap. Your ankle numbers are filled in to start; change any of them there.']; },
@@ -4159,7 +4170,15 @@ $('#openPlacement').addEventListener('click',async()=>{
   snapshot();for(const t of plan.updates)Object.assign(state.tattoos.find(x=>x.id===t.id),t);state.tattoos.push(...plan.additions);commit();toast('Placement applied.','Undo',undo);
  }});}catch(e){toast('Placement tools: '+e.message);}
 });
-$('#openLayers').addEventListener('click',()=>{toggle('#planMenu',false);markTried('layersSheet');openLayers({getState:()=>state,onTransform:transformSelection,getImages:()=>images,onSolo:ids=>{soloIds=ids?new Set(ids):null;syncDecals();},select:id=>select(id,true),change:fn=>{snapshot();fn(state);commit();}});});
+function openLayersSheet(){toggle('#planMenu',false);markTried('layersSheet');openLayers({getState:()=>state,onTransform:transformSelection,getImages:()=>images,onSolo:ids=>{soloIds=ids?new Set(ids):null;syncDecals();},select:id=>select(id,true),change:fn=>{snapshot();fn(state);commit();}});}
+$('#openLayers').addEventListener('click',openLayersSheet);
+// The Layers panel at the right: folded to a slim rail or open the full height of the screen
+layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:()=>selectedId,kinds:kindOff,
+  pick:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id===selectedId)focusTattoo(t);else select(t.id,true);},
+  change:fn=>{snapshot();fn(state);commit();},openSheet:openLayersSheet,onPaint:()=>openPaintPop(),
+  onKinds:kind=>{markTried('hideKinds');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}const n=state.tattoos.filter(x=>(x.status==='existing'?'existing':'planned')===kind).length;if(n)toast(kindOff[kind]?`${kind==='existing'?'Existing':'Planned'} tattoos hidden on this screen. Tap again to bring them back.`:`${kind==='existing'?'Existing':'Planned'} tattoos showing again.`,null,null,3200);},
+  onOpen:open=>{if(open)markTried('layersDock');},
+  onLayout:()=>{placeChrome();needsRender=true;}});
 $('#openUnplaced').addEventListener('click',()=>{
  toggle('#planMenu',false);const host=el('section',{class:'scrim',role:'dialog','aria-modal':'true','aria-label':'Saved artwork to place'});host.style.zIndex=10000;const panel=el('div',{class:'modal glass'},el('h2',{text:'Saved artwork to place'}),el('p',{text:'These pieces had no body position in the imported project. Place one deliberately, then adjust it on the body.'}));
  for(const record of state.unplacedTattoos||[])panel.append(el('button',{class:'card',text:'Place '+record.name+' on body',onclick:async()=>{
@@ -4756,17 +4775,17 @@ function posesSheet() {
 }
 let posesLast = null;
 function artistPacket() {
-  const oldCur = {...cur}, oldGoal = {...goal}, oldGlide = glide, oldSolo = soloIds;
+  const oldCur = {...cur}, oldGoal = {...goal}, oldGlide = glide, oldSolo = soloIds, oldKinds = {...kindOff};
   const views = [];
   try {
-    soloIds = null;
+    soloIds = null; kindOff.planned = kindOff.existing = false;
     for (const [label, theta] of [['Front',0],['Right',Math.PI/2],['Back',Math.PI],['Left',-Math.PI/2]]) {
       fullBody(theta); Object.assign(cur, goal); applyCam();
       views.push({label,dataUrl:shot(false)});
     }
     return makeArtistPacket({name:state.projectName || 'My tattoo plan',heightCm:state.heightCm,views,tattoos:state.tattoos,images,artworks:state.artworks || {},notes:state.notes || '',drawings:state.drawings || [],bodySurface:{positions:bodyGeo.attributes.position.array,index:bodyGeo.index.array}});
   } finally {
-    Object.assign(cur,oldCur); Object.assign(goal,oldGoal); glide=oldGlide; soloIds=oldSolo;
+    Object.assign(cur,oldCur); Object.assign(goal,oldGoal); glide=oldGlide; soloIds=oldSolo; Object.assign(kindOff, oldKinds);
     applyCam(); syncDecals(); needsRender=true;
   }
 }
@@ -5139,7 +5158,7 @@ function inkToAlpha(px) {
 }
 async function exportLayers() {
   toggle('#share', false);
-  const list = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex && (!soloIds || soloIds.has(t.id))).slice(0, 60);
+  const list = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex && viewShows(t)).slice(0, 60);
   const { writePsd, cropLayer } = await import('./psd.js');
   const inset = curInset, bg = scene.background, off = [];
   let layers, merged, W, H;
@@ -5476,6 +5495,7 @@ wrapStudio = initWrapStudio({
 $('#openWrap').addEventListener('click', () => { toggle('#planMenu', false); wrapStudio.open(); });
 
 window.__ink = {
+  shownIds: () => state.tattoos.filter((t) => decals[t.id] && decals[t.id].mesh.visible).map((t) => t.id), kinds: () => ({ ...kindOff }), layersDock: () => layersDock,
   wrap: () => wrapStudio,   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
   sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, bodyChange: () => bodyChangeLast, mirror: () => mirrorLast, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),

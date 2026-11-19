@@ -110,7 +110,7 @@ body.views-low #views{position:fixed;left:50%;transform:translateX(-50%);top:var
 #views #full{color:var(--text);gap:6px;padding:0 12px 0 10px}
 #views .btn:active{color:var(--text);background:var(--fill-strong)}
 @media (hover:hover){#views .btn:hover{color:var(--text)}}
-#dock{position:fixed;left:0;right:0;bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
+#dock{position:fixed;left:0;right:var(--layers-w,0px);bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px 16px;pointer-events:none}
 #dock>*{pointer-events:auto}
 /* fingers on the body: everything floating fades almost away until they lift */
 #top,#views,#lookMenu,#dock,.pop{transition:opacity .25s ease}
@@ -291,10 +291,14 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
   .cards{grid-template-columns:1fr}
   #count{display:none}
 }
+/* The Layers panel at the right (layers-dock.js) sets --layers-w to the room it takes: the
+   tray, the edit panel and the bars across the top keep clear of it. */
+:root:has(#wrapStudio:not([hidden])),body.painting{--layers-w:0px!important}
+#roomBar,#pinBar,#painBar,#paintBar,#procreateBar,#followBar,#toast,#tapPlaceBar{margin-left:calc(var(--layers-w,0px) / -2);max-width:calc(100% - 32px - var(--layers-w,0px))!important}
 /* Wide landscape: the tattoo list and the edit panel stand in a column at the right, so the
    middle of the screen, where the body is, stays clear. */
 @media (orientation:landscape) and (min-width:1000px){
-  #dock{left:auto;right:0;top:var(--below);width:420px;justify-content:flex-end;align-items:stretch;padding:0 16px 16px}
+  #dock{left:auto;right:var(--layers-w,0px);top:var(--below);width:420px;justify-content:flex-end;align-items:stretch;padding:0 16px 16px}
   #sheet,#tray,#empty{width:100%}
   #sheet{max-height:none;flex:0 1 auto;min-height:0}
   #sheet #size{flex-basis:100%;order:3}
