@@ -29,7 +29,8 @@ export default async function(p){
  assert.equal(await p.$eval('#bSplit',e=>e.textContent),'Split into 4 designs');
  assert.ok(await p.$eval('#bSplit',e=>!e.hidden&&e.getBoundingClientRect().height>=44),'button shows, big enough');
  await p.$eval('#toast button',e=>e.click());
- await p.waitForFunction(n=>window.__ink.state().tattoos.length===n+4,{timeout:20000},n0);
+ // the split adds the designs one by one and takes the sheet off at the end
+ await p.waitForFunction((n,id)=>{const ts=window.__ink.state().tattoos;return ts.length===n+4&&!ts.some(t=>t.id===id);},{timeout:20000},n0,sheet.id);
  const st=await p.evaluate(()=>JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
  const parts=st.slice(n0);
  assert.ok(!st.some(t=>t.id===sheet.id),'the sheet itself is gone');

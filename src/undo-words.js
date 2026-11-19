@@ -5,7 +5,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // one tattoo's change, the most telling field first
 const FIELDS = [
   ['pos', 'moving'], ['width', 'resizing'], ['rot', 'turning'], ['img', 'the artwork of'], ['versions', 'the artwork of'],
-  ['wrap', 'the wrap on'], ['bend', 'the wrap on'], ['taper', 'the wrap on'], ['flip', 'mirroring'], ['opacity', 'the ink strength of'],
+  ['wrap', 'the wrap on'], ['bend', 'the wrap on'], ['taper', 'the wrap on'], ['flip', 'mirroring'], ['opacity', 'the ink strength of'], ['blend', 'the blend mode of'], ['adjust', 'the colours of'],
   ['status', null], ['hidden', null], ['locked', null], ['name', 'renaming'], ['note', 'the note on'], ['sittings', 'the sittings for'],
   ['made', 'the artist details of'], ['review', 'the answer on'],
 ];

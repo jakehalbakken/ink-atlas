@@ -3,7 +3,7 @@
 // flattened picture that apps without layers show. Channels are packed with PackBits.
 //
 // layers: [{ name, rgba: Uint8ClampedArray (width*height*4, rows from the top),
-//            blend: 'norm' | 'mul ', opacity: 0..255, hidden }] bottom layer first.
+//            blend: a PSD blend key such as 'norm', 'mul ', 'scrn', 'over', opacity: 0..255, hidden }] bottom layer first.
 // A layer may instead carry { box, rgba } from cropLayer, rgba being just the box.
 // Each layer is cropped to what it actually covers, so mostly-empty tattoo layers
 // stay small.
@@ -99,7 +99,7 @@ export function writePsd({ width, height, layers, merged, ppi }) {
     });
     rec.u32(box.top); rec.u32(box.left); rec.u32(box.bottom); rec.u32(box.right);
     rec.u16(4); for (const c of chans) { rec.i16(c.id); rec.u32(c.len); }
-    rec.ascii('8BIM'); rec.ascii(L.blend === 'mul ' ? 'mul ' : 'norm');
+    rec.ascii('8BIM'); rec.ascii(typeof L.blend === 'string' && /^[a-zA-Z ]{4}$/.test(L.blend) ? L.blend : 'norm');
     rec.u8(L.opacity ?? 255); rec.u8(0); rec.u8(L.hidden ? 2 : 0); rec.u8(0);
     // extra data: no mask, no blending ranges, Pascal name padded to 4, then the full (Unicode) name
     const nm = asciiName(L.name), padded = Math.ceil((nm.length + 1) / 4) * 4;

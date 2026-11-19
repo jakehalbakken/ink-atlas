@@ -6,6 +6,7 @@ import { FIT_GROUPS } from './fit.js';
 import { cleanReview, cleanAsks } from './approval.js';
 import { cleanVersions } from './versions.js';
 import { cleanRegions, regionImageKeys } from './measured-region.js';
+import { cleanLook } from './ink-look.js';
 
 const num = (v) => typeof v === 'number' && Number.isFinite(v);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -53,6 +54,7 @@ export function cleanState(raw, hasImage) {
     if (t.sittings !== undefined) { const m = t.sittings, c = {}; if (m && typeof m === 'object' && !Array.isArray(m)) { if (typeof m.start === 'string' && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(m.start)) c.start = m.start; if ([2, 3, 4, 6, 8].includes(m.gap)) c.gap = m.gap; if (typeof m.away === 'string' && /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(m.away)) c.away = m.away; } if (Object.keys(c).length) t.sittings = c; else delete t.sittings; }
     if (t.made !== undefined) { const m = t.made, c = {}; if (m && typeof m === 'object' && !Array.isArray(m)) { for (const k of ['artist', 'studio']) if (typeof m[k] === 'string' && m[k].trim()) c[k] = m[k].trim().slice(0, 60); if (typeof m.when === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(m.when)) c.when = m.when; } if (Object.keys(c).length) t.made = c; else delete t.made; }
     cleanVersions(t, hasImage); // earlier artwork of this tattoo (optional)
+    cleanLook(t); // blend mode and colour adjustments (optional)
     if (t.review !== undefined) { const r = cleanReview(t.review); if (r) t.review = r; else delete t.review; } // an answer from Ask for approval (optional)
     const len = vec3(t.normal, 2) ? Math.hypot(t.normal[0], t.normal[1], t.normal[2]) : 0;
     if (vec3(t.pos, 10) && len > 0.5) t.normal = t.normal.map((c) => c / len);
