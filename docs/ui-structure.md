@@ -11,7 +11,7 @@ Only four things float over the body:
 3. **View switcher, top centre:** one segmented control: Full body, Front, Left, Back, Right. Below the top bar on narrow screens.
 4. **Bottom dock:** the tattoo tray (Add, Procreate, the tattoo chips), and the edit sheet above it when a tattoo is selected. In wide landscape it stands as a column at the right.
 
-Nothing else floats on the left any more. Panels open from the button that owns them and sit under the top bar at the right (Body, Preview's panels, New to try, Go back to), except Match a photo of me and Try other spots, which stay at the left so the body stays clear beside them. Bars for a mode (tape measure, pain map, open skin, comments, follow, tap to place, paint, Procreate) sit centred under the top bar.
+Nothing else floats on the left any more. Panels open from the button that owns them and sit under the top bar at the right (Body, Preview's panels, New to try, Go back to), except Match a photo of me and Try other spots, which stay at the left so the body stays clear beside them. Bars for a mode (How I see it, tape measure, pain map, open skin, comments, follow, tap to place, paint, Procreate) sit centred under the top bar.
 
 ## Where every tool lives, by step of the work
 
@@ -19,7 +19,7 @@ Nothing else floats on the left any more. Panels open from the button that owns 
 |---|---|---|
 | Bring in art | Tray: Add, Procreate | Upload pictures or backups; the Procreate menu: send the 3D body, bring back drawings as tattoos, draw on one spot, paint controls |
 | Place and fit | Body button; edit sheet | Body: figure, match a photo, face, muscle, weight, height, skin tone, hair, beard, body hair, eyes, fine-tune. Edit sheet: see below |
-| Look at it | Preview | Before/after, Pose, Clothes, Aging, Light, Tape measure, Pain map, Open skin, Comments |
+| Look at it | Preview | Before/after, Pose, Clothes, Aging, Light, How I see it (My eyes, What I can't see, Mirror selfie), Tape measure, Pain map, Open skin, Comments |
 | Plan the sessions | Plan; edit sheet's Plan section | Plan: projects, layouts and checkpoints, layers and groups, artwork library, saved artwork, reference board, artist notes, body pins, photo references, align and symmetry, New to try |
 | Share and approve | Share | Send and approve; pictures; for your artist; Procreate files; keep it safe; other files |
 
