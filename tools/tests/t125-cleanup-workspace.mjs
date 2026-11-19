@@ -67,6 +67,15 @@ export default async function (p) {
   await p.keyboard.press('e'); assert.equal(await pressed(), 'erase', 'E picks Erase');
   assert.deepEqual(await shownSections(), ['erase restore']);
   await p.keyboard.press('c'); assert.equal(await pressed(), 'crop', 'C picks Crop');
+  // a box drawn right to left and bottom to top shows in Exact size, in whole pixels inside the picture
+  const box = await p.evaluate(() => {
+    const stage = document.querySelector('#ink-cleanup .ic-work'), c = document.querySelector('#ink-cleanup canvas'); stage.setPointerCapture = () => {}; stage.hasPointerCapture = () => false;
+    const r = c.getBoundingClientRect(), at = (fx, fy) => [r.x + r.width * fx, r.y + r.height * fy];
+    const fire = (type, [x, y]) => stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 21, clientX: x, clientY: y, isPrimary: true }));
+    fire('pointerdown', at(0.75, 0.8)); for (let i = 1; i <= 6; i++) fire('pointermove', at(0.75 - i * 0.05, 0.8 - i * 0.08)); fire('pointerup', at(0.45, 0.32));
+    return ['x', 'y', 'w', 'h'].map((k) => +document.getElementById('ic-' + k).value);
+  });
+  assert(box[0] > 230 && box[0] < 310 && box[1] > 110 && box[1] < 170 && box[2] > 140 && box[2] < 220 && box[3] > 180 && box[3] < 250, 'the drawn box fills Exact size: ' + box);
   await p.keyboard.press('e');
 
   // Cancel with changes asks first; Keep editing goes back, Discard throws them away

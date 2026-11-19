@@ -433,7 +433,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (!stroke || e.pointerId !== stroke.id) return;
       const s = stroke; cancelStroke(); if (e.pointerType !== 'pen') showRing(e, false);
       if (s.kind === 'tap' && !cancelled) { const p = pos(e); if (mode === 'cutout') runCutout(p); else removeColourAt(p); }
-      if (s.kind === 'crop') { if (!crop || Math.abs(crop.w) < 2 || Math.abs(crop.h) < 2) crop = null; else say('Tap Crop to keep what is inside the box.'); draw(); }
+      if (s.kind === 'crop') { if (!crop || Math.abs(crop.w) < 2 || Math.abs(crop.h) < 2) crop = null; else { const b = boxOf(crop); $('#ic-x').value = b.x; $('#ic-y').value = b.y; $('#ic-w').value = b.w; $('#ic-h').value = b.h; say('Tap Crop to keep what is inside the box.'); } draw(); }
     };
     stage.addEventListener('pointerup', e => lift(e, false));
     stage.addEventListener('pointercancel', e => lift(e, true));
@@ -465,6 +465,8 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     };
     const keyOutside = e => { if (!host.contains(e.target)) key(e); };
     host.addEventListener('keydown', key); document.addEventListener('keydown', keyOutside, true); window.addEventListener('blur', cancelStroke);
+    // a box drawn either way, in whole pixels inside the picture (the exact size fields show it too)
+    const boxOf = c => { const x = Math.max(0, Math.floor(Math.min(c.x, c.x + c.w))), y = Math.max(0, Math.floor(Math.min(c.y, c.y + c.h))); return { x, y, w: Math.max(1, Math.min(work.width - x, Math.round(Math.abs(c.w)))), h: Math.max(1, Math.min(work.height - y, Math.round(Math.abs(c.h)))) }; };
     const syncFields = () => { $('#ic-x').value = $('#ic-y').value = 0; $('#ic-w').value = work.width; $('#ic-h').value = work.height; };
     const applyCrop = c => { const { x, y, w, h } = exactCrop(c, work.width, work.height); endLive(); snapshot(); merge(); rect = { x: rect.x + x, y: rect.y + y, w, h }; const p = wctx.getImageData(x, y, w, h), o = original.getContext('2d').getImageData(x, y, w, h); work.width = original.width = w; work.height = original.height = h; wctx.putImageData(p, 0, 0); original.getContext('2d').putImageData(o, 0, 0); crop = null; fit(); syncFields(); };
     const observer = new ResizeObserver(layout); observer.observe(stage);
@@ -501,7 +503,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       }
       if (action === 'contrast') { if (live?.kind === 'lines') say('Slide Darker lines to change how much.'); else { runLive('lines'); say('Lines darkened. Slide to change how much.'); } }
       if (action === 'uncrop') { endLive(); snapshot(); merge(); work.width = original.width = full.width; work.height = original.height = full.height; wctx.drawImage(full, 0, 0); original.getContext('2d').drawImage(baseline, 0, 0); rect = { x: 0, y: 0, w: full.width, h: full.height }; crop = null; say('The whole picture is back. Your edits are kept.'); }
-      if (action === 'crop' && crop) { const x = Math.floor(Math.min(crop.x, crop.x + crop.w)), y = Math.floor(Math.min(crop.y, crop.y + crop.h)), w = Math.max(1, Math.min(work.width - x, Math.round(Math.abs(crop.w)))), h = Math.max(1, Math.min(work.height - y, Math.round(Math.abs(crop.h)))); applyCrop({ x, y, w, h }); say('Cropped. Undo puts it back.'); }
+      if (action === 'crop' && crop) { applyCrop(boxOf(crop)); say('Cropped. Undo puts it back.'); }
       if (['undo', 'redo', 'reset', 'uncrop'].includes(action)) { fit(); syncFields(); }
       draw();
     }
