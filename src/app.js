@@ -14,7 +14,7 @@ import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
 import './slider.js';
 import {twoPointerDelta,twoFingerIntent,wrapAngle,planTapPlacement} from './view-gestures.js';
 import {findLiveAlignment,findCentreLine} from './live-alignment.js';
-import { editArtwork } from './cleanup.js';
+import { editArtwork, edgeKind } from './cleanup.js';
 import { applyArtworkRevision } from './cleanup-links.js';
 import { readPending, writePending, editFileName, artworkAsSeen, clipboardImage, normalisePicture } from './procreate-edit.js';
 import { openShelf, openProjectShelf } from './shelf.js';
@@ -1630,6 +1630,13 @@ document.addEventListener('keydown', (e) => {
   if (used) { e.preventDefault(); markTried('keys'); }
 });
 $('#resetTransform').addEventListener('click',()=>{const t=sel();if(!t || t.locked)return;snapshot();t.rot=0;t.wrap=0;t.bend=0;t.taper=0;commit();});
+// what the edge of a tattoo's picture looks like (see edgeKind): read from a small copy of it
+function backgroundOf(t) {
+  const im = imgEls[t.img]; if (!im || !im.naturalWidth) return 'clear';
+  const k = Math.min(1, 200 / Math.max(im.naturalWidth, im.naturalHeight)), w = Math.max(1, Math.round(im.naturalWidth * k)), h = Math.max(1, Math.round(im.naturalHeight * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, w, h);
+  try { return edgeKind(g.getImageData(0, 0, w, h).data, w, h); } catch { return 'clear'; }
+}
 async function cleanupSelected(linked=false) {
   const t = sel(); if (!t) return;
   if (t.locked) { toast('Unlock this tattoo before editing its artwork.'); return; }
@@ -1637,8 +1644,11 @@ async function cleanupSelected(linked=false) {
   const id = t.id, prior = t.img;
   const art = state.artworks?.[t.artworkId];
   const source = art?.source || prior;
-  const result = await editArtwork(images[source] || images[prior], images[prior], art?.cleanupSession);
+  const linkedCount = t.artworkId ? state.tattoos.filter(x => x.artworkId === t.artworkId).length : 1;
+  markTried('cleanupStudio');
+  const result = await editArtwork(images[source] || images[prior], images[prior], art?.cleanupSession, { linkedCount, linked });
   if (!result) return;
+  if (typeof result.linked === 'boolean') linked = result.linked;
   const current = state.tattoos.find(x => x.id === id);
   if (!current || current.img !== prior || current.locked) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
   const key = uid(); images[key] = result.dataUrl;
@@ -1649,7 +1659,7 @@ async function cleanupSelected(linked=false) {
   state=revision.nextState;
   for(const cid of revision.changedIds){const q=state.tattoos.find(x=>x.id===cid);keepVersion(was.get(cid),q);}
   if(revision.artworkId)state.artworks[revision.artworkId].cleanup=result.settings || {};
-  commit(); toast(`${revision.changedIds.length} artwork updated. Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
+  commit(); toast(`${revision.changedIds.length>1?`Artwork cleaned up on ${revision.changedIds.length} copies.`:'Artwork cleaned up.'} Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
 }
 /* ---------- edit in Procreate and bring it back to the same tattoo ---------- */
 function editInProcreate() {
@@ -2569,6 +2579,7 @@ const SHOW = {
   realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },
   handles: () => { if (!needTattoo()) return null; return ['#hSize', 'Drag this corner to resize. Drag the dot above the tattoo to turn it.']; },
   palette: () => { toggle('#share', true); paletteReady = buildPalette(); return ['#cSwatches', 'Saves your skin and ink colours as a palette Procreate opens.']; },
+  cleanup: () => { if (!needTattoo()) return null; return ['#bCleanup', 'Opens the cleanup. Pick a tool at the bottom, pinch to zoom, and tap Done when it looks right.']; },
   editProcreate: () => { if (!needTattoo()) return null; return ['#bProcreate', 'Sends this tattoo to Procreate. Copy All there, then tap Paste here.']; },
   pan: () => [null, 'Put two fingers on the screen away from a tattoo and slide them to move the view. Twist clearly to turn it.'],
 };
@@ -3092,7 +3103,7 @@ $('#refTry').addEventListener('click', async () => {
   const t = await addImage(images[r.img], (r.note || 'From the reference board').slice(0, 40), viewCenterSpot());
   if (!t) return;
   t.status = 'planned'; selectedId = t.id; markTried('refTry'); commit(); focusTattoo(t);
-  toast('On the body as a planned tattoo. Clean up artwork in More controls cuts out a background.', 'Undo', undo);
+  toast('On the body as a planned tattoo. Clean up takes away its background.', 'Undo', undo);
 });
 $('#refRemove').addEventListener('click', () => {
   const r = refList().find((x) => x.id === refsUi.open); if (!r || !canChangeRef(r)) return;
@@ -3936,7 +3947,12 @@ $('#file').addEventListener('change', async (e) => {
   if (last) {
     selectedId = last.id; commit(); focusTattoo(last);
     // one picture with several designs on it: offer to split it
-    if (files.length === 1) flashOf(last).then((f) => { if (f && sel() === last) toast(`This picture has ${f.boxes.length} separate designs.`, 'Split them', () => splitFlash(last.id)); });
+    if (files.length === 1) flashOf(last).then((f) => {
+      if (sel() !== last) return;
+      if (f) { toast(`This picture has ${f.boxes.length} separate designs.`, 'Split them', () => splitFlash(last.id)); return; }
+      // a photo, or art on tinted paper, shows its background on the skin: offer the cleanup straight away
+      const edge = backgroundOf(last); if (edge === 'paper' || edge === 'opaque') toast(edge === 'paper' ? 'This picture is on paper, which shows on the skin.' : 'This picture has a background, which shows on the skin.', 'Clean it up', () => { if (sel() === last) cleanupSelected(false).catch((e) => toast('Could not clean up artwork: ' + e.message)); });
+    });
   } else commit();
 });
 function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#lightPop' && typeof renderLight === 'function') renderLight(); if (id === '#newPop' && typeof renderNew === 'function') renderNew(); if (id === '#bodyPop') updateInset(); if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }

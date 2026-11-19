@@ -3,9 +3,9 @@ export default async function(p) {
  const wait=(n=500)=>new Promise(r=>setTimeout(r,n));
  await p.click('#trayItems .chip');await wait();
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
- await p.click('#bCleanup');await wait();await p.click('[data-action="paper"]');await p.click('[data-action="cancel"]');
+ await p.click('#bCleanup');await wait();await p.click('[data-mode="color"]');await p.click('[data-action="paper"]');await p.click('[data-action="cancel"]');await p.click('[data-action="discard"]');
  assert.equal(await p.evaluate(()=>JSON.stringify(window.__ink.state())),before,'cancel preserves project');
- await p.click('#bCleanup');await wait();await p.click('[data-action="paper"]');await p.click('[data-action="apply"]');await wait(800);
+ await p.click('#bCleanup');await wait();await p.click('[data-mode="color"]');await p.click('[data-action="paper"]');await p.click('[data-action="apply"]');await wait(800);
  const art=await p.evaluate(()=>{const s=window.__ink.state(),t=s.tattoos[0];return {id:t.id,img:t.img,art:s.artworks[t.artworkId]};});
  assert(art.art.source!==art.img,'immutable original retained separately');assert.equal(art.art.output,art.img);
  await p.reload({waitUntil:'load'});await wait(1600);

@@ -36,6 +36,16 @@ More controls opens sections, each with a small heading:
 5. **Copy and arrange:** Mirror, Flip vertical, Duplicate, Copy to other side, Split into designs, Clean up linked copies, Stencil for your artist.
 6. **This tattoo:** Planned or already on me, Hide, Remove.
 
+## The cleanup workspace
+
+Jake, 2026-11-19: "the entire cleanup, tattoo, toolbars, and function are so beta and rudimental and terrible right now." Rebuilt as one full-screen workspace, like Photos' edit view:
+
+- **Top bar:** Cancel and Start over at the left, the title in the middle, then Undo, Redo, Show original and Done (the one primary button). Cancel with changes opens a small popover, Discard changes or Keep editing.
+- **The picture** fills the rest, on a checker. Two fingers pinch and pan in every tool. A pill at the bottom left holds the backdrop, zoom out, the zoom (tap to fit) and zoom in. Messages float as a pill at the top and fade.
+- **Tools** sit in one segmented row of glyph-over-word buttons at the bottom (a column at the right in wide landscape): Cut out, Background, Erase, Restore, Crop, Lines. Above them, one card shows only the settings for the tool in use, at one fixed height so the picture never jumps.
+- Sliders that change the picture (Light shades kept, Darker lines) show as you slide and are one undo step. Buttons that do the same thing apply at the slider's value.
+- It opens on the tool the picture needs: Background for art on paper, Cut out for a photo, Erase otherwise. Keys stay inside it.
+
 ## The Body panel
 
 Figure (Male, Neutral, Female) and Reset to plain body stay at the top. Then sections: **Shape** (muscle, weight, height), **From your photos** (match a photo of me, add my face), **Skin**, **Hair** (style and colour, then Beard and Body hair under their own small labels, then match my hair from a photo), **Eyes**, **Fine-tune each part** (with Reset body shape).

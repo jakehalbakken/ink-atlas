@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 const root=resolve(import.meta.dirname,'../..');
 const server=await createServer({configFile:false,root,server:{host:'127.0.0.1',port:0},plugins:[{name:'fixture',configureServer(s){s.middlewares.use('/__pose-fixture',(_q,r)=>{r.setHeader('content-type','text/html');r.end('<!doctype html><html><body><div id="viewport" style="position:fixed;inset:0"></div></body></html>');});}}]});await server.listen();let browser;
 try{
- browser=await puppeteer.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:'new',args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});const page=await browser.newPage();await page.setViewport({width:1024,height:768});await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__pose-fixture`);
+ browser=await puppeteer.launch({executablePath:process.env.CHROME||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:'new',args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});const page=await browser.newPage();await page.setViewport({width:1024,height:768});await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__pose-fixture`);
 
  const result=await page.evaluate(async()=>{
  const THREE=await import('/node_modules/three/build/three.module.js'),{shapePositions,INDEX}=await import('/src/mesh.js'),{openLayoutCompare}=await import('/src/layout-compare.js');

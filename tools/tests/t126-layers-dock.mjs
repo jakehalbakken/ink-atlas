@@ -6,7 +6,7 @@
 // selects it, groups as folders with one eye, the lines scroll, Hide planned and Hide existing
 // only change what is shown (the project is untouched and they do not come back after a
 // reload), open or folded is remembered, and it keeps out of the way of the measured wrap, in
-// portrait and on a phone. Pictures in shots/t125-*.png.
+// portrait and on a phone. Pictures in shots/t126-*.png.
 import assert from 'node:assert/strict';
 export default async function (p) {
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
@@ -24,7 +24,7 @@ export default async function (p) {
   const small = await p.$$eval('#layersDock button', (a) => a.filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect()).filter((r) => r.width < 44 || r.height < 44).length);
   assert.equal(small, 0, '44pt targets on the rail');
   assert.ok((await box('#dock')).r <= rail.x + 1, 'the tray column stands left of the rail');
-  await p.screenshot({ path: 'shots/t125-rail.png' });
+  await p.screenshot({ path: 'shots/t126-rail.png' });
 
   // open: the full height of the screen, a line per tattoo
   await p.click('#ldToggle'); await wait(500);
@@ -59,7 +59,7 @@ export default async function (p) {
   assert.deepEqual(await p.evaluate(() => window.__ink.shownIds()), [b], 'Hide planned leaves only the ink on me');
   assert.equal(await p.$eval('#ldPlanned', (e) => e.getAttribute('aria-pressed')), 'true');
   assert.equal(await p.$eval(`#ldList .ld-row[data-id="${a}"]`, (e) => e.classList.contains('dim')), true, 'its line dims');
-  await p.screenshot({ path: 'shots/t125-hide-planned.png' });
+  await p.screenshot({ path: 'shots/t126-hide-planned.png' });
   await p.click('#ldExisting'); await wait(300);
   assert.deepEqual(await p.evaluate(() => window.__ink.shownIds()), [], 'both off: nothing shows');
   await p.click('#ldPlanned'); await wait(300);
@@ -110,7 +110,7 @@ export default async function (p) {
   const sc = await p.$eval('#ldList', (e) => { const before = e.scrollTop; e.scrollTop = 200; return { over: e.scrollHeight > e.clientHeight + 40, moved: e.scrollTop > before, guard: !!e.closest('[data-scroll]') }; });
   assert.ok(sc.over && sc.moved && sc.guard, `the list scrolls: ${JSON.stringify(sc)}`);
   assert.ok((await box('#layersDock')).b <= 820, 'the panel stays on screen with many lines');
-  await p.screenshot({ path: 'shots/t125-open.png' });
+  await p.screenshot({ path: 'shots/t126-open.png' });
   await p.goto(p.url()); await ready();
 
   // the measured wrap gets the right side to itself
@@ -133,13 +133,13 @@ export default async function (p) {
   const pp = { ...(await box('#layersDock')), iw: await p.evaluate(() => innerWidth) };
   assert.ok(pp.b >= 1180 - 40 && pp.r <= pp.iw, `full height in portrait: ${JSON.stringify(pp)}`);
   assert.equal(overlap(await box('#tray'), pp), false, 'tray clear of the panel in portrait');
-  await p.screenshot({ path: 'shots/t125-portrait.png' });
+  await p.screenshot({ path: 'shots/t126-portrait.png' });
   await p.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 }); await wait(700);
   const ph = await box('#layersDock');
   assert.ok(ph.x <= 16 && ph.r <= 390, `phone: the panel spans the screen: ${JSON.stringify(ph)}`);
-  await p.screenshot({ path: 'shots/t125-phone.png' });
+  await p.screenshot({ path: 'shots/t126-phone.png' });
   await p.click('#ldToggle'); await wait(300);
   assert.equal(await lw(), 0, 'on a phone the rail takes no room from the tray');
   await p.setViewport({ width: 1180, height: 820, deviceScaleFactor: 1 }); await wait(500);
-  console.log('PASS t125 layers panel at the right, Hide planned and Hide existing');
+  console.log('PASS t126 layers panel at the right, Hide planned and Hide existing');
 }
