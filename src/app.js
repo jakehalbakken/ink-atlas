@@ -23,6 +23,7 @@ import { emailCodes } from './cloud.js';
 import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
 import { createLayersDock, kindShown } from './layers-dock.js';
+import { createInkLook } from './ink-look-panel.js';
 import { makeArtistPacket } from './artist-packet.js';
 import { cleanState, imageKeysFor, REACTIONS, SUGGEST_KEYS } from './project.js';
 import { openStore } from './store.js';
@@ -41,6 +42,7 @@ import { installPenTap, controlAt } from './pen-tap.js';
 import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG, catalogRotations, selfieRotations } from './pose-catalog.js';
 import { bodyParts, headLandmarks, headFrame, eyeView, lookPostures, seenMask, softMask, shareSeen, seenLine, seenWords, selfieCamera, vertexNormals, PHONE_FOV, LOOK_SIDE, LOOK_DOWN, LOOK_UP } from './self-view.js';
 import { AGES, ageInk } from './aging.js';
+import { DEFAULT_BLEND, blendOf, hasLook, hasAdjust, lookKey, describeLook, adjustPixels, lookRatios, encodeRatios, needsLift, psdBlendKey } from './ink-look.js';
 import { skinSet, inkColours, swatchesFile } from './swatches.js';
 import { GUIDE_SIZE, areaExtent, drawGuide, inkBox, clearShare } from './procreate-draw.js';
 import { patchMaskTriangles } from './procreate-patch.js';
@@ -108,6 +110,7 @@ let soloIds = null;
 const kindOff = { planned: false, existing: false };
 function viewShows(t) { return (!soloIds || soloIds.has(t.id)) && kindShown(t, kindOff); }
 let layersDock = null;
+let inkLook = null, inkLookId = null, lookSnap = false, lookDraft = null; // Blend and colour (src/ink-look-panel.js)
 const undoStack = [];
 const redoStack = [];
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -279,7 +282,7 @@ function freeArea() {
   let right = side ? d.left + 4 : b.right - 12;
   const ld = $('#layersDock'); if (ld && parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--layers-w')) > 0) { const lr = ld.getBoundingClientRect(); if (lr.width) right = Math.min(right, lr.left - 8); }
   // a panel open at the left (Try other spots) takes that side too
-  const sp = !$('#spotPop').hidden ? $('#spotPop') : $('#bodyMatch'), spr = sp.hidden ? null : sp.getBoundingClientRect();
+  const lk = document.getElementById('inkLook'), sp = lk && !lk.hidden && innerWidth > 600 ? lk : !$('#spotPop').hidden ? $('#spotPop') : $('#bodyMatch'), spr = sp.hidden ? null : sp.getBoundingClientRect();
   const left = spr && spr.right < right - 240 ? spr.right + 12 : b.left + 12;
   const ws = document.getElementById('wrapStudio');
   if (ws && !ws.hidden) { const w = ws.getBoundingClientRect(); if (w.left > b.left + b.width * 0.3) return { top, bottom, left, right: Math.min(right, w.left - 8) }; return { top, bottom: Math.max(top + 60, Math.min(bottom, w.top - 10)), left, right }; }
@@ -424,18 +427,64 @@ function loadImg(keyName) {
   if (imgEls[keyName]) return Promise.resolve(imgEls[keyName]);
   return new Promise((res) => { const im = new Image(); im.onload = () => { imgEls[keyName] = im; res(im); }; im.onerror = () => res(null); im.src = images[keyName]; });
 }
-function inkTexture(t) {
+// The ink's picture for the body, multiplied over the lit skin. Plain Multiply with no colour
+// changes is the artwork drawn at its strength over white, as it always was. Colour adjustments
+// change the artwork's own colours first; any other blend mode is worked out against the plain
+// skin colour and stored as how much darker or lighter each texel makes the skin (src/ink-look.js).
+// enc: 'screen' (the body on screen), 'raw' (plain multiply of the adjusted ink, for files that
+// carry their own blend mode, like the PSD), 'linear' (for skin pictures baked in linear light).
+function inkTexture(t, enc = 'screen') {
   const im = imgEls[t.img]; const c = document.createElement('canvas');
-  const W = Math.min(1024, Math.max(64, im ? im.naturalWidth : 256)); c.width = W; c.height = Math.max(8, Math.round(W / t.aspect));
-  const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-  if (im) { g.save(); g.globalAlpha = t.opacity ?? 0.92; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } const mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height; g.drawImage(im, mx, my, c.width - 2 * mx, c.height - 2 * my); g.restore(); }
-  if (im && agingYears > 0) {
-    // the ink as it would look after this many years (only for looking)
-    const mm = t.width * 1000 * (state.heightCm || 175) / 175, d = g.getImageData(0, 0, c.width, c.height);
-    ageInk(d.data, c.width, c.height, agingYears, (c.width * (1 - 2 * UV_MARGIN)) / Math.max(1, mm)); g.putImageData(d, 0, 0);
+  const W = Math.min(lookDraft === t.id ? 384 : 1024, Math.max(64, im ? im.naturalWidth : 256)); c.width = W; c.height = Math.max(8, Math.round(W / t.aspect));
+  let g = c.getContext('2d', { willReadFrequently: hasLook(t) }); const mode = blendOf(t), strength = t.opacity ?? 0.92, mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height;
+  const drawArt = (alpha) => { g.save(); g.globalAlpha = alpha; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } g.drawImage(im, mx, my, c.width - 2 * mx, c.height - 2 * my); g.restore(); };
+  const ratio = !!im && mode !== DEFAULT_BLEND && enc !== 'raw' && enc !== 'alpha';
+  if (enc === 'alpha') { // the changed artwork itself, see-through where it is, for a file layer in any mode
+    if (im) { drawArt(1); const d = g.getImageData(0, 0, c.width, c.height); adjustPixels(d.data, t.adjust); for (let o = 3; o < d.data.length; o += 4) d.data[o] *= strength; g.putImageData(d, 0, 0); }
+    const tex = new THREE.CanvasTexture(c); tex.flipY = !t.imageTopDown; tex.colorSpace = THREE.SRGBColorSpace; return tex;
   }
-  const tex = new THREE.CanvasTexture(c); tex.flipY = !t.imageTopDown; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4; return tex;
+  const ageIt = (d) => { const mm = t.width * 1000 * (state.heightCm || 175) / 175; ageInk(d.data, c.width, c.height, agingYears, (c.width * (1 - 2 * UV_MARGIN)) / Math.max(1, mm)); };
+  let lift = false;
+  if (ratio) {
+    // the artwork's own colour and transparency (white ink stays white), changed, then blended
+    // against the plain skin colour
+    drawArt(1); const d = g.getImageData(0, 0, c.width, c.height); adjustPixels(d.data, t.adjust);
+    let px = d.data;
+    if (agingYears > 0) { // ageing works on ink over white paper, so go there and back
+      for (let o = 0; o < px.length; o += 4) { const a = px[o + 3] / 255; for (let k = 0; k < 3; k++) px[o + k] = 255 - (255 - px[o + k]) * a; px[o + 3] = 255; }
+      ageIt(d); px = inkToAlpha(d.data);
+    }
+    const { ratios, max } = lookRatios(px, hexRgb(skinColor()), mode, strength);
+    lift = needsLift(max); encodeRatios(ratios, lift, enc === 'linear', d.data); g.putImageData(d, 0, 0);
+  } else {
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    if (im && hasAdjust(t)) {
+      const art = document.createElement('canvas'); art.width = c.width; art.height = c.height; const ag = art.getContext('2d', { willReadFrequently: true });
+      const gg = g; g = ag; drawArt(1); g = gg;
+      const d = ag.getImageData(0, 0, c.width, c.height); adjustPixels(d.data, t.adjust); ag.putImageData(d, 0, 0);
+      g.globalAlpha = strength; g.drawImage(art, 0, 0); g.globalAlpha = 1; art.width = art.height = 0;
+    } else if (im) drawArt(strength);
+    if (im && agingYears > 0) { const d = g.getImageData(0, 0, c.width, c.height); ageIt(d); g.putImageData(d, 0, 0); }
+  }
+  const tex = new THREE.CanvasTexture(c); tex.flipY = !t.imageTopDown; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  tex.userData.ratio = !!ratio; tex.userData.lift = lift; return tex;
 }
+// How a decal's material puts its texture on: multiplied, or multiplied doubled when the blend
+// comes out lighter than the skin (2 x texture x skin, see src/ink-look.js).
+function setInkBlend(mat, lift) {
+  if (lift) { mat.blending = THREE.CustomBlending; mat.blendEquation = THREE.AddEquation; mat.blendSrc = THREE.DstColorFactor; mat.blendDst = THREE.SrcColorFactor; mat.blendSrcAlpha = THREE.ZeroFactor; mat.blendDstAlpha = THREE.OneFactor; }
+  else mat.blending = THREE.MultiplyBlending;
+  mat.userData.inkLift = !!lift; mat.needsUpdate = true; return mat;
+}
+function inkMaterial(tex) { return setInkBlend(new THREE.MeshBasicMaterial({ map: tex, blending: THREE.MultiplyBlending, premultipliedAlpha: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, toneMapped: false }), tex && tex.userData.lift); }
+// The material a file or a baked picture should use for this tattoo: the one on screen, unless its
+// texture holds a worked-out blend, which a file wants plain ('raw') or a linear bake re-coded.
+const exportOwned = [];
+function exportMaterial(t, enc) {
+  const d = decals[t.id]; if (!d || !d.tex || !d.tex.userData.ratio) return d && d.mesh.material;
+  const tex = inkTexture(t, enc), m = inkMaterial(tex); exportOwned.push(tex, m); return m;
+}
+function freeExportMaterials() { for (const x of exportOwned.splice(0)) x.dispose(); }
 function outlineTexture(aspect) {
   const c = document.createElement('canvas'); c.width = 384; c.height = Math.max(24, Math.round(384 / aspect));
   const g = c.getContext('2d'); g.strokeStyle = STENCIL; g.lineWidth = 5; g.setLineDash([14, 10]);
@@ -593,7 +642,7 @@ let gapTimer = 0;
 function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; }, 120); }
 let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
 let agingYears = 0; // view only: how the ink looks after this many years
-function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0].join('|'); }
+function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0, lookKey(t), blendOf(t) !== DEFAULT_BLEND ? skinColor() : '', lookDraft === t.id ? 'draft' : ''].join('|'); }
 function syncDecals() {
   const ids = new Set(state.tattoos.map((t) => t.id));
   for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); d.tex.dispose(); d.outline.material.map.dispose(); delete decals[id]; }
@@ -607,7 +656,7 @@ function syncDecals() {
       decalGroup.add(d.mesh, d.outline);
     }
     const tk = texKeyOf(t);
-    if (d.texKey !== tk && imgEls[t.img]) { if (d.tex) d.tex.dispose(); d.tex = inkTexture(t); d.mesh.material.map = d.tex; d.mesh.material.needsUpdate = true; d.texKey = tk; }
+    if (d.texKey !== tk && imgEls[t.img]) { if (d.tex) d.tex.dispose(); d.tex = inkTexture(t); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, shapeKey].join('|');
     if (d.geoKey !== gk) { d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
@@ -1161,7 +1210,7 @@ function renderSheet() {
   $('#tapPlaceBar').hidden=!tapPlaceId;$('#bTapPlace').setAttribute('aria-pressed',String(!!tapPlaceId));$('#bTapPlace').textContent=tapPlaceId?'Cancel tap to place':'Tap to place';$('#bTapPlace').disabled=!t||t.locked||t.hidden||t.status==='existing';canvas.style.cursor=tapPlaceId?'crosshair':'';
   if (!t) { if (peek) { peek = null; syncDecals(); } return; }
   if (document.activeElement !== $('#name')) $('#name').value = t.name;
-  $('#name').readOnly = commentOnly; renderRefCount(t);
+  $('#name').readOnly = commentOnly; renderRefCount(t); renderSheetLook();
   for (const id of ['#tNote', '#madeArtist', '#madeStudio', '#madeWhen']) $(id).readOnly = commentOnly;
   if (document.activeElement !== $('#tNote')) $('#tNote').value = t.note || '';
   $('#madeBox').hidden = t.status !== 'existing';
@@ -1210,7 +1259,7 @@ function renderBody() {
   syncFitUI();
   $('#rHeight').value = state.heightCm; const inch = state.heightCm / 2.54; $('#hText').textContent = `${Math.floor(inch / 12)} ft ${Math.round(inch % 12)} in  ·  ${state.heightCm} cm`;
 }
-function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); }
+function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); followInkLook(); }
 function toast(msg, action, fn, ms = 5200) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   // below a bar that is showing at the top, never behind it
@@ -2482,7 +2531,7 @@ function renderNew() {
   }));
 }
 function openNew(on = true) { closePanels(); toggle('#planMenu', false); $('#newPop').hidden = !on; renderNew(); }
-function closePanels() { cancelGesture(); showLook(false); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#pcMenu', '#newPop']) toggle(id, false); }
+function closePanels() { cancelGesture(); showLook(false); if (inkLook) inkLook.close(); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#pcMenu', '#newPop']) toggle(id, false); }
 function needTattoo() {
   const t = sel() || state.tattoos.find((x) => !x.hidden) || state.tattoos[0];
   if (!t) { toast('Add a tattoo first, then try this.'); return null; }
@@ -2574,6 +2623,8 @@ const SHOW = {
   selfEyes: () => { showLook(true); return ['#selfBtn', 'Tap How I see it. My eyes puts you behind your own eyes: drag to turn your head and eyes as far as they really go.']; },
   selfSeen: () => { showLook(true); return ['#selfBtn', 'Tap How I see it, then What I can’t see. The darker skin is what you need a mirror for.']; },
   selfMirror: () => { showLook(true); return ['#selfBtn', 'Tap How I see it, then Mirror selfie. Drag to turn, pinch to step closer, then Save picture.']; },
+  blendModes: () => { const t = needTattoo(); if (!t) return null; openInkLook(t.id); return ['#lkModes .lk-modes[aria-label=Darker]', 'Pick how the ink mixes with your skin, like a layer in Procreate or Photoshop. Multiply is the usual, Colour burn and Linear burn go deeper, Screen and Overlay lighten or punch it up. Done keeps it, and Undo puts it back.']; },
+  inkColours: () => { const t = needTattoo(); if (!t) return null; openInkLook(t.id); return ['#lkSliders', 'Slide Hue, Saturation, Brightness or Contrast and the ink changes on the body as you go. Recolour and Invert are just under. Your artwork file stays as it is.']; },
   straightArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=straightDown]', 'Tap Arms straight down, Arms straight out or Palms forward. The elbows go fully straight and your arm tattoos go with the skin. Standing puts you back.']; },
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
@@ -4320,7 +4371,7 @@ if ('serviceWorker' in navigator) {
   setInterval(checkForUpdate, 15 * 60 * 1000);
 }
 $('#projectsBtn').addEventListener('click', () => {cancelGesture();toggle('#planMenu',true);});
-function previewInput() {return {THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden).map(t=>decals[t.id]).filter(d=>d && d.tex).map(d=>({geometry:d.mesh.geometry,material:d.mesh.material}))};}
+function previewInput() {return {THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden&&decals[t.id]&&decals[t.id].tex).map(t=>({geometry:decals[t.id].mesh.geometry,material:exportMaterial(t,'raw')}))};}
 $('#openBodyTools').addEventListener('click',async()=>{
   cancelGesture();toggle('#planMenu',false);let originalNotes=JSON.stringify({notes:state.notes,drawings:state.drawings});
   try {const {openBodyTools}=await import('./body-tools.js');await openBodyTools({...previewInput(),onSaveState:({notes,drawings})=>{
@@ -4373,7 +4424,7 @@ function previewPlacement(plan){
  try{
   for(const t of plan.updates){const d=decals[t.id];if(d){visibility.push([d.mesh,d.mesh.visible],[d.outline,d.outline.visible]);d.mesh.visible=false;d.outline.visible=false;}}
   for(const t of [...plan.updates,...plan.additions]){
-   const tex=inkTexture(t),geo=decalGeometry(t),mat=new THREE.MeshBasicMaterial({map:tex,blending:THREE.MultiplyBlending,premultipliedAlpha:true,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4,toneMapped:false});
+   const tex=inkTexture(t),geo=decalGeometry(t),mat=inkMaterial(tex);
    const mesh=new THREE.Mesh(geo,mat);mesh.renderOrder=200;scene.add(mesh);temporary.push({mesh,geo,mat,tex});
   }
   const target=[...plan.updates,...plan.additions][0];fullBody(Math.atan2(target.normal[0],target.normal[2]));Object.assign(cur,goal);applyCam();renderer.render(scene,camera);return {dataUrl:canvas.toDataURL('image/png')};
@@ -4417,10 +4468,21 @@ $('#openLayers').addEventListener('click',openLayersSheet);
 // The Layers panel at the right: folded to a slim rail or open the full height of the screen
 layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:()=>selectedId,kinds:kindOff,
   pick:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id===selectedId)focusTattoo(t);else select(t.id,true);},
-  change:fn=>{snapshot();fn(state);commit();},openSheet:openLayersSheet,onPaint:()=>openPaintPop(),
+  change:fn=>{snapshot();fn(state);commit();},openSheet:openLayersSheet,onPaint:()=>openPaintPop(),openLook:id=>openInkLook(id),
   onKinds:kind=>{markTried('hideKinds');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}const n=state.tattoos.filter(x=>(x.status==='existing'?'existing':'planned')===kind).length;if(n)toast(kindOff[kind]?`${kind==='existing'?'Existing':'Planned'} tattoos hidden on this screen. Tap again to bring them back.`:`${kind==='existing'?'Existing':'Planned'} tattoos showing again.`,null,null,3200);},
   onOpen:open=>{if(open)markTried('layersDock');},
   onLayout:()=>{placeChrome();needsRender=true;}});
+// Blend and colour for one tattoo: blend mode and colour changes, live on the body, one undo step a change
+inkLook=createInkLook({get:()=>state.tattoos.find(x=>x.id===inkLookId)||null,
+  live:fn=>{const t=state.tattoos.find(x=>x.id===inkLookId);if(!t||t.locked)return;if(!lookSnap){snapshot();lookSnap=true;}lookDraft=t.id;fn(t);syncDecals();if(layersDock)layersDock.render();},
+  done:()=>{const was=lookDraft;lookDraft=null;if(lookSnap){lookSnap=false;commit();}else if(was)syncDecals();},
+  onClose:()=>{inkLookId=null;renderSheetLook();needsRender=true;},
+  onUse:k=>markTried(k==='blend'?'blendModes':k==='colour'?'inkColours':'blendModes')});
+function openInkLook(id){const t=state.tattoos.find(x=>x.id===id);if(!t)return;closePanels();if(selectedId!==id)select(id,true);inkLookId=id;inkLook.open();renderSheetLook();}
+// the panel follows the selected tattoo, like Procreate's layer settings, and closes with nothing selected
+function followInkLook(){if(!inkLook||!inkLook.isOpen())return;const t=sel();if(!t){inkLook.close();return;}if(t.id!==inkLookId)inkLookId=t.id;inkLook.render();}
+function renderSheetLook(){const b=$('#bLook'),t=sel();if(!b||!t)return;b.setAttribute('aria-expanded',String(!!(inkLook&&inkLook.isOpen())));b.title=describeLook(t);$('#bLookMode').textContent=hasLook(t)?describeLook(t):'';}
+$('#bLook').addEventListener('click',()=>{const t=sel();if(!t)return;if(inkLook.isOpen())inkLook.close();else openInkLook(t.id);});
 $('#openUnplaced').addEventListener('click',()=>{
  toggle('#planMenu',false);const host=el('section',{class:'scrim',role:'dialog','aria-modal':'true','aria-label':'Saved artwork to place'});host.style.zIndex=10000;const panel=el('div',{class:'modal glass'},el('h2',{text:'Saved artwork to place'}),el('p',{text:'These pieces had no body position in the imported project. Place one deliberately, then adjust it on the body.'}));
  for(const record of state.unplacedTattoos||[])panel.append(el('button',{class:'card',text:'Place '+record.name+' on body',onclick:async()=>{
@@ -4441,7 +4503,7 @@ async function compareSavedLayouts({a,b}){
    for(const t of saved.tattoos.filter(t=>!t.hidden)){
     if(!await loadImg(t.img))throw new Error('A saved artwork image could not be loaded.');
     const texture=inkTexture(t);owned.push(texture);const geometry=decalGeometry(t);owned.push(geometry);
-    const material=new THREE.MeshBasicMaterial({map:texture,blending:THREE.MultiplyBlending,premultipliedAlpha:true,transparent:true,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-4,polygonOffsetUnits:-4,toneMapped:false});owned.push(material);entries.push({geometry,material});
+    const material=inkMaterial(texture);owned.push(material);entries.push({geometry,material});
    }
    bundles.push({name:record.name||'Saved plan',state:saved,bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:entries});
   }
@@ -4813,8 +4875,8 @@ function limbPicture(m, pxPerUnit) {
       for (const tri of mapTriangle(m, I[tt * 3], I[tt * 3 + 1], I[tt * 3 + 2])) { put(pos, tri); for (let j = 0; j < 3; j++) tex.push(uv.getX(k * 3 + j), uv.getY(k * 3 + j)); }
     }
     if (!pos.length) return;
-    const mat = d.mesh.material.clone(); mat.side = THREE.DoubleSide; mat.depthTest = false; mat.polygonOffset = false;
-    mat.blending = THREE.CustomBlending; mat.blendEquation = THREE.AddEquation; mat.blendSrc = THREE.ZeroFactor; mat.blendDst = THREE.SrcColorFactor; mat.blendSrcAlpha = THREE.ZeroFactor; mat.blendDstAlpha = THREE.OneFactor;
+    const mat = exportMaterial(t, 'linear').clone(); mat.side = THREE.DoubleSide; mat.depthTest = false; mat.polygonOffset = false;
+    mat.blending = THREE.CustomBlending; mat.blendEquation = THREE.AddEquation; mat.blendSrc = mat.userData.inkLift ? THREE.DstColorFactor : THREE.ZeroFactor; mat.blendDst = THREE.SrcColorFactor; mat.blendSrcAlpha = THREE.ZeroFactor; mat.blendDstAlpha = THREE.OneFactor;
     add(pos, mat, 10 + order, tex); inked++;
     // where to write its name: under the middle of its ink (median across, lowest point down)
     const xs = [], ys = []; for (let i = 0; i < pos.length; i += 3) { xs.push(pos[i] * pxPerUnit + W / 2); ys.push(2 - pos[i + 1] * pxPerUnit); }
@@ -5174,7 +5236,8 @@ async function exportPainted(kind) {
   try {
     syncDecals();
     const { exportPaintedModel } = await import('./uv-bake.js');
-    const result = await exportPaintedModel({ THREE, renderer, bodyGeometry: bodyGeo, skinColor: skinMat.color, decals: visible.map((t) => ({ geometry: decals[t.id].mesh.geometry, material: decals[t.id].mesh.material })), state, kind, paint: await paintPicture() });
+    const result = await exportPaintedModel({ THREE, renderer, bodyGeometry: bodyGeo, skinColor: skinMat.color, decals: visible.map((t) => ({ geometry: decals[t.id].mesh.geometry, material: exportMaterial(t, 'linear') })), state, kind, paint: await paintPicture() });
+    freeExportMaterials();
     window.__lastPainted = { kind, bytes: result.blob.size, size: result.size, inked: result.inked, paint: !!(state.paint && !state.paint.hidden) };
     await saveFile(result.name, result.blob);
   } catch (e) { toast('Could not make the 3D model: ' + ((e && e.message) || 'something went wrong')); }
@@ -5189,7 +5252,8 @@ async function exportLayered() {
   try {
     syncDecals();
     const { exportLayeredModel } = await import('./layered-model.js');
-    const result = await exportLayeredModel({ THREE, renderer, bodyGeometry: bodyGeo, skinColor: skinMat.color, tattoos: visible.map((t) => ({ name: t.name || 'Tattoo', aspect: t.aspect, geometry: decals[t.id].mesh.geometry, material: decals[t.id].mesh.material })), state, paint: await paintPicture() });
+    const result = await exportLayeredModel({ THREE, renderer, bodyGeometry: bodyGeo, skinColor: skinMat.color, tattoos: visible.map((t) => ({ name: t.name || 'Tattoo', aspect: t.aspect, geometry: decals[t.id].mesh.geometry, material: exportMaterial(t, 'linear') })), state, paint: await paintPicture() });
+    freeExportMaterials();
     window.__lastLayered = { bytes: result.blob.size, size: result.size, parts: result.parts };
     await saveFile(result.name, result.blob);
     markTried('layers3d');
@@ -5207,7 +5271,8 @@ async function bakeBaseline(skinColor, native, S, withPaint = true) {
   const { bakeSkin } = await import('./uv-bake.js');
   syncDecals();
   const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
-  const baked = bakeSkin({ THREE, renderer, bodyGeometry: bodyGeo, skinColor, decals: visible.map((t) => ({ geometry: decals[t.id].mesh.geometry, material: decals[t.id].mesh.material })), size: native });
+  const baked = bakeSkin({ THREE, renderer, bodyGeometry: bodyGeo, skinColor, decals: visible.map((t) => ({ geometry: decals[t.id].mesh.geometry, material: exportMaterial(t, 'linear') })), size: native });
+  freeExportMaterials();
   const full = document.createElement('canvas'); full.width = full.height = baked.size; full.getContext('2d').putImageData(new ImageData(baked.pixels, baked.size, baked.size), 0, 0);
   let out = shrinkTo(full, S); full.width = full.height = 0;
   // paint on the body went out with the model too
@@ -5415,14 +5480,29 @@ async function exportLayers() {
     decalGroup.visible = true; scene.background = new THREE.Color(0xffffff);
     for (const t of list) {
       for (const [id, d] of Object.entries(decals)) { d.mesh.visible = id === t.id; d.outline.visible = false; }
-      render(false);
-      const { box, rgba } = cropLayer(inkToAlpha(grab()), W, H);
+      const mode = blendOf(t), d = decals[t.id], keep = d.mesh.material;
+      let px;
+      if (mode === DEFAULT_BLEND) { d.mesh.material = exportMaterial(t, 'raw'); render(false); px = inkToAlpha(grab()); }
+      else {
+        // any other mode: the changed artwork drawn plainly over black and over white, which
+        // gives back its own colour and transparency exactly (white ink stays white)
+        const tex = inkTexture(t, 'alpha'), m = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4, toneMapped: false });
+        exportOwned.push(tex, m); d.mesh.material = m;
+        render(false); const onWhite = grab(); scene.background = new THREE.Color(0x000000); render(false); px = grab(); scene.background = new THREE.Color(0xffffff);
+        for (let o = 0; o < px.length; o += 4) {
+          const a = 255 - Math.round(((onWhite[o] - px[o]) + (onWhite[o + 1] - px[o + 1]) + (onWhite[o + 2] - px[o + 2])) / 3);
+          if (a <= 0) { px[o] = px[o + 1] = px[o + 2] = px[o + 3] = 0; continue; }
+          for (let k = 0; k < 3; k++) px[o + k] = Math.min(255, Math.round(px[o + k] * 255 / a)); px[o + 3] = a;
+        }
+      }
+      d.mesh.material = keep;
+      const { box, rgba } = cropLayer(px, W, H);
       if (box.bottom <= box.top) continue; // not seen from this side
-      layers.push({ name: t.name || 'Tattoo', box, rgba, blend: 'mul ', opacity: 255 });
+      layers.push({ name: t.name || 'Tattoo', box, rgba, blend: psdBlendKey(mode), opacity: 255 });
     }
   } catch (e) { toast('Could not make the layered file: ' + ((e && e.message) || 'something went wrong')); return null; }
   finally {
-    scene.background = bg; for (const m of off) m.visible = true; decalGroup.visible = true;
+    scene.background = bg; for (const m of off) m.visible = true; decalGroup.visible = true; freeExportMaterials();
     exporting = false; curInset = inset; applyInset(); syncDecals(); needsRender = true;
   }
   const blob = writePsd({ width: W, height: H, layers, merged });

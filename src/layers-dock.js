@@ -5,6 +5,7 @@
 // Open or folded is kept per device (localStorage ia-layers-dock), never in the project.
 // The caller owns history, persistence and decal regeneration: change(fn) wraps one undo step.
 import { reorderTattoo, changeSelected } from './layers.js';
+import { blendOf, blendLetter, blendName, hasLook, describeLook, DEFAULT_BLEND } from './ink-look.js';
 
 export const DOCK_KEY = 'ia-layers-dock';
 export const kindOf = (t) => (t && t.status === 'existing' ? 'existing' : 'planned');
@@ -63,17 +64,18 @@ const CSS = `#layersDock{position:fixed;z-index:2;right:calc(12px + env(safe-are
 #layersDock .ld-ghead .ld-fold svg{transition:transform .2s ease}#layersDock .ld-ghead .ld-fold[aria-expanded=true] svg{transform:rotate(90deg)}
 #layersDock .ld-rest{margin:8px 8px 2px;color:var(--muted);font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase}
 #layersDock .ld-row{border-radius:12px}#layersDock .ld-in .ld-row{margin-left:14px}
-#layersDock .ld-line{display:grid;grid-template-columns:minmax(0,1fr) 44px 44px;align-items:center;gap:2px;min-height:60px;padding:2px 2px 2px 4px}
+#layersDock .ld-line{display:grid;grid-template-columns:minmax(0,1fr) 44px 44px 44px;align-items:center;gap:2px;min-height:60px;padding:2px 2px 2px 4px}
 #layersDock .ld-row.on{background:var(--stencil-soft)}
 #layersDock .ld-pick{display:grid;grid-template-columns:48px minmax(0,1fr);align-items:center;gap:10px;min-height:56px;padding:0;border:0;background:none;text-align:left;cursor:pointer;min-width:0}
 #layersDock .ld-thumb{width:48px;height:48px;border-radius:10px;background:var(--fill);overflow:hidden;display:grid;place-items:center;color:var(--muted)}#layersDock .ld-thumb.art{background:#f4f1ec}#layersDock .ld-thumb img{width:100%;height:100%;object-fit:contain}
 #layersDock .ld-pick b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#layersDock .ld-pick small{display:block;color:var(--muted);font-size:12.5px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #layersDock .ld-row.dim .ld-thumb,#layersDock .ld-row.dim .ld-pick b{opacity:.42}
+#layersDock .ld-mode{font:650 13px/1 var(--body);color:var(--text)}#layersDock .ld-mode span{min-width:28px;height:28px;padding:0 4px;border-radius:8px;border:1.5px solid var(--line);display:grid;place-items:center}#layersDock .ld-mode.set span{border-color:var(--stencil,var(--accent));color:var(--stencil,var(--accent))}
 #layersDock .ld-eye.off{color:var(--faint,var(--muted));opacity:.7}
 #layersDock .ld-acts{display:flex;flex-wrap:wrap;gap:6px;padding:0 8px 10px 62px}#layersDock .ld-acts .btn{min-height:44px;font-size:14px;padding:0 12px}
 #layersDock .ld-empty{margin:12px 8px;color:var(--muted);font-size:14px}
 #layersDock .ld-foot{padding:8px 12px 12px;border-top:1px solid var(--line);display:flex}#layersDock .ld-foot .btn{flex:1}
-body.comment-only #layersDock .ld-eye,body.comment-only #layersDock .ld-more,body.comment-only #layersDock .ld-foot{display:none!important}
+body.comment-only #layersDock .ld-eye,body.comment-only #layersDock .ld-mode,body.comment-only #layersDock .ld-more,body.comment-only #layersDock .ld-foot{display:none!important}
 body.hands-on #layersDock{opacity:.08;transition:opacity .12s ease}
 body.painting #layersDock,body:has(#wrapStudio:not([hidden])) #layersDock{display:none!important}
 @media (max-width:600px){#layersDock.open{left:12px;width:auto;z-index:7}}
@@ -82,7 +84,7 @@ body.painting #layersDock,body:has(#wrapStudio:not([hidden])) #layersDock{displa
 // Options: getState, getImages, selectedId(), pick(id) (select it the way a tray chip does),
 // change(fn) (one undo step), kinds (the {planned, existing} view switches, owned by the caller),
 // onKinds(kind) after a switch, openSheet() for Layers and groups, onPaint() for Paint on skin,
-// onLayout() whenever its width changes, onOpen(open).
+// onLayout() whenever its width changes, onOpen(open), openLook(id) for Blend and colour.
 export function createLayersDock(o) {
   if (!document.getElementById('ld-css')) { const s = document.createElement('style'); s.id = 'ld-css'; s.textContent = CSS; document.head.append(s); }
   let open = false; try { open = localStorage.getItem(DOCK_KEY) === 'open'; } catch { /* private mode: folded */ }
@@ -119,12 +121,15 @@ export function createLayersDock(o) {
     const pick = el('button', 'ld-pick'); pick.type = 'button';
     const thumb = el('span', 'ld-thumb'); const src = images[t.img]; if (typeof src === 'string' && src) { thumb.classList.add('art'); const im = el('img'); im.src = src; im.alt = ''; thumb.append(im); }
     const bits = [t.status === 'existing' ? 'On me' : 'Planned']; if (t.locked && t.status !== 'existing') bits.push('Locked'); if (t.hidden) bits.push('Hidden'); else if (offByKind) bits.push('Off for now');
+    if (hasLook(t)) bits.push(describeLook(t));
     const text = el('span'); text.append(el('b', '', t.name || 'Tattoo'), el('small', '', bits.join(' · ')));
     pick.append(thumb, text); pick.setAttribute('aria-label', `${t.name || 'Tattoo'}, ${bits.join(', ')}`); if (t.id === selId) pick.setAttribute('aria-current', 'true');
     pick.addEventListener('click', () => { if (offByKind) { o.kinds[kindOf(t)] = false; o.onKinds?.(kindOf(t)); } o.pick(t.id); });
     const eye = ib(t.hidden ? EYE_OFF : EYE, `${t.hidden ? 'Show' : 'Hide'} ${t.name || 'tattoo'}`, () => o.change((s) => changeSelected(s, [t.id], { hidden: !t.hidden })), 'ld-eye' + (t.hidden ? ' off' : ''));
     const more = ib(DOTS, `More for ${t.name || 'tattoo'}`, () => { openMore = openMore === t.id ? null : t.id; lastKey = ''; render(); }, 'ld-more'); more.setAttribute('aria-expanded', String(openMore === t.id));
-    line.append(pick, eye, more); row.append(line);
+    const mode = blendOf(t), look = ib(`<span>${blendLetter(mode)}</span>`, `Blend and colour for ${t.name || 'tattoo'}: ${blendName(mode)}`, () => o.openLook?.(t.id), 'ld-mode' + (hasLook(t) ? ' set' : ''));
+    look.title = hasLook(t) ? describeLook(t) : blendName(DEFAULT_BLEND);
+    line.append(pick, look, eye, more); row.append(line);
     if (openMore === t.id) {
       const acts = el('div', 'ld-acts');
       const up = btn('Move earlier', () => o.change((s) => reorderTattoo(s, t.id, -1))); up.disabled = index === 0;
@@ -138,7 +143,7 @@ export function createLayersDock(o) {
   function render() {
     const state = o.getState(), images = o.getImages() || {}, selId = o.selectedId(), k = o.kinds;
     const key = JSON.stringify([open, selId, k, openMore, [...folded], state.groups || [], state.paint ? !!state.paint.hidden : null,
-      state.tattoos.map((t) => [t.id, t.name, t.hidden, t.status, t.locked, t.group, t.img, !!images[t.img]])]);
+      state.tattoos.map((t) => [t.id, t.name, t.hidden, t.status, t.locked, t.group, t.img, !!images[t.img], t.blend || '', t.adjust || null])]);
     if (key === lastKey) return; lastKey = key;
     const all = state.tattoos, planned = all.filter((t) => kindOf(t) === 'planned').length, existing = all.length - planned;
     $('#ldCount').textContent = all.length ? `${all.length} on the body` + (k.planned || k.existing ? ', some hidden' : '') : 'Nothing placed yet';

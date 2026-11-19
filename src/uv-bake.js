@@ -79,7 +79,7 @@ export function bakeSkin({ THREE, renderer, bodyGeometry, skinColor, decals, siz
     if (!pos.length) return;
     const m = dc.material.clone(); m.side = THREE.DoubleSide; m.depthTest = false; m.polygonOffset = false;
     // multiply the colour, keep the skin's alpha so coverage stays readable
-    m.blending = THREE.CustomBlending; m.blendEquation = THREE.AddEquation; m.blendSrc = THREE.ZeroFactor; m.blendDst = THREE.SrcColorFactor; m.blendSrcAlpha = THREE.ZeroFactor; m.blendDstAlpha = THREE.OneFactor;
+    m.blending = THREE.CustomBlending; m.blendEquation = THREE.AddEquation; m.blendSrc = m.userData.inkLift ? THREE.DstColorFactor : THREE.ZeroFactor; m.blendDst = THREE.SrcColorFactor; m.blendSrcAlpha = THREE.ZeroFactor; m.blendDstAlpha = THREE.OneFactor;
     add(new Float32Array(pos), m, 10 + order, new Float32Array(tex)); inked++;
   });
   const target = new THREE.WebGLRenderTarget(size, size, { colorSpace: THREE.SRGBColorSpace, depthBuffer: false });

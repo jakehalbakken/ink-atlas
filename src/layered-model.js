@@ -69,7 +69,7 @@ function bakePart({ THREE, renderer, part, material, skinColor, longest }) {
   for (let i = 0; i < part.st.length / 2; i++) { flat[i * 3] = part.st[i * 2] * 2 - 1; flat[i * 3 + 1] = part.st[i * 2 + 1] * 2 - 1; }
   g.setAttribute('position', new THREE.BufferAttribute(flat, 3)); g.setAttribute('uv', new THREE.BufferAttribute(part.art, 2)); g.setIndex(part.index);
   const m = material.clone(); m.side = THREE.DoubleSide; m.depthTest = false; m.polygonOffset = false;
-  m.blending = THREE.CustomBlending; m.blendEquation = THREE.AddEquation; m.blendSrc = THREE.ZeroFactor; m.blendDst = THREE.SrcColorFactor; m.blendSrcAlpha = THREE.ZeroFactor; m.blendDstAlpha = THREE.OneFactor;
+  m.blending = THREE.CustomBlending; m.blendEquation = THREE.AddEquation; m.blendSrc = m.userData.inkLift ? THREE.DstColorFactor : THREE.ZeroFactor; m.blendDst = THREE.SrcColorFactor; m.blendSrcAlpha = THREE.ZeroFactor; m.blendDstAlpha = THREE.OneFactor;
   const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1, 1), mesh = new THREE.Mesh(g, m); mesh.frustumCulled = false; scene.add(mesh);
   const target = new THREE.WebGLRenderTarget(w, h, { colorSpace: THREE.SRGBColorSpace, depthBuffer: false }); target.texture.colorSpace = THREE.SRGBColorSpace;
   const prevTarget = renderer.getRenderTarget(), prevColor = new THREE.Color(), prevAlpha = renderer.getClearAlpha(), prevScissor = renderer.getScissorTest();
