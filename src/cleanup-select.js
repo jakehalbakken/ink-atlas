@@ -100,6 +100,15 @@ export function maskBounds(m, w, h, data = null) {
   return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
 
+// The box round what shows: pixels at least `min` of 255 opaque (a cut-out often leaves a faint haze of
+// nearly clear pixels round the ink, which would keep the box, and the size on the body, too big).
+export function inkBounds(data, w, h, min = 8) {
+  need(w, h); if (data.length !== w * h * 4) throw new Error('The picture does not match its size.');
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) { const row = y * w; for (let x = 0; x < w; x++) if (data[(row + x) * 4 + 3] >= min) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } }
+  return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
 export const identityFor = (box) => ({ cx: box.x + box.w / 2, cy: box.y + box.h / 2, s: 1, rot: 0, fx: 1, fy: 1 });
 
 // Where a point of the lifted piece (pixels from its top left) lands in the picture.

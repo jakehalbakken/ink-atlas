@@ -107,12 +107,15 @@ export default async function (p) {
   assert.equal(await alpha(100, 100), 255, 'nudges close together are one undo step');
   assert.equal(await alpha(99, 100), 0);
 
-  // Done: a new version, the old artwork kept, the tattoo 480 / 400 as wide so each piece keeps its real size
+  // Done: a new version, the old artwork kept, the picture trimmed to its ink and the tattoo as wide as that
+  // ink at the old scale (400 px of picture was t0.width), so each piece keeps its real size
+  const box = await p.$eval('#ink-cleanup canvas', (c) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let x0 = c.width, x1 = -1, y0 = c.height, y1 = -1; for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) if (d[(y * c.width + x) * 4 + 3] >= 8) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); } return [x1 - x0 + 1, y1 - y0 + 1, c.width]; });
+  assert(box[2] > 400, 'the picture grew past its edge: ' + box);
   await p.click('[data-action=apply]'); await wait(900);
   const t1 = (await st()).tattoos.find((t) => t.id === t0.id);
   assert.notEqual(t1.img, t0.img, 'new artwork');
-  assert(Math.abs(t1.width / t0.width - 1.2) < 1e-6, 'the width grew with the picture: ' + t1.width / t0.width);
-  assert(Math.abs(t1.aspect - 2.4) < 1e-6, 'aspect ' + t1.aspect);
+  assert(Math.abs(t1.width / t0.width - box[0] / 400) < 1e-6, 'the width is the ink at the old scale: ' + t1.width / t0.width + ' vs ' + box[0] / 400);
+  assert(Math.abs(t1.aspect - box[0] / box[1]) < 1e-6, 'aspect ' + t1.aspect);
   assert.equal(t1.anchor ? JSON.stringify(t1.anchor) : '', t0.anchor ? JSON.stringify(t0.anchor) : '', 'same spot on the body');
   assert((t1.versions || []).some((v) => v.img === t0.img), 'the earlier artwork is kept as a version');
   const tried = await p.evaluate(() => JSON.parse(localStorage.getItem('ia-tried') || '[]'));

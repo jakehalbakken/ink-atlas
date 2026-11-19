@@ -16,6 +16,7 @@ import './slider.js';
 import {twoPointerDelta,twoFingerIntent,wrapAngle,planTapPlacement} from './view-gestures.js';
 import {findLiveAlignment,findCentreLine} from './live-alignment.js';
 import { editArtwork, edgeKind } from './cleanup.js';
+import { inkBounds } from './cleanup-select.js';
 import { applyArtworkRevision } from './cleanup-links.js';
 import { readPending, writePending, editFileName, artworkAsSeen, clipboardImage, normalisePicture } from './procreate-edit.js';
 import { openShelf, openProjectShelf } from './shelf.js';
@@ -1258,6 +1259,10 @@ function renderSheet() {
     $('#wrapText').textContent = full ? `Goes all the way round your ${limb}.` : wi.share > 1.08 ? `Longer than the way round your ${limb} here, so its ends overlap.` : `Goes about ${Math.max(5, Math.round(wi.share * 20) * 5)}% of the way round your ${limb}.`;
     $('#wrapFit').hidden = full; $('#wrapFit').textContent = wi.share > 1.08 ? 'Fit it round' : 'Wrap it round';
   }
+  // a picture with empty space round its ink reads bigger than the tattoo is: say so and offer to trim it
+  const ink = !commentOnly && !t.locked ? inkShareOf(t) : null, padded = !!ink && (ink.w < 0.96 || ink.h < 0.96);
+  $('#trimRow').hidden = !padded;
+  if (padded) { const s = inchesOf(t); $('#trimText').textContent = `Empty space round the ink makes it read ${s.w.toFixed(1)} × ${s.h.toFixed(1)} in. The ink is ${(s.w * ink.w).toFixed(1)} × ${(s.h * ink.h).toFixed(1)} in.`; }
   $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Already on you, so fingers on the body won\'t move it. The size, turn and nudge controls here still fine-tune it.':t.locked?'Locked in place: fingers on the body won\'t move it, and everything in this panel still works.':isWrap(t)&&!taught.has('wrapMove')?`Drag it sideways to turn it round your ${/leg/.test(wrapInfo(t).L.key)?'leg':'arm'}, up or down to slide it along. Grab it anywhere, even round the back.`:taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
 }
 function renderBody() {
@@ -1730,11 +1735,72 @@ async function cleanupSelected(linked=false) {
   const revision=applyArtworkRevision(state,id,key,result.aspect,{linked,session:result.session,settings:result.settings});
   state=revision.nextState;
   for(const cid of revision.changedIds){const q=state.tattoos.find(x=>x.id===cid);keepVersion(was.get(cid),q);
-    // a piece moved past the edge grew the picture: the tattoo grows with it so every piece keeps its real size
-    if(result.widthScale>0&&Number.isFinite(result.widthScale)&&q)q.width*=result.widthScale;}
+    // the picture grew, was cropped or was trimmed to its ink: the tattoo's box changes with it, so every piece
+    // keeps its real size and its place on the skin
+    if(q)keepInkInPlace(q,was.get(cid),result);}
   if(revision.artworkId)state.artworks[revision.artworkId].cleanup=result.settings || {};
   commit(); toast(`${revision.changedIds.length>1?`Artwork cleaned up on ${revision.changedIds.length} copies.`:'Artwork cleaned up.'} Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
 }
+// After a cleanup the picture may be bigger or smaller than before and its middle elsewhere (shares of the old
+// width and height, right and down in the picture). Resize the tattoo by the same share and slide it along
+// the skin by the same amount, so the ink stays exactly where and how big it was.
+function keepInkInPlace(q, before, result) {
+  if (!before) return;
+  const k = result.widthScale > 0 && Number.isFinite(result.widthScale) ? result.widthScale : 1;
+  const sx = Number(result.shift?.x) || 0, sy = Number(result.shift?.y) || 0;
+  q.width = Math.min(0.9, Math.max(0.004, before.width * k));
+  if (!sx && !sy) return;
+  // right and up on the skin, in metres-like body units, from the old picture's size and how it is shown
+  const right = sx * before.width * (before.flip ? -1 : 1), up = -sy * (before.width / before.aspect) * (before.imageTopDown ? 1 : -1);
+  slideOnSkin(q, right, up);
+}
+// Move a tattoo along the skin in its own directions, a few millimetres at a time so it follows the curve.
+function slideOnSkin(t, right, up) {
+  const dist = Math.hypot(right, up); if (!(dist > 1e-6)) return;
+  const steps = Math.min(200, Math.max(1, Math.ceil(dist / 0.004)));
+  for (let i = 0; i < steps; i++) {
+    const f = frameOf(t), d = f.right.multiplyScalar(right / steps).add(f.up.multiplyScalar(up / steps));
+    const h = surfaceAt(new V3(...t.pos).add(d).addScaledVector(f.n, 0.03), f.n.clone().negate()); if (!h) return;
+    t.pos = h.pos; t.normal = h.normal;
+  }
+}
+// Where the ink sits in a tattoo's picture, as shares of its width and height, read from a small copy.
+const inkBoxCache = new Map();
+function inkShareOf(t) {
+  if (inkBoxCache.has(t.img)) return inkBoxCache.get(t.img);
+  const im = imgEls[t.img]; if (!im || !im.naturalWidth) return null;
+  const k = Math.min(1, 320 / Math.max(im.naturalWidth, im.naturalHeight)), w = Math.max(1, Math.round(im.naturalWidth * k)), h = Math.max(1, Math.round(im.naturalHeight * k));
+  const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, w, h);
+  let b = null; try { b = inkBounds(g.getImageData(0, 0, w, h).data, w, h); } catch { /* unreadable */ }
+  // a box within a pixel of the edge on the small copy counts as the edge
+  const share = b ? { x: b.x / w, y: b.y / h, w: Math.min(1, (b.w + 1) / w), h: Math.min(1, (b.h + 1) / h) } : null;
+  inkBoxCache.set(t.img, share); return share;
+}
+// Trim a tattoo's picture to its ink, keeping the ink exactly where and how big it is on the skin (and on
+// linked copies), one undo step. The earlier picture is kept as a version.
+async function trimSelectedToInk() {
+  const t = sel(); if (!t || t.locked || commentOnly) return;
+  const im = imgEls[t.img]; if (!im || !im.naturalWidth) { toast('Getting the artwork ready. Tap Trim to the ink again.'); loadImg(t.img); return; }
+  const W = im.naturalWidth, H = im.naturalHeight, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0);
+  const b = inkBounds(g.getImageData(0, 0, W, H).data, W, H);
+  if (!b) { toast('There is no ink in this picture to trim to.'); return; }
+  if (b.x === 0 && b.y === 0 && b.w === W && b.h === H) { $('#trimRow').hidden = true; toast('Already trimmed to the ink.'); return; }
+  const out = document.createElement('canvas'); out.width = b.w; out.height = b.h; out.getContext('2d').drawImage(c, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+  const id = t.id, prior = t.img, key = uid(); images[key] = out.toDataURL('image/png');
+  if (!await loadImg(key)) { delete images[key]; toast('The trimmed picture could not be opened. Nothing changed.'); return; }
+  const current = state.tattoos.find((x) => x.id === id); if (!current || current.img !== prior) { delete images[key]; return; }
+  snapshot();
+  const was = new Map(state.tattoos.map((q) => [q.id, q]));
+  const revision = applyArtworkRevision(state, id, key, b.w / b.h, { linked: true });
+  state = revision.nextState;
+  const how = { widthScale: b.w / W, shift: { x: (b.x + b.w / 2 - W / 2) / W, y: (b.y + b.h / 2 - H / 2) / H } };
+  for (const cid of revision.changedIds) { const q = state.tattoos.find((x) => x.id === cid); keepVersion(was.get(cid), q); if (q) keepInkInPlace(q, was.get(cid), how); }
+  commit(); markTried('trimInk');
+  const s = inchesOf(state.tattoos.find((x) => x.id === id) || t);
+  toast(`Trimmed to the ink: ${s.w.toFixed(1)} × ${s.h.toFixed(1)} in. Original kept.${revision.skippedIds.length ? ' Locked copies unchanged.' : ''}`, 'Undo', undo);
+}
+$('#bTrimInk').addEventListener('click', () => trimSelectedToInk().catch((e) => toast('Could not trim the picture: ' + e.message)));
 /* ---------- edit in Procreate and bring it back to the same tattoo ---------- */
 function editInProcreate() {
   markTried('edit-procreate');
@@ -2568,6 +2634,7 @@ const SHOW = {
   sheetMin: () => { const t = needTattoo(); if (!t) return null; return ['#bSheetMin', 'Tap this arrow to fold the panel down to its name line and see more of the body. Tap it again to open it.']; },
   lockEdit: () => { const t = needTattoo(); if (!t) return null; return ['#bLock', 'Lock in place stops taps and drags on the body from moving it. Size, turn, nudge, blend and colour here still work, so you can fine-tune it without knocking it.']; },
   viewLock: () => ['#viewLock', 'Tap the lock to keep this view. Dragging, pinching, double-tap and the view buttons leave the camera where it is until you tap the lock again. Taps still pick tattoos.'],
+  trimInk: () => { const t = needTattoo(); if (!t) return null; return !$('#trimRow').hidden ? ['#bTrimInk', 'This picture has empty space round its ink, so its size reads bigger than the tattoo. Trim to the ink cuts the picture to the ink and keeps the ink where it is.'] : ['#bCleanup', 'Clean up trims the empty space round the ink when you tap Done, so the size you see is the size of the ink.']; },
   layersReveal: () => { layersDock.setOpen(true, true); return ['#ldList', 'Tap a tattoo on the body and Layers opens at its line, with its group unfolded.']; },
   layersDock: () => { layersDock.setOpen(true, true); return ['#layersDock', 'This is the Layers panel. Tap a line to work on that tattoo, the eye to hide it, and the arrow at the top to fold the panel to a slim rail.']; },
   hideKinds: () => { layersDock.setOpen(true, true); return ['#ldKinds', 'Tap Hide planned to see only the ink already on you, or Hide existing to see only your plans. Tap again to bring them back. Nothing in the project changes.']; },
@@ -6026,6 +6093,13 @@ window.__ink = {
   surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)
+  // where the ink itself lies on the skin, read from the decal and its own texture: the middle and the area
+  inkOnSkin: (id) => { const d = decals[id]; if (!d || !d.tex) return null; const P = d.mesh.geometry.attributes.position.array, UV = d.mesh.geometry.attributes.uv.array, im = d.tex.image, px = im.getContext('2d').getImageData(0, 0, im.width, im.height), n = 10; let A = 0; const c = [0, 0, 0];
+    for (let f = 0; f < P.length / 9; f++) { const a = new V3(P[f * 9], P[f * 9 + 1], P[f * 9 + 2]), b = new V3(P[f * 9 + 3], P[f * 9 + 4], P[f * 9 + 5]), e = new V3(P[f * 9 + 6], P[f * 9 + 7], P[f * 9 + 8]), ar = b.clone().sub(a).cross(e.clone().sub(a)).length() / 2 / (n * n);
+      for (let i = 0; i < n; i++) for (let j = 0; j < n - i; j++) for (const up of [0, 1]) { if (up && i + j > n - 2) continue; const wb = (i + (up ? 2 : 1) / 3) / n, we = (j + (up ? 2 : 1) / 3) / n, wa = 1 - wb - we;
+        const u = wa * UV[f * 6] + wb * UV[f * 6 + 2] + we * UV[f * 6 + 4], v = wa * UV[f * 6 + 1] + wb * UV[f * 6 + 3] + we * UV[f * 6 + 5]; if (!visibleInkAt(px, u, v, d.tex.flipY, 0.3)) continue;
+        A += ar; for (let k = 0; k < 3; k++) c[k] += ar * (wa * P[f * 9 + k] + wb * P[f * 9 + 3 + k] + we * P[f * 9 + 6 + k]); } }
+    return A ? { c: c.map((x) => x / A), area: A } : null; },
   decalSpan: (axis = [0, 1, 0]) => state.tattoos.map((t) => { const d = decals[t.id], P = d && d.mesh.geometry.attributes.position.array, UV = d && d.mesh.geometry.attributes.uv.array; let lo = Infinity, hi = -Infinity; if (P) for (let f = 0; f < P.length / 9; f++) { const u = (UV[f * 6] + UV[f * 6 + 2] + UV[f * 6 + 4]) / 3, v = (UV[f * 6 + 1] + UV[f * 6 + 3] + UV[f * 6 + 5]) / 3; if (u < UV_MARGIN || u > 1 - UV_MARGIN || v < UV_MARGIN || v > 1 - UV_MARGIN) continue; let y = 0; for (let k = 0; k < 3; k++) { const i = f * 9 + k * 3; y += (P[i] * axis[0] + P[i + 1] * axis[1] + P[i + 2] * axis[2]) / 3; } lo = Math.min(lo, y); hi = Math.max(hi, y); } return { name: t.name, lo, hi, y: t.pos[1], tris: P ? P.length / 9 : 0 }; }), restJoint: (n) => { const J = poseView.restRig().joints, b = POSE_BONES.find((x) => x.name === n); return b ? [0, 1, 2].map((i) => J[b.head * 3 + i]) : null; }, decalCover: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry; if (!g || !g.attributes.uv) return { name: t.name, cover: 0, stretch: 0 };
     const P = g.attributes.position.array, UV = g.attributes.uv.array, n = 64, grid = new Uint8Array(n * n), hits = new Uint16Array(n * n); let skin = 0; const m = UV_MARGIN, sp = 1 - 2 * m, scale = t.width * (t.width / t.aspect), ratios = [];
     for (let i = 0; i < UV.length / 2; i += 3) { const u = [0, 1, 2].map((k) => (UV[(i + k) * 2] - m) / sp), v = [0, 1, 2].map((k) => (UV[(i + k) * 2 + 1] - m) / sp);

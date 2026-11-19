@@ -32,4 +32,12 @@ assert.deepEqual(d.versions, [{ img: 'k2', aspect: 2, flip: false, top: false, n
 assert.equal(d.vName, undefined, 'a current name that clashes with a version is dropped');
 assert.equal(currentName(d), 'v3');
 assert.deepEqual(cleanVersions({ versions: 'no' }, () => true), {});
+// a trim keeps where the earlier picture sat, and bringing it back puts it there
+let g = { id: 'g', img: 'a1', aspect: 1, width: 0.2, pos: [0, 1, 0.1], normal: [0, 0, 1] };
+g = keepVersion(g, { ...g, img: 'a2', aspect: 2, width: 0.12, pos: [0.01, 1.02, 0.1] });
+assert.deepEqual(g.versions[0], { img: 'a1', aspect: 1, flip: false, top: false, name: 'v1', w: 0.2, pos: [0, 1, 0.1], normal: [0, 0, 1] });
+assert.ok(useVersion(g, 0)); assert.equal(g.width, 0.2); assert.deepEqual(g.pos, [0, 1, 0.1]);
+assert.equal(g.versions[0].w, 0.12, 'the trimmed one keeps its own width');
+const c = cleanVersions({ versions: [{ img: 'a', aspect: 1, name: 'v1', w: 5, pos: [0, 1], normal: [0, 0, 1] }, { img: 'b', aspect: 1, name: 'v2', w: 0.1, pos: [0, 1, 0], normal: [0, 0, 1] }] }, () => true);
+assert.equal(c.versions[0].w, undefined); assert.equal(c.versions[0].pos, undefined); assert.equal(c.versions[1].w, 0.1); assert.deepEqual(c.versions[1].pos, [0, 1, 0]);
 console.log('versions-unit: ok');
