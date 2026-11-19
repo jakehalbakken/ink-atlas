@@ -152,3 +152,11 @@ export function catalogMotionRotations(kind,phase){
  }
  return pack(a);
 }
+// Mirror selfie (How I see it): one hand holds a phone up in front of the chest or the face, the
+// other arm hangs. Only for looking, like every pose; worked out on the body it is shown on.
+export function selfieRotations(side='R',high=false,rig){
+ const o=high?SELFIE_FACE:SELFIE_CHEST;
+ const other=side==='R'?'L':'R';
+ return pack({...(rig&&rig.joints?arm(other,{...STRAIGHT_DOWN,rig}):{}),...arm(side,{...o,rig})});
+}
+export const SELFIE_CHEST=Object.freeze({hang:1,reach:.2,elbow:1,palm:.6,fist:.45}),SELFIE_FACE=Object.freeze({hang:1,reach:.5,elbow:1.3,palm:.6,fist:.45});

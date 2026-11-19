@@ -38,7 +38,8 @@ import { placeLabels, sizeLabel, leader } from './size-labels.js';
 import { changeWords, undoToast, historyList } from './undo-words.js';
 import { wearAt } from './wear.js';
 import { installPenTap, controlAt } from './pen-tap.js';
-import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG, catalogRotations } from './pose-catalog.js';
+import { POSE_CATALOG, POSE_GROUPS, MOTION_CATALOG, catalogRotations, selfieRotations } from './pose-catalog.js';
+import { bodyParts, headLandmarks, headFrame, eyeView, lookPostures, seenMask, softMask, shareSeen, seenLine, seenWords, selfieCamera, vertexNormals, PHONE_FOV, LOOK_SIDE, LOOK_DOWN, LOOK_UP } from './self-view.js';
 import { AGES, ageInk } from './aging.js';
 import { skinSet, inkColours, swatchesFile } from './swatches.js';
 import { GUIDE_SIZE, areaExtent, drawGuide, inkBox, clearShare } from './procreate-draw.js';
@@ -90,6 +91,7 @@ const $ = (s) => document.querySelector(s);
 const V3 = THREE.Vector3;
 const SKINS = ['#f1d3bd', '#e0b394', '#c6916c', '#9a6644', '#6a422a'];
 const FOV = 30;
+var selfV = { mode: null, parts: null, L: null, Lkey: '', yaw: 0, pitch: 1, fov: 80, seen: null, soft: null, seenKey: '', mesh: null, headless: null, headlessOf: null, hand: 'R', high: false, turnBody: 0, gap: 0.6, pose: null, phone: null, frameKey: '', frame: null, handKey: '', handAt: null, focus: null, best: null, bestFor: '', bestRun: 0, skip: null, unseen: null };
 const STENCIL = '#8474ff';
 
 /* ---------- state ---------- */
@@ -313,6 +315,7 @@ function keepClearOfPanels(t, panelsOnly) {
 // layers list while looking elsewhere) does the camera go and find it.
 function revealTattoo(t) { if (!inSight(t)) focusTattoo(t); }
 function applyCam() {
+  if (selfV.mode === 'eyes' || selfV.mode === 'mirror') { selfApplyCam(); return; }
   const s = Math.sin(cur.phi);
   camera.position.set(cur.tx + cur.r * s * Math.sin(cur.theta), cur.ty + cur.r * Math.cos(cur.phi), cur.tz + cur.r * s * Math.cos(cur.theta));
   camera.up.set(0,1,0);
@@ -800,7 +803,7 @@ const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
 let tried = readTried(); // features from New to try that were tried on this device
 let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and mid-drag
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
-function select(id, focus) { if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; const was = selectedId; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (was !== id && account && account.nudge) account.nudge(); if (t && focus) requestAnimationFrame(() => { if (sel() !== t || gest) return; if (inSight(t)) keepClearOfPanels(t, true); else focusTattoo(t); }); }
+function select(id, focus) { if (id && selfV.mode === 'seen') { selfV.focus = id; selfText(); return; } if (id && selfV.mode) selfOff(); if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; const was = selectedId; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (was !== id && account && account.nudge) account.nudge(); if (t && focus) requestAnimationFrame(() => { if (sel() !== t || gest) return; if (inSight(t)) keepClearOfPanels(t, true); else focusTattoo(t); }); }
 // the size said as an everyday thing: about the size of a credit card
 function likeOf(t) { if (!t) return ''; const k = (state.heightCm || 175) / 175, w = t.width * 100 * k / 2.54; return sizeLikeText(w, w / t.aspect); }
 function likeRender(t) { const lk = likeOf(t); $('#likeLine').textContent = lk; $('#likeLine').hidden = !lk; }
@@ -925,6 +928,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (followId) stopFollow();
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pts.size === 1) {
+    if (selfV.mode === 'eyes' || selfV.mode === 'mirror') { gest = { mode: 'self', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, type: e.pointerType }; return; }
     const t = sel();
     const onInk = onSelectedInk(e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 10);
     const sc = t ? screenOf(new V3(...viewSpot(t).pos)) : { x: 0, y: 0 };
@@ -954,6 +958,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (!gest.moved && Math.hypot(e.clientX - gest.sx, e.clientY - gest.sy) < (gest.type === 'mouse' ? 4 : 9)) return;
     if (!gest.moved) handsOn(true);
     gest.moved = true;
+    if (gest.mode === 'self') { selfDrag(dx, dy); return; }
     if (gest.mode === 'cam') {
       glide = false; goal.theta -= dx * 0.0085; goal.phi = THREE.MathUtils.clamp(goal.phi - dy * 0.0065, 0.2, Math.PI - 0.35); needsRender = true;
     } else {
@@ -967,7 +972,8 @@ canvas.addEventListener('pointermove', (e) => {
     const s = two();
     const raw=twoPointerDelta({distance:gest.pd,angle:gest.pa,cx:gest.pcx,cy:gest.pcy},{distance:s.d,angle:s.ang,cx:s.cx,cy:s.cy});
     const delta=(gest.intent||=twoFingerIntent()).step(raw);
-    if (gest.mode === 'ink' && sel()) {
+    if (gest.mode === 'self') selfPinch(delta.zoomRatio);
+    else if (gest.mode === 'ink' && sel()) {
       const t = sel(); t.width = THREE.MathUtils.clamp(gest.w0 * (s.d / gest.d0), 0.012, 0.9);
       let da = s.ang - gest.a0; da = Math.atan2(Math.sin(da), Math.cos(da)); t.rot = gest.r0 - da; inkDirty = true;
     } else {
@@ -1009,8 +1015,9 @@ canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('point
 canvas.addEventListener('lostpointercapture', (e) => { if (pts.has(e.pointerId)) cancelGesture(); });
 window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
-canvas.addEventListener('wheel', (e) => { e.preventDefault(); glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
+canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (selfV.mode === 'eyes' || selfV.mode === 'mirror') { selfPinch(Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016))); return; } glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
+  if (selfV.mode) { selfTap(x, y); return; }
   if (wrapStudio && wrapStudio.isOpen() && wrapStudio.tapBody(hitBody(x, y))) return;
   if (pointing.on) { pointTap(x, y); return; }
   if (tape.on) { tapeTap(x, y); return; }
@@ -1887,7 +1894,11 @@ function hidePlanned() {
   return () => { for (const [m, v] of off) m.visible = v; };
 }
 function posedInk() { return poseView.active ? Object.values(decals).flatMap((d) => [d.mesh, d.outline]) : []; }
-function drawFrame() { clothes.sync(shapeKey, poseView.version); poseView.withPosed(() => { if (beforeAfter.on) beforeAfter.render(renderer, scene, camera, hidePlanned); else renderer.render(scene, camera); }, posedInk()); }
+function drawFrame() {
+  clothes.sync(shapeKey, poseView.version); if (selfV.mode === 'seen') selfSeenSync();
+  const eyes = selfV.mode === 'eyes', put = eyes ? selfHideHead() : null;
+  try { poseView.withPosed(() => { const g = body.geometry, idx = g.index; if (eyes) g.setIndex(selfHeadless()); try { if (beforeAfter.on) beforeAfter.render(renderer, scene, camera, hidePlanned); else renderer.render(scene, camera); } finally { if (eyes) g.setIndex(idx); } }, posedInk()); } finally { if (put) put(); }
+}
 /* ---------- poses ---------- */
 // The body poses in the main view; ink follows and can still be placed. Nothing is saved.
 {
@@ -1900,7 +1911,7 @@ function drawFrame() { clothes.sync(shapeKey, poseView.version); poseView.withPo
   }
   for (const [k, m] of Object.entries(MOTION_CATALOG)) { const o = document.createElement('option'); o.value = k; o.textContent = m.label; $('#motionKind').append(o); }
 }
-function poseLabel() { const k = poseView.key; return k === 'motion' ? MOTION_CATALOG[poseView.motion.kind].label : k === 'custom' ? 'Custom' : POSE_CATALOG[k] ? POSE_CATALOG[k].label : 'Standing'; }
+function poseLabel() { const k = poseView.key; return k === 'motion' ? MOTION_CATALOG[poseView.motion.kind].label : k === 'custom' ? (selfV.mode === 'mirror' ? 'Mirror selfie' : 'Custom') : POSE_CATALOG[k] ? POSE_CATALOG[k].label : 'Standing'; }
 function renderPose() {
   const k = poseView.key, m = poseView.motion;
   $('#poseBtn').textContent = poseView.active || m.playing ? 'Pose: ' + poseLabel() : 'Pose';
@@ -2560,6 +2571,9 @@ const SHOW = {
   definition: () => { toggle('#bodyPop', true); return ['#rMuscle', 'Slide Muscle up, or Weight down, to see more muscle definition.']; },
   skinTone: () => { toggle('#bodyPop', true); return ['#skinOwnBtn', 'Tap + to make your own skin tone, or match a photo of your skin.']; },
   light: () => { showLook(true); return ['#lightBtn', 'Tap Light, then pick the light you will see it in most.']; },
+  selfEyes: () => { showLook(true); return ['#selfBtn', 'Tap How I see it. My eyes puts you behind your own eyes: drag to turn your head and eyes as far as they really go.']; },
+  selfSeen: () => { showLook(true); return ['#selfBtn', 'Tap How I see it, then What I can’t see. The darker skin is what you need a mirror for.']; },
+  selfMirror: () => { showLook(true); return ['#selfBtn', 'Tap How I see it, then Mirror selfie. Drag to turn, pinch to step closer, then Save picture.']; },
   straightArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=straightDown]', 'Tap Arms straight down, Arms straight out or Palms forward. The elbows go fully straight and your arm tattoos go with the skin. Standing puts you back.']; },
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
@@ -2867,6 +2881,7 @@ function placePins() {
   }
 }
 function pinsOn() {
+  if (selfV.mode) selfOff();
   if (tape.on) tapeOff(); if (pain.on) painOff(); if (room.on) roomDone();
   cancelGesture(); closePanels(); tapPlaceId = null;
   if (selectedId) select(null);
@@ -3355,6 +3370,7 @@ function placeTape() {
   lab.style.left = sc.x + 'px'; lab.style.top = sc.y + 'px';
 }
 function tapeOn(mode) {
+  if (selfV.mode) selfOff();
   if (pain.on) painOff(); if (room.on) roomDone();
   if (pins.on) pinsOff();
   cancelGesture(); closePanels(); tapPlaceId = null;
@@ -3389,12 +3405,12 @@ function painColours() {
   pain.mesh.geometry.attributes.color.needsUpdate = true;
 }
 // A soft see-through wash over the body's skin, coloured per vertex: the pain map and open skin.
-function makeWash(name, skip = isEye) {
-  const g = new THREE.BufferGeometry();
+function makeWash(name, skip = isEye, alpha = false) {
+  const g = new THREE.BufferGeometry(), cs = alpha ? 4 : 3;
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PAIN_N * 3), 3));
-  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(PAIN_N * 3), 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(PAIN_N * cs), cs));
   let idxOf = null, keyOf = null;
-  const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.62, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: alpha ? 1 : 0.62, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const m = new THREE.Mesh(g, mat); m.name = name; m.visible = false; m.frustumCulled = false; m.renderOrder = 4; m.raycast = () => {}; m.userData.notBody = true;
   // before each draw: the body's current skin (standing, reshaped or posed) and triangles
   const copy = () => {
@@ -3437,6 +3453,7 @@ function painTap(x, y) {
   pain.text = painLine(lv, d.place[vs[best]] || 'Here'); painRender(); markTried('pain');
 }
 function painOn() {
+  if (selfV.mode) selfOff();
   if (tape.on) tapeOff(); if (room.on) roomDone();
   if (pins.on) pinsOff();
   cancelGesture(); closePanels(); tapPlaceId = null;
@@ -3446,6 +3463,203 @@ function painOn() {
   painRender();
 }
 function painOff() { pain.on = false; painRender(); }
+/* ---------- how I see it ---------- */
+// Three looks from your own side (src/self-view.js). My eyes: the view from the body's own eyes,
+// held to how far a head and eyes really turn. What I can't see: the skin you can't see yourself
+// without a mirror is darker, with how much of each tattoo you can see and the pose that shows
+// it best. Mirror selfie: a phone held at the chest or face, seen in a mirror and flipped like
+// the photo. Only for looking: nothing is saved, and Done puts back the pose and the view.
+const selfShown = () => (poseView.active ? (poseView.ensure(), poseView.geometry) : bodyGeo);
+function selfParts() {
+  if (!selfV.parts) selfV.parts = bodyParts(PAIN_N, vertexBones);
+  if (!selfV.L || selfV.Lkey !== shapeKey) { selfV.L = headLandmarks(bodyGeo.attributes.position.array, selfV.parts.head, [COUNTS.body, COUNTS.eyes]); selfV.Lkey = shapeKey; }
+  if (!selfV.skip) { selfV.skip = new Uint8Array(PAIN_N); selfV.unseen = new Uint8Array(PAIN_N); for (let v = 0; v < PAIN_N; v++) { selfV.skip[v] = isEye(v) ? 1 : 0; selfV.unseen[v] = selfV.parts.head[v] || selfV.parts.neck[v]; } }
+  return selfV.parts;
+}
+const selfShapeKey = () => shapeKey + '|' + (poseView.active ? 'p' + poseView.version : 'rest');
+function selfFrame() { const k = selfShapeKey(); if (selfV.frameKey !== k) { selfParts(); selfV.frame = headFrame(selfShown().attributes.position.array, selfV.L); selfV.frameKey = k; } return selfV.frame; }
+// the body's own triangles without the head, so the eyes look out past the face and hair
+function selfHeadless() {
+  const I = bodyGeo.index.array; if (selfV.headless && selfV.headlessOf === I) return selfV.headless;
+  const h = selfParts().head, keep = [];
+  for (let i = 0; i < I.length; i += 3) if (!h[I[i]] && !h[I[i + 1]] && !h[I[i + 2]]) keep.push(I[i], I[i + 1], I[i + 2]);
+  selfV.headless = new THREE.BufferAttribute(new Uint32Array(keep), 1); selfV.headlessOf = I;
+  return selfV.headless;
+}
+function selfHideHead() {
+  const ms = [hairShell && hairShell.mesh, hairStrands && hairStrands.mesh, beardStrands && beardStrands.mesh].filter((m) => m && m.visible);
+  for (const m of ms) m.visible = false;
+  return () => { for (const m of ms) m.visible = true; };
+}
+function selfHand() {
+  const k = selfShapeKey() + selfV.hand; if (selfV.handKey === k) return selfV.handAt;
+  const P = selfShown().attributes.position.array, vs = selfV.hand === 'L' ? selfParts().handL : selfParts().handR, c = [0, 0, 0];
+  for (const v of vs) for (let a = 0; a < 3; a++) c[a] += P[v * 3 + a];
+  selfV.handAt = c.map((x) => x / (vs.length || 1)); selfV.handKey = k; return selfV.handAt;
+}
+function selfPhone() {
+  if (selfV.phone) return selfV.phone;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0x1c1d22, roughness: 0.35, metalness: 0.4 }));
+  m.name = 'selfiePhone'; m.visible = false; m.raycast = () => {}; m.userData.notBody = true; scene.add(m);
+  return (selfV.phone = m);
+}
+function selfApplyCam() {
+  if (selfV.mode === 'eyes') {
+    const v = eyeView(selfFrame(), selfV.yaw, selfV.pitch); selfV.yaw = v.yaw; selfV.pitch = v.pitch;
+    camera.position.set(...v.pos); camera.up.set(...v.up); camera.lookAt(v.pos[0] + v.dir[0], v.pos[1] + v.dir[1], v.pos[2] + v.dir[2]);
+  } else {
+    const hand = selfHand(), c = selfieCamera(hand, { turnBody: selfV.turnBody, gap: selfV.gap }), cm = 1 / cmPerUnit(), ph = selfPhone();
+    // the phone in the hand, its back to the mirror
+    ph.scale.set(7.5 * cm, 15.5 * cm, 0.85 * cm); ph.position.set(hand[0] + c.normal[0] * 2.2 * cm, hand[1] + 3 * cm, hand[2] + c.normal[2] * 2.2 * cm);
+    ph.lookAt(ph.position.x + c.normal[0], ph.position.y, ph.position.z + c.normal[2]); ph.visible = true;
+    camera.position.set(...c.pos); camera.up.set(0, 1, 0); camera.lookAt(c.pos[0] + c.dir[0], c.pos[1] + c.dir[1], c.pos[2] + c.dir[2]);
+  }
+  camera.updateMatrixWorld(true);
+}
+function selfLens() {
+  camera.fov = selfV.mode === 'eyes' ? selfV.fov : selfV.mode === 'mirror' ? PHONE_FOV : FOV;
+  camera.near = selfV.mode === 'eyes' ? 0.06 : 0.05; camera.updateProjectionMatrix();
+}
+function selfDrag(dx, dy) {
+  if (selfV.mode === 'eyes') { const k = THREE.MathUtils.degToRad(camera.fov) / (canvas.getBoundingClientRect().height || 600); selfV.yaw = THREE.MathUtils.clamp(selfV.yaw + dx * k, -LOOK_SIDE, LOOK_SIDE); selfV.pitch = THREE.MathUtils.clamp(selfV.pitch - dy * k, -LOOK_UP, LOOK_DOWN); markTried('selfEyes'); }
+  else if (selfV.mode === 'mirror') selfV.turnBody = THREE.MathUtils.clamp(selfV.turnBody - dx * 0.008, -1.3, 1.3);
+  needsRender = true;
+}
+function selfPinch(ratio) {
+  if (!isFinite(ratio) || ratio <= 0) return;
+  if (selfV.mode === 'eyes') { selfV.fov = THREE.MathUtils.clamp(selfV.fov * ratio, 40, 100); selfLens(); }
+  else if (selfV.mode === 'mirror') selfV.gap = THREE.MathUtils.clamp(selfV.gap * ratio, 0.3, 1.5);
+  needsRender = true;
+}
+// what you can see: worked out for the body as it shows (standing or posed), once it has settled
+function selfSeen() {
+  const k = selfShapeKey(); if (selfV.seen && selfV.seenKey === k) return selfV.seen;
+  const g = selfShown(), P = g.attributes.position.array, N = g.attributes.normal.array, parts = selfParts();
+  selfV.seen = seenMask(P, N, bodyGeo.index.array, PAIN_N, { postures: lookPostures(headFrame(P, selfV.L)), skip: selfV.skip, unseen: selfV.unseen, clear: parts.head });
+  if (!pain.nb) pain.nb = vertexNeighbours(INDEX_ALL, PAIN_N);
+  selfV.soft = softMask(selfV.seen, pain.nb, 2); selfV.seenKey = k;
+  return selfV.seen;
+}
+function selfSeenSync() {
+  if (!poseView.settled()) return;
+  const k = selfShapeKey(); if (selfV.seenKey === k && selfV.mesh && selfV.mesh.userData.for === k) return;
+  selfSeen();
+  if (!selfV.mesh) selfV.mesh = makeWash('cantSee', isEye, true);
+  const c = selfV.mesh.geometry.attributes.color.array, soft = selfV.soft;
+  for (let v = 0; v < PAIN_N; v++) { const o = v * 4, a = 0.78 * (1 - soft[v]); c[o] = 0.04; c[o + 1] = 0.05; c[o + 2] = 0.12; c[o + 3] = a; }
+  selfV.mesh.geometry.attributes.color.needsUpdate = true; selfV.mesh.userData.for = k; selfV.mesh.visible = true;
+  selfText();
+}
+function selfInkVerts(t) { const d = decals[t.id], s = d && d.mesh && d.mesh.geometry.userData.supports; return s ? [...new Set(s)] : null; }
+function selfShare(t) { const vs = selfInkVerts(t); return vs ? shareSeen(selfSeen(), vs) : null; }
+function selfText() {
+  const shown = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].mesh && decals[t.id].mesh.visible);
+  let text = '', tip = '';
+  if (selfV.mode === 'eyes') { text = ''; tip = 'Drag to turn your head and eyes, as far as they really go. Pinch to see more or less.'; }
+  else if (selfV.mode === 'mirror') { text = `Phone at your ${selfV.high ? 'face' : 'chest'} in your ${selfV.hand === 'L' ? 'left' : 'right'} hand, flipped like the photo.`; tip = 'Drag to turn, pinch to step closer or back.'; }
+  else if (selfV.mode === 'seen') {
+    const t = selfV.focus && shown.find((x) => x.id === selfV.focus);
+    if (t) text = seenLine(t.name || 'this tattoo', selfShare(t), poseView.active);
+    else if (shown.length) {
+      const all = shown.map((x) => [x, selfShare(x)]).filter(([, v]) => v != null);
+      if (all.length === 1) { text = seenLine(all[0][0].name || 'your tattoo', all[0][1], poseView.active); selfV.focus = all[0][0].id; }
+      else if (all.length) {
+        const say = (v) => (v >= 0.97 ? 'all of it' : v <= 0.03 ? 'only in a mirror' : seenWords(v));
+        text = `What you can see yourself${poseView.active ? ' in this pose' : ''}: ` + all.slice(0, 4).map(([x, v]) => `${x.name || 'a tattoo'} ${say(v)}`).join(', ') + (all.length > 4 ? `, and ${all.length - 4} more` : '') + '.';
+      }
+    }
+    tip = 'The darker skin is what you can’t see without a mirror. Tap a tattoo to check it.';
+  }
+  $('#selfText').textContent = text; $('#selfTip').textContent = tip;
+  selfBestRender();
+}
+// the pose that shows the chosen tattoo best, worked out a pose at a time so the screen stays smooth
+function selfBestRender() {
+  const t = selfV.mode === 'seen' && selfV.focus && state.tattoos.find((x) => x.id === selfV.focus), row = $('#selfBestRow');
+  const b = t && selfV.best && selfV.bestFor === t.id + '|' + shapeKey ? selfV.best : null;
+  row.hidden = !(b && b.key && b.key !== poseView.key && b.share >= (selfV.bestBase ?? 0) + 0.1);
+  if (!row.hidden) $('#selfBestText').textContent = `${POSE_CATALOG[b.key].label} shows ${seenWords(b.share)} of it.`;
+  if (t && selfV.bestFor !== t.id + '|' + shapeKey) selfBestFind(t);
+}
+function selfBestFind(t) {
+  const run = ++selfV.bestRun, vs = selfInkVerts(t); if (!vs) return;
+  selfV.bestFor = t.id + '|' + shapeKey; selfV.best = null; selfV.bestBase = null;
+  const only = new Uint8Array(PAIN_N); for (const v of vs) only[v] = 1;
+  const keys = Object.keys(POSE_CATALOG).filter((k) => k !== 'neutral'), parts = selfParts(), I = bodyGeo.index.array;
+  const rest = poseView.restRig(), P0 = bodyGeo.attributes.position.array;
+  const one = (P) => shareSeen(seenMask(P, vertexNormals(P, I), I, PAIN_N, { postures: lookPostures(headFrame(P, selfV.L)), skip: selfV.skip, unseen: selfV.unseen, clear: parts.head, only: vs }), vs);
+  let i = -1, best = null;
+  const step = () => {
+    if (run !== selfV.bestRun || selfV.mode !== 'seen') return;
+    try {
+      if (i < 0) selfV.bestBase = one(P0);
+      else { const k = keys[i], P = skinPose(rest, catalogRotations(k, rest), { muscle: state.muscle ?? 0.5 }).positions, s = one(P); if (s != null && (!best || s > best.share + 0.02)) best = { key: k, share: s }; }
+    } catch (_) { /* a pose that cannot be worked out is skipped */ }
+    i++;
+    if (i < keys.length && (selfV.bestBase ?? 0) < 0.97) { setTimeout(step, 0); return; }
+    selfV.best = best; selfBestRender();
+  };
+  setTimeout(step, 30);
+}
+function selfTap(x, y) {
+  if (selfV.mode === 'mirror') return;
+  const h = hitBody(x, y), ids = inkIdsAt(x, y, h), t = ids && ids.length && state.tattoos.find((q) => q.id === ids[0]);
+  if (selfV.mode === 'eyes') { if (t) toast(seenLine(t.name || 'This tattoo', selfShare(t), poseView.active).replace(/^You can/, 'You can')); return; }
+  selfV.focus = t ? t.id : null; selfText();
+}
+function selfRender() {
+  const m = selfV.mode, cam = m === 'eyes' || m === 'mirror';
+  $('#selfBtn').setAttribute('aria-pressed', String(!!m)); $('#selfBar').hidden = !m;
+  document.querySelectorAll('#selfModes [data-self]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.self === m)));
+  document.querySelectorAll('#selfHand [data-hand]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.hand === selfV.hand)));
+  document.querySelectorAll('#selfHigh [data-high]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.high === '1') === selfV.high)));
+  $('#selfMirrorRow').hidden = $('#selfSaveRow').hidden = m !== 'mirror'; $('#selfieFrame').hidden = m !== 'mirror';
+  document.body.classList.toggle('self-cam', cam); document.body.classList.toggle('self-mirror', m === 'mirror');
+  canvas.style.transform = m === 'mirror' ? 'scaleX(-1)' : '';
+  if (selfV.mesh && m !== 'seen') selfV.mesh.visible = false;
+  if (selfV.phone && m !== 'mirror') selfV.phone.visible = false;
+  selfLens(); selfText(); renderPose(); needsRender = true;
+}
+function selfPose() {
+  poseView.setCustom(selfieRotations(selfV.hand, selfV.high, poseView.restRig()), { animate: false }); selfV.handKey = '';
+}
+function selfSet(mode) {
+  if (!selfV.mode) {
+    if (tape.on) tapeOff(); if (room.on) roomDone(); if (pins.on) pinsOff(); if (pain.on) painOff();
+    cancelGesture(); closePanels(); tapPlaceId = null;
+    selfV.focus = selectedId; if (selectedId) select(null);
+  }
+  if (selfV.mode === 'mirror' && mode !== 'mirror' && selfV.pose) { poseView.restore(selfV.pose); selfV.pose = null; }
+  if (mode === 'mirror' && selfV.mode !== 'mirror') { selfV.pose = poseView.snapshot(); selfV.turnBody = 0; selfPose(); }
+  if (mode === 'eyes' && selfV.mode !== 'eyes') { selfV.yaw = 0; selfV.pitch = 1; }
+  selfV.mode = mode; selfV.bestRun++;
+  markTried(mode === 'eyes' ? 'selfEyes' : mode === 'seen' ? 'selfSeen' : 'selfMirror');
+  selfRender();
+}
+function selfOff() {
+  if (!selfV.mode) return;
+  if (selfV.pose) { poseView.restore(selfV.pose); selfV.pose = null; }
+  selfV.mode = null; selfV.bestRun++; cancelGesture();
+  selfRender(); applyCam(); renderPose();
+}
+function selfiePicture() {
+  const inset = curInset; curInset = 0; applyInset();
+  exporting = true; syncDecals();
+  try {
+    drawFrame();
+    let W = canvas.width, H = canvas.height; if (W / H > 0.75) W = Math.round(H * 0.75); else H = Math.round(W / 0.75);
+    const x0 = Math.round((canvas.width - W) / 2), y0 = Math.round((canvas.height - H) / 2), out = document.createElement('canvas'); out.width = W; out.height = H;
+    const g = out.getContext('2d'); g.translate(W, 0); g.scale(-1, 1); g.drawImage(canvas, x0, y0, W, H, 0, 0, W, H);
+    return out.toDataURL('image/png');
+  } finally { exporting = false; syncDecals(); curInset = inset; applyInset(); needsRender = true; }
+}
+$('#selfBtn').addEventListener('click', () => { showLook(false); if (selfV.mode) selfOff(); else selfSet('eyes'); });
+$('#selfDone').addEventListener('click', selfOff);
+$('#selfModes').addEventListener('click', (e) => { const b = e.target.closest('[data-self]'); if (b) selfSet(b.dataset.self); });
+$('#selfHand').addEventListener('click', (e) => { const b = e.target.closest('[data-hand]'); if (!b || selfV.mode !== 'mirror') return; selfV.hand = b.dataset.hand; selfPose(); selfRender(); });
+$('#selfHigh').addEventListener('click', (e) => { const b = e.target.closest('[data-high]'); if (!b || selfV.mode !== 'mirror') return; selfV.high = b.dataset.high === '1'; selfPose(); selfRender(); });
+$('#selfBest').addEventListener('click', () => { const b = selfV.best; if (!b || !POSE_CATALOG[b.key]) return; poseView.choose(b.key); renderPose(); selfV.seenKey = ''; needsRender = true; setTimeout(() => { needsRender = true; }, 400); });
+$('#selfSave').addEventListener('click', () => { const url = selfiePicture(); if (url) showPreview(url, 'mirror-selfie.png', 'Mirror selfie'); });
 $('#painBtn').addEventListener('click', () => { showLook(false); if (pain.on) painOff(); else painOn(); });
 $('#painDone').addEventListener('click', painOff);
 /* ---------- open skin ---------- */
@@ -3599,6 +3813,7 @@ const ROOM_ASK = ' Tap a planned tattoo to see where it fits.';
 let roomTimer = 0;
 function roomRefresh() { if (!room.on) return; clearTimeout(roomTimer); roomTimer = setTimeout(() => { if (!room.on) return; const fit = room.fitId && state.tattoos.find((q) => q.id === room.fitId); if (room.fitId && !fit) room.fitId = null; roomData(); if (!room.fitId && room.text.endsWith(ROOM_ASK)) room.text = roomSummaryText() + ROOM_ASK; roomRender(); }, 60); }
 function roomOn(fitId = null) {
+  if (selfV.mode) selfOff();
   if (tape.on) tapeOff(); if (pain.on) painOff(); if (pins.on) pinsOff();
   cancelGesture(); closePanels(); tapPlaceId = null;
   if (selectedId) select(null);
@@ -5522,6 +5737,7 @@ wrapStudio = initWrapStudio({
 $('#openWrap').addEventListener('click', () => { toggle('#planMenu', false); wrapStudio.open(); });
 
 window.__ink = {
+  self: () => ({ mode: selfV.mode, yaw: selfV.yaw, pitch: selfV.pitch, fov: camera.fov, near: camera.near, cam: camera.position.toArray(), look: new V3(0, 0, -1).applyQuaternion(camera.quaternion).toArray(), eye: selfV.mode ? selfFrame().eye : null, flip: canvas.style.transform, text: $('#selfText').textContent, best: selfV.best, base: selfV.bestBase, hand: selfV.mode === 'mirror' ? selfHand() : null, share: (id) => { const t = state.tattoos.find((x) => x.id === id); return t ? selfShare(t) : null; }, washOn: !!(selfV.mesh && selfV.mesh.visible), phone: !!(selfV.phone && selfV.phone.visible) }), selfDrag: (dx, dy) => selfDrag(dx, dy), selfPinch: (r) => selfPinch(r), selfTap: (x, y) => selfTap(x, y), selfiePicture: () => selfiePicture(),
   shownIds: () => state.tattoos.filter((t) => decals[t.id] && decals[t.id].mesh.visible).map((t) => t.id), kinds: () => ({ ...kindOff }), layersDock: () => layersDock,
   wrap: () => wrapStudio,   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
   sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, bodyChange: () => bodyChangeLast, mirror: () => mirrorLast, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
