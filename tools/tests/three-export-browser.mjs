@@ -7,7 +7,7 @@ const root=resolve(import.meta.dirname,'../..');
 const server=await createServer({configFile:false,root,server:{host:'127.0.0.1',port:0},plugins:[{name:'test-page',configureServer(s){s.middlewares.use('/__glb-test',(_q,r)=>{r.setHeader('content-type','text/html');r.end('<!doctype html><html><body>Local export test</body></html>');});}}]});
 await server.listen();let browser;
 try{
- browser=await puppeteer.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:'new',args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+ browser=await puppeteer.launch({executablePath:process.env.CHROME||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:'new',args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const page=await browser.newPage();await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__glb-test`);
  const result=await page.evaluate(async()=>{
   const THREE=await import('/node_modules/three/build/three.module.js');
