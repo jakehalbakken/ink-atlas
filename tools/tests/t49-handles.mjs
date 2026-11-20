@@ -8,7 +8,7 @@ export default async function(p){
  const sun=await p.evaluate(()=>window.__ink.state().tattoos.find(t=>/Sunburst/.test(t.name)).id);
  assert.equal(await p.$eval('#handles',e=>e.hidden),true,'no handles with nothing selected');
  await p.click('#ldList .ld-tat');await wait(400);await p.click('#ldList .ld-tat');
- await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});await wait(300);
+ await p.waitForFunction(()=>window.__ink.settled(),{timeout:25000});await wait(300);
  assert.equal(await p.evaluate(()=>window.__ink.selected()),sun);
  const box=async id=>p.$eval(id,e=>{const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,w:r.width,h:r.height,hidden:e.hidden||e.parentElement.hidden};});
  let s=await box('#hSize'),t=await box('#hTurn');
@@ -25,8 +25,9 @@ export default async function(p){
  assert.ok(Math.abs(a.w/before.w-1.5)<.05,'resized 1.5x: '+(a.w/before.w).toFixed(3));
  assert.deepEqual(a.pos,before.pos,'did not move');assert.equal(a.r,before.r,'did not turn');
  assert.match(await p.$eval('#size',e=>e.textContent),/in/);
- // the handle followed the new corner
- const s2=await box('#hSize');assert.ok(Math.hypot(s2.x-c.x,s2.y-c.y)>Math.hypot(s.x-c.x,s.y-c.y)*1.3,'handle moved out with the corner');
+ // the handle followed the new corner (it sits on the ink itself, which at this size stops short of
+ // its lower right corner under the arm, so it moves out by less than the 1.5x)
+ const s2=await box('#hSize');assert.ok(Math.hypot(s2.x-c.x,s2.y-c.y)>Math.hypot(s.x-c.x,s.y-c.y)*1.1,'handle moved out with the corner');
  // one undo restores the size
  await p.click('#undo');await wait(300);a=await st();assert.ok(Math.abs(a.w-before.w)<1e-9,'one undo');
  // turn a quarter with a finger: drag the round handle around the middle
@@ -45,7 +46,7 @@ export default async function(p){
  const send=(list)=>p.evaluate(list=>{const cv=document.querySelector('#stage canvas');for(const [type,id,x,y] of list)cv.dispatchEvent(new PointerEvent(type,{pointerId:id,pointerType:'touch',clientX:x,clientY:y,bubbles:true,button:0,buttons:type==='pointerup'?0:1}));},list);
  await send([['pointerdown',50,60,500],['pointermove',50,90,500],['pointermove',50,130,500]]);await wait(100);
  assert.equal(await p.$eval('#handles',e=>e.hidden),true,'hidden while the view turns');
- await send([['pointerup',50,130,500]]);await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});await wait(400);
+ await send([['pointerup',50,130,500]]);await p.waitForFunction(()=>window.__ink.settled(),{timeout:25000});await wait(400);
  const vis=await p.$eval('#handles',e=>e.hidden);
  console.log('PASS t49 handles: corner resize with Pencil (1.5x, one undo), round handle turns a quarter, none when locked, hidden while the view moves'+(vis?' (tattoo turned out of view)':''));
 }

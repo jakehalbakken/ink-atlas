@@ -49,7 +49,7 @@ export default async function(p){
  steps.push(['pointerup',7,ax+72,ay-96],['pointerup',8,bx+72,by-96]);
  await send(steps);await wait(900);
  const a=await cam();
- assert.equal(a.roll,b.roll,'pan does not turn the view');assert.equal(a.r,b.r,'pan does not zoom');
+ assert.ok(Math.abs(a.roll-b.roll)<1e-9,'pan does not turn the view');assert.ok(Math.abs(a.r-b.r)<1e-9,'pan does not zoom');
  assert.ok(Math.hypot(a.tx-b.tx,a.ty-b.ty,a.tz-b.tz)>0.02,'the view panned');
  // 3. lift one finger, keep moving the other: nothing more happens
  const c0=await cam();

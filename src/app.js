@@ -277,13 +277,20 @@ function aimView(pos, normal, ext) {
   glide = true; needsRender = true;
 }
 // The part of the screen that no panel covers: below the top bar, above (or left of) the dock.
+// #viewport's place on screen and its scale (it follows iOS's visual viewport), for turning window
+// coordinates into its own.
+function viewportBox() { const e = $('#viewport'), r = e.getBoundingClientRect(); return { left: r.left, top: r.top, k: (e.offsetWidth && r.width / e.offsetWidth) || 1 }; }
 function placeChrome() {
   const body = document.body, v = $('#views'), tb = $('#top .toolbar'), br = $('#top .brand');
   body.classList.remove('views-low');
   const vr = v.getBoundingClientRect(), tr = tb.getBoundingClientRect(), b = br.getBoundingClientRect();
   const fits = vr.right <= tr.left - 8 && tr.right <= innerWidth - 4 && vr.left >= 0 && (!b.width || vr.left >= b.right + 4) && Math.abs(vr.top - tr.top) < 30;
-  if (!fits) { body.classList.add('views-low'); document.documentElement.style.setProperty('--views-top', Math.round($('#top').getBoundingClientRect().bottom - 4) + 'px'); }
-  const bottom = Math.max($('#top').getBoundingClientRect().bottom, fits ? 0 : v.getBoundingClientRect().bottom + 8);
+  // --below and --views-top are used inside #viewport, which iOS can shift and scale with its visual
+  // viewport (browser bars, keyboard), so they are measured from its own top: measured from the
+  // window, a shifted moment left Layers starting under the top bar (2026-11-19, Chrome on the iPad)
+  const vp = viewportBox(), local = (y) => (y - vp.top) / vp.k;
+  if (!fits) { body.classList.add('views-low'); document.documentElement.style.setProperty('--views-top', Math.round(local($('#top').getBoundingClientRect().bottom) - 4) + 'px'); }
+  const bottom = Math.max(local($('#top').getBoundingClientRect().bottom), fits ? 0 : local(v.getBoundingClientRect().bottom) + 8);
   document.documentElement.style.setProperty('--below', Math.round(bottom) + 'px');
   // nothing sits under the panels at the right any more (the tattoo strip along the bottom went
   // on 2026-11-19: tattoos are in Layers only), so they run down to the bottom margin
@@ -295,6 +302,9 @@ addEventListener('resize', () => { placeChrome(); requestAnimationFrame(placeChr
 { const ro = new ResizeObserver(() => { const sh = $('#sheet'); document.documentElement.style.setProperty('--sheet-h', (sh.hidden ? 0 : Math.round(sh.getBoundingClientRect().height)) + 'px'); }); ro.observe($('#sheet')); }
 if (document.fonts) document.fonts.ready.then(placeChrome);
 placeChrome();
+// and a quiet check now and then, for a browser bar or keyboard that came and went without a resize
+setInterval(() => { if (document.hidden) return; const vp = viewportBox(), want = Math.round(($('#top').getBoundingClientRect().bottom - vp.top) / vp.k), now = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--below')) || 0; if (!document.body.classList.contains('views-low') ? Math.abs(want - now) > 1 : want > now) placeChrome(); }, 1000);
+addEventListener('focusout', () => setTimeout(placeChrome, 350));
 function freeArea() {
   const b = canvas.getBoundingClientRect();
   const top = Math.max(b.top, $('#top').getBoundingClientRect().bottom, $('#views').getBoundingClientRect().bottom) + 12;
@@ -594,12 +604,15 @@ function wrapRound(t) {
   t.rot = rot; t.width = THREE.MathUtils.clamp(t.aspect >= 1 ? girth : girth * t.aspect, 0.012, 0.9);
   markTried('wrapGrab'); commit(); return true;
 }
+// how each tattoo was laid last time (sleeve or stencil), so a drag across the bar keeps it one way
+const decalWasSleeve = new Map();
 function decalGeometry(t) {
-  const st = startTriangle(t), { positions, uvs, supports, tris } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), st, decalLimb(st));
+  const st = startTriangle(t), limb = decalLimb(st), { positions, uvs, supports, tris, sleeve } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), st, limb && { ...limb, prev: decalWasSleeve.get(t.id) });
+  if (limb && t.id != null) decalWasSleeve.set(t.id, !!sleeve);
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   out.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  out.userData.supports = supports; out.userData.tris = tris;
+  out.userData.supports = supports; out.userData.tris = tris; out.userData.sleeve = !!sleeve;
   return out;
 }
 // Whether a decal's artwork has ink at (u, v): a 256-wide copy, dark enough to show.
@@ -995,6 +1008,14 @@ function limbMove(G, x, y) {
   const f = frameOf({ normal: hit.normal, rot: 0 });
   return { pos: hit.pos, normal: hit.normal, rot: rotFor(f.right.toArray(), f.up.toArray(), sp.up) };
 }
+// A tattoo's middle moved by a step over the skin, kept on the skin (rest positions, like everything
+// placed), or null where there is no skin there.
+function slideOnSkin(t, delta) {
+  const n = new V3(...t.normal).normalize(), p = new V3(...t.pos).add(delta);
+  ray.set(p.clone().addScaledVector(n, 0.04), n.clone().negate()); ray.far = 0.1;
+  const h = ray.intersectObject(body, false)[0]; ray.far = Infinity;
+  return h ? { pos: h.point.toArray(), normal: h.normal.clone().normalize().toArray() } : null;
+}
 function two() { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, ang: Math.atan2(b.y - a.y, b.x - a.x), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 }; }
 canvas.addEventListener('pointerdown', (e) => {
   if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -1011,6 +1032,9 @@ canvas.addEventListener('pointerdown', (e) => {
     if (paint && hitBody(e.clientX, e.clientY)) { gest = { mode: 'paint', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: true, snap: false, type: e.pointerType, dab: new Set() }; paintAt(e.clientX, e.clientY, gest.dab); return; }
     gest = { mode: onInk ? 'ink' : 'cam', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, ox: e.clientX - sc.x, oy: e.clientY - sc.y, type: e.pointerType };
     if (onInk) gest.limb = limbGrab(t, e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 10);
+    // a big piece seen close up can have its middle off the screen, off the body's outline or behind
+    // the camera: then it follows the skin under the finger instead of its middle following the finger
+    if (onInk && !gest.limb) { const r = canvas.getBoundingClientRect(); gest.free = !inFront(new V3(...viewSpot(t).pos)) || sc.x < r.left || sc.x > r.right || sc.y < r.top || sc.y > r.bottom || !hitBody(sc.x, sc.y); }
   } else if (pts.size === 2 && gest) {
     const s = two();
     // two fingers that land together are a pan or zoom, not paint: take back the first finger's dab
@@ -1040,8 +1064,10 @@ canvas.addEventListener('pointermove', (e) => {
     } else {
       const t = sel(); if (!t) return;
       if (gest.limb) { const to = limbMove(gest.limb, e.clientX, e.clientY); if (to) { if (!gest.snap) { snapshot(); gest.snap = true; } Object.assign(t, to); inkDirty = true; markTried('wrapGrab'); } return; }
-      const h = hitBody(e.clientX - gest.ox, e.clientY - gest.oy);
-      if (h) { if (!gest.snap) { snapshot(); gest.snap = true; } t.pos = h.point.toArray(); t.normal = h.normal.clone().normalize().toArray(); updateLiveGuides(t); inkDirty = true; }
+      let h = gest.free ? null : hitBody(e.clientX - gest.ox, e.clientY - gest.oy);
+      if (!h && !gest.free) gest.free = true; // its middle went off the body: from here it follows the skin under the finger
+      if (gest.free) { const a = hitBody(e.clientX - dx, e.clientY - dy), b = hitBody(e.clientX, e.clientY), to = a && b && slideOnSkin(t, b.point.clone().sub(a.point)); if (to) h = { point: new V3(...to.pos), normal: new V3(...to.normal) }; }
+      if (h) { if (!gest.snap) { snapshot(); gest.snap = true; } t.pos = h.point.toArray(); t.normal = h.normal.clone().normalize().toArray(); updateLiveGuides(t); inkDirty = true; if (decalWasSleeve.has(t.id)) markTried('forearmSmooth'); }
     }
   } else if (pts.size === 2) {
     clearLiveGuides();
@@ -1141,6 +1167,45 @@ function wrapFront(t) {
   }
   wrapHandleCache = { k, v }; return v;
 }
+// A spot of a tattoo's own stencil, by where it is in the artwork (rx 0..1 from the left, ry 0..1
+// from the top), on the skin it really lies on: the true corner of a big piece that curves round
+// the chest or an arm, not the corner of a flat square at its middle, which sits in the air or even
+// behind the camera when you are close (2026-11-19, Jake: "I try to extend it and it makes it
+// smaller"). Where the stencil stops short of that spot, the nearest bit of it. The candidates are
+// worked out once per stencil; which one faces you is picked each time.
+const stencilSpotCache = new WeakMap();
+function stencilSpot(t, rx, ry) {
+  const d = decals[t.id], geo = d && d.mesh.geometry, U = geo && geo.attributes.uv && geo.attributes.uv.array, F = geo && geo.userData.tris;
+  if (!U || !F || !F.length) return null;
+  let per = stencilSpotCache.get(geo); if (!per) stencilSpotCache.set(geo, per = new Map());
+  const key = rx + ',' + ry; let cands = per.get(key);
+  if (!cands) {
+    const m = UV_MARGIN, span = 1 - 2 * m, u = m + rx * span, v = m + ry * span;
+    cands = [];
+    for (let k = 0; k < F.length; k++) {
+      const o = k * 6, x0 = U[o], y0 = U[o + 1], x1 = U[o + 2], y1 = U[o + 3], x2 = U[o + 4], y2 = U[o + 5];
+      const den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2); if (Math.abs(den) < 1e-12) continue;
+      const a = ((y1 - y2) * (u - x2) + (x2 - x1) * (v - y2)) / den, b = ((y2 - y0) * (u - x2) + (x0 - x2) * (v - y2)) / den, c = 1 - a - b;
+      if (a >= -1e-6 && b >= -1e-6 && c >= -1e-6) cands.push({ k, w: [a, b, c], gap: 0 });
+    }
+    if (!cands.length) { // the stencil stops short: its nearest corners
+      const near = [];
+      for (let i = 0; i < U.length / 2; i++) near.push([Math.hypot(U[i * 2] - u, U[i * 2 + 1] - v), i]);
+      near.sort((p, q) => p[0] - q[0]);
+      for (const [gap, i] of near.slice(0, 12)) { if (gap > 0.35) break; const w = [0, 0, 0]; w[i % 3] = 1; cands.push({ k: (i / 3) | 0, w, gap }); }
+    }
+    per.set(key, cands);
+  }
+  let best = null;
+  for (const c of cands) {
+    const p = poseView.pointOn(F[c.k], c.w), pos = new V3(...p.pos), face = new V3(...p.normal).dot(camera.position.clone().sub(pos).normalize());
+    const score = face - c.gap * 4;
+    if (!best || score > best.score) best = { pos, normal: p.normal, face, gap: c.gap, score };
+  }
+  return best;
+}
+// Whether a point is in front of the camera (one behind it projects back to front on the screen).
+const inFront = (v) => v.clone().applyMatrix4(camera.matrixWorldInverse).z < -camera.near;
 function handleSpots(t) {
   const wf = wrapFront(t);
   if (wf) {
@@ -1151,14 +1216,47 @@ function handleSpots(t) {
     return { c: cs, size: { x: bot.x + bx / bl * 30, y: bot.y + by / bl * 30 }, turn: { x: top.x + ux / ul * 34, y: top.y + uy / ul * 34 } };
   }
   const spot = viewSpot(t), f = frameOf({ ...t, normal: spot.normal }), c = new V3(...spot.pos);
-  const hw = t.width / 2, hh = t.width / t.aspect / 2;
   const toCam = camera.position.clone().sub(c).normalize();
-  if (f.n.dot(toCam) < 0.15) return null; // facing away: nothing sensible to grab
-  const cs = screenOf(c), corner = screenOf(c.clone().addScaledVector(f.right, hw).addScaledVector(f.up, -hh)), top = screenOf(c.clone().addScaledVector(f.up, hh));
-  const ux = top.x - cs.x, uy = top.y - cs.y, ul = Math.hypot(ux, uy) || 1;
+  if (f.n.dot(toCam) < 0.15 || !inFront(c)) return null; // facing away: nothing sensible to grab
+  const cs = screenOf(c), r = canvas.getBoundingClientRect();
+  const shown = (q) => q && q.face > 0.15 && inFront(q.pos);
+  const onScreen = (p) => p.x > r.left + 8 && p.x < r.right - 8 && p.y > r.top + 8 && p.y < r.bottom - 8;
+  // the size handle on a real corner of the stencil that faces you, the lowest at the right first
+  let size = null, turnAt = null;
+  if (decals[t.id] && decals[t.id].mesh.geometry.userData.tris) {
+    for (const [rx, ry] of [[1, 1], [0, 1], [1, 0], [0, 0]]) {
+      const q = stencilSpot(t, rx, ry); if (!shown(q)) continue;
+      const p = screenOf(q.pos), sc = (onScreen(p) ? 1e4 : 0) + p.x + p.y;
+      if (!size || sc > size.sc) size = { x: p.x, y: p.y, sc };
+    }
+    // the turn handle beyond the middle of an edge that faces you, the top first
+    for (const [rx, ry] of [[0.5, 0], [1, 0.5], [0, 0.5], [0.5, 1]]) {
+      const q = stencilSpot(t, rx, ry); if (!shown(q)) continue;
+      const p = screenOf(q.pos); if (!onScreen(p) && turnAt) continue;
+      turnAt = p; if (onScreen(p)) break;
+    }
+    // a big piece seen up close: no corner or edge on screen, so the handle sits on the ink part
+    // way out along the same line (the drag works from the middle, so it sizes the same)
+    for (let k = 0.9; (!size || !onScreen(size)) && k > 0.15; k -= 0.1) {
+      const q = stencilSpot(t, 0.5 + 0.5 * k, 0.5 + 0.5 * k); if (!shown(q)) continue;
+      const p = screenOf(q.pos); if (onScreen(p)) size = { x: p.x, y: p.y };
+    }
+    for (let k = 0.9; (!turnAt || !onScreen(turnAt)) && k > 0.15; k -= 0.1) {
+      const q = stencilSpot(t, 0.5, 0.5 - 0.5 * k); if (!shown(q)) continue;
+      const p = screenOf(q.pos); if (onScreen(p)) turnAt = p;
+    }
+  } else {
+    const hw = t.width / 2, hh = t.width / t.aspect / 2, corner = c.clone().addScaledVector(f.right, hw).addScaledVector(f.up, -hh), top = c.clone().addScaledVector(f.up, hh);
+    if (inFront(corner)) size = screenOf(corner);
+    if (inFront(top)) turnAt = screenOf(top);
+  }
+  if (!size) return null;
   // keep the corner handle clear of the middle on tiny tattoos, so a drag on the ink still moves it
-  const cx = corner.x - cs.x, cy = corner.y - cs.y, cl = Math.hypot(cx, cy) || 1, cmin = 34;
-  return { c: cs, size: cl < cmin ? { x: cs.x + cx / cl * cmin, y: cs.y + cy / cl * cmin } : corner, turn: { x: top.x + ux / ul * 34, y: top.y + uy / ul * 34 } };
+  const cx = size.x - cs.x, cy = size.y - cs.y, cl = Math.hypot(cx, cy) || 1, cmin = 34;
+  const sizeP = cl < cmin ? { x: cs.x + cx / cl * cmin, y: cs.y + cy / cl * cmin } : { x: size.x, y: size.y };
+  let turn = null;
+  if (turnAt) { const ux = turnAt.x - cs.x, uy = turnAt.y - cs.y, ul = Math.hypot(ux, uy) || 1; turn = { x: turnAt.x + ux / ul * 34, y: turnAt.y + uy / ul * 34 }; }
+  return { c: cs, size: sizeP, turn };
 }
 function placeHandles() {
   const t = sel();
@@ -1169,17 +1267,18 @@ function placeHandles() {
   handleBox.hidden = false;
   // the handle being dragged stays under the finger: a piece that starts to wrap moves its handles to
   // the part facing you, and the one in hand jumping away from the finger reads as lost
-  const g = handleDrag;
+  const g = handleDrag, vp = viewportBox();
   for (const [b, p] of [[hSize, s.size], [hTurn, s.turn]]) {
     const q = g && b === (g.kind === 'size' ? hSize : hTurn) ? { x: g.x, y: g.y } : p;
-    b.style.left = q.x + 'px'; b.style.top = q.y + 'px'; b.hidden = !inView(q);
+    if (!q) { b.hidden = true; continue; }
+    b.style.left = (q.x - vp.left) / vp.k + 'px'; b.style.top = (q.y - vp.top) / vp.k + 'px'; b.hidden = !inView(q);
   }
 }
 for (const [b, kind] of [[hSize, 'size'], [hTurn, 'turn']]) {
   b.addEventListener('pointerdown', (e) => {
     const t = sel(); if (!t || t.locked || cannotMove(t) || handleDrag) return;
     e.preventDefault(); e.stopPropagation(); try { b.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
-    const s = handleSpots(t); if (!s) return; markTried('handles');
+    const s = handleSpots(t); if (!s) return; markTried('handles'); markTried('handlesTrue');
     if (poseView.motion.playing) poseView.pause();
     handleDrag = { id: e.pointerId, kind, c: s.c, d0: Math.hypot(e.clientX - s.c.x, e.clientY - s.c.y) || 1, a0: Math.atan2(e.clientY - s.c.y, e.clientX - s.c.x), w0: t.width, r0: t.rot || 0, snap: false, x: e.clientX, y: e.clientY };
     b.classList.add('on');
@@ -4480,7 +4579,8 @@ if (window.visualViewport) {
     viewport.style.transform = `translate(${vv.offsetLeft}px, ${vv.offsetTop}px) scale(${1 / scale})`;
     document.documentElement.style.setProperty('--kb', '0px');
   };
-  vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV); onVV();
+  const onVVLater = () => { onVV(); requestAnimationFrame(placeChrome); };
+  vv.addEventListener('resize', onVVLater); vv.addEventListener('scroll', onVVLater); onVV();
 }
 // An installed copy picks up a new build as soon as its service worker takes over.
 // A new version arrives in the background (service worker autoUpdate). Never reload
@@ -6026,7 +6126,7 @@ window.__ink = {
   surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)
-  decalSpan: (axis = [0, 1, 0]) => state.tattoos.map((t) => { const d = decals[t.id], P = d && d.mesh.geometry.attributes.position.array, UV = d && d.mesh.geometry.attributes.uv.array; let lo = Infinity, hi = -Infinity; if (P) for (let f = 0; f < P.length / 9; f++) { const u = (UV[f * 6] + UV[f * 6 + 2] + UV[f * 6 + 4]) / 3, v = (UV[f * 6 + 1] + UV[f * 6 + 3] + UV[f * 6 + 5]) / 3; if (u < UV_MARGIN || u > 1 - UV_MARGIN || v < UV_MARGIN || v > 1 - UV_MARGIN) continue; let y = 0; for (let k = 0; k < 3; k++) { const i = f * 9 + k * 3; y += (P[i] * axis[0] + P[i + 1] * axis[1] + P[i + 2] * axis[2]) / 3; } lo = Math.min(lo, y); hi = Math.max(hi, y); } return { name: t.name, lo, hi, y: t.pos[1], tris: P ? P.length / 9 : 0 }; }), restJoint: (n) => { const J = poseView.restRig().joints, b = POSE_BONES.find((x) => x.name === n); return b ? [0, 1, 2].map((i) => J[b.head * 3 + i]) : null; }, decalCover: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry; if (!g || !g.attributes.uv) return { name: t.name, cover: 0, stretch: 0 };
+  decalSpan: (axis = [0, 1, 0]) => state.tattoos.map((t) => { const d = decals[t.id], P = d && d.mesh.geometry.attributes.position.array, UV = d && d.mesh.geometry.attributes.uv.array; let lo = Infinity, hi = -Infinity; if (P) for (let f = 0; f < P.length / 9; f++) { const u = (UV[f * 6] + UV[f * 6 + 2] + UV[f * 6 + 4]) / 3, v = (UV[f * 6 + 1] + UV[f * 6 + 3] + UV[f * 6 + 5]) / 3; if (u < UV_MARGIN || u > 1 - UV_MARGIN || v < UV_MARGIN || v > 1 - UV_MARGIN) continue; let y = 0; for (let k = 0; k < 3; k++) { const i = f * 9 + k * 3; y += (P[i] * axis[0] + P[i + 1] * axis[1] + P[i + 2] * axis[2]) / 3; } lo = Math.min(lo, y); hi = Math.max(hi, y); } return { name: t.name, lo, hi, y: t.pos[1], tris: P ? P.length / 9 : 0 }; }), restJoint: (n) => { const J = poseView.restRig().joints, b = POSE_BONES.find((x) => x.name === n); return b ? [0, 1, 2].map((i) => J[b.head * 3 + i]) : null; }, decalKind: (id) => { const d = decals[id]; return d ? (d.mesh.geometry.userData.sleeve ? 'sleeve' : 'stencil') : null; }, decalCover: () => state.tattoos.map((t) => { const d = decals[t.id], g = d && d.mesh.geometry; if (!g || !g.attributes.uv) return { name: t.name, cover: 0, stretch: 0 };
     const P = g.attributes.position.array, UV = g.attributes.uv.array, n = 64, grid = new Uint8Array(n * n), hits = new Uint16Array(n * n); let skin = 0; const m = UV_MARGIN, sp = 1 - 2 * m, scale = t.width * (t.width / t.aspect), ratios = [];
     for (let i = 0; i < UV.length / 2; i += 3) { const u = [0, 1, 2].map((k) => (UV[(i + k) * 2] - m) / sp), v = [0, 1, 2].map((k) => (UV[(i + k) * 2 + 1] - m) / sp);
       const ua = Math.abs((u[1] - u[0]) * (v[2] - v[0]) - (u[2] - u[0]) * (v[1] - v[0])) / 2; const A = [0, 1, 2].map((k) => [P[(i + k) * 3], P[(i + k) * 3 + 1], P[(i + k) * 3 + 2]]);

@@ -85,8 +85,11 @@ function limbFlat(geo, t, frame, startTri, limb) {
   const so = new Float64Array(nb), ss = new Float64Array(nb), sc = new Float64Array(nb);
   for (let v = 0; v < Math.min(verts, limb.keep.length); v++) if (own(v)) { const b = sb(S[v]); so[b] += Wo[v]; ss[b] += Ws[v]; sc[b]++; }
   const mo = smooth(so.map((x, b) => sc[b] ? x / sc[b] : NaN), 2), ms = smooth(ss.map((x, b) => sc[b] ? x / sc[b] : NaN), 2);
+  // read between the 1 cm rows, not from the nearest one: a row step put a kink in every line
+  // crossing it, which crept along the ink as it was moved (2026-11-19, Jake: "warping the tattoo")
+  const lerpRow = (arr, s) => { const f = Math.max(0, Math.min(nb - 1, s / bin)), i = Math.min(nb - 2, Math.floor(f)), r = f - i; return (arr[i] || 0) * (1 - r) + (arr[i + 1] || 0) * r; };
   const ang = new Float64Array(verts), Rv = new Float64Array(verts);
-  for (let v = 0; v < verts; v++) { const b = sb(S[v]), x = Wo[v] - (mo[b] || 0), y = Ws[v] - (ms[b] || 0); ang[v] = Math.atan2(y, x); Rv[v] = Math.hypot(x, y); }
+  for (let v = 0; v < verts; v++) { const x = Wo[v] - lerpRow(mo, S[v]), y = Ws[v] - lerpRow(ms, S[v]); ang[v] = Math.atan2(y, x); Rv[v] = Math.hypot(x, y); }
   const ab = (a) => ((Math.floor((a + Math.PI) / (2 * Math.PI) * NA) % NA) + NA) % NA;
   const table = (pick) => {
     const rsum = new Float64Array(nb * NA), rc = new Float64Array(nb * NA);
@@ -112,7 +115,8 @@ function limbFlat(geo, t, frame, startTri, limb) {
   const cum = (b, t) => { const f = (t + Math.PI) / da, i = Math.max(0, Math.min(NA - 1, Math.floor(f))), r = f - i; return CT[b * (NA + 1) + i] + (CT[b * (NA + 1) + i + 1] - CT[b * (NA + 1) + i]) * r; };
   const perim = (b) => CT[b * (NA + 1) + NA];
   // length round the ring at this height from angle a0 by turn (-PI..PI, plus whole turns)
-  const along = (b, a0, turn) => { const a1 = a0 + turn; let L = cum(b, Math.atan2(Math.sin(a1), Math.cos(a1))) - cum(b, a0); const k = Math.round((a1 - Math.atan2(Math.sin(a1), Math.cos(a1))) / (2 * Math.PI)); return L + k * perim(b); };
+  const alongRow = (b, a0, turn) => { const a1 = a0 + turn; let L = cum(b, Math.atan2(Math.sin(a1), Math.cos(a1))) - cum(b, a0); const k = Math.round((a1 - Math.atan2(Math.sin(a1), Math.cos(a1))) / (2 * Math.PI)); return L + k * perim(b); };
+  const along = (s, a0, turn) => { const f = Math.max(0, Math.min(nb - 1, s / bin)), i = Math.min(nb - 2, Math.floor(f)), r = f - i; return alongRow(i, a0, turn) * (1 - r) + alongRow(i + 1, a0, turn) * r; };
   // the anchor in the standing body, through its triangle's barycentric weights
   const ia = I[startTri * 3], ib = I[startTri * 3 + 1], ic = I[startTri * 3 + 2];
   const vec = (A, i, j) => [A[j * 3] - A[i * 3], A[j * 3 + 1] - A[i * 3 + 1], A[j * 3 + 2] - A[i * 3 + 2]];
@@ -123,7 +127,7 @@ function limbFlat(geo, t, frame, startTri, limb) {
   const toRest = (x) => { const [al, be] = inPlane(x); return [q1[0] * al + q2[0] * be, q1[1] * al + q2[1] * be, q1[2] * al + q2[2] * be]; };
   const off = toRest([t.pos[0] - P[ia * 3], t.pos[1] - P[ia * 3 + 1], t.pos[2] - P[ia * 3 + 2]]);
   const A0 = place(Q[ia * 3] + off[0], Q[ia * 3 + 1] + off[1], Q[ia * 3 + 2] + off[2]), b0 = sb(A0[0]);
-  const s0 = A0[0], g0 = A0[3], ang0 = Math.atan2(A0[2] - ms[b0], A0[1] - mo[b0]), rr = perim(b0) / (2 * Math.PI);
+  const s0 = A0[0], g0 = A0[3], ang0 = Math.atan2(A0[2] - lerpRow(ms, s0), A0[1] - lerpRow(mo, s0)), rr = (() => { const f = Math.max(0, Math.min(nb - 1, s0 / bin)), i = Math.min(nb - 2, Math.floor(f)), r = f - i; return (perim(i) * (1 - r) + perim(i + 1) * r) / (2 * Math.PI); })();
   // round and down the limb at the anchor, and the artwork's own right and up in those terms
   const eRound = [0, 1, 2].map((i) => -Math.sin(ang0) * g0.o[i] + Math.cos(ang0) * g0.side[i]), eDown = g0.dir;
   const nrm = (x) => { const n = Math.hypot(...x) || 1; return x.map((y) => y / n); };
@@ -137,11 +141,16 @@ function limbFlat(geo, t, frame, startTri, limb) {
   // elbow or knee: a sleeve stretches there.)
   const part = round / (2 * Math.PI * rr), reach = (Math.abs(rs) * w + Math.abs(us) * h) / 2;
   const belowJoint = g0 !== segs[0] && s0 - reach - g0.start > 0.02;
-  if (!(rr > 0) || part < 0.35 || (part < 0.8 && !belowJoint)) return null;
+  // Half way round a forearm or lower leg, not a third: an 8 cm piece on the front of the forearm
+  // was laid as a sleeve and squashed and kinked as it moved (2026-11-19). The bar moves a little
+  // the other way from what this piece was last time, so a drag across it does not flick between
+  // the two ways of laying it.
+  const keep = limb.prev === true ? -0.05 : limb.prev === false ? 0.05 : 0;
+  if (!(rr > 0) || part < 0.5 + keep || (part < 0.8 + keep && !belowJoint)) return null;
   const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   return {
     // flat x, y of vertex v with its angle shifted by k turns (for triangles across the back)
-    at: (v, k = 0) => { const X = along(sb(S[v]), ang0, wrapA(ang[v] - ang0) + 2 * Math.PI * k), Y = S[v] - s0; return [X * rx + Y * rs, X * ux + Y * us]; },
+    at: (v, k = 0) => { const X = along(S[v], ang0, wrapA(ang[v] - ang0) + 2 * Math.PI * k), Y = S[v] - s0; return [X * rx + Y * rs, X * ux + Y * us]; },
     turn: (v) => wrapA(ang[v] - ang0),
     // the limb's own skin and the hand or foot below it, never the body it hangs from
     // (or skin weighted to the shoulder or hip that still lies on the limb's own ring)
@@ -265,5 +274,5 @@ function buildSleeve(geo, adj, t, startTri, sleeve) {
     if (!inside) continue;
     for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !seen[nb]) { seen[nb] = 1; queue.push(nb); } }
   }
-  return { positions: new Float32Array(pos), uvs: new Float32Array(uv), supports: new Uint32Array(supports), tris: new Uint32Array(from) };
+  return { positions: new Float32Array(pos), uvs: new Float32Array(uv), supports: new Uint32Array(supports), tris: new Uint32Array(from), sleeve: true };
 }
