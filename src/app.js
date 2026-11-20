@@ -828,7 +828,17 @@ function looksBlank(s) { return !!s && !(Array.isArray(s.tattoos) && s.tattoos.s
 // Set when the save on this device could not be read and could not be set aside yet: nothing is
 // written over it until it is set aside, and a blank or sample project never is.
 let guardSave = false, holdBlank = false;
-function setSaved(text, bad) { const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad); }
+// onTap: the line under Ink Atlas is a button while the account copy needs fixing (account.js)
+let savedTap = null;
+function setSaved(text, bad, onTap) {
+  const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad);
+  savedTap = typeof onTap === 'function' ? onTap : null;
+  const b = n.parentElement; if (!b) return;
+  b.classList.toggle('tap', !!savedTap);
+  if (savedTap) { b.setAttribute('role', 'button'); b.tabIndex = 0; b.setAttribute('aria-label', 'Ink Atlas. ' + text); }
+  else { b.removeAttribute('role'); b.removeAttribute('tabindex'); b.removeAttribute('aria-label'); }
+}
+{ const b = document.querySelector('#top .brand'); if (b) { b.addEventListener('click', () => { if (savedTap) savedTap(); }); b.addEventListener('keydown', (e) => { if (savedTap && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); savedTap(); } }); } }
 function save() {
   dirty = true; clearTimeout(saveTimer);
   if (!store || !store.ok) { setSaved('Not saved: storage is off in this view', true); return; }
@@ -2866,6 +2876,7 @@ const SHOW = {
   elbowDetail: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=relaxedSides]', 'Tap Arms relaxed at sides, then Back or Left in the view buttons and zoom in on an elbow: the point of the elbow, the bumps either side and the crease in front are on the skin now.']; },
   straightArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=straightDown]', 'Tap Arms straight down, Arms straight out or Palms forward. The elbows go fully straight and your arm tattoos go with the skin. Standing puts you back.']; },
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
+  accountFix: () => (account && account.configured ? ['#accountBtn', 'When your project could not go to your account, the line under Ink Atlas turns red and this button carries a !. Tap either one to see why and put it there.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
   layers3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dLayers', 'Send the 3D body with each tattoo separate. In Procreate, open Layers: Skin and each tattoo are their own groups to paint on.']; },
@@ -6395,6 +6406,10 @@ function startAccount() {
     snapshot: () => ({ state, images: usedImages() }),
     cameUpEmpty: () => cameUpEmpty || looksBlank(state),
     looksBlank: (s) => looksBlank(s),
+    // how many of a project's tattoos are the person's own (samples left out)
+    realCount: (s) => (s && Array.isArray(s.tattoos) ? s.tattoos.filter((t) => t && !isSample(t)).length : 0),
+    // a copy from the account kept on this device (Find my saves) before anything replaces it
+    keepAside: (s, imgs, reason) => (store && store.ok ? store.addRecovery(s, imgs || {}, reason).catch(() => false) : Promise.resolve(false)),
     projectName: () => state.projectName || 'My tattoos',
     async open(next, imgs, name, opts = {}) {
       cameUpEmpty = false; // the account's own copy is on screen now

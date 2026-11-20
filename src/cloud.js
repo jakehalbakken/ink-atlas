@@ -181,6 +181,13 @@ export async function openCloud() {
       const mine = d[0].owner === me;
       return { ...d[0], mine, role: mine ? 'edit' : await this.roleIn(id) };
     },
+    // The account's copy as it is now, without its pictures: to tell whether it holds real work
+    // before anything is sent over it. null when it is gone or archived.
+    async peek(id) {
+      uid();
+      const d = check(await sb.from('projects').select('id,name,rev,archived,state,updated_at,edited_by').eq('id', id).limit(1));
+      return d && d[0] && !d[0].archived ? d[0] : null;
+    },
     folderFor(id, shared) { return shared ? 'p/' + id : uid(); },
     // done: the set of artwork keys known to be up already (kept by the caller per folder).
     async create(state, images, name, done) {

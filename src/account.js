@@ -58,7 +58,11 @@ export function createAccount(api) {
   const setBase = (id, json) => { try { localStorage.setItem(BASE, JSON.stringify({ id, json })); } catch (e) { ls.set(BASE, null); } };
   // a blank or sample-only project on screen, while the account copy may hold real work (or it is
   // not known what it holds): it is never sent up over it
-  const blankOverReal = () => { if (!(api.cameUpEmpty && api.cameUpEmpty())) return false; const b = myBind(), base = b && baseFor(b.id); return !(base && api.looksBlank && api.looksBlank(base)); };
+  // Only a project this device was tied to when the app opened can hold work this device lost: one
+  // made or opened here since is this device's own. trusted: ones the person chose to send over.
+  const bootBindId = bind && bind.id, trusted = new Set();
+  const lostHere = (b) => !!(b && api.cameUpEmpty && api.cameUpEmpty() && b.id === bootBindId && !trusted.has(b.id));
+  const blankOverReal = () => { const b = myBind(); if (!lostHere(b)) return false; const base = baseFor(b.id); return !(base && api.looksBlank && api.looksBlank(base)); };
   const baseFor = (id) => { const b = ls.get(BASE); try { return b && b.id === id ? JSON.parse(b.json) : null; } catch (e) { return null; } };
   const stateJson = () => JSON.stringify(api.snapshot().state);
   // Whether new work on this device goes into this person's account, and whether they were
@@ -73,7 +77,16 @@ export function createAccount(api) {
   const tellRole = () => { const c = !!(myBind() && myBind().role === 'comment'); if (c !== roleShown) { roleShown = c; if (api.setCommentOnly) api.setCommentOnly(c); } };
   const myBind = () => (bind && user() && bind.uid === user().id ? bind : null);
   const currentSig = () => sigOf(JSON.stringify(api.snapshot().state));
-  const status = (text, bad) => { lastStatus = text; api.setSaved(text, bad); };
+  // fix: the line under Ink Atlas becomes a button that opens Put it in your account (fixView),
+  // and the account button carries a mark, while this device's project is not safely there
+  let stuck = '', stuckOn = false, goneName = '';
+  const status = (text, bad, fix) => {
+    lastStatus = text; const was = stuckOn; stuckOn = !!fix;
+    api.setSaved(text, bad, fix ? () => openFix() : null);
+    if (was !== stuckOn) renderBtn();
+  };
+  const STUCK = 'Saved on this device. Tap to put it in your account';
+  async function openFix() { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'fix' : 'signin'); }
 
   function ready() {
     if (!cloudReady) cloudReady = openCloud().then((c) => {
@@ -126,10 +139,10 @@ export function createAccount(api) {
     const u = user();
     let badge = btn.querySelector('.acct-badge');
     if (!badge) { badge = document.createElement('i'); badge.className = 'acct-badge'; badge.setAttribute('aria-hidden', 'true'); btn.append(badge); }
-    badge.hidden = !(u && badgeN); badge.textContent = !badgeN ? '' : badgeN > 9 ? '9+' : String(badgeN);
+    badge.hidden = !(u && (badgeN || stuckOn)); badge.textContent = !badgeN ? (stuckOn ? '!' : '') : badgeN > 9 ? '9+' : String(badgeN);
     btn.classList.toggle('signed', !!u);
     const label = btn.querySelector('span');
-    if (u) { const n = cloud.displayName(u) || '?'; label.textContent = n.slice(0, 1).toUpperCase(); btn.setAttribute('aria-label', 'Your account: ' + n + (badgeN ? `, ${badgeN} project${badgeN === 1 ? '' : 's'} waiting on you` : '')); btn.title = 'Signed in as ' + (u.email || n); }
+    if (u) { const n = cloud.displayName(u) || '?'; label.textContent = n.slice(0, 1).toUpperCase(); btn.setAttribute('aria-label', 'Your account: ' + n + (badgeN ? `, ${badgeN} project${badgeN === 1 ? '' : 's'} waiting on you` : '') + (stuckOn ? ', this project is not in it yet' : '')); btn.title = 'Signed in as ' + (u.email || n); }
     else { label.textContent = 'Sign in'; btn.setAttribute('aria-label', 'Sign in'); btn.title = 'Sign in'; }
   }
 
@@ -147,8 +160,9 @@ export function createAccount(api) {
     if (api.holding && api.holding()) { clearTimeout(retry); retry = setTimeout(push, 1500); return; } // trying something out on this screen: nothing goes up until it is done
     if (!myBind() && !following()) return;
     if (myBind() && myBind().sig === currentSig()) { status('Saved to your account'); return; }
-    if (myBind() && blankOverReal()) { status('Not sent: this project is empty or only samples, so the copy in your account is kept', true); return; }
+    if (myBind() && blankOverReal()) { status(api.looksBlank(api.snapshot().state) ? 'Not sent: only samples here, so your account copy is kept. Tap to open it' : 'Not sent, so your account copy is kept. Tap to choose', true, true); return; }
     pushing = true; status('Saving to your account');
+    let gone = false;
     try {
       for (let tries = 0; ; tries++) {
         const snap = api.snapshot(), json = JSON.stringify(snap.state), sig = sigOf(json), b = myBind();
@@ -167,7 +181,12 @@ export function createAccount(api) {
           if (r.shared && !b.shared && b.mine !== false) await cloud.startSharing(b.id, snap.images, doneSet('p/' + b.id));
           break;
         }
-        // someone saved it elsewhere since this device last did
+        // someone saved it elsewhere since this device last did, or it is no longer in the account
+        if (!(await cloud.meta(b.id))) {
+          setBind(null); follow(false); gone = true; goneName = b.name || api.projectName();
+          status('Not in your account any more. Tap to put it back', true, true);
+          break;
+        }
         const p = await cloud.load(b.id);
         markUp(p);
         if (!p.shared) {
@@ -188,9 +207,11 @@ export function createAccount(api) {
         if (!(said && said.toasted)) liveNote(`Your changes and ${p.editedBy || 'the other person'}'s are both in "${p.name}".`, true);
       }
       retry = 0;
-      status(myBind() && myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account');
+      if (myBind() && myBind().sig === currentSig()) stuck = '';
+      if (!gone) status(myBind() && myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account');
     } catch (e) {
-      status('Saved on this device. Not in your account yet', true);
+      stuck = plainError(e) || 'Your account did not take it.';
+      status(STUCK, true, true);
       clearTimeout(retry); retry = setTimeout(push, 30000);
     } finally { if (pushing) { pushing = false; if (again) { again = false; push(); } } }
   }
@@ -234,7 +255,7 @@ export function createAccount(api) {
       if (!meta) { // removed from the account on another device, or this person was taken off it
         setBind(null); follow(false);
         if (b.mine === false) { status('Saved on this device'); api.toast(`You are no longer on "${b.name}". It stays on this device.`); }
-        else status('Removed from your account. Still saved on this device');
+        else { goneName = b.name || api.projectName(); status('Not in your account any more. Tap to put it back', true, true); }
         return;
       }
       if (!!meta.shared !== !!b.shared || meta.mine !== (b.mine !== false) || (meta.role || 'edit') !== (b.role || 'edit')) {
@@ -262,7 +283,7 @@ export function createAccount(api) {
       api.toast('Opened the newest version from your account.' + (p.missing.length ? ` ${p.missing.length} artwork file${p.missing.length === 1 ? ' is' : 's are'} still missing.` : ''));
     } catch (e) { /* stay as we are; the next check tries again */ } finally { pulling = false; }
   }
-  document.addEventListener('visibilitychange', () => { if (document.hidden) markSeen(); else if (user()) { pull(true); refreshBadge(); } });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) markSeen(); else if (user()) { pull(true); refreshBadge(); if (stuck && myBind() && myBind().sig !== currentSig()) push(); } });
   window.addEventListener('pagehide', () => markSeen());
 
   /* ---------- what changed since you last looked ---------- */
@@ -449,13 +470,9 @@ export function createAccount(api) {
     if (myBind() && blankOverReal()) {
       const b = myBind();
       try {
-        const p = await cloud.load(b.id);
-        markUp(p);
-        await api.open(p.state, p.images, p.name, { keepCopy: true, reason: 'Before opening a project from your account' });
-        setBind({ ...b, rev: p.rev, sig: currentSig(), name: p.name, shared: p.shared, mine: p.mine, role: p.role }); setBase(p.id, stateJson());
-        api.saveNow(); status('Saved to your account');
+        const p = await openAccountCopy(b);
         api.toast(`This device had no tattoos saved, so "${p.name}" was opened from your account.`);
-      } catch (e) { status('Not sent: this project is empty or only samples, so the copy in your account is kept', true); }
+      } catch (e) { status('Not sent: only samples here, so your account copy is kept. Tap to open it', true, true); }
       return;
     }
     if (myBind()) { pull(true); status(myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account'); if (myBind().sig !== currentSig()) push(); if (!root.hidden && view === 'signin') show('home'); return; }
@@ -503,6 +520,7 @@ export function createAccount(api) {
     else if (v === 'invite') inviteView(extra);
     else if (v === 'inviteRole') inviteRoleView();
     else if (v === 'changes') changesView();
+    else if (v === 'fix') fixView(extra);
     panel.scrollTop = 0;
   }
 
@@ -606,10 +624,103 @@ export function createAccount(api) {
     if (api.tried) api.tried('ownCopy');
   }
   const hereRows = () => { const box = h('div', { class: 'acct-list acct-here-now', id: 'acctHereNow' }); box.hidden = true; queueMicrotask(renderHereRows); return box; };
+  /* ---------- putting this device's project in the account, safely ---------- */
+  // What the account holds is looked at first. The send goes ahead in one tap when the account
+  // copy is the one this device last matched, is gone, or holds only the samples. When it holds
+  // other real work, the one tap keeps both, and replacing it is a second, named step that first
+  // keeps the account's copy on this device (Find my saves).
+  const n_ = (n) => `${n} tattoo${n === 1 ? '' : 's'}`;
+  async function waitPush() { await push(); for (let i = 0; i < 400 && (pushing || again); i++) await new Promise((r) => setTimeout(r, 150)); }
+  const there = () => !!(myBind() && myBind().sig === currentSig());
+  async function planFix() {
+    const local = api.snapshot().state, n = api.realCount(local), name = api.projectName(), b = myBind();
+    if (!b) return { kind: goneName ? 'gone' : 'add', n, name: goneName || name };
+    if (b.sig === currentSig()) return { kind: 'done', name: b.name };
+    const row = await inTime(cloud.peek(b.id), 15000);
+    if (!row) return { kind: 'gone', n, name: b.name };
+    const m = api.realCount(row.state), blank = !row.state || api.looksBlank(row.state);
+    if (sigOf(JSON.stringify(row.state)) === currentSig()) return { kind: 'same', row };
+    // this device lost its own save and came up empty: the account's real work is never sent over in one tap
+    const lost = lostHere(b);
+    if (lost && !blank && api.looksBlank(local)) return { kind: 'open', m, name: row.name };
+    if (lost && !blank) return { kind: 'both', n, m, name: row.name, rev: row.rev, at: row.updated_at, by: row.edited_by || '' };
+    if (row.rev === b.rev || b.shared || b.role === 'comment') return { kind: 'send', n, name: row.name };
+    if (blank) return { kind: 'blank', n, name: row.name, rev: row.rev, s: Array.isArray(row.state && row.state.tattoos) ? row.state.tattoos.length : 0 };
+    return { kind: 'both', n, m, name: row.name, rev: row.rev, at: row.updated_at, by: row.edited_by || '' };
+  }
+  function fixView() {
+    const body = h('div', { class: 'acct-fix', id: 'acctFix' }, h('p', { class: 'muted', text: 'Looking at the copy in your account…' }));
+    const why = stuck ? h('p', { class: 'muted acct-why', text: 'Last try: ' + stuck }) : null;
+    put(header('Put it in your account', () => show('home')), body, msgEl, why);
+    const doneNow = (text) => { stuck = ''; goneName = ''; if (api.tried) api.tried('accountFix'); status('Saved to your account'); body.replaceChildren(h('p', { class: 'acct-here good', text })); why && why.remove(); };
+    const go = (label, fn, id, cls = 'btn primary') => h('button', { class: cls, type: 'button', id, text: label, onclick: () => run(fn) });
+    const sendOrSay = async (okText) => { await waitPush(); if (!there()) throw new Error(stuck ? 'It did not go: ' + stuck : 'It did not go. Your account did not take it, so try again in a moment.'); doneNow(okText); };
+    const draw = (p) => {
+      if (view !== 'fix') return;
+      const k = p.kind;
+      if (k === 'done') { doneNow(`"${p.name}" is saved to your account.`); return; }
+      if (k === 'same') { setBind({ ...myBind(), rev: p.row.rev, sig: currentSig(), name: p.row.name }); setBase(p.row.id, stateJson()); doneNow(`"${p.row.name}" is already in your account, exactly as it is here.`); return; }
+      if (k === 'unreachable') { body.replaceChildren(h('p', { text: 'Your account did not answer, so nothing changed. Your work is safe on this device.' }), h('div', { class: 'acct-row' }, go('Try again', async () => show('fix'), 'acctFixAgain'))); return; }
+      if (k === 'add' || k === 'gone') {
+        body.replaceChildren(h('p', { text: k === 'gone' ? `"${p.name}" is not in your account any more. Put this one, with ${n_(p.n)}, back in it?` : `"${p.name}" with ${n_(p.n)} is only on this device. Put it in your account?` }),
+          h('div', { class: 'acct-row' }, go('Put it in my account', async () => { setBind(null); follow(true); ls.set(ASKED, user().id); await sendOrSay(`"${api.projectName()}" is saved to your account.`); }, 'acctFixGo')));
+        return;
+      }
+      if (k === 'open') {
+        body.replaceChildren(h('p', { text: `This device has only the samples, and your account has "${p.name}" with ${n_(p.m)}. Open it here?` }),
+          h('div', { class: 'acct-row' }, go('Open it here', async () => { await openAccountCopy(myBind()); doneNow(`"${myBind().name}" is open, and saved to your account.`); }, 'acctFixGo')));
+        return;
+      }
+      if (k === 'send') {
+        body.replaceChildren(h('p', { text: `Your account has the copy this device last saved. Send this one, with ${n_(p.n)}, now?` }),
+          h('div', { class: 'acct-row' }, go('Put it in my account', () => { trusted.add(myBind().id); return sendOrSay(`"${p.name}" is saved to your account.`); }, 'acctFixGo')));
+        return;
+      }
+      if (k === 'blank') {
+        body.replaceChildren(h('p', { text: `The copy in your account has only the ${p.s === 1 ? 'sample' : 'samples'}. Put this project, with your ${n_(p.n)}, there in its place?` }),
+          h('div', { class: 'acct-row' }, go('Put it in my account', async () => { const b = myBind(); trusted.add(b.id); setBind({ ...b, rev: p.rev, sig: '' }); await sendOrSay(`"${p.name}" is saved to your account with your ${n_(p.n)}.`); }, 'acctFixGo')));
+        return;
+      }
+      // k === 'both': the account holds other real work
+      const keepBoth = go('Keep both', async () => {
+        const snap = api.snapshot(), json = JSON.stringify(snap.state);
+        const c = await cloud.create(JSON.parse(json), snap.images, (api.projectName() + ' (' + deviceName() + ')').slice(0, 80), doneSet());
+        setBind({ uid: user().id, id: c.id, rev: c.rev, sig: sigOf(json), name: c.name, shared: false, mine: true }); setBase(c.id, json); follow(true);
+        doneNow(`Both are in your account now. This one is "${c.name}".`);
+      }, 'acctFixBoth');
+      const replace = h('button', { class: 'btn', type: 'button', id: 'acctFixReplace', text: 'Replace that copy…', onclick: () => {
+        body.replaceChildren(h('p', { text: `This puts the ${n_(p.n)} on this device in your account in place of "${p.name}" with ${n_(p.m)}. That copy is kept on this device first, in Share > Find my saves.` }),
+          h('div', { class: 'acct-row' },
+            go('Replace it', async () => {
+              const b = myBind(), a = await cloud.load(b.id); markUp(a);
+              if (a.rev !== p.rev) { show('fix'); throw new Error('The copy in your account changed just now, so nothing was replaced. Look again above.'); }
+              await api.keepAside(a.state, a.images, `From your account, before this device replaced it`);
+              trusted.add(b.id); setBind({ ...b, rev: a.rev, sig: '' }); await sendOrSay(`Replaced. "${p.name}" in your account now has your ${n_(p.n)}, and its old copy is in Find my saves.`);
+            }, 'acctFixReplaceGo', 'btn danger'),
+            h('button', { class: 'btn', type: 'button', text: 'Back', onclick: () => draw(p) })));
+      } });
+      body.replaceChildren(h('p', { text: `Your account has a different "${p.name}" with ${n_(p.m)}${p.by ? `, last changed by ${p.by}` : ''}${p.at ? ` on ${when(p.at)}` : ''}. This device has ${n_(p.n)}.` }),
+        h('p', { class: 'muted', text: 'Keep both puts this one in your account as its own project and changes nothing else.' }),
+        h('div', { class: 'acct-row' }, keepBoth, replace));
+    };
+    planFix().then(draw, (e) => draw({ kind: 'unreachable', why: plainError(e) }));
+  }
+  // the account's copy, opened on this device in place of the samples (what is on screen is kept)
+  async function openAccountCopy(b) {
+    const p = await cloud.load(b.id);
+    markUp(p);
+    await api.open(p.state, p.images, p.name, { keepCopy: true, reason: 'Before opening a project from your account' });
+    setBind({ ...b, rev: p.rev, sig: currentSig(), name: p.name, shared: p.shared, mine: p.mine, role: p.role }); setBase(p.id, stateJson());
+    api.saveNow(); stuck = ''; status('Saved to your account');
+    return p;
+  }
+
   async function homeView() {
     const u = user(), b = myBind(), safe = b && b.sig === currentSig();
     const list = h('div', { class: 'acct-list' }, h('p', { class: 'muted', text: 'Loading your projects…' }));
-    const here = b
+    const here = stuckOn
+      ? h('div', { class: 'acct-here' }, h('p', { text: `"${api.projectName()}" is saved on this device but not in your account yet.` }), h('button', { class: 'btn primary', type: 'button', id: 'acctFixGo', text: 'Put it in my account', onclick: () => show('fix') }))
+      : b
       ? h('p', { class: 'acct-here good', text: safe ? `"${b.name}" is saved to your account.` : `"${b.name}" is saving to your account.` })
       : h('div', { class: 'acct-here' }, h('p', { text: `"${api.projectName()}" is only on this device.` }), h('button', { class: 'btn primary', type: 'button', text: 'Save it to my account', onclick: () => run(async () => { follow(true); ls.set(ASKED, u.id); await push(); if (!myBind()) throw new Error('Could not reach your account. Try again in a moment.'); show('home'); msg('Saved to your account.', true); }) }));
     // working on the project on screen together with someone
@@ -858,7 +969,7 @@ export function createAccount(api) {
       // the panel opens at once; reaching the account can take a moment, and at worst says it could not
       if (!cloud) { open(); view = 'busy'; panel.replaceChildren(header('Your account'), h('p', { text: 'Reaching your account…' })); }
       try { await ready(); } catch (e) { if (view === 'busy') close(); api.toast(plainError(e)); return; }
-      open(); show(user() ? 'home' : 'signin');
+      open(); show(!user() ? 'signin' : stuckOn ? 'fix' : 'home');
     });
     const q = new URLSearchParams(location.search), shareId = q.get('share'), joinId = q.get('join');
     if (shareId || joinId) { q.delete('share'); q.delete('join'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
@@ -867,7 +978,7 @@ export function createAccount(api) {
     let hasSession = false; try { hasSession = !!localStorage.getItem('ia-auth') || /access_token=|token_hash=|type=(signup|magiclink|recovery)/.test(location.hash + location.search); } catch (e) { /* no storage */ }
     if (joinId && !shareId) pendingJoin = joinId;
     if (hasSession || shareId || joinId) {
-      try { await ready(); } catch (e) { if (shareId || joinId) api.toast(plainError(e)); else status('Saved on this device. Your account could not be reached', true); return; }
+      try { await ready(); } catch (e) { if (shareId || joinId) api.toast(plainError(e)); else { stuck = plainError(e); status('Saved on this device. Your account did not answer. Tap to try again', true, true); } return; }
       if (user()) afterSignIn('INITIAL');
       else if (pendingJoin) { open(); mode = 'create'; show('signin', 'Someone invited you to work on their tattoo project with them. Make a free account, or sign in, to join it.'); }
     }
@@ -880,7 +991,8 @@ export function createAccount(api) {
 
   return {
     configured: true, saved, start, unbind, sendLink,
-    status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing }),
+    status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing, stuck, fix: stuckOn }),
+    showFix: () => openFix(),
     artwork: async (keys) => { try { return cloud && user() ? await inTime(cloud.artwork(keys, myBind() && myBind().id), 20000) : {}; } catch (e) { return {}; } },
     // Lost pictures from every folder this account can read, waiting for the account to be reached.
     // why: found, none (looked and they are not there), partly (some folders gave no answer),
