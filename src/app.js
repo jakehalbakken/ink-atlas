@@ -820,6 +820,13 @@ function renderFollow() {
 }
 let account = null, store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
 function usedImages() { const o = {}; for (const k of imageKeysFor(state)) if (images[k]) o[k] = images[k]; return o; }
+// A project with nothing of yours in it: no tattoos but the samples, no paint, wraps, references or comments.
+// Such a project is never saved over an unreadable save, kept as an earlier copy, or sent over the account copy.
+const isSample = (t) => /\(sample\)$/.test(String((t && t.name) || ''));
+function looksBlank(s) { return !!s && !(Array.isArray(s.tattoos) && s.tattoos.some((t) => !isSample(t))) && !(Array.isArray(s.regions) && s.regions.length) && !(Array.isArray(s.refs) && s.refs.length) && !(Array.isArray(s.notes) && s.notes.length) && !s.paint; }
+// Set when the save on this device could not be read and could not be set aside yet: nothing is
+// written over it until it is set aside, and a blank or sample project never is.
+let guardSave = false, holdBlank = false;
 function setSaved(text, bad) { const n = $('#saved'); n.textContent = text; n.classList.toggle('bad', !!bad); }
 function save() {
   dirty = true; clearTimeout(saveTimer);
@@ -830,6 +837,13 @@ async function flushSave() {
   clearTimeout(saveTimer); saveTimer = 0;
   if (!store || !store.ok || !dirty) return;
   if (saving) { saveAgain = true; return; }
+  if ((guardSave || holdBlank) && looksBlank(state)) { dirty = false; setSaved('Not saved yet, so the save already on this device is kept'); return; }
+  holdBlank = false;
+  if (guardSave) {
+    saving = true; const ok = await store.setAsideCurrent(); saving = false;
+    if (!ok) { setSaved('Not saved: the save already on this device is kept. Back up to keep this work', true); if (!warnedSave) { warnedSave = true; toast('Your earlier save on this device could not be read, so nothing is written over it.', 'Back up now', backupNow); } return; }
+    guardSave = false;
+  }
   saving = true; dirty = false;
   try {
     await store.save(state, usedImages());
@@ -846,7 +860,7 @@ async function flushSave() {
 // iPadOS can drop a web page the moment it leaves the screen, so write straight away when that happens.
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
 window.addEventListener('pagehide', () => { flushSave(); });
-function keepRecovery(reason) { return store && store.ok ? store.addRecovery(state, usedImages(), reason).catch(() => false) : Promise.resolve(false); }
+function keepRecovery(reason) { return store && store.ok && !looksBlank(state) ? store.addRecovery(state, usedImages(), reason).catch(() => false) : Promise.resolve(false); }
 // Replace the working project with a stored one: this device's save, a backup file or a
 // recovery copy. Everything is checked first; if it is not usable this throws and the
 // project on screen is left exactly as it was.
@@ -2786,6 +2800,7 @@ const SHOW = {
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
+  findSaves: () => { toggle('#share', true); return ['#cRecover', 'Every copy of your work kept on this device, including a save that could not be opened, with one tap to open it. Undo brings back what was on screen.']; },
   bodyScan: () => { toggle('#bodyPop', true); return ['#scanBtn', 'Pick a 3D scan of yourself from Files, a GLB, OBJ or USDZ from Scaniverse or Polycam, and the body moves onto it. How to scan yourself is just under it.']; },
   measureMe: () => { toggle('#bodyPop', true); return ['#measureMeBtn', 'Measure me takes you through each tape measurement with a drawing of where it goes, then fits the body to all of them.']; },
   numberPad: () => { toggle('#bodyPop', true); const G = fitGroupEls.find((x) => x.g.title === 'Arms'); if (G) G.d.open = true; refreshMeasures(true); return ['.mval[data-m=upperArmSize]', 'Tap a number: a number pad opens instead of the keyboard, so the screen stays put.']; },
@@ -6096,22 +6111,95 @@ $('#cV47').addEventListener('click',async()=>{
 });
 function backupNow() { const d = new Date(), p2 = (n) => String(n).padStart(2, '0'); saveFile(`ink-atlas-backup-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.json`, JSON.stringify({ app: 'ink-atlas-proto', v: 2, savedAt: d.toISOString(), state, images: usedImages() })); }
 $('#cBackup').addEventListener('click', () => { toggle('#share', false); backupNow(); });
-/* ---------- earlier saves ---------- */
-function renderRecovery() {
-  const host = $('#rcList'), list = store && store.ok ? store.listRecovery() : []; host.replaceChildren();
-  if (!list.length) { host.append(el('p', { class: 'tip', text: store && store.ok ? 'No earlier saves yet. Copies are kept as you work.' : 'Storage is off in this view, so no copies are kept.' })); return; }
-  for (const r of list) host.append(el('button', { class: 'card slim', type: 'button', onclick: () => restoreRecovery(r.id) }, el('b', { text: whenText(r.at) }), el('span', { text: `${r.tattoos} tattoo${r.tattoos === 1 ? '' : 's'} · ${r.reason}` })));
+/* ---------- find my saves: every copy kept on this device ---------- */
+const tatText = (n, real) => { const k = real == null ? n : real; return k ? `${k} tattoo${k === 1 ? '' : 's'}` : n ? 'Only the samples' : 'No tattoos'; };
+async function renderRecovery() {
+  const host = $('#rcList'); host.replaceChildren();
+  if (!store || !store.ok) { host.append(el('p', { class: 'tip', text: 'Storage is off in this view, so no copies are kept.' })); return; }
+  const head = (t) => el('h3', { class: 'shHead', text: t });
+  const row = (title, sub, fn) => el('button', { class: 'card slim', type: 'button', onclick: fn }, el('b', { text: title }), el('span', { text: sub }));
+  const cards = (rows) => el('div', { class: 'cards' }, ...rows);
+  const rec = store.listRecovery();
+  host.append(head('Earlier saves'));
+  host.append(rec.length ? cards(rec.map((r) => row(whenText(r.at), `${tatText(r.tattoos, r.real)} · ${r.reason}`, () => restoreCopy(() => store.loadRecovery(r.id), 'the earlier save')))) : el('p', { class: 'tip', text: 'No earlier saves yet. Copies are kept as you work.' }));
+  let q = []; try { q = await store.listQuarantine(); } catch (e) { q = []; }
+  if (q.length) {
+    host.append(head('Set aside because they could not be opened'));
+    host.append(cards(q.flatMap((r) => [
+      row(whenText(r.at), `${tatText(r.tattoos, r.real)}${r.names.length ? ' · ' + r.names.join(', ') : ''}`, () => restoreCopy(() => store.loadQuarantine(r.key), 'the save that was set aside')),
+      el('button', { class: 'btn quiet', type: 'button', text: 'Save it as a file', onclick: async () => { const c = await store.loadQuarantine(r.key).catch(() => null); if (!c) { toast('That copy is no longer available.'); return; } saveFile(`ink-atlas-set-aside-${new Date(r.at).toISOString().slice(0, 10)}.json`, JSON.stringify({ app: 'ink-atlas-proto', v: 2, savedAt: new Date(r.at).toISOString(), state: c.state, images: c.images })); } }),
+    ])));
+  }
+  let shelf = []; try { const sh = await openProjectShelf(); try { shelf = [...await sh.list(), ...await sh.list({ archived: true })]; } finally { sh.close(); } } catch (e) { shelf = []; }
+  if (shelf.length) {
+    host.append(head('Projects on this device'));
+    host.append(cards(shelf.map((r) => row(r.name, `${tatText(r.tattoos, r.real)} · ${whenText(r.updatedAt)}${r.archived ? ' · archived' : ''}`, () => restoreCopy(async () => { const sh = await openProjectShelf(); try { return await sh.get(r.id); } finally { sh.close(); } }, `"${r.name}"`)))));
+  }
 }
-async function restoreRecovery(id) {
+function openFindSaves() { toggle('#share', false); toggle('#recover', true); renderRecovery(); markTried('findSaves'); }
+// A blank project on screen while a copy with tattoos is still on this device: say so, once, with the way to it.
+async function offerFindSaves() {
+  try {
+    const recs = store.listRecovery().filter((r) => (r.real == null ? r.tattoos : r.real) > 0);
+    let q = []; try { q = (await store.listQuarantine()).filter((r) => r.real > 0); } catch (e) { q = []; }
+    let shelf = []; try { const sh = await openProjectShelf(); try { shelf = [...await sh.list(), ...await sh.list({ archived: true })].filter((r) => r.real > 0); } finally { sh.close(); } } catch (e) { shelf = []; }
+    if (!looksBlank(state) || !(recs.length + q.length + shelf.length)) return;
+    toast('Your tattoos are still saved on this device.', 'Find my saves', openFindSaves, 15000);
+  } catch (e) { /* nothing to offer */ }
+}
+// Bring back pictures a kept copy has lost: from this device (the screen, any record, set-aside
+// saves, projects) and then the account's artwork, which is never deleted. A tattoo whose picture
+// is still nowhere gets a plain stand-in with its name, so its place, size and name come back.
+const goodImg = (v) => typeof v === 'string' && v.startsWith('data:image/');
+function standIn(name) {
+  const c = document.createElement('canvas'); c.width = 400; c.height = 400; const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, 400, 400); g.strokeStyle = '#555'; g.lineWidth = 10; g.setLineDash([26, 18]); g.strokeRect(14, 14, 372, 372);
+  g.setLineDash([]); g.fillStyle = '#333'; g.textAlign = 'center'; g.font = 'bold 44px -apple-system, Helvetica, Arial'; g.fillText('Artwork', 200, 175); g.fillText('missing', 200, 228);
+  g.font = '30px -apple-system, Helvetica, Arial'; g.fillText(String(name || '').slice(0, 22), 200, 290);
+  return c.toDataURL('image/png');
+}
+// device only, no stand-ins: null when nothing new was found
+async function fillImagesOnDevice(st, imgs) {
+  const out = { ...(imgs || {}) }, keys = imageKeysFor(st), left = () => keys.filter((k) => !goodImg(out[k])), had = left().length;
+  if (!had) return null;
+  try { Object.assign(out, await store.findImages(left())); } catch (e) { /* keep looking */ }
+  if (left().length) { try { const sh = await openProjectShelf(); try { for (const r of [...await sh.list(), ...await sh.list({ archived: true })]) { if (!left().length) break; const row = await sh.get(r.id); for (const k of left()) if (row && row.images && goodImg(row.images[k])) out[k] = row.images[k]; } } finally { sh.close(); } } catch (e) { /* no shelf */ } }
+  return left().length < had ? out : null;
+}
+async function fillImages(st, imgs) {
+  const out = { ...(imgs || {}) }; const keys = imageKeysFor(st);
+  let left = () => keys.filter((k) => !goodImg(out[k]));
+  for (const k of left()) if (goodImg(images[k])) out[k] = images[k];
+  if (left().length && store && store.ok) { try { Object.assign(out, await store.findImages(left())); } catch (e) { /* keep looking */ } }
+  if (left().length) {
+    try { const sh = await openProjectShelf(); try { for (const r of [...await sh.list(), ...await sh.list({ archived: true })]) { if (!left().length) break; const row = await sh.get(r.id); for (const k of left()) if (row && row.images && goodImg(row.images[k])) out[k] = row.images[k]; } } finally { sh.close(); } } catch (e) { /* no shelf */ }
+  }
+  if (left().length && account && account.artwork) { try { const got = await account.artwork(left()); for (const k of Object.keys(got)) if (goodImg(got[k])) out[k] = got[k]; } catch (e) { /* offline */ } }
+  // a stand-in goes under its own key (gone_ + the lost one), so the real picture can still be matched later
+  let standIns = 0; const state2 = JSON.parse(JSON.stringify(st));
+  for (const t of Array.isArray(state2.tattoos) ? state2.tattoos : []) if (t && typeof t.img === 'string' && !goodImg(out[t.img])) { const k = 'gone_' + t.img; out[k] = standIn(t.name); t.img = k; standIns++; }
+  return { state: state2, images: out, standIns };
+}
+function whyNot(e) { const m = String((e && e.message) || e || ''); return /usable artwork/.test(m) ? 'its pictures are missing' : m ? m.slice(0, 90) : 'unknown problem'; }
+// Open any kept copy. What was on screen is kept first (unless it is blank), and Undo brings it back.
+async function restoreCopy(load, what) {
   toggle('#recover', false);
-  let rec = null; try { rec = await store.loadRecovery(id); } catch (e) { rec = null; }
-  if (!rec) { toast('That copy is no longer available.'); return; }
+  let rec = null; try { rec = await load(); } catch (e) { rec = null; }
+  if (!rec || !rec.state) { toast('That copy is no longer available.'); return; }
+  toast('Opening it…', null, null, 20000);
+  let filled = { state: rec.state, images: rec.images || {}, standIns: 0 };
+  try { filled = await fillImages(rec.state, rec.images); } catch (e) { /* open with what there is */ }
   snapshot(); const before = JSON.stringify(state);
   await keepRecovery('Before going back');
-  try { await openProject(rec.state, rec.images); commit(); fullBody(); toast('Went back to the earlier save', 'Undo', undo); }
-  catch (e) { undoStack.pop(); refreshUndo(); state = JSON.parse(before); skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); toast('That copy could not be opened, so nothing was changed.'); }
+  try { await openProject(filled.state, filled.images); }
+  catch (e) { undoStack.pop(); refreshUndo(); state = JSON.parse(before); skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); toast(`That copy could not be opened (${whyNot(e)}), so nothing was changed. Save it as a file to keep it.`, null, null, 12000); return; }
+  cameUpEmpty = false;
+  try { commit(); } catch (e) { try { save(); } catch (_) { /* saved below */ } }
+  try { fullBody(); } catch (e) { /* the view stays where it is */ }
+  const n = state.tattoos.length;
+  toast(filled.standIns ? `Opened ${what}: ${n} tattoo${n === 1 ? '' : 's'}. ${filled.standIns} picture${filled.standIns === 1 ? ' was' : 's were'} not found, so ${filled.standIns === 1 ? 'it shows' : 'they show'} as Artwork missing in the right place and size.` : `Opened ${what}: ${n} tattoo${n === 1 ? '' : 's'}.`, 'Undo', undo, 12000);
 }
-$('#cRecover').addEventListener('click', () => { toggle('#share', false); renderRecovery(); toggle('#recover', true); });
+$('#cRecover').addEventListener('click', openFindSaves);
 $('#cRestore').addEventListener('click', () => { toggle('#share', false); $('#file').click(); });
 
 /* ---------- backup import (this app's files and older Ink Atlas .ink.json) ---------- */
@@ -6202,29 +6290,33 @@ function tick(now) {
   let opened = false, note = '';
   if (store.ok) {
     let loaded = null;
-    try { loaded = await store.load(); } catch (e) { note = 'The save on this device could not be read, so a fresh project was started.'; }
+    try { loaded = await store.load(); } catch (e) { guardSave = !(await store.setAsideCurrent()); note = 'The save on this device could not be read. It was kept on this device: Share > Find my saves.'; }
     if (loaded) {
       try {
         const r = await openProject(loaded.state, loaded.images); opened = true;
         // The copy is of the save exactly as it was stored, before any upgrade or repair.
-        await store.addRecovery(loaded.state, loaded.images, 'When you opened the app').catch(() => false);
+        if (!looksBlank(loaded.state)) await store.addRecovery(loaded.state, loaded.images, 'When you opened the app').catch(() => false);
         if (r.dropped || r.replaced) { await store.quarantine(loaded.raw, loaded.images); note = r.dropped ? `${r.dropped} piece${r.dropped === 1 ? '' : 's'} in your save had no usable artwork. The original save was kept on this device.` : 'Some ink had lost its place and was put back on the body. Check the placements.'; }
       } catch (e) {
-        await store.quarantine(loaded.raw, loaded.images);
-        for (const r of store.listRecovery()) {
+        guardSave = !(await store.quarantine(loaded.raw, loaded.images));
+        // its pictures may still be elsewhere on this device (set-aside saves, projects): try once more with them
+        try { const f = await fillImagesOnDevice(loaded.state, loaded.images); if (f) { const r = await openProject(loaded.state, f); opened = true; note = r.dropped ? `${r.dropped} piece${r.dropped === 1 ? '' : 's'} in your save had no artwork anywhere on this device. Share > Find my saves can look in your account.` : ''; } } catch (_) { /* go on to the earlier copies */ }
+        for (const r of opened ? [] : store.listRecovery()) {
           try { const rec = await store.loadRecovery(r.id); if (!rec) continue; await openProject(rec.state, rec.images); opened = true; note = `Your last save could not be opened, so this is the copy from ${whenText(r.at)}.`; break; } catch (_) { /* try the next copy */ }
         }
-        if (!opened) note = 'Your last save could not be opened. It was kept on this device and a fresh project was started.';
+        if (!opened) note = 'Your last save could not be opened. It was kept on this device: Share > Find my saves.';
       }
     }
   }
   // a fresh project (the save on this device missing, unreadable, or storage off) is never
   // sent over the copy in the account (account.js asks cameUpEmpty)
-  if (!opened) { cameUpEmpty = true; state = freshState(); selectedId = null; applyShape(); await seedSamples(); }
+  if (!opened) { if (note) holdBlank = true; cameUpEmpty = true; state = freshState(); selectedId = null; applyShape(); await seedSamples(); }
   skinMat.color.set(skinColor());
   syncDecals(); renderUI();
-  if (store.ok) { save(); store.gc(Object.keys(usedImages())).catch(() => 0); } else setSaved('Not saved: storage is off in this view', true);
-  if (note) toast(note);
+  // a fresh project is not written at start: it would replace a save that only failed to open this once
+  if (store.ok) { if (opened || !note) { save(); if (opened) store.gc(Object.keys(usedImages())).catch(() => 0); } else setSaved('Not saved yet, so the save already on this device is kept'); } else setSaved('Not saved: storage is off in this view', true);
+  if (note) toast(note, 'Find my saves', openFindSaves, 12000);
+  else if (store.ok && looksBlank(state)) offerFindSaves();
   let seen = false; try { seen = localStorage.getItem('ia-coach') === '1'; } catch (e) { /* no storage */ }
   $('#coach').hidden = seen;
   $('#coachOk').addEventListener('click', () => { $('#coach').hidden = true; try { localStorage.setItem('ia-coach', '1'); } catch (e) { /* no storage */ } });
@@ -6239,7 +6331,8 @@ function startAccount() {
   const clearHistory = () => { undoStack.length = 0; redoStack.length = 0; refreshUndo(); };
   account = createAccount({
     snapshot: () => ({ state, images: usedImages() }),
-    cameUpEmpty: () => cameUpEmpty,
+    cameUpEmpty: () => cameUpEmpty || looksBlank(state),
+    looksBlank: (s) => looksBlank(s),
     projectName: () => state.projectName || 'My tattoos',
     async open(next, imgs, name, opts = {}) {
       cameUpEmpty = false; // the account's own copy is on screen now
@@ -6391,7 +6484,7 @@ window.__ink = {
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
-  store: () => store, flush: flushSave, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
+  store: () => store, flush: flushSave, looksBlank: () => looksBlank(state), blankHold: () => ({ guardSave, holdBlank }), account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
   surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)

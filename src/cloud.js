@@ -197,6 +197,15 @@ export async function openCloud() {
       const d = check(await sb.from('projects').update({ ...r, rev: rev + 1, edited_by: this.displayName() || null }).eq('id', id).eq('rev', rev).select('id,name,rev,updated_at,shared'));
       return d && d[0] ? d[0] : { conflict: true };
     },
+    // Artwork by key from this account's folders (nothing is ever deleted there), to bring back
+    // pictures a copy on this device has lost. Only reads.
+    async artwork(keys, projectId) {
+      const me = uid(); if (!me || !keys.length) return {};
+      const from = (folder) => async (path) => check(await sb.storage.from('artwork').download(folder + '/' + path));
+      let { images, missing } = await downloadArtwork(from(me), keys);
+      if (missing.length && projectId) { const more = await downloadArtwork(from('p/' + projectId), missing); Object.assign(images, more.images); }
+      return images;
+    },
     // have(key): artwork already on this device, which is not fetched again
     async load(id, have) {
       const me = uid();

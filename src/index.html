@@ -877,14 +877,14 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
       <button class="card i-doc" id="cV47" type="button"><b>Copy for the old Ink Atlas</b><span>A file the old ChatGPT version can open.</span></button>
     </div></details>
     <button class="btn quiet" id="cRestore" type="button">Open a backup file, including older Ink Atlas .ink.json</button>
-    <button class="btn quiet" id="cRecover" type="button">Go back to an earlier save</button>
+    <button class="btn quiet" id="cRecover" type="button">Find my saves</button>
   </div>
 </div>
 
 <div id="recover" class="scrim" hidden>
   <div class="modal glass" role="dialog" aria-labelledby="rcTitle">
-    <header><h2 id="rcTitle">Earlier saves</h2><button class="btn" type="button" data-close="recover">Done</button></header>
-    <p class="tip">Copies kept on this device as you work, and before any backup is opened. Opening one replaces what is on screen. Undo brings it back.</p>
+    <header><h2 id="rcTitle">Find my saves</h2><button class="btn" type="button" data-close="recover">Done</button></header>
+    <p class="tip">Every copy kept on this device: earlier saves, saves that could not be opened, and your projects. Opening one keeps what is on screen as an earlier save, and Undo brings it back.</p>
     <div id="rcList"></div>
   </div>
 </div>

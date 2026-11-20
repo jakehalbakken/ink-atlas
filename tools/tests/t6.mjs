@@ -70,7 +70,7 @@ export default async function (p) {
 
   // 5. earlier saves: go back, then undo
   const afterImport = await ids();
-  await wait(500); await p.click('#shareBtn'); await wait(200); await p.click('#cRecover'); await wait(300);
+  await wait(500); await p.click('#shareBtn'); await wait(200); await p.evaluate(() => { document.querySelector('#toast').hidden = true; }); /* the import's toast sits over the bottom of the sheet */ await p.click('#cRecover'); await wait(300);
   const rows = await p.evaluate(() => [...document.querySelectorAll('#rcList .card')].map((b) => b.textContent));
   await p.click('#rcList .card'); await wait(900);
   check('going back to an earlier save restores it', (await ids()) === oldIds && rows[0].includes('Before opening a backup'), rows.join(' / '));

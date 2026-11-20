@@ -43,7 +43,7 @@ export async function openProjectShelf() {
   return {
     async list({archived = false} = {}) {
       const rows = await transaction('readonly', (s, done) => { const r = s.getAll(); r.onsuccess = () => done(r.result); });
-      return rows.filter((r) => !!r.archived === archived).sort((a,b) => b.updatedAt - a.updatedAt).map(({state,images,...meta}) => ({...meta,tattoos: state.tattoos.length}));
+      return rows.filter((r) => !!r.archived === archived).sort((a,b) => b.updatedAt - a.updatedAt).map(({state,images,...meta}) => ({...meta,tattoos: state.tattoos.length, real: state.tattoos.filter((t) => !/\(sample\)$/.test(String((t && t.name) || ''))).length}));
     },
     get, create,
     async save(id, snapshot) { const payload = snapshotOf(snapshot); return modify(id, (r) => ({...r, ...payload})); },

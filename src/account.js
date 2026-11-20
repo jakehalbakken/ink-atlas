@@ -15,7 +15,7 @@
 //   someone else's changes come in by themselves when this device has nothing unsent. When
 //   both changed it, the two are put together (src/merge.js) instead of making a copy.
 // - Signed out, or with accounts not set up, nothing here runs and the app is as it was.
-import { cloudConfigured, emailCodes, openCloud, openShare, plainError } from './cloud.js';
+import { cloudConfigured, emailCodes, openCloud, openShare, plainError, inTime } from './cloud.js';
 import { mergeStates, commentsOnto, withoutComments } from './merge.js';
 import { changesBetween } from './changes.js';
 import { readPrefs, cleanPrefs, decide } from './prefs.js';
@@ -43,7 +43,7 @@ const deviceName = () => { const u = navigator.userAgent || ''; if (/iPad|Macint
 export function createAccount(api) {
   const btn = document.getElementById('accountBtn');
   const shareCard = document.getElementById('cLink');
-  if (!cloudConfigured) { if (btn) btn.hidden = true; if (shareCard) shareCard.hidden = true; return { configured: false, saved() {}, start() {}, unbind() {}, open() {}, sendLink() {}, status: () => ({ configured: false }) }; }
+  if (!cloudConfigured) { if (btn) btn.hidden = true; if (shareCard) shareCard.hidden = true; return { configured: false, saved() {}, start() {}, unbind() {}, open() {}, sendLink() {}, artwork: async () => ({}), status: () => ({ configured: false }) }; }
   btn.hidden = false; shareCard.hidden = false;
 
   let cloud = null, cloudReady = null, bind = ls.get(BIND), pushing = false, again = false, timer = 0, retry = 0, lastStatus = '';
@@ -56,6 +56,9 @@ export function createAccount(api) {
   const markUp = (p) => { const f = p.shared ? 'p/' + p.id : '', s = new Set(ls.get(upKey(f)) || []); for (const k of p.keys) if (p.images[k]) s.add(k); ls.set(upKey(f), [...s].slice(-5000)); };
   // the project as it was when this device last matched the account, for putting changes together
   const setBase = (id, json) => { try { localStorage.setItem(BASE, JSON.stringify({ id, json })); } catch (e) { ls.set(BASE, null); } };
+  // a blank or sample-only project on screen, while the account copy may hold real work (or it is
+  // not known what it holds): it is never sent up over it
+  const blankOverReal = () => { if (!(api.cameUpEmpty && api.cameUpEmpty())) return false; const b = myBind(), base = b && baseFor(b.id); return !(base && api.looksBlank && api.looksBlank(base)); };
   const baseFor = (id) => { const b = ls.get(BASE); try { return b && b.id === id ? JSON.parse(b.json) : null; } catch (e) { return null; } };
   const stateJson = () => JSON.stringify(api.snapshot().state);
   // Whether new work on this device goes into this person's account, and whether they were
@@ -144,7 +147,7 @@ export function createAccount(api) {
     if (api.holding && api.holding()) { clearTimeout(retry); retry = setTimeout(push, 1500); return; } // trying something out on this screen: nothing goes up until it is done
     if (!myBind() && !following()) return;
     if (myBind() && myBind().sig === currentSig()) { status('Saved to your account'); return; }
-    if (myBind() && api.cameUpEmpty && api.cameUpEmpty()) { status('Not sent to your account: the save on this device could not be read', true); return; }
+    if (myBind() && blankOverReal()) { status('Not sent: this project is empty or only samples, so the copy in your account is kept', true); return; }
     pushing = true; status('Saving to your account');
     try {
       for (let tries = 0; ; tries++) {
@@ -443,7 +446,7 @@ export function createAccount(api) {
     refreshBadge();
     if (pendingJoin) { const t = pendingJoin; pendingJoin = null; await joinWith(t); return; }
     // this device's save was missing or unreadable: bring the account's copy back instead of sending the blank one up
-    if (myBind() && api.cameUpEmpty && api.cameUpEmpty()) {
+    if (myBind() && blankOverReal()) {
       const b = myBind();
       try {
         const p = await cloud.load(b.id);
@@ -451,8 +454,8 @@ export function createAccount(api) {
         await api.open(p.state, p.images, p.name, { keepCopy: true, reason: 'Before opening a project from your account' });
         setBind({ ...b, rev: p.rev, sig: currentSig(), name: p.name, shared: p.shared, mine: p.mine, role: p.role }); setBase(p.id, stateJson());
         api.saveNow(); status('Saved to your account');
-        api.toast(`The save on this device could not be read, so "${p.name}" was opened from your account.`);
-      } catch (e) { status('Not sent to your account: the save on this device could not be read', true); }
+        api.toast(`This device had no tattoos saved, so "${p.name}" was opened from your account.`);
+      } catch (e) { status('Not sent: this project is empty or only samples, so the copy in your account is kept', true); }
       return;
     }
     if (myBind()) { pull(true); status(myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account'); if (myBind().sig !== currentSig()) push(); if (!root.hidden && view === 'signin') show('home'); return; }
@@ -878,6 +881,7 @@ export function createAccount(api) {
   return {
     configured: true, saved, start, unbind, sendLink,
     status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing }),
+    artwork: async (keys) => { try { return cloud && user() ? await inTime(cloud.artwork(keys, myBind() && myBind().id), 20000) : {}; } catch (e) { return {}; } },
     push, pull, displayName: () => (user() && cloud ? cloud.displayName() : ''),
     // the selected tattoo changed: tell anyone else here
     nudge: () => liveTrack(), here: () => liveOthers.slice(), people,

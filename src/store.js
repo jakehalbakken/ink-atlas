@@ -40,7 +40,8 @@ export async function openStore() {
       if (!db) return null;
       const got = await getMany(['project', 'recovery']);
       index = Array.isArray(got.recovery) ? got.recovery.filter((r) => r && typeof r.id === 'string') : [];
-      const rec = got.project; if (!rec || typeof rec !== 'object') return null;
+      const rec = got.project; if (rec == null) return null;
+      if (typeof rec !== 'object') throw new Error('The save on this device is damaged'); // set aside, never written over
       if (rec.format === 2 && Array.isArray(rec.imageKeys)) return { state: rec.state, images: await imagesFor(rec.imageKeys.filter((k) => typeof k === 'string')), raw: rec };
       return { state: rec.state, images: rec.images && typeof rec.images === 'object' ? rec.images : {}, raw: rec, legacy: true };
     },
@@ -59,7 +60,7 @@ export async function openStore() {
       if (index.length && index[0].sig === sig) return false;
       const keys = imageKeysFor(state).filter((k) => typeof imgs[k] === 'string');
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const next = [{ id, at: Date.now(), reason, tattoos: Array.isArray(state.tattoos) ? state.tattoos.length : 0, sig, imageKeys: keys }, ...index];
+      const next = [{ id, at: Date.now(), reason, tattoos: Array.isArray(state.tattoos) ? state.tattoos.length : 0, real: Array.isArray(state.tattoos) ? state.tattoos.filter((t) => !/\(sample\)$/.test(String((t && t.name) || ''))).length : 0, sig, imageKeys: keys }, ...index];
       const drop = next.splice(MAX_RECOVERY);
       await tx('readwrite', (s) => { putImages(s, imgs, keys); s.put({ state: JSON.parse(json), imageKeys: keys }, 'rec:' + id); for (const d of drop) s.delete('rec:' + d.id); s.put(next, 'recovery'); });
       keys.forEach((k) => stored.add(k)); index = next; return true;
@@ -70,7 +71,46 @@ export async function openStore() {
       return { state: rec.state, images: await imagesFor(Array.isArray(rec.imageKeys) ? rec.imageKeys : []) };
     },
     // Set an unreadable project aside, artwork included, so nothing later can overwrite it.
-    async quarantine(raw, images) { if (!db) return; try { await tx('readwrite', (s) => { s.put({ raw, images, at: Date.now() }, 'quarantine:' + Date.now()); }); } catch (e) { /* best effort */ } },
+    async quarantine(raw, images) { if (!db) return false; try { await tx('readwrite', (s) => { s.put({ raw, images, at: Date.now() }, 'quarantine:' + Date.now()); }); return true; } catch (e) { return false; } },
+    // The project record exactly as stored, set aside before anything replaces it. False when it cannot be read.
+    async setAsideCurrent() {
+      if (!db) return false;
+      try { const rec = (await getMany(['project'])).project; if (!rec) return true; const keys = Array.isArray(rec.imageKeys) ? rec.imageKeys.filter((k) => typeof k === 'string') : []; return await this.quarantine(rec, keys.length ? await imagesFor(keys) : (rec.images || {})); } catch (e) { return false; }
+    },
+    // Every set-aside unreadable save, newest first: { key, at, tattoos, name }.
+    async listQuarantine() {
+      if (!db) return [];
+      const box = {}; await tx('readonly', (s) => { const r = s.getAllKeys(); r.onsuccess = () => { box.keys = r.result; }; });
+      const keys = (box.keys || []).filter((k) => typeof k === 'string' && k.startsWith('quarantine:'));
+      const got = keys.length ? await getMany(keys) : {};
+      return keys.map((key) => {
+        const q = got[key] || {}; const st = q.raw && typeof q.raw === 'object' ? (q.raw.state || q.raw) : null;
+        return { key, at: q.at || Number(key.slice(11)) || 0, tattoos: st && Array.isArray(st.tattoos) ? st.tattoos.length : 0, real: st && Array.isArray(st.tattoos) ? st.tattoos.filter((t) => !/\(sample\)$/.test(String((t && t.name) || ''))).length : 0, names: st && Array.isArray(st.tattoos) ? st.tattoos.map((t) => t && t.name).filter(Boolean).slice(0, 4) : [] };
+      }).sort((a, b) => b.at - a.at);
+    },
+    async loadQuarantine(key) {
+      if (!db || typeof key !== 'string' || !key.startsWith('quarantine:')) return null;
+      const q = (await getMany([key]))[key]; if (!q || typeof q !== 'object') return null;
+      const raw = q.raw && typeof q.raw === 'object' ? q.raw : null; if (!raw) return null;
+      const state = raw.state && typeof raw.state === 'object' ? raw.state : raw;
+      let images = q.images && typeof q.images === 'object' ? { ...q.images } : {};
+      const want = Array.isArray(raw.imageKeys) ? raw.imageKeys.filter((k) => typeof images[k] !== 'string') : [];
+      if (want.length) Object.assign(images, await imagesFor(want));
+      return { state, images };
+    },
+    // Pictures by key from anywhere on this device: their own records, then any set-aside save.
+    async findImages(keys) {
+      if (!db || !keys.length) return {};
+      const out = await imagesFor(keys); let left = keys.filter((k) => typeof out[k] !== 'string');
+      if (!left.length) return out;
+      const box = {}; await tx('readonly', (s) => { const r = s.getAllKeys(); r.onsuccess = () => { box.keys = r.result; }; });
+      for (const qk of (box.keys || []).filter((k) => typeof k === 'string' && k.startsWith('quarantine:'))) {
+        const q = (await getMany([qk]))[qk]; const im = q && q.images && typeof q.images === 'object' ? q.images : {};
+        for (const k of left) if (typeof im[k] === 'string' && im[k].startsWith('data:image/')) out[k] = im[k];
+        left = left.filter((k) => typeof out[k] !== 'string'); if (!left.length) break;
+      }
+      return out;
+    },
     // Remove artwork that no project or recovery copy points at any more.
     async gc(liveKeys) {
       if (!db) return 0;
