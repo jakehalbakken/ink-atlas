@@ -210,7 +210,7 @@ const STYLE = `
 #ink-cleanup .ic-field .lbl-row{display:flex;justify-content:space-between;gap:8px}
 #ink-cleanup .ic-field .val{color:var(--ic-text);font-variant-numeric:tabular-nums}
 #ink-cleanup .ic-seg{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;padding:3px;border-radius:12px;background:var(--ic-fill)}
-#ink-cleanup .ic-seg button{min-height:38px;font-size:13px;background:transparent;border-radius:9px;padding:0 8px}
+#ink-cleanup .ic-seg button{min-height:44px;font-size:13px;background:transparent;border-radius:9px;padding:0 8px}
 #ink-cleanup .ic-seg button[aria-pressed=true]{background:var(--ic-on);box-shadow:0 1px 3px rgba(0,0,0,.18)}
 #ink-cleanup .ic-seg-label{font-size:13px;color:var(--ic-muted);margin-bottom:-4px}
 #ink-cleanup .ic-switch{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;font-size:15px;border-top:1px solid var(--ic-line)}

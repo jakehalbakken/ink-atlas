@@ -318,6 +318,8 @@ body:has(#scanBar:not([hidden])) #foot{visibility:hidden}
 #toast{position:fixed;left:50%;top:var(--below);transform:translateX(-50%);padding:10px 14px;display:flex;gap:12px;align-items:center;z-index:6;border-radius:999px}
 /* a message never takes a tap meant for what is under it (the last Share card, a Layers line); only its own button does (2026-11-20) */
 #toast{pointer-events:none}#toast button{pointer-events:auto}
+/* the iPad zooms the whole page in on a text box under 16px: no field anywhere, in any panel, is smaller (2026-11-20) */
+input:not([type=range],[type=checkbox],[type=radio],[type=file],[type=color],[type=button],[type=submit]),select,textarea{font-size:max(16px,1em)!important}
 #toast button{background:none;border:0;color:var(--stencil);font-weight:600;min-height:44px;min-width:44px;padding:0 6px}
 /* Keep turn controls clear of the right-hand actions on tablet widths. */
 #tapPlaceBar{top:var(--below)!important}
