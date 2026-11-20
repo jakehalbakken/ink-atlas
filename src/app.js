@@ -857,7 +857,8 @@ async function flushSave() {
   }
   saving = true; dirty = false;
   try {
-    await store.save(state, usedImages());
+    const res = await store.save(state, usedImages());
+    if (res && res.other && !toldOther) { toldOther = true; toast('This project was also changed in another window. That version is kept in Share > Find my saves.', null, null, 10000); }
     if (!dirty) { setSaved('Saved on this device'); if (account) account.saved(); }
     warnedSave = false;
     if (!askedPersist) { askedPersist = true; store.persist(); }
@@ -869,7 +870,27 @@ async function flushSave() {
   } finally { saving = false; if (saveAgain) { saveAgain = false; flushSave(); } }
 }
 // iPadOS can drop a web page the moment it leaves the screen, so write straight away when that happens.
-document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); else takeNewerSave(); });
+// Back on screen with nothing unsaved here, and the project was saved by another copy of the app in the
+// meantime (another tab, or the home-screen app while this one sat in the background): open that newer
+// save, so a change made here is never made on an older copy (2026-11-20).
+let toldOther = false, takingNewer = false;
+async function takeNewerSave() {
+  if (takingNewer || !store || !store.ok || dirty || saving || saveTimer || guardSave) return;
+  takingNewer = true;
+  try {
+    if (!(await store.changedElsewhere()) || dirty || saving) return;
+    const rec = await store.load(); if (!rec || !rec.state || dirty) return;
+    const sel = selectedId;
+    await openProject(rec.state, rec.images);
+    holdBlank = false; undoStack.length = 0; redoStack.length = 0; refreshUndo();
+    if (sel && state.tattoos.some((t) => t.id === sel)) selectedId = sel;
+    applyShape(); syncDecals(); renderUI(); needsRender = true;
+    setSaved('Saved on this device');
+    toast('Opened the newer save from another window.');
+  } catch (e) { /* the project on screen stays as it was */ } finally { takingNewer = false; }
+}
+addEventListener('focus', () => { takeNewerSave(); }); addEventListener('pageshow', () => { takeNewerSave(); });
 window.addEventListener('pagehide', () => { flushSave(); });
 function keepRecovery(reason) { return store && store.ok && !looksBlank(state) ? store.addRecovery(state, usedImages(), reason).catch(() => false) : Promise.resolve(false); }
 // Replace the working project with a stored one: this device's save, a backup file or a

@@ -24,6 +24,28 @@ export async function openStore() {
   } catch (e) { db = null; }
   const stored = new Set(); // artwork keys known to be on disk
   let index = [];
+  // Which save this page last read or wrote. Another copy of the app open on the device (a second tab, or the
+  // home-screen app resumed with an older project) writes a different one, so a save from here can tell that
+  // its project changed elsewhere and keep that version as an earlier save before writing (2026-11-20).
+  let mine = null;
+  const sidOf = (rec) => (rec && typeof rec === 'object' ? (typeof rec.sid === 'string' ? rec.sid : rec.savedAt ? 't' + rec.savedAt : null) : null);
+  const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const hasWork = (st) => !!st && typeof st === 'object' && ((Array.isArray(st.tattoos) && st.tattoos.some((t) => !/\(sample\)$/.test(String((t && t.name) || '')))) || (Array.isArray(st.regions) && st.regions.length > 0) || (Array.isArray(st.refs) && st.refs.length > 0) || (Array.isArray(st.notes) && st.notes.length > 0) || !!st.paint);
+  // Inside a readwrite transaction: put a copy on the list of earlier saves, read from disk, never from
+  // what this page remembers, so two copies of the app never drop each other's earlier saves.
+  const pushRecovery = (s, state, keys, reason, done) => {
+    const g = s.get('recovery');
+    g.onsuccess = () => {
+      const list = Array.isArray(g.result) ? g.result.filter((r) => r && typeof r.id === 'string') : [];
+      const json = JSON.stringify(state), sig = sigOf(json);
+      if (list.length && list[0].sig === sig) { index = list; done(false); return; }
+      const id = newId(), tattoos = Array.isArray(state.tattoos) ? state.tattoos : [];
+      const next = [{ id, at: Date.now(), reason, tattoos: tattoos.length, real: tattoos.filter((t) => !/\(sample\)$/.test(String((t && t.name) || ''))).length, sig, imageKeys: keys }, ...list];
+      const drop = next.splice(MAX_RECOVERY);
+      s.put({ state: JSON.parse(json), imageKeys: keys }, 'rec:' + id); for (const d of drop) s.delete('rec:' + d.id); s.put(next, 'recovery');
+      index = next; done(true);
+    };
+  };
   const tx = (mode, fn) => new Promise((res, rej) => {
     let t; try { t = db.transaction(STORE, mode); } catch (e) { rej(e); return; }
     t.oncomplete = () => res(); t.onabort = t.onerror = () => rej(t.error || new Error('Storage failed'));
@@ -52,17 +74,39 @@ export async function openStore() {
       if (!db) return null;
       const got = await getMany(['project', 'recovery']);
       index = Array.isArray(got.recovery) ? got.recovery.filter((r) => r && typeof r.id === 'string') : [];
-      const rec = got.project; if (rec == null) return null;
+      const rec = got.project; mine = sidOf(rec); if (rec == null) return null;
       if (typeof rec !== 'object') throw new Error('The save on this device is damaged'); // set aside, never written over
       if (rec.format === 2 && Array.isArray(rec.imageKeys)) return { state: rec.state, images: await imagesFor(rec.imageKeys.filter((k) => typeof k === 'string')), raw: rec };
       return { state: rec.state, images: rec.images && typeof rec.images === 'object' ? rec.images : {}, raw: rec, legacy: true };
     },
     // Resolves only once the project is really on disk; rejects (for example when the device is full) otherwise.
+    // When the project on disk was written by another copy of the app since this page read or wrote it, that
+    // version is kept as an earlier save first ({ other: true }), so neither copy's work is lost.
     async save(state, imgs) {
       if (!db) throw new Error('Storage is off');
       const keys = Object.keys(imgs).filter((k) => typeof imgs[k] === 'string');
-      await tx('readwrite', (s) => { putImages(s, imgs, keys); s.put({ format: 2, state, imageKeys: keys, savedAt: Date.now() }, 'project'); });
-      keys.forEach((k) => stored.add(k));
+      const sid = newId(); let other = false;
+      await tx('readwrite', (s) => {
+        putImages(s, imgs, keys);
+        const g = s.get('project');
+        g.onsuccess = () => {
+          const cur = g.result, write = () => s.put({ format: 2, state, imageKeys: keys, savedAt: Date.now(), sid }, 'project');
+          const theirs = sidOf(cur);
+          if (theirs && theirs !== mine && cur && typeof cur === 'object' && hasWork(cur.state)) {
+            const ks = new Set(Array.isArray(cur.imageKeys) ? cur.imageKeys.filter((k) => typeof k === 'string') : []);
+            try { for (const k of imageKeysFor(cur.state)) ks.add(k); } catch (e) { /* keeps what it lists */ }
+            pushRecovery(s, cur.state, [...ks], 'Saved in another window', (kept) => { other = kept; write(); });
+          } else write();
+        };
+      });
+      mine = sid; keys.forEach((k) => stored.add(k));
+      return { other };
+    },
+    // True when the project on disk is not the one this page last read or wrote: another copy of the app saved it.
+    async changedElsewhere() {
+      if (!db) return false;
+      const rec = (await getMany(['project'])).project; const theirs = sidOf(rec);
+      return !!theirs && theirs !== mine;
     },
     listRecovery() { return index.map((r) => ({ id: r.id, at: r.at, reason: r.reason, tattoos: r.tattoos })); },
     // Keep a copy to go back to. Skipped when it would be identical to the newest copy.
@@ -71,11 +115,9 @@ export async function openStore() {
       const json = JSON.stringify(state), sig = sigOf(json);
       if (index.length && index[0].sig === sig) return false;
       const keys = imageKeysFor(state).filter((k) => typeof imgs[k] === 'string');
-      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-      const next = [{ id, at: Date.now(), reason, tattoos: Array.isArray(state.tattoos) ? state.tattoos.length : 0, real: Array.isArray(state.tattoos) ? state.tattoos.filter((t) => !/\(sample\)$/.test(String((t && t.name) || ''))).length : 0, sig, imageKeys: keys }, ...index];
-      const drop = next.splice(MAX_RECOVERY);
-      await tx('readwrite', (s) => { putImages(s, imgs, keys); s.put({ state: JSON.parse(json), imageKeys: keys }, 'rec:' + id); for (const d of drop) s.delete('rec:' + d.id); s.put(next, 'recovery'); });
-      keys.forEach((k) => stored.add(k)); index = next; return true;
+      let added = false;
+      await tx('readwrite', (s) => { putImages(s, imgs, keys); pushRecovery(s, JSON.parse(json), keys, reason, (kept) => { added = kept; }); });
+      keys.forEach((k) => stored.add(k)); return added;
     },
     async loadRecovery(id) {
       if (!db) return null;
