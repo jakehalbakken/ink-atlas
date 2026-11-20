@@ -51,7 +51,7 @@ export default async function (p) {
   const ics = await p.evaluate(async () => { const k = Object.keys(window.saved).find((n) => /\.ics$/.test(n)); return k ? (await window.saved[k].text()).replace(/\r\n /g, '') : ''; });
   assert.ok(ics.includes('For the sitting: wear a top you can take off or open\\, like a button-up\\, so the spot is open. For the first few nights after each sitting\\, sleep on your back so the fresh ink isn\'t pressed.'), 'in the calendar: ' + ics.slice(0, 900));
   // ink already on: no sittings, so no line
-  await p.click('#bStatus'); await wait(500);
+  await p.click('#statusSeg .btn[aria-pressed=false]'); await wait(500);
   assert.equal(await p.$eval('#sitBox', (e) => e.hidden), true, 'no planner for ink already on');
   console.log('PASS t91-sit-wear: ' + Object.entries(seen).map(([k, v]) => k + ': ' + v + ' ' + sleeps[k]).join(' | '));
 }

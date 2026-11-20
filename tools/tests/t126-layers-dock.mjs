@@ -51,9 +51,9 @@ export default async function (p) {
   assert.equal(await p.$eval(`#ldList .ld-row[data-id="${b}"]`, (e) => e.classList.contains('on')), true, 'its line is marked');
   assert.equal(overlap(await box('#sheet'), await box('#layersDock')), false, 'edit panel clear of the layers');
   // make the second one ink already on me
-  await p.$eval('#bStatus', (e) => e.click()); await wait(300);
+  await p.$eval('#statusSeg .btn[aria-pressed=false]', (e) => e.click()); await wait(300);
   assert.equal(await p.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).status, b), 'existing');
-  assert.match(await p.$eval(`#ldList .ld-row[data-id="${b}"] small`, (e) => e.textContent), /On me/);
+  assert.match(await p.$eval(`#ldList .ld-row[data-id="${b}"] small`, (e) => e.textContent), /On my skin/);
   await p.click('#bDone'); await wait(300);
 
   // Hide planned / Hide existing: only the screen changes

@@ -8,7 +8,7 @@ assert.equal(w([t()], [t({ pos: [0.01, 1, 0.1], normal: [0.1, 0, 1] })]), 'movin
 assert.equal(w([t()], [t({ width: 0.12 })]), 'resizing Rose');
 assert.equal(w([t()], [t({ rot: 0.2 })]), 'turning Rose');
 assert.equal(w([t()], [t({ wrap: 0.4 })]), 'the wrap on Rose');
-assert.equal(w([t()], [t({ status: 'existing' })]), 'marking Rose as already on you');
+assert.equal(w([t()], [t({ status: 'existing' })]), 'marking Rose as on your skin');
 assert.equal(w([t({ status: 'existing' })], [t()]), 'marking Rose as planned');
 assert.equal(w([t()], [t({ hidden: true })]), 'hiding Rose');
 assert.equal(w([t()], [t({ locked: true })]), 'locking Rose');

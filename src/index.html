@@ -118,6 +118,7 @@ body.views-low #views{position:fixed;left:50%;transform:translateX(-50%);top:var
 #foot{position:fixed;left:0;right:var(--layers-w,0px);bottom:var(--kb,0px);display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 16px calc(16px + env(safe-area-inset-bottom,0px));pointer-events:none}
 #foot>#empty{pointer-events:auto}#adds[hidden]{display:none}
 #empty .row{gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center}
+#statusSeg{display:grid;grid-template-columns:1fr 1fr;margin:2px 0 4px}#statusSeg .btn{min-height:44px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:15px;color:var(--muted)}#statusSeg .btn svg{flex:none;opacity:.75}#statusSeg .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);box-shadow:0 1px 3px rgba(0,0,0,.25);--st-tick:var(--stencil)}#statusSeg .btn[aria-pressed=true] svg{opacity:1}#statusSeg .btn[aria-pressed=false]:hover{color:var(--text)}body.comment-only #statusSeg{pointer-events:none}body.comment-only #statusSeg .btn[aria-pressed=false]{display:none}body.comment-only #statusSeg{grid-template-columns:1fr}
 #bSheetMin{flex:none;width:44px;padding:0;color:var(--muted)}#bSheetMin svg{transition:transform .2s ease}#sheet.min #bSheetMin svg{transform:rotate(180deg)}
 #sheet.min>*:not(.row:first-child),#sheet.min #size,#sheet.min #gap{display:none!important}#sheet.min{overflow:hidden}
 #viewLock{min-width:44px;width:44px;padding:0}#viewLock .vl-shut,#viewLock[aria-pressed=true] .vl-open{display:none}#viewLock[aria-pressed=true] .vl-shut{display:block}#viewLock[aria-pressed=true]{color:var(--on-accent,#fff)!important;background:var(--stencil)!important}
@@ -642,6 +643,7 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
       <button class="btn quiet ico" id="bSheetMin" type="button" aria-expanded="true" aria-label="Fold the panel down" title="Fold the panel down"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
       <button class="btn primary" id="bDone" type="button">Done</button>
     </div>
+    <div class="seg st-seg" id="statusSeg" role="group" aria-label="This tattoo is"><button class="btn" id="bOnSkin" type="button" data-status="existing" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor" opacity=".9"/><path d="m8 12.5 2.6 2.6L16.2 9.5" fill="none" stroke="var(--st-tick,var(--surface-solid))" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>On my skin</span></button><button class="btn" id="bPlanned" type="button" data-status="planned" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/></svg><span>Planned</span></button></div>
     <p id="review" hidden></p>
     <div id="approveRow" class="row" role="group" aria-label="Your answer on this tattoo" hidden><button class="btn" id="bApprove" type="button">Looks good</button><button class="btn" id="bAskChange" type="button" aria-expanded="false">Ask for a change</button><button class="btn quiet" id="bUnreview" type="button" hidden>Take back</button><button class="btn" id="bSuggest" type="button" hidden>Suggest a new spot</button><button class="btn" id="bApproveAll" type="button" hidden>Looks good on all</button></div>
     <div id="changeBox" hidden><textarea id="changeNote" maxlength="300" rows="2" aria-label="What should change" placeholder="What should change? Like: move it up an inch"></textarea><div class="row"><button class="btn primary" id="bSendChange" type="button">Save</button><button class="btn" id="bCancelChange" type="button">Cancel</button></div></div>
@@ -713,7 +715,6 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
       <button class="btn" id="bStencil" type="button">Stencil for your artist</button>
     </div></section>
     <section class="sec"><h5>This tattoo</h5><div class="grid">
-      <button class="btn" id="bStatus" type="button">Planned</button>
       <button class="btn" id="bHide" type="button">Hide</button>
       <button class="btn danger" id="bDel" type="button">Remove</button>
     </div></section>
