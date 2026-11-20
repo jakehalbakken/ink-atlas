@@ -65,6 +65,7 @@ try {
     // Crop: the box drawn sits exactly between the two fingers' points, and Crop keeps that piece
     await tool('crop'); const c0 = await screenOf(60, 50), c1 = await screenOf(260, 210);
     await p.touchscreen.touchStart(c0.x, c0.y); for (let i = 1; i <= 8; i++) await p.touchscreen.touchMove(c0.x + (c1.x - c0.x) * i / 8, c0.y + (c1.y - c0.y) * i / 8);
+    await wait(); // Chrome hands a move on at the next frame, so let the last one land before reading the box
     const box = await p.$eval('.ic-cropbox', n => { const r = n.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom }; });
     await p.touchscreen.touchEnd(); await wait();
     near(box.l, c0.x, 1.5, 'crop box left edge at the first finger point'); near(box.t, c0.y, 1.5, 'crop box top at the first finger point');

@@ -31,7 +31,19 @@ export async function openStore() {
   });
   const getMany = async (keys) => { const out = {}; await tx('readonly', (s) => { for (const k of keys) { const r = s.get(k); r.onsuccess = () => { out[k] = r.result; }; } }); return out; };
   const imagesFor = async (keys) => { const got = await getMany(keys.map((k) => 'img:' + k)); const images = {}; for (const k of keys) { const v = got['img:' + k]; if (typeof v === 'string') { images[k] = v; stored.add(k); } } return images; };
-  const putImages = (s, imgs, keys) => { for (const k of keys) if (!stored.has(k)) s.put(imgs[k], 'img:' + k); };
+  // A picture this page already wrote is checked, not trusted: another copy of the app open on the same
+  // device (a second tab, the home-screen app and Safari) can have removed it since, and a save that
+  // only named it would then point at nothing (2026-11-20).
+  const putImages = (s, imgs, keys) => { for (const k of keys) { if (!stored.has(k)) { s.put(imgs[k], 'img:' + k); continue; } const c = s.count('img:' + k); c.onsuccess = () => { if (!c.result) s.put(imgs[k], 'img:' + k); }; } };
+  // Every picture key a stored record names: the project, each earlier save, the list of them and each set-aside save.
+  const namedBy = (key, v, into) => {
+    if (!v || typeof v !== 'object') return;
+    const add = (ks) => { if (Array.isArray(ks)) for (const k of ks) if (typeof k === 'string') into.add(k); };
+    const scan = (st) => { if (st && typeof st === 'object') { try { add(imageKeysFor(st)); } catch (e) { /* an odd record still keeps what it lists */ } } };
+    if (key === 'recovery') { if (Array.isArray(v)) for (const r of v) add(r && r.imageKeys); return; }
+    add(v.imageKeys); scan(v.state);
+    if (key.startsWith('quarantine:') && v.raw && typeof v.raw === 'object') { add(v.raw.imageKeys); scan(v.raw.state || v.raw); if (v.raw.images && typeof v.raw.images === 'object') add(Object.keys(v.raw.images)); }
+  };
 
   return {
     ok: !!db,
@@ -111,14 +123,24 @@ export async function openStore() {
       }
       return out;
     },
-    // Remove artwork that no project or recovery copy points at any more.
+    // Remove artwork that nothing stored on this device names any more. Read and removed in one
+    // transaction, from what is on disk at that moment (never from what this page remembers), so a
+    // save made by another copy of the app, or an earlier save this page has not listed, keeps its pictures.
     async gc(liveKeys) {
       if (!db) return 0;
-      const keep = new Set(liveKeys); for (const r of index) for (const k of r.imageKeys || []) keep.add(k);
-      const box = {}; await tx('readonly', (s) => { const r = s.getAllKeys(); r.onsuccess = () => { box.keys = r.result; }; });
-      const dead = (box.keys || []).filter((k) => typeof k === 'string' && k.startsWith('img:') && !keep.has(k.slice(4)));
-      if (dead.length) { await tx('readwrite', (s) => { for (const k of dead) s.delete(k); }); dead.forEach((k) => stored.delete(k.slice(4))); }
-      return dead.length;
+      let removed = 0;
+      await tx('readwrite', (s) => {
+        const keep = new Set(liveKeys); for (const r of index) for (const k of r.imageKeys || []) keep.add(k);
+        const all = s.getAllKeys();
+        all.onsuccess = () => {
+          const keys = (all.result || []).filter((k) => typeof k === 'string');
+          const holders = keys.filter((k) => k === 'project' || k === 'recovery' || k.startsWith('rec:') || k.startsWith('quarantine:'));
+          const sweep = () => { for (const k of keys) if (k.startsWith('img:') && !keep.has(k.slice(4))) { s.delete(k); stored.delete(k.slice(4)); removed++; } };
+          let left = holders.length; if (!left) { sweep(); return; }
+          for (const h of holders) { const g = s.get(h); g.onsuccess = () => { namedBy(h, g.result, keep); if (--left === 0) sweep(); }; }
+        };
+      });
+      return removed;
     },
     // Ask the browser not to clear this site's data when the device runs low.
     async persist() { try { return !!(navigator.storage && navigator.storage.persist && await navigator.storage.persist()); } catch (e) { return false; } },

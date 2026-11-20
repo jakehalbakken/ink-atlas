@@ -880,6 +880,9 @@ async function openProject(rawState, imgs) {
   const c = cleanState(rawState, (k) => typeof imgs[k] === 'string' && imgs[k].startsWith('data:image'));
   for (const k of imageKeysFor(c.state)) if (!images[k] && typeof imgs[k]==='string' && imgs[k].startsWith('data:image/')) images[k] = imgs[k];
   await Promise.all(c.state.tattoos.map((t) => loadImg(t.img)));
+  // a picture that is there but did not open at the first go (an iPad short of memory while it opens
+  // many at once) gets one more try on its own before its piece is left out
+  for (const t of c.state.tattoos) if (!imgEls[t.img] && typeof images[t.img] === 'string') await loadImg(t.img);
   const usable = c.state.tattoos.filter((t) => imgEls[t.img]);
   const dropped = c.dropped + c.state.tattoos.length - usable.length;
   if (!usable.length && rawState.tattoos.length) throw new Error('No usable artwork'); // never swap a real project for an empty one
@@ -2815,6 +2818,7 @@ const SHOW = {
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
   lostPics: () => { const t = state.tattoos.find(isLost); if (!t) { toggle('#share', true); return ['#cRecover', 'When a tattoo\'s picture is lost, it shows as Artwork missing in its place. Tap it for Replace picture and Look again.']; } select(t.id, true); return ['#bReplacePic', 'Replace picture puts a picture from Photos or Files on this tattoo in the same place and width. Look again searches this device and your account.']; },
+  panelTidy: () => { const t = needTattoo(); if (!t) return null; layersDock.setOpen(true, true); $('#editorAdvanced').open = true; return ['#bDone', 'Done, the bin and the name stay at the top of this panel while you scroll it. The sliders above each get the whole width.']; },
   findSaves: () => { toggle('#share', true); return ['#cRecover', 'Every copy of your work kept on this device, including a save that could not be opened, with one tap to open it. Undo brings back what was on screen.']; },
   bodyScan: () => { toggle('#bodyPop', true); return ['#scanBtn', 'Pick a 3D scan of yourself from Files, a GLB, OBJ or USDZ from Scaniverse or Polycam, and the body moves onto it. How to scan yourself is just under it.']; },
   measureMe: () => { toggle('#bodyPop', true); return ['#measureMeBtn', 'Measure me takes you through each tape measurement with a drawing of where it goes, then fits the body to all of them.']; },
@@ -6387,7 +6391,7 @@ function tick(now) {
   skinMat.color.set(skinColor());
   syncDecals(); renderUI();
   // a fresh project is not written at start: it would replace a save that only failed to open this once
-  if (store.ok) { if (opened || !note) { save(); if (opened) store.gc(Object.keys(usedImages())).catch(() => 0); } else setSaved('Not saved yet, so the save already on this device is kept'); } else setSaved('Not saved: storage is off in this view', true);
+  if (store.ok) { if (opened || !note) { save(); if (opened && !note && !looksBlank(state)) store.gc(Object.keys(usedImages())).catch(() => 0); } else setSaved('Not saved yet, so the save already on this device is kept'); } else setSaved('Not saved: storage is off in this view', true);
   if (note) toast(note, 'Find my saves', openFindSaves, 12000);
   else if (store.ok && looksBlank(state)) offerFindSaves();
   let seen = false; try { seen = localStorage.getItem('ia-coach') === '1'; } catch (e) { /* no storage */ }

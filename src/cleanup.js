@@ -201,6 +201,7 @@ const STYLE = `
 #ink-cleanup .ic-src::before,#ink-cleanup .ic-src::after{content:'';position:absolute;left:50%;top:50%;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
 #ink-cleanup .ic-src::before{width:18px;height:1.5px;margin:-.75px 0 0 -9px}#ink-cleanup .ic-src::after{width:1.5px;height:18px;margin:-9px 0 0 -.75px}
 #ink-cleanup .ic-opts{background:var(--ic-card);border-radius:20px;padding:12px 16px;display:grid;gap:10px;align-content:start;height:min(34vh,268px);overflow:auto;touch-action:pan-y;overscroll-behavior:contain}
+@media (orientation:portrait) and (min-height:900px){#ink-cleanup .ic-opts{height:min(34vh,380px)}} /* a tall iPad has room to show a tool's settings without scrolling the card */
 #ink-cleanup .ic-sec,#ink-cleanup .ic-refine{display:grid;gap:10px}#ink-cleanup .ic-refine{padding-bottom:8px}#ink-cleanup .ic-sec[hidden]{display:none}
 #ink-cleanup .ic-hint{margin:0;font-size:13px;color:var(--ic-muted)}
 #ink-cleanup .ic-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -358,7 +359,8 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const hostK = () => { const r = host.getBoundingClientRect(); return host.offsetWidth ? r.width / host.offsetWidth || 1 : 1; };
     const toStage = (x, y) => { const s = stage.getBoundingClientRect(), k = hostK(); return { x: (x - s.left) / k, y: (y - s.top) / k }; };
     const workToStage = (x, y) => { const r = view.getBoundingClientRect(); return toStage(r.left + x * r.width / work.width, r.top + y * r.height / work.height); };
-    const say = (text, hold = false) => { status.textContent = text; status.classList.toggle('on', !!text); clearTimeout(statusTimer); if (text && !hold) statusTimer = setTimeout(() => status.classList.remove('on'), 4200); };
+    let openingHint = false; // the first-open hint names one tool, so it goes when another tool is picked
+    const say = (text, hold = false) => { openingHint = false; status.textContent = text; status.classList.toggle('on', !!text); clearTimeout(statusTimer); if (text && !hold) statusTimer = setTimeout(() => status.classList.remove('on'), 4200); };
     const setImage = image => { const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight)); work.width = Math.max(1, Math.round(image.naturalWidth * scale)); work.height = Math.max(1, Math.round(image.naturalHeight * scale)); wctx.drawImage(image, 0, 0, work.width, work.height); original.width = work.width; original.height = work.height; original.getContext('2d').drawImage(work, 0, 0); full.width = baseline.width = work.width; full.height = baseline.height = work.height; full.getContext('2d').drawImage(work, 0, 0); baseline.getContext('2d').drawImage(work, 0, 0); rect = { x: 0, y: 0, w: work.width, h: work.height }; };
     const merge = () => { const ctx = full.getContext('2d'); ctx.clearRect(rect.x, rect.y, rect.w, rect.h); ctx.drawImage(work, rect.x, rect.y); };
     const capture = () => ({ fw: full.width, fh: full.height, full: full.getContext('2d').getImageData(0, 0, full.width, full.height), baseline: baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height), rect: { ...rect }, w: work.width, h: work.height, pixels: wctx.getImageData(0, 0, work.width, work.height), original: original.getContext('2d').getImageData(0, 0, original.width, original.height), sel, ref: { ...ref }, float: float ? { ...float, T: { ...float.T } } : null });
@@ -843,7 +845,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       stage.style.cursor = brushMode() && !(m === 'clone' && pickingSource) ? 'none' : m === 'crop' || m === 'select' || m === 'wand' || m === 'clone' ? 'crosshair' : m === 'move' ? 'move' : m === 'adjust' ? 'grab' : 'pointer';
       ring.style.display = 'none'; closeHistory(); draw(); placeSource();
     };
-    host.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.mode)));
+    host.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { const hint = openingHint; setTool(b.dataset.mode); if (hint && openingHint) say(''); }));
 
     const hideConfirm = () => { confirmBox.hidden = true; };
     const finish = result => { if (settled) return; settled = true; if (livePending) cancelAnimationFrame(livePending); document.removeEventListener('keydown', keyOutside, true); document.removeEventListener('paste', onPaste, true); window.removeEventListener('blur', cancelStroke); observer.disconnect(); host.remove(); previousFocus?.focus?.(); resolve(result); };
@@ -1124,7 +1126,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const edge = session ? 'clear' : edgeKind(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height), paper = edge === 'paper' || edge === 'white';
     if (paper) { const level = paperLevel(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height); if (level != null) $('#ic-threshold').value = Math.max(150, Math.min(235, level - 8)); }
     setTool(options.tool && TOOLS.some(t => t[0] === options.tool) ? options.tool : paper ? 'color' : edge === 'opaque' ? 'cutout' : 'erase');
-    say(session ? 'Picked up where you left off.' : paper ? 'This picture is on paper. Remove white paper, or tap the background to take that colour away.' : edge === 'opaque' ? 'Tap the design to cut it out of the photo. Pick another tool below if you need it.' : 'Drag to erase. Pick a tool below for more.');
+    say(session ? 'Picked up where you left off.' : paper ? 'This picture is on paper. Remove white paper, or tap the background to take that colour away.' : edge === 'opaque' ? 'Tap the design to cut it out of the photo. The other tools are at the left.' : 'Drag to erase. The other tools are at the left.'); openingHint = true;
     button('cancel').focus({ preventScroll: true });
   });
 }
