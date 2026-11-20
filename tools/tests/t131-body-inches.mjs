@@ -46,12 +46,14 @@ export default async function (p) {
   assert.ok(Math.abs(await inch('upperArmSize') - arm0) < 0.06, 'undo puts the number back');
 
   // tap and type a number: the body measures that
-  await p.click('.mval[data-m=upperArmSize]'); await wait(200);
-  assert.ok(await p.$('input.mval'), 'a box to type in');
-  assert.equal(await p.$eval('input.mval', (e) => parseFloat(getComputedStyle(e).fontSize)), 16, 'the box does not zoom the page');
+  // (since 2026-11-20 our own number pad, so the iPad keyboard never comes up; t133 checks the pad)
+  const padKeys = async (keys) => { for (const k of keys) await p.$eval(`#measurePad [data-key="${k}"]`, (b) => b.click()); };
+  const padDone = () => p.$eval('#measurePad .np-done', (b) => b.click());
+  await p.click('.mval[data-m=upperArmSize]'); await p.waitForSelector('#measurePad'); await wait(300);
+  assert.equal(await p.$$eval('#bodyPop input:not([type=file])', (a) => a.length), 0, 'no text box, so no keyboard');
   const want = Math.round((arm0 + 1.25) * 4) / 4 + 0.0001;
-  await p.keyboard.down('Control'); await p.keyboard.press('a'); await p.keyboard.up('Control');
-  await p.keyboard.type(`${Math.floor(want)} ${Math.round((want % 1) * 4)}/4`); await p.keyboard.press('Enter');
+  const q = Math.round((want % 1) * 4);
+  await padKeys([...String(Math.floor(want)), ...(q ? [['', '¼', '½', '¾'][q]] : [])]); await padDone();
   await p.waitForFunction(() => !/Matching/.test(document.querySelector('.mval[data-m=upperArmSize]').textContent) && window.__ink.state().measured, { timeout: 30000 });
   await wait(500);
   const typed = parseInches(`${Math.floor(want)} ${Math.round((want % 1) * 4)}/4`);
@@ -73,9 +75,8 @@ export default async function (p) {
 
   // a second measurement keeps the first one matched
   const wrist = Math.round(((await inch('wristSize')) + 0.4) * 10) / 10;
-  await p.click('.mval[data-m=wristSize]'); await wait(200);
-  await p.keyboard.down('Control'); await p.keyboard.press('a'); await p.keyboard.up('Control');
-  await p.keyboard.type(`${(wrist * 2.54).toFixed(1)} cm`); await p.keyboard.press('Enter');
+  await p.click('.mval[data-m=wristSize]'); await p.waitForSelector('#measurePad'); await wait(200);
+  await p.$eval('#measurePad [data-unit=cm]', (b) => b.click()); await padKeys([...(wrist * 2.54).toFixed(1)]); await padDone();
   await p.waitForFunction(() => window.__ink.state().measured && window.__ink.state().measured.wristSize, { timeout: 30000 }); await wait(600);
   assert.ok(Math.abs(await inch('wristSize') - wrist) < 0.11, 'cm typed: ' + (await read('wristSize')) + ' vs ' + wrist);
   assert.ok(Math.abs(await inch('upperArmSize') - typed) < 0.11, 'the upper arm still measures what was typed');
@@ -89,30 +90,29 @@ export default async function (p) {
   assert.equal(s3, old, 'and then the arm: exactly the project before');
 
   // past the slider's reach
-  await p.click('.mval[data-m=wristSize]'); await wait(200);
-  await p.keyboard.down('Control'); await p.keyboard.press('a'); await p.keyboard.up('Control');
-  await p.keyboard.type('15'); await p.keyboard.press('Enter');
+  await p.click('.mval[data-m=wristSize]'); await p.waitForSelector('#measurePad'); await wait(200);
+  await padKeys(['1', '5']); await padDone();
   await p.waitForFunction(() => /goes up to/.test(document.querySelector('#toast').textContent), { timeout: 30000 });
   assert.match(await p.$eval('#toast', (e) => e.textContent), /Wrist goes up to \d+\.\d in on this body\. More Muscle or Weight/);
   await p.click('#undo'); await wait(700);
   assert.equal(await p.evaluate(() => JSON.stringify(window.__ink.state())), old, 'undo again');
 
   // nonsense is refused without changing anything
-  await p.click('.mval[data-m=calfSize]'); await wait(200);
-  await p.keyboard.down('Control'); await p.keyboard.press('a'); await p.keyboard.up('Control');
-  await p.keyboard.type('lots'); await p.keyboard.press('Enter'); await wait(300);
+  await p.click('.mval[data-m=calfSize]'); await p.waitForSelector('#measurePad'); await wait(200);
+  await padKeys(['.', '2']); await padDone(); await wait(300);
   assert.match(await p.$eval('#toast', (e) => e.textContent), /Type a number of inches/);
   assert.equal(await p.evaluate(() => JSON.stringify(window.__ink.state())), old, 'nothing changed');
   // Escape leaves it as it was
-  await p.click('.mval[data-m=calfSize]'); await wait(200); await p.keyboard.type('20'); await p.keyboard.press('Escape'); await wait(300);
+  await p.$eval('#measurePad .np-cancel', (b) => b.click()); await wait(200);
+  await p.click('.mval[data-m=calfSize]'); await p.waitForSelector('#measurePad'); await wait(200); await p.keyboard.type('20'); await p.keyboard.press('Escape'); await wait(300);
   assert.equal(await p.evaluate(() => JSON.stringify(window.__ink.state())), old, 'Escape changes nothing');
 
   // type the height: the tattoo keeps its real size in inches
   const realW = (s) => { const t = s.tattoos.find((x) => x.id === id); return t.width * s.heightCm / 175; };
   const before = JSON.parse(old);
   await p.evaluate(() => document.querySelector('#hText').scrollIntoView({ block: 'center' }));
-  await p.click('#hText'); await wait(200);
-  await p.keyboard.type(`6' 1"`); await p.keyboard.press('Enter'); await wait(800);
+  await p.click('#hText'); await p.waitForSelector('#measurePad'); await wait(200);
+  await p.keyboard.type(`6'1"`); await p.keyboard.press('Enter'); await wait(800);
   const s4 = await p.evaluate(() => JSON.parse(JSON.stringify(window.__ink.state())));
   assert.ok(Math.abs(s4.heightCm - 185.4) < 0.11, 'height typed: ' + s4.heightCm);
   assert.ok(Math.abs(realW(s4) - realW(before)) < 1e-6, 'the tattoo is the same real size');

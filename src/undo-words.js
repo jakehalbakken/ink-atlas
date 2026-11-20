@@ -29,6 +29,10 @@ export function changeWords(before, after) {
   if (added.length && !removed.length) return added.length === 1 ? `adding ${B.get(added[0]).name || 'a tattoo'}` : `adding ${added.length} tattoos`;
   if (removed.length && !added.length) return removed.length === 1 ? `removing ${A.get(removed[0]).name || 'a tattoo'}` : `removing ${removed.length} tattoos`;
   if (added.length || removed.length) return 'the change to the tattoos';
+  // a body change re-pins every tattoo to the same skin, so it moves them all; the body is the step
+  const body = (k) => !same(before[k], after[k]);
+  if (['fit', 'muscle', 'weight', 'figure', 'genitals', 'measured'].some(body)) return 'the body shape';
+  if (body('heightCm')) return 'the height';
   if (changed.length === 1) return oneTattoo(A.get(changed[0]), B.get(changed[0]));
   if (changed.length > 1) {
     // all of them moved or changed the same way, like a layout switch or a group move
