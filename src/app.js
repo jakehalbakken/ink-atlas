@@ -1827,6 +1827,8 @@ async function cleanupSelected(linked=false) {
   if (!result) return;
   if (result.used?.includes('select')) markTried('cleanupSelect');
   if (result.used?.includes('move')) markTried('cleanupMove');
+  // the Photoshop-style tools tick themselves in New to try when they are used
+  for (const [use, id] of [['wand', 'cleanupWand'], ['refine', 'cleanupWand'], ['background', 'cleanupBackground'], ['adjust', 'cleanupAdjust'], ['clone', 'cleanupClone'], ['history', 'cleanupHistory'], ['erase', 'cleanupBrushes'], ['restore', 'cleanupBrushes']]) if (result.used?.includes(use)) markTried(id);
   if (typeof result.linked === 'boolean') linked = result.linked;
   const current = state.tattoos.find(x => x.id === id);
   if (!current || current.img !== prior) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
@@ -2847,7 +2849,7 @@ const SHOW = {
   realSize: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bRealSize', 'Real size on screen shows it at its true size. Hold the iPad to your skin.']; },
   handles: () => { if (!needTattoo()) return null; return ['#hSize', 'Drag this corner to resize. Drag the dot above the tattoo to turn it.']; },
   palette: () => { toggle('#share', true); paletteReady = buildPalette(); return ['#cSwatches', 'Saves your skin and ink colours as a palette Procreate opens.']; },
-  cleanup: () => { if (!needTattoo()) return null; return ['#bCleanup', 'Opens the cleanup. Pick a tool at the bottom, pinch to zoom, and tap Done when it looks right.']; },
+  cleanup: () => { if (!needTattoo()) return null; return ['#bCleanup', 'Opens the cleanup. Pick a tool on the left, pinch to zoom, and tap Done when it looks right.']; },
   editProcreate: () => { if (!needTattoo()) return null; return ['#bProcreate', 'Sends this tattoo to Procreate. Copy All there, then tap Paste here.']; },
   pan: () => [null, 'Put two fingers on the screen away from a tattoo and slide them to move the view. Twist clearly to turn it.'],
 };

@@ -159,6 +159,7 @@ const STYLE = `
 #ink-cleanup .ic-note{display:block;font-size:12px;color:var(--ic-muted)}
 @media (max-width:700px){#ink-cleanup .ic-title{display:none}}
 #ink-cleanup .ic-confirm{position:absolute;left:0;top:52px;z-index:5;width:260px;background:var(--surface-solid,#1b1d24);border-radius:16px;padding:14px;box-shadow:var(--shadow,0 12px 34px rgba(0,0,0,.4));display:grid;gap:8px;animation:ic-pop .18s ease-out;transform-origin:top left}
+#ink-cleanup [hidden]{display:none!important}
 #ink-cleanup .ic-confirm p{margin:0 0 4px;font-size:15px;font-weight:600}
 #ink-cleanup .ic-confirm button{width:100%}
 @keyframes ic-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}
@@ -601,7 +602,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     // Photoshop; Light shades kept, Background range and Darker lines keep their value.
     const ADJ_SLIDERS = { light: ['#ic-bright', '#ic-con'], levels: ['#ic-lv-black', '#ic-lv-gamma', '#ic-lv-white'], threshold: [], sharpen: ['#ic-sh-amount'], blur: ['#ic-bl-radius'] };
     const LIVE_LABEL = { paper: 'White paper', bg: 'Background', lines: 'Darker lines', light: 'Brightness and contrast', levels: 'Levels', curves: 'Curves', threshold: 'Threshold', sharpen: 'Sharpen', blur: 'Blur' };
-    let curvePts = [{ x: 0, y: 0 }, { x: 255, y: 255 }];
+    let curvePts = [{ x: 0, y: 0 }, { x: 255, y: 255 }]; const CURVE_PAD = 0.04;
     const resetAdjust = kind => {
       for (const id of ADJ_SLIDERS[kind] || []) { const n = $(id); n.value = n.getAttribute('default'); }
       if (kind === 'curves') { curvePts = [{ x: 0, y: 0 }, { x: 255, y: 255 }]; drawCurve(); }
@@ -721,10 +722,11 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     };
     for (const id of ['#ic-lv-black', '#ic-lv-white']) $(id).addEventListener('input', () => requestAnimationFrame(drawHistogram));
     const drawCurve = () => {
-      const c = $('[data-curve]'), g = c.getContext('2d'), W = c.width, H = c.height, X = v => v / 255 * W, Y = v => H - v / 255 * H;
-      g.clearRect(0, 0, W, H); g.strokeStyle = cssVar('--ic-line', 'rgba(128,128,128,.35)'); g.lineWidth = 1;
+      // the plot sits CURVE_PAD in from each side, so the end points show whole
+      const c = $('[data-curve]'), g = c.getContext('2d'), P = CURVE_PAD * c.width, W = c.width - 2 * P, H = c.height - 2 * P, X = v => P + v / 255 * W, Y = v => P + H - v / 255 * H;
+      g.clearRect(0, 0, c.width, c.height); g.save(); g.translate(P, P); g.strokeStyle = cssVar('--ic-line', 'rgba(128,128,128,.35)'); g.lineWidth = 1;
       for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(i * W / 4, 0); g.lineTo(i * W / 4, H); g.moveTo(0, i * H / 4); g.lineTo(W, i * H / 4); g.stroke(); }
-      g.beginPath(); g.moveTo(0, H); g.lineTo(W, 0); g.setLineDash([6, 6]); g.stroke(); g.setLineDash([]);
+      g.beginPath(); g.moveTo(0, H); g.lineTo(W, 0); g.setLineDash([6, 6]); g.stroke(); g.setLineDash([]); g.restore();
       const lut = curveLut(curvePts); g.strokeStyle = cssVar('--ic-text', '#fff'); g.lineWidth = 3; g.beginPath();
       for (let i = 0; i < 256; i++) i ? g.lineTo(X(i), Y(lut[i])) : g.moveTo(X(i), Y(lut[i])); g.stroke();
       for (const q of curvePts) { g.beginPath(); g.arc(X(q.x), Y(q.y), 11, 0, Math.PI * 2); g.fillStyle = cssVar('--ic-text', '#fff'); g.fill(); g.lineWidth = 2; g.strokeStyle = 'rgba(0,0,0,.55)'; g.stroke(); }
@@ -732,8 +734,8 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     {
       // the curve: drag a point, tap the line to add one, double-tap a point (or drag it off the side) to take it off
       const c = $('[data-curve]'); let drag = null, lastTap = { at: 0, i: -1 };
-      const at = e => { const r = c.getBoundingClientRect(); return { x: Math.max(0, Math.min(255, (e.clientX - r.left) / r.width * 255)), y: Math.max(0, Math.min(255, 255 - (e.clientY - r.top) / r.height * 255)) }; };
-      const near = q => { const r = c.getBoundingClientRect(), slop = 26 * 255 / Math.max(1, r.width); let best = -1, d = slop; curvePts.forEach((p, i) => { const k = Math.hypot(p.x - q.x, p.y - q.y); if (k < d) { d = k; best = i; } }); return best; };
+      const at = e => { const r = c.getBoundingClientRect(), px = CURVE_PAD * r.width, py = CURVE_PAD * r.height; return { x: Math.max(0, Math.min(255, (e.clientX - r.left - px) / (r.width - 2 * px) * 255)), y: Math.max(0, Math.min(255, 255 - (e.clientY - r.top - py) / (r.height - 2 * py) * 255)) }; };
+      const near = q => { const r = c.getBoundingClientRect(), slop = 26 * 255 / Math.max(1, r.width * (1 - 2 * CURVE_PAD)); let best = -1, d = slop; curvePts.forEach((p, i) => { const k = Math.hypot(p.x - q.x, p.y - q.y); if (k < d) { d = k; best = i; } }); return best; };
       c.style.touchAction = 'none';
       c.addEventListener('pointerdown', e => {
         e.preventDefault(); e.stopPropagation(); try { c.setPointerCapture(e.pointerId); } catch (_) { /* synthetic */ }

@@ -46,8 +46,8 @@ Jake, 2026-11-19: "the entire cleanup, tattoo, toolbars, and function are so bet
 
 - **Top bar:** Cancel and Start over at the left, the title in the middle, then Undo, Redo, Show original and Done (the one primary button). Cancel with changes opens a small popover, Discard changes or Keep editing.
 - **The picture** fills the rest, on a checker. Two fingers pinch and pan in every tool. A pill at the bottom left holds the backdrop, zoom out, the zoom (tap to fit) and zoom in. Messages float as a pill at the top and fade.
-- **Tools** sit in one segmented row of glyph-over-word buttons at the bottom (a column at the right in wide landscape): Cut out, Background, Erase, Restore, Crop, Lines. Above them, one card shows only the settings for the tool in use, at one fixed height so the picture never jumps.
-- Sliders that change the picture (Light shades kept, Darker lines) show as you slide and are one undo step. Buttons that do the same thing apply at the slider's value.
+- **Tools** (2026-11-20, Jake asked for the Photoshop-type tools) sit in a rail down the left, glyph over word, in three groups: Select, Magic wand, Move, Crop; Cut out, Background, Erase, Restore, Clone; Adjust. The card under the picture (a column at the right in wide landscape) starts with the tool's name and key, then only that tool's settings, at one fixed height so the picture never jumps. History (a clock in the top bar) lists every step in words and goes to any of them.
+- Sliders that change the picture (Light shades kept, Background range, every Adjust slider and the curve, Refine edge) show as you slide and are one undo step. Buttons that do the same thing apply at the slider's value.
 - It opens on the tool the picture needs: Background for art on paper, Cut out for a photo, Erase otherwise. Keys stay inside it.
 
 ## The Body panel
