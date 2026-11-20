@@ -119,17 +119,18 @@ export async function openCloud() {
     };
     await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
   }
+  // failed: keys that could not be asked about (no answer, refused), as against simply not there
   async function downloadArtwork(get, keys) {
-    const images = {}, missing = []; let i = 0;
+    const images = {}, missing = [], failed = []; let i = 0;
     const worker = async () => {
       while (i < keys.length) {
         const k = keys[i++];
         try { const b = await get(pathKey(k)); const u = await blobToData(b); if (typeof u === 'string' && u.startsWith('data:image/')) images[k] = u; else missing.push(k); }
-        catch (e) { missing.push(k); }
+        catch (e) { missing.push(k); if (!/not.?found|404|400|does not exist/i.test(String((e && e.message) || e) + ' ' + ((e && (e.statusCode || e.status)) || ''))) failed.push(k); }
       }
     };
     await Promise.all(Array.from({ length: Math.min(6, keys.length) }, worker));
-    return { images, missing };
+    return { images, missing, failed };
   }
   const row = (state, images, name) => {
     const keys = Object.keys(images).filter((k) => typeof images[k] === 'string');
@@ -205,6 +206,25 @@ export async function openCloud() {
       let { images, missing } = await downloadArtwork(from(me), keys);
       if (missing.length && projectId) { const more = await downloadArtwork(from('p/' + projectId), missing); Object.assign(images, more.images); }
       return images;
+    },
+    // Lost pictures, looked for in every folder this account can read: its own, every project it
+    // owns or joined (p/<id>), and every link it sent (shared-artwork). Only reads. failed counts
+    // the folders or pictures that could not be asked about, so "not there" is told apart from
+    // "no answer".
+    async findArtwork(keys) {
+      const me = uid(), images = {}; let failed = 0, folders = 0;
+      const left = () => keys.filter((k) => !images[k]);
+      const look = async (bucket, folder) => {
+        if (!left().length) return; folders++;
+        const r = await downloadArtwork(async (path) => check(await sb.storage.from(bucket).download(folder + '/' + path)), left());
+        Object.assign(images, r.images); failed += r.failed.length;
+      };
+      await look('artwork', me);
+      let projects = []; try { projects = check(await sb.from('projects').select('id').limit(200)) || []; } catch (e) { failed++; }
+      for (const p of projects) if (p && p.id) await look('artwork', 'p/' + p.id);
+      let shares = []; try { shares = check(await sb.from('shares').select('id').eq('owner', me).limit(200)) || []; } catch (e) { failed++; }
+      for (const s of shares) if (s && s.id) await look('shared-artwork', me + '/' + s.id);
+      return { images, failed, folders };
     },
     // have(key): artwork already on this device, which is not fetched again
     async load(id, have) {

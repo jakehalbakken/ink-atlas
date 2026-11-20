@@ -53,6 +53,10 @@ export default async function (p) {
     assert.equal(rows.length, 1); assert.equal(rows[0].email, 'jake@example.com'); assert.equal(rows[0].tattoos, tattoos);
     const owner = (await db(`select id from auth.users where email = 'jake@example.com'`))[0].id;
     for (const k of rows[0].image_keys) assert.ok(fake.files.has('artwork/' + owner + '/' + k), 'artwork uploaded: ' + k);
+    // lost pictures are found again from the account, and a key it never had is said to be not there
+    const look = await p.evaluate(async (keys) => { const a = window.__ink.accountApi(); const r = await a.findArtwork([...keys, 'never_there']); const none = await a.findArtwork(['never_there']); return { found: Object.keys(r.images).sort(), why: r.why, none: none.why }; }, rows[0].image_keys);
+    assert.deepEqual(look.found, [...rows[0].image_keys].sort(), 'every picture found in the account: ' + JSON.stringify(look));
+    assert.equal(look.why, 'found'); assert.equal(look.none, 'none', 'a picture the account never had reads as not there, not as no answer');
     await until(p, () => document.querySelectorAll('#account .acct-item').length === 1, null, 'listed');
     await p.screenshot({ path: 'shots/t81-home.png' });
     assert.equal(await p.$eval('#accountBtn', (e) => e.classList.contains('signed') && e.textContent.trim()), 'J');

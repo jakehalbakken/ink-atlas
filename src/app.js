@@ -82,6 +82,7 @@ import { initWrapStudio } from './wrap-studio.js';
 import { scanRead, scanWrite, shapeOf } from './scan-store.js';
 import { mul3, turnY, scanHeightInches } from './scan-fit.js';
 import { limbAxis, limbPlace, limbPoint, LimbDrag, rotFor, rotRound, shareRound, wrapAngle as wrapA } from './wrap-drag.js';
+import { scanDevice } from './device-scan.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
 const newSeen = readSeen();
 // Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
@@ -1382,7 +1383,10 @@ function renderSheet() {
     $('#wrapFit').hidden = full; $('#wrapFit').textContent = wi.share > 1.08 ? 'Fit it round' : 'Wrap it round';
   }
   // a picture with empty space round its ink reads bigger than the tattoo is: say so and offer to trim it
-  const ink = !commentOnly && !t.locked ? inkShareOf(t) : null, padded = !!ink && (ink.w < 0.96 || ink.h < 0.96);
+  // a picture lost from this device shows a stand-in: say so, with one tap to replace it or look again
+  const lost = isLost(t); $('#lostRow').hidden = !lost || commentOnly;
+  if (lost) { const n = state.tattoos.filter(isLost).length; $('#lostText').textContent = n > 1 ? `This picture was lost (${n} are). Its place and size are kept.` : 'This picture was lost. Its place and size are kept.'; }
+  const ink = !commentOnly && !t.locked && !lost ? inkShareOf(t) : null, padded = !!ink && (ink.w < 0.96 || ink.h < 0.96);
   $('#trimRow').hidden = !padded;
   if (padded) { const s = inchesOf(t); $('#trimText').textContent = `Empty space round the ink makes it read ${s.w.toFixed(1)} × ${s.h.toFixed(1)} in. The ink is ${(s.w * ink.w).toFixed(1)} × ${(s.h * ink.h).toFixed(1)} in.`; }
   $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Already on you, so fingers on the body won\'t move it. The size, turn and nudge controls here still fine-tune it.':t.locked?'Locked in place: fingers on the body won\'t move it, and everything in this panel still works.':isWrap(t)&&!taught.has('wrapMove')?`Drag it sideways to turn it round your ${/leg/.test(wrapInfo(t).L.key)?'leg':'arm'}, up or down to slide it along. Grab it anywhere, even round the back.`:taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
@@ -2800,6 +2804,7 @@ const SHOW = {
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
+  lostPics: () => { const t = state.tattoos.find(isLost); if (!t) { toggle('#share', true); return ['#cRecover', 'When a tattoo\'s picture is lost, it shows as Artwork missing in its place. Tap it for Replace picture and Look again.']; } select(t.id, true); return ['#bReplacePic', 'Replace picture puts a picture from Photos or Files on this tattoo in the same place and width. Look again searches this device and your account.']; },
   findSaves: () => { toggle('#share', true); return ['#cRecover', 'Every copy of your work kept on this device, including a save that could not be opened, with one tap to open it. Undo brings back what was on screen.']; },
   bodyScan: () => { toggle('#bodyPop', true); return ['#scanBtn', 'Pick a 3D scan of yourself from Files, a GLB, OBJ or USDZ from Scaniverse or Polycam, and the body moves onto it. How to scan yourself is just under it.']; },
   measureMe: () => { toggle('#bodyPop', true); return ['#measureMeBtn', 'Measure me takes you through each tape measurement with a drawing of where it goes, then fits the body to all of them.']; },
@@ -6174,6 +6179,7 @@ async function fillImages(st, imgs) {
   if (left().length) {
     try { const sh = await openProjectShelf(); try { for (const r of [...await sh.list(), ...await sh.list({ archived: true })]) { if (!left().length) break; const row = await sh.get(r.id); for (const k of left()) if (row && row.images && goodImg(row.images[k])) out[k] = row.images[k]; } } finally { sh.close(); } } catch (e) { /* no shelf */ }
   }
+  if (left().length) { try { Object.assign(out, await scanDevice(left())); } catch (e) { /* keep looking */ } }
   if (left().length && account && account.artwork) { try { const got = await account.artwork(left()); for (const k of Object.keys(got)) if (goodImg(got[k])) out[k] = got[k]; } catch (e) { /* offline */ } }
   // a stand-in goes under its own key (gone_ + the lost one), so the real picture can still be matched later
   let standIns = 0; const state2 = JSON.parse(JSON.stringify(st));
@@ -6198,7 +6204,63 @@ async function restoreCopy(load, what) {
   try { fullBody(); } catch (e) { /* the view stays where it is */ }
   const n = state.tattoos.length;
   toast(filled.standIns ? `Opened ${what}: ${n} tattoo${n === 1 ? '' : 's'}. ${filled.standIns} picture${filled.standIns === 1 ? ' was' : 's were'} not found, so ${filled.standIns === 1 ? 'it shows' : 'they show'} as Artwork missing in the right place and size.` : `Opened ${what}: ${n} tattoo${n === 1 ? '' : 's'}.`, 'Undo', undo, 12000);
+  if (filled.standIns) setTimeout(() => findLostPictures({ quiet: true }), 4000);
 }
+/* ---------- pictures lost from this device ---------- */
+// A tattoo whose picture was nowhere when its copy was opened carries a stand-in under gone_<key>,
+// so the real picture can still be matched by its key. Look again searches the device (every
+// database and localStorage) and every folder the account can read, and puts back what it finds
+// in one undo step. Replace picture takes a picture from Photos or Files for it, same place and width.
+const isLost = (t) => !!t && typeof t.img === 'string' && t.img.startsWith('gone_');
+let lostLooking = false;
+async function findLostPictures({ quiet = false } = {}) {
+  if (lostLooking) { if (!quiet) toast('Still looking for the pictures…'); return; }
+  const lostKeys = [...new Set(state.tattoos.filter(isLost).map((t) => t.img.slice(5)))];
+  if (!lostKeys.length) { if (!quiet) toast('No pictures are missing.'); return; }
+  lostLooking = true; markTried('lostPics');
+  try {
+    if (!quiet) toast(`Looking for ${lostKeys.length} picture${lostKeys.length === 1 ? '' : 's'} on this device and in your account…`, null, null, 60000);
+    const found = {}; const left = () => lostKeys.filter((k) => !goodImg(found[k]));
+    for (const k of lostKeys) if (goodImg(images[k])) found[k] = images[k];
+    if (left().length && store && store.ok) { try { Object.assign(found, await store.findImages(left())); } catch (e) { /* keep looking */ } }
+    if (left().length) { try { const f = await fillImagesOnDevice({ tattoos: left().map((k) => ({ img: k })) }, {}); if (f) for (const k of left()) if (goodImg(f[k])) found[k] = f[k]; } catch (e) { /* keep looking */ } }
+    if (left().length) { try { Object.assign(found, await scanDevice(left())); } catch (e) { /* keep looking */ } }
+    let why = 'skipped';
+    if (left().length && account && account.findArtwork) { try { const r = await account.findArtwork(left()); why = r.why; for (const k of Object.keys(r.images || {})) if (goodImg(r.images[k])) found[k] = r.images[k]; } catch (e) { why = 'unreachable'; } }
+    const got = lostKeys.filter((k) => goodImg(found[k]));
+    if (got.length) {
+      for (const k of got) { images[k] = found[k]; await loadImg(k); }
+      snapshot(); let n = 0;
+      for (const t of state.tattoos) if (isLost(t) && got.includes(t.img.slice(5)) && imgEls[t.img.slice(5)]) { t.img = t.img.slice(5); n++; }
+      commit();
+      toast(`Found ${n} picture${n === 1 ? '' : 's'} and put ${n === 1 ? 'it' : 'them'} back in place.${left().length ? ` ${left().length} still missing.` : ''}`, 'Undo', undo, 12000);
+    }
+    const still = lostKeys.length - got.length;
+    if (still && (!quiet || (why === 'signed-out' && !got.length))) {
+      const tail = still === 1 ? '1 picture is still missing' : `${still} pictures are still missing`;
+      if (why === 'signed-out') toast(`${tail}. Sign in to look in your account too.`, 'Sign in', () => account.signIn && account.signIn(), 15000);
+      else if (why === 'unreachable') toast(`${tail}. Your account did not answer, so it could not be checked. Tap Look again in a minute.`, null, null, 12000);
+      else if (why === 'partly') toast(`${tail}. Part of your account did not answer. Tap Look again in a minute.`, null, null, 12000);
+      else if (!got.length) toast(`${tail}. ${why === 'none' ? 'They are not on this device or in your account.' : 'They are not on this device.'} Replace picture puts one back from Photos or Files in the same place and size.`, null, null, 14000);
+    }
+  } finally { lostLooking = false; }
+}
+async function replaceLostPicture(file) {
+  const t = sel(); if (!t || !isLost(t) || commentOnly) return;
+  const gone = t.img; let pic;
+  try { pic = await normalisePicture(file); } catch (e) { toast('That picture could not be opened. Nothing changed.'); return; }
+  const key = uid(); images[key] = pic.dataUrl;
+  if (!await loadImg(key)) { delete images[key]; toast('That picture could not be opened. Nothing changed.'); return; }
+  if (!state.tattoos.some((q) => q.img === gone)) { delete images[key]; return; }
+  cancelGesture(); snapshot(); let n = 0;
+  // every tattoo that lost this same picture gets it back, locked or not: the place stays, the width stays
+  for (const q of state.tattoos) if (q.img === gone) { q.img = key; q.aspect = pic.aspect; q.flip = false; q.imageTopDown = true; n++; }
+  commit(); markTried('lostPics');
+  toast(`Picture put back${n > 1 ? ` on ${n} tattoos` : ''}, same place and width.`, 'Undo', undo);
+}
+$('#bReplacePic').addEventListener('click', () => $('#replacePicFile').click());
+$('#replacePicFile').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) replaceLostPicture(f).catch((err) => toast('Could not put the picture back: ' + err.message)); });
+$('#bLookAgain').addEventListener('click', () => findLostPictures().catch((e) => toast('Could not look for the pictures: ' + e.message)));
 $('#cRecover').addEventListener('click', openFindSaves);
 $('#cRestore').addEventListener('click', () => { toggle('#share', false); $('#file').click(); });
 
@@ -6389,6 +6451,7 @@ function startAccount() {
     busy: () => !!suggesting || !!spotPeek || !!gest || pts.size > 0 || (!!document.activeElement && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName) && !document.getElementById('account')?.contains(document.activeElement)),
   });
   account.start();
+  if (state.tattoos.some(isLost)) setTimeout(() => findLostPictures({ quiet: true }).catch(() => {}), 6000);
 }
 $('#followStop').addEventListener('click', () => stopFollow());
 $('#showSpotBtn').addEventListener('click', () => pointMode(!pointing.on));
@@ -6484,7 +6547,7 @@ window.__ink = {
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
-  store: () => store, flush: flushSave, looksBlank: () => looksBlank(state), blankHold: () => ({ guardSave, holdBlank }), account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
+  store: () => store, flush: flushSave, looksBlank: () => looksBlank(state), blankHold: () => ({ guardSave, holdBlank }), lostLook: (o) => findLostPictures(o), lostCount: () => state.tattoos.filter(isLost).length, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
   surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)

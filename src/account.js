@@ -43,7 +43,7 @@ const deviceName = () => { const u = navigator.userAgent || ''; if (/iPad|Macint
 export function createAccount(api) {
   const btn = document.getElementById('accountBtn');
   const shareCard = document.getElementById('cLink');
-  if (!cloudConfigured) { if (btn) btn.hidden = true; if (shareCard) shareCard.hidden = true; return { configured: false, saved() {}, start() {}, unbind() {}, open() {}, sendLink() {}, artwork: async () => ({}), status: () => ({ configured: false }) }; }
+  if (!cloudConfigured) { if (btn) btn.hidden = true; if (shareCard) shareCard.hidden = true; return { configured: false, saved() {}, start() {}, unbind() {}, open() {}, sendLink() {}, artwork: async () => ({}), findArtwork: async () => ({ images: {}, why: 'none-set-up' }), status: () => ({ configured: false }) }; }
   btn.hidden = false; shareCard.hidden = false;
 
   let cloud = null, cloudReady = null, bind = ls.get(BIND), pushing = false, again = false, timer = 0, retry = 0, lastStatus = '';
@@ -882,6 +882,19 @@ export function createAccount(api) {
     configured: true, saved, start, unbind, sendLink,
     status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing }),
     artwork: async (keys) => { try { return cloud && user() ? await inTime(cloud.artwork(keys, myBind() && myBind().id), 20000) : {}; } catch (e) { return {}; } },
+    // Lost pictures from every folder this account can read, waiting for the account to be reached.
+    // why: found, none (looked and they are not there), partly (some folders gave no answer),
+    // signed-out, unreachable (the account did not answer). Only reads.
+    async findArtwork(keys) {
+      try { await inTime(ready(), 15000); } catch (e) { return { images: {}, why: 'unreachable' }; }
+      if (!user()) return { images: {}, why: 'signed-out' };
+      try {
+        const r = await inTime(cloud.findArtwork(keys), 60000);
+        const n = Object.keys(r.images).length;
+        return { images: r.images, why: n === keys.length ? 'found' : r.failed ? 'partly' : n ? 'found' : 'none' };
+      } catch (e) { return { images: {}, why: 'unreachable' }; }
+    },
+    signIn: async () => { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'home' : 'signin'); },
     push, pull, displayName: () => (user() && cloud ? cloud.displayName() : ''),
     // the selected tattoo changed: tell anyone else here
     nudge: () => liveTrack(), here: () => liveOthers.slice(), people,
