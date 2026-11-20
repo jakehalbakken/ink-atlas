@@ -690,4 +690,4 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - Jake: "The button for already on me versus planned is really confusing. It needs a clearer toggle." The old control was one button inside More controls whose label was the current state, so it read like an action.
 - Now a two-way switch right under the tattoo's name: On my skin (filled tick) and Planned (dashed ring), the filled side is what it is. A tap on the chosen side does nothing; on the other side it switches, one undo step, and On my skin locks it in place as before.
 - Layers: every line starts with the same mark and words, the ⋯ has the same switch, and the quick buttons read Hide planned and Hide on my skin (the rail says On my skin on two lines). Undo says "Undid marking Rose as on your skin."
-- Storage unchanged (`t.status`). Built and tested headless (t135, both iPad orientations); not yet checked on the iPad.
+- Storage unchanged (`t.status`). Built and tested headless (t135, both iPad orientations); live 2026-11-20 (7b2666e); not yet checked on the iPad.
