@@ -348,6 +348,9 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     let sel = null, selVer = 0, float = null, pendingBox = null, ref = { x: 0, y: 0, w: 1, h: 1 }, nudge = null, lookCache = null, selCache = null, infoCache = null; const used = new Set();
     const status = $('.ic-status'), stage = $('.ic-work'), ring = $('.ic-ring'), cropbox = $('.ic-cropbox'), confirmBox = $('.ic-confirm');
     const full = canvasOf(1, 1), baseline = canvasOf(1, 1); let rect = { x: 0, y: 0, w: 1, h: 1 };
+    // every undo step and every Restore stroke reads these back in full: kept in memory, so the iPad does not
+    // copy them off the graphics chip each time, which made a stroke's end stutter on big pictures (2026-11-20)
+    for (const c of [original, full, baseline]) c.getContext('2d', { willReadFrequently: true });
     let zoom = 1, panX = 0, panY = 0;
     let history = [], future = [], mode = 'erase', comparing = false, crop = null, settled = false;
     let live = null, livePending = 0, statusTimer = 0;
