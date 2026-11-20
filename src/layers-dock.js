@@ -38,6 +38,9 @@ const FOLD = svg('<path d="m9 5 7 7-7 7"/>', 22);
 const CHEV = svg('<path d="m9 6 6 6-6 6"/>', 18);
 const FOLDER = svg('<path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>', 22);
 
+// On my skin and Planned marks, the same as the edit panel's switch
+const ST_SKIN = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor"/><path d="m8 12.5 2.6 2.6L16.2 9.5" fill="none" stroke="var(--st-tick,var(--surface-solid))" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ST_PLAN = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3.2 2.6"/></svg>';
 const CSS = `#layersDock{position:fixed;z-index:2;right:calc(12px + env(safe-area-inset-right,0px));top:var(--below,64px);display:flex;flex-direction:column;color:var(--text);font:500 15px/1.3 var(--body);overscroll-behavior:contain;box-sizing:border-box;transition:opacity .25s ease}
 #layersDock *{box-sizing:border-box}#layersDock svg{flex:none}#layersDock [hidden]{display:none!important}
 #layersDock button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
@@ -93,7 +96,13 @@ body.comment-only #layersDock .ld-eye,body.comment-only #layersDock .ld-mode,bod
 body.hands-on #layersDock{opacity:.08;transition:opacity .12s ease}
 body.painting #layersDock,body:has(#wrapStudio:not([hidden])) #layersDock{display:none!important}
 @media (max-width:699px){#layersDock.open{left:12px;width:auto;z-index:7}}
-@media (prefers-reduced-motion:no-preference){#layersDock.open{animation:ld-in .22s cubic-bezier(.2,.9,.3,1)}@keyframes ld-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}}`;
+@media (prefers-reduced-motion:no-preference){#layersDock.open{animation:ld-in .22s cubic-bezier(.2,.9,.3,1)}@keyframes ld-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}}
+.ld-st{display:inline-flex;align-items:center;gap:4px;vertical-align:-2px}.ld-st svg{flex:none}.ld-st.skin{color:var(--text)}
+.ld-stseg{display:grid;grid-template-columns:1fr 1fr;gap:2px;padding:3px;border-radius:var(--r-md,14px);background:var(--fill);width:100%;box-sizing:border-box}
+.ld-acts .ld-stseg .btn{min-height:44px;display:flex;align-items:center;justify-content:center;gap:6px;border:0;background:transparent;color:var(--muted);box-shadow:none;padding:0 6px;border-radius:calc(var(--r-md,14px) - 3px);font-weight:600}
+.ld-acts .ld-stseg .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);--st-tick:var(--stencil)}
+.ld-acts .ld-stseg svg{width:16px;height:16px}
+#layersDock.rail .ld-cap{white-space:normal;line-height:1.1;text-align:center}`;
 
 // Options: getState, getImages, selectedId(), pick(id) (select it the way a tray chip does),
 // change(fn) (one undo step), kinds (the {planned, existing} view switches, owned by the caller),
@@ -149,11 +158,13 @@ export function createLayersDock(o) {
     const pick = el('button', 'ld-pick'); pick.type = 'button';
     const thumb = el('span', 'ld-thumb'); const src = images[t.img]; if (typeof src === 'string' && src) { thumb.classList.add('art'); const im = el('img'); im.src = src; im.alt = ''; thumb.append(im); }
     const mark = o.badges?.(t) || {};
-    const bits = [t.status === 'existing' ? 'On me' : 'Planned']; if (t.locked && t.status !== 'existing') bits.push('Locked'); if (t.hidden) bits.push('Hidden'); else if (offByKind) bits.push('Off for now');
+    const onSkin = t.status === 'existing', bits = [onSkin ? 'On my skin' : 'Planned']; if (t.locked && t.status !== 'existing') bits.push('Locked'); if (t.hidden) bits.push('Hidden'); else if (offByKind) bits.push('Off for now');
     if (mark.peer) { const p = el('b', 'peer', mark.peer.letter); p.title = mark.peer.names + ' looking'; thumb.append(p); }
     if (mark.cmts) { const c = el('b', 'cmts' + (mark.cmts.fresh ? ' new' : ''), String(mark.cmts.n)); c.title = `${mark.cmts.n} open comment${mark.cmts.n === 1 ? '' : 's'}`; thumb.append(c); }
     if (hasLook(t)) bits.push(describeLook(t));
-    const text = el('span'), sm = el('small', '', bits.join(' · '));
+    // the same mark as the switch in the edit panel: a filled tick for On my skin, a dashed ring for Planned
+    const text = el('span'), sm = el('small'), st = el('span', 'ld-st ' + (onSkin ? 'skin' : 'plan')); st.innerHTML = onSkin ? ST_SKIN : ST_PLAN; st.append(bits[0]);
+    sm.append(st); if (bits.length > 1) sm.append(' · ' + bits.slice(1).join(' · '));
     if (mark.tag) sm.append(' · ', el('i', 'ld-tag ' + (mark.tag.cls || ''), mark.tag.text));
     text.append(el('b', '', t.name || 'Tattoo'), sm);
     pick.append(thumb, text);
@@ -169,6 +180,14 @@ export function createLayersDock(o) {
       const acts = el('div', 'ld-acts');
       const up = btn('Move earlier', () => o.change((s) => reorderTattoo(s, t.id, -1))); up.disabled = index === 0;
       const down = btn('Move later', () => o.change((s) => reorderTattoo(s, t.id, 1))); down.disabled = index === state.tattoos.length - 1;
+      // On my skin or Planned, the same two-way switch as the edit panel's (marking it on my skin locks it, as there)
+      const seg = el('div', 'ld-stseg'); seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', `${t.name || 'Tattoo'} is`);
+      for (const [want, word, icon] of [['existing', 'On my skin', ST_SKIN], ['planned', 'Planned', ST_PLAN]]) {
+        const on = (onSkin ? 'existing' : 'planned') === want, b = el('button', 'btn'); b.type = 'button'; b.dataset.status = want; b.innerHTML = icon; b.append(word); b.setAttribute('aria-pressed', String(on));
+        b.addEventListener('click', () => { if (on) return; o.change((s) => { const x = s.tattoos.find((v) => v.id === t.id); if (x) { x.status = want; x.locked = want === 'existing'; } }); o.onStatus?.(t.id); });
+        seg.append(b);
+      }
+      acts.append(seg);
       acts.append(up, down, btn(t.locked ? 'Unlock' : 'Lock', () => o.change((s) => changeSelected(s, [t.id], { locked: !t.locked }))));
       if (t.group) acts.append(btn('Take out of group', () => o.change((s) => { const x = s.tattoos.find((v) => v.id === t.id); if (x) delete x.group; })));
       row.append(acts);
@@ -184,9 +203,9 @@ export function createLayersDock(o) {
     $('#ldCount').textContent = all.length ? `${all.length} on the body` + (k.planned || k.existing ? ', some hidden' : '') : 'Nothing placed yet';
     const tg = $('#ldToggle'); tg.innerHTML = open ? FOLD : STACK + (all.length ? `<span class="ld-badge">${all.length}</span>` : '');
     tg.setAttribute('aria-label', open ? 'Fold the layers away' : `Show layers, ${all.length} ${all.length === 1 ? 'tattoo' : 'tattoos'}`); tg.setAttribute('aria-expanded', String(open)); tg.title = open ? 'Fold away' : 'Layers';
-    for (const [b, kind, n, word] of [[$('#ldPlanned'), 'planned', planned, 'planned'], [$('#ldExisting'), 'existing', existing, 'existing']]) {
+    for (const [b, kind, n, word] of [[$('#ldPlanned'), 'planned', planned, 'planned'], [$('#ldExisting'), 'existing', existing, 'on my skin']]) {
       const off = !!k[kind]; b.setAttribute('aria-pressed', String(off)); b.disabled = !n && !off;
-      b.innerHTML = (off ? EYE_OFF : EYE) + `<span class="ld-word">${off ? 'Show' : 'Hide'} ${word}</span><span class="ld-cap">${word === 'planned' ? 'Planned' : 'Existing'}</span>` ;
+      b.innerHTML = (off ? EYE_OFF : EYE) + `<span class="ld-word">${off ? 'Show' : 'Hide'} ${word}</span><span class="ld-cap">${kind === 'planned' ? 'Planned' : 'On my skin'}</span>` ;
       b.setAttribute('aria-label', `${off ? 'Show' : 'Hide'} ${word} tattoos, ${n}`); b.title = `${off ? 'Show' : 'Hide'} ${word}`;
     }
     const list = $('#ldList');

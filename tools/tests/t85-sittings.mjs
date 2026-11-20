@@ -13,7 +13,7 @@ export default async function (p) {
   const t = all[0];
   const get = () => p.evaluate((id) => JSON.parse(JSON.stringify(window.__ink.state().tattoos.find((q) => q.id === id))), t.id);
   await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(500);
-  if ((await get()).status === 'existing') { await p.click('#bStatus'); await wait(300); }
+  if ((await get()).status === 'existing') { await p.click('#statusSeg .btn[aria-pressed=false]'); await wait(300); }
   // make it big enough for more than one sitting
   await p.evaluate((id) => { const q = window.__ink.state().tattoos.find((x) => x.id === id); q.width *= 3.2; window.__ink.commitTest(); }, t.id); await wait(300);
   await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; }); await wait(600);
@@ -51,9 +51,9 @@ export default async function (p) {
   assert.ok(ics.text.includes('DTSTART;VALUE=DATE:20261205'), 'first sitting on the day picked');
   assert.match(ics.type, /calendar/);
   // ink already on: no planner
-  await p.click('#bStatus'); await wait(500);
+  await p.click('#statusSeg .btn[aria-pressed=false]'); await wait(500);
   assert.equal(await p.$eval('#sitBox', (e) => e.hidden), true, 'already on me: no planner');
-  await p.click('#bStatus'); await wait(500);
+  await p.click('#statusSeg .btn[aria-pressed=false]'); await wait(500);
   // kept after reopening
   await p.evaluate(() => window.__ink.flush && window.__ink.flush()); await wait(800);
   await p.reload(); await ready();

@@ -92,7 +92,7 @@ export function openLayers({getState,change,select,getImages=()=>({}),onTransfor
       const label=el('label','il-check'),check=el('input');check.type='checkbox';check.checked=selected.has(t.id);check.setAttribute('aria-label',`Tick ${t.name}`);
       check.addEventListener('change',()=>{if(check.checked)selected.add(t.id);else selected.delete(t.id);render();});label.append(check,el('span','il-box'));
       const thumb=el('span','il-thumb');if(typeof images[t.img]==='string'&&images[t.img].startsWith('data:image/')){const im=el('img');im.src=images[t.img];im.alt='';thumb.append(im);}
-      const group=groupOf(state,t),bits=[t.status==='existing'?'On me':'Planned'];if(group)bits.push(group.name);if(t.locked&&t.status!=='existing')bits.push('Locked');if(t.hidden)bits.push('Hidden');
+      const group=groupOf(state,t),bits=[t.status==='existing'?'On my skin':'Planned'];if(group)bits.push(group.name);if(t.locked&&t.status!=='existing')bits.push('Locked');if(t.hidden)bits.push('Hidden');
       const name=btn('',()=>{close();select(t.id);},'il-name');name.append(el('b','',t.name||'Tattoo'),el('small','',bits.join(' · ')));name.setAttribute('aria-label',`Edit ${t.name}`);
       const eye=btn('',()=>{endSolo();mutate(s=>changeSelected(s,[t.id],{hidden:!t.hidden}));note(t.hidden?`${t.name} hidden.`:`${t.name} showing.`);},'btn il-icon il-eye'+(t.hidden?' off':''));
       eye.innerHTML=t.hidden?EYE_OFF:EYE;eye.setAttribute('aria-label',`${t.hidden?'Show':'Hide'} ${t.name}`);

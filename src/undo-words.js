@@ -13,7 +13,7 @@ function oneTattoo(a, b) {
   const name = b.name || a.name || 'the tattoo';
   for (const [k, word] of FIELDS) {
     if (same(a[k], b[k])) continue;
-    if (k === 'status') return b.status === 'existing' ? `marking ${name} as already on you` : `marking ${name} as planned`;
+    if (k === 'status') return b.status === 'existing' ? `marking ${name} as on your skin` : `marking ${name} as planned`;
     if (k === 'hidden') return `${b.hidden ? 'hiding' : 'showing'} ${name}`;
     if (k === 'locked') return `${b.locked ? 'locking' : 'unlocking'} ${name}`;
     if (k === 'name') return `renaming ${a.name || 'the tattoo'}`;

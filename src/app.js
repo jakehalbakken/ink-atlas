@@ -1346,7 +1346,7 @@ function renderSheet() {
   const shaped = (t.bend || 0) || (t.taper || 0); $('#wrapMark').textContent = shaped ? 'on' : ''; if (!shaped && !$('#wrapBox').open) { /* leave closed */ }
   $('#bLock').textContent = t.locked ? 'Unlock' : 'Lock in place'; $('#bLock').setAttribute('aria-pressed', t.locked ? 'true' : 'false');
   $('#bHide').textContent = t.hidden ? 'Show' : 'Hide';
-  $('#bStatus').textContent = t.status === 'existing' ? 'Already on me' : 'Planned'; $('#bStatus').setAttribute('aria-pressed', t.status === 'existing' ? 'true' : 'false');
+  for (const b of document.querySelectorAll('#statusSeg .btn')) b.setAttribute('aria-pressed', String((t.status === 'existing' ? 'existing' : 'planned') === b.dataset.status));
   $('#bFlip').setAttribute('aria-pressed', t.flip ? 'true' : 'false');
   // a piece on an arm or leg that is long or reaches far round it: how far round, and one tap to
   // lay it right round with its ends meeting at the back
@@ -1457,7 +1457,10 @@ function madeText(m) {
 }
 $('#bFlip').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.flip = !t.flip; commit(); });
 $('#bLock').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.locked = !t.locked; commit(); if (t.locked) { markTried('lockEdit'); toast('Locked in place. Taps and drags on the body won\'t move it. The controls here still fine-tune it.', 'Undo', undo, 3600); } });
-$('#bStatus').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.status = t.status === 'existing' ? 'planned' : 'existing'; t.locked = t.status === 'existing'; commit(); });
+// On my skin or Planned: a two-way switch, the filled side is what it is now. Marking it on my skin
+// also locks it in place, as before; one undo step
+function setStatus(t, want) { if (!t || (t.status === 'existing' ? 'existing' : 'planned') === want) return false; snapshot(); t.status = want; t.locked = want === 'existing'; markTried('statusSwitch'); commit(); return true; }
+for (const b of document.querySelectorAll('#statusSeg .btn')) b.addEventListener('click', () => setStatus(sel(), b.dataset.status));
 $('#bHide').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.hidden = !t.hidden; commit(); });
 $('#bFlipVertical').addEventListener('click',()=>{const t=sel();if(!t)return;snapshot();t.imageTopDown=!t.imageTopDown;commit();});
 // Copy to other side: the same artwork, mirrored, at the matching spot on the other side of the
@@ -2367,7 +2370,7 @@ function bmInkRender() {
   $('#bmInkText').textContent = (all === 1 ? 'I see a tattoo in this photo.' : `I see ${all} tattoos in this photo.`) + (all > 1 ? ' Tap one in the picture to leave it out.' : ' Tap it in the picture to leave it out.');
   $('#bmMirror').hidden = ink.view === 'back'; $('#bmMirror').setAttribute('aria-pressed', String(!!ink.mirror));
   $('#bmInkAdd').disabled = !n || bm.busy;
-  $('#bmInkAdd').textContent = n ? `Add ${n === 1 ? 'it' : n} to the body as already on me` : 'Nothing picked';
+  $('#bmInkAdd').textContent = n ? `Add ${n === 1 ? 'it' : n} to the body as on my skin` : 'Nothing picked';
 }
 // Look for tattoos on the skin of a photo that was read
 async function bmFindInk(res) {
@@ -2731,12 +2734,13 @@ const SHOW = {
   layersOnly: () => { layersDock.setOpen(true, true); return ['#ldAdds', 'Every tattoo is in Layers now, and the strip along the bottom is gone. The + adds a tattoo and the pencil opens Procreate. Fold the panel to its slim rail with the arrow and both stay at the top of it.']; },
   sheetColumn: () => { const t = needTattoo(); if (!t) return null; layersDock.setOpen(true, true); return ['#sheet', 'The panel for a selected tattoo now sits under Layers in the same column at the right, so the body keeps the rest of the screen. The arrow next to the bin folds it down to its name line.']; },
   sheetMin: () => { const t = needTattoo(); if (!t) return null; return ['#bSheetMin', 'Tap this arrow to fold the panel down to its name line and see more of the body. Tap it again to open it.']; },
+  statusSwitch: () => { const t = needTattoo(); if (!t) return null; return ['#statusSeg', 'The filled side is what this tattoo is: On my skin for ink you already have, Planned for one you are thinking about. Tap the other side to switch it.']; },
   lockEdit: () => { const t = needTattoo(); if (!t) return null; return ['#bLock', 'Lock in place stops taps and drags on the body from moving it. Size, turn, nudge, blend and colour here still work, so you can fine-tune it without knocking it.']; },
   viewLock: () => ['#viewLock', 'Tap the lock to keep this view. Dragging, pinching, double-tap and the view buttons leave the camera where it is until you tap the lock again. Taps still pick tattoos.'],
   trimInk: () => { const t = needTattoo(); if (!t) return null; return !$('#trimRow').hidden ? ['#bTrimInk', 'This picture has empty space round its ink, so its size reads bigger than the tattoo. Trim to the ink cuts the picture to the ink and keeps the ink where it is.'] : ['#bCleanup', 'Clean up trims the empty space round the ink when you tap Done, so the size you see is the size of the ink.']; },
   layersReveal: () => { layersDock.setOpen(true, true); return ['#ldList', 'Tap a tattoo on the body and Layers opens at its line, with its group unfolded.']; },
   layersDock: () => { layersDock.setOpen(true, true); return ['#layersDock', 'This is the Layers panel. Tap a line to work on that tattoo, the eye to hide it, and the arrow at the top to fold the panel to a slim rail.']; },
-  hideKinds: () => { layersDock.setOpen(true, true); return ['#ldKinds', 'Tap Hide planned to see only the ink already on you, or Hide existing to see only your plans. Tap again to bring them back. Nothing in the project changes.']; },
+  hideKinds: () => { layersDock.setOpen(true, true); return ['#ldKinds', 'Tap Hide planned to see only the ink already on you, or Hide on my skin to see only your plans. Tap again to bring them back. Nothing in the project changes.']; },
   layersSheet: () => { toggle('#planMenu', true); return ['#openLayers', 'Tap Layers and groups. Each tattoo is one line with an eye to hide it and dots to move or lock it; tick several and the actions for them show below.']; },
   layouts: () => { toggle('#planMenu', true); return ['#openPlanning', 'Tap Layouts and views. Name the layout on the body and tap Save; each saved one has Open, and the dots beside it hold Rename, What’s different and Archive.']; },
   measuredWrap: () => { toggle('#planMenu', true); return ['#openWrap', 'Tap Measured wrap. Your ankle numbers are filled in to start; change any of them there.']; },
@@ -2784,12 +2788,12 @@ const SHOW = {
   centre: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; $('#preciseBox').open = true; return ['#snapLabel', 'Drag a tattoo on your chest, stomach or back across the middle and a line shows down the centre of the body. Turn on snapping here and it sits right on it.']; },
   keys: () => { if (!needTattoo()) return null; return [null, 'With a keyboard: the arrows move the selected tattoo (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Undo puts any of it back.']; },
   like: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#likeLine', 'This line says the size as an everyday thing, like about the size of a credit card, so the numbers are easy to picture.']; },
-  sitWear: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls says what to wear to the sitting.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return [$('#sitWear').hidden ? '#sitBox' : '#sitWear', 'Under the sittings, a line says what to wear so the spot is open without undressing more than you need to.']; },
+  sitWear: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bPlanned', 'Tap Planned at the top of the panel to mark this tattoo as planned. Then More controls says what to wear to the sitting.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return [$('#sitWear').hidden ? '#sitBox' : '#sitWear', 'Under the sittings, a line says what to wear so the spot is open without undressing more than you need to.']; },
   reads: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; readRender(t); return [$('#readRow').hidden ? '#estRow' : '#readRow', 'This line says who the tattoo reads the right way up for: others, or you looking down at it. The button turns it round in one step you can undo.']; },
-  trip: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings and checks them against a trip.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitAway', 'Pick the first sitting, then add a trip or beach day. If it lands while the ink is still fresh, it says so and moves the sittings in one tap.']; },
-  sittings: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Already on me to mark this tattoo as planned. Then More controls splits it into sittings.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitBox', 'Pick the date of the first sitting and the weeks between. Each sitting gets its date, and the last line says when it is healed.']; },
+  trip: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bPlanned', 'Tap Planned at the top of the panel to mark this tattoo as planned. Then More controls splits it into sittings and checks them against a trip.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitAway', 'Pick the first sitting, then add a trip or beach day. If it lands while the ink is still fresh, it says so and moves the sittings in one tap.']; },
+  sittings: () => { const t = state.tattoos.find((q) => q.status !== 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bPlanned', 'Tap Planned at the top of the panel to mark this tattoo as planned. Then More controls splits it into sittings.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; sitRender(t); return ['#sitBox', 'Pick the date of the first sitting and the weeks between. Each sitting gets its date, and the last line says when it is healed.']; },
   note: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#noteBox', 'Type what your artist should know about this one. It goes on the artist sheet and the artist packet.']; },
-  made: () => { const t = state.tattoos.find((q) => q.status === 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bStatus', 'Tap Planned to mark this tattoo as already on me. Then More controls has who did it and when.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; return ['#madeBox', 'Add who did this tattoo, the studio and the month. It goes on the artist sheet.']; },
+  made: () => { const t = state.tattoos.find((q) => q.status === 'existing' && !q.hidden); if (!t) { if (!needTattoo()) return null; return ['#bOnSkin', 'Tap On my skin at the top of the panel to mark this tattoo as already on you. Then More controls has who did it and when.']; } if (sel() !== t) select(t.id, true); $('#editorAdvanced').open = true; return ['#madeBox', 'Add who did this tattoo, the studio and the month. It goes on the artist sheet.']; },
   where: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#whereLine', 'This line says where the tattoo sits the way your artist measures it, like 3 in below the elbow.']; },
   estimate: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; renderInfo(); return ['#estRow', 'A rough guess at how long this tattoo takes. Type your artist\'s hourly rate for a price.']; },
   pain: () => { showLook(true); return ['#painBtn', 'Tap Pain map, then any spot or tattoo to see how much it usually hurts there.']; },
@@ -2809,7 +2813,7 @@ const SHOW = {
   hairLong: () => { toggle('#bodyPop', true); viewFace(); return ['#hairRow [data-hair="long"]', 'Tap Long, then pick a colour.']; },
   hairPhoto: () => { toggle('#bodyPop', true); viewFace(); return ['#hairPhotoBtn', 'Pick a photo with your whole head in it, looking at the camera.']; },
   compareShot: () => { toggle('#share', true); return ['#cCompare', 'Tap for this view now and with your planned tattoos, side by side, to save or send.']; },
-  cover: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', 'Put a planned tattoo over one marked already on me, and this line says how much of the old ink it covers.']; },
+  cover: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', 'Put a planned tattoo over one marked On my skin, and this line says how much of the old ink it covers.']; },
   gap: () => { const t = needTattoo(); if (!t) return null; renderGap(); return ['#gap', state.tattoos.filter((x) => !x.hidden).length > 1 ? 'This line says how far the tattoo is from the nearest other one.' : 'Add a second tattoo and this line says how far apart they are.']; },
   skinDetail: () => { toggle('#bodyPop', true); viewFace(); return ['#faceBtn', 'Eyebrows and fine skin texture now show on every body. Zoom in close to see them. Add my face puts your own face on.']; },
   face: () => { toggle('#bodyPop', true); return ['#faceBtn', 'Pick a clear photo of your face, looking straight at the camera.']; },
@@ -4778,6 +4782,7 @@ layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:
   pick:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id===selectedId){if(!viewLocked)focusTattoo(t);}else select(t.id,true);},
   adds:[$('#add'),$('#drawNew')],badges:t=>tatBadges(t),sheetShown:()=>!$('#sheet').hidden,
   change:fn=>{snapshot();fn(state);commit();},openSheet:openLayersSheet,onPaint:()=>openPaintPop(),openLook:id=>openInkLook(id),
+  onStatus:()=>markTried('statusSwitch'),
   onKinds:kind=>{markTried('hideKinds');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}const n=state.tattoos.filter(x=>(x.status==='existing'?'existing':'planned')===kind).length;if(n)toast(kindOff[kind]?`${kind==='existing'?'Existing':'Planned'} tattoos hidden on this screen. Tap again to bring them back.`:`${kind==='existing'?'Existing':'Planned'} tattoos showing again.`,null,null,3200);},
   onOpen:open=>{if(open)markTried('layersDock');},
   onLayout:()=>{placeChrome();needsRender=true;}});

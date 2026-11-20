@@ -15,7 +15,7 @@ export default async function (p) {
   const get = (id) => p.evaluate((id) => window.__ink.state().tattoos.find((q) => q.id === id), id);
   // make sure A is planned
   await chip(tA.id);
-  if ((await get(tA.id)).status === 'existing') { await p.click('#bStatus'); await wait(300); }
+  if ((await get(tA.id)).status === 'existing') { await p.click('#statusSeg .btn[aria-pressed=false]'); await wait(300); }
   await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; }); await wait(400);
   assert.equal(await p.$eval('#madeBox', (e) => e.hidden), true, 'planned: no who-did-it fields');
   assert.ok(await p.$eval('#tNote', (e) => e.getBoundingClientRect().height >= 44), 'note box big enough');
@@ -28,7 +28,7 @@ export default async function (p) {
   await p.click('#redo'); await wait(300);
   assert.equal((await get(tA.id)).note, 'Fine lines only, black and grey', 'redo puts it back');
   // ink already on: who did it and when
-  await p.click('#bStatus'); await wait(300);
+  await p.click('#statusSeg .btn[aria-pressed=false]'); await wait(300);
   assert.equal((await get(tA.id)).status, 'existing');
   assert.equal(await p.$eval('#madeBox', (e) => e.hidden), false, 'already on me: who-did-it fields show');
   for (const id of ['#madeArtist', '#madeStudio', '#madeWhen']) assert.ok(await p.$eval(id, (e) => e.getBoundingClientRect().height >= 44), id + ' big enough');
@@ -43,7 +43,7 @@ export default async function (p) {
   await p.click('#redo'); await wait(300);
   // the plan line: two planned pieces needed
   await chip(tB.id);
-  if ((await get(tB.id)).status === 'existing') { await p.click('#bStatus'); await wait(300); }
+  if ((await get(tB.id)).status === 'existing') { await p.click('#statusSeg .btn[aria-pressed=false]'); await wait(300); }
   await p.evaluate(() => { document.querySelector('#editorAdvanced').open = true; }); await wait(500);
   const planned = (await p.evaluate(() => window.__ink.state().tattoos)).filter((t) => t.status !== 'existing' && !t.hidden).length;
   const plan = await p.evaluate(() => window.__ink.planLine());

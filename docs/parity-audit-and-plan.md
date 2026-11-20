@@ -684,3 +684,10 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - Arm warping: not from the body measurements change. Since 2026-11-18 a piece a third of the way round a forearm or lower leg was laid like a sleeve, and the sleeve read its middle line and ring lengths from 1 cm rows with no blending, so every line crossing a row stepped, and the steps crept through the ink as it moved; a piece near a third also flicked between the two layouts mid-drag. Rows are now blended, the bar is half way round, and a piece near the bar keeps the way it was last laid.
 - Layers under the top bar: `--below` was measured in window coordinates and used inside `#viewport`, which the iPad shifts and scales with its visual viewport (zoom, keyboard), so the column started about 44 px too high. Measured in `#viewport`'s own coordinates now, rechecked every second and after the keyboard closes.
 - Tested: t134 (new), t49, t48, t115, t116, t124, t126, t130, t114, t1, t2, t7, t7b, t93, t97, t131. Not yet on the iPad.
+
+## 2026-11-20 On my skin or Planned switch (from Jake on the iPad)
+
+- Jake: "The button for already on me versus planned is really confusing. It needs a clearer toggle." The old control was one button inside More controls whose label was the current state, so it read like an action.
+- Now a two-way switch right under the tattoo's name: On my skin (filled tick) and Planned (dashed ring), the filled side is what it is. A tap on the chosen side does nothing; on the other side it switches, one undo step, and On my skin locks it in place as before.
+- Layers: every line starts with the same mark and words, the ⋯ has the same switch, and the quick buttons read Hide planned and Hide on my skin (the rail says On my skin on two lines). Undo says "Undid marking Rose as on your skin."
+- Storage unchanged (`t.status`). Built and tested headless (t135, both iPad orientations); not yet checked on the iPad.
