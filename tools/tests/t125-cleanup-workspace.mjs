@@ -94,13 +94,13 @@ export default async function (p) {
       const host = document.querySelector('#ink-cleanup'), W = innerWidth, H = innerHeight, small = [], out = [];
       for (const b of host.querySelectorAll('button')) { if (!b.offsetParent || b.closest('.ic-confirm') || b.closest('.ic-seg') || b.closest('[hidden]')) continue; const q = b.getBoundingClientRect(); if (q.width < 43.5 || q.height < 43.5) small.push(b.textContent.trim() || b.getAttribute('aria-label')); if (q.left < -1 || q.right > W + 1 || q.bottom > H + 1 || q.top < -1) out.push(b.textContent.trim() || b.getAttribute('aria-label')); }
       const stage = host.querySelector('.ic-work').getBoundingClientRect();
-      return { small, out, stage: [stage.width, stage.height], scrollW: host.scrollWidth - host.clientWidth, tools: host.querySelectorAll('.ic-tools button').length };
+      return { small, out, stage: [stage.width, stage.height], scrollW: host.scrollWidth - host.clientWidth, tools: host.querySelectorAll('.ic-tools [data-mode]').length, addImage: !!host.querySelector('.ic-tools [data-action=addimage]') };
     });
     assert.deepEqual(r.small, [], name + ': every button is 44 pt or more');
     assert.deepEqual(r.out, [], name + ': nothing off screen');
     assert(r.scrollW <= 0, name + ': no sideways scroll');
     assert(r.stage[0] > 300 && r.stage[1] > 300, name + ': the picture keeps most of the screen ' + r.stage);
-    assert.equal(r.tools, 10, 'ten tools in the rail');
+    assert.equal(r.tools, 10, 'ten tools in the rail'); assert(r.addImage, 'Add image in the rail');
     await p.screenshot({ path: `shots/t125-${name}-${theme}.png` });
     await p.click('[data-action=cancel]'); await wait(200); assert.equal(await p.$('#ink-cleanup'), null, 'Cancel with no changes just closes');
   };

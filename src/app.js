@@ -1828,7 +1828,7 @@ async function cleanupSelected(linked=false) {
   if (result.used?.includes('select')) markTried('cleanupSelect');
   if (result.used?.includes('move')) markTried('cleanupMove');
   // the Photoshop-style tools tick themselves in New to try when they are used
-  for (const [use, id] of [['wand', 'cleanupWand'], ['refine', 'cleanupWand'], ['background', 'cleanupBackground'], ['adjust', 'cleanupAdjust'], ['clone', 'cleanupClone'], ['history', 'cleanupHistory'], ['erase', 'cleanupBrushes'], ['restore', 'cleanupBrushes']]) if (result.used?.includes(use)) markTried(id);
+  for (const [use, id] of [['wand', 'cleanupWand'], ['refine', 'cleanupWand'], ['background', 'cleanupBackground'], ['adjust', 'cleanupAdjust'], ['clone', 'cleanupClone'], ['history', 'cleanupHistory'], ['erase', 'cleanupBrushes'], ['restore', 'cleanupBrushes'], ['image', 'cleanupImage']]) if (result.used?.includes(use)) markTried(id);
   if (typeof result.linked === 'boolean') linked = result.linked;
   const current = state.tattoos.find(x => x.id === id);
   if (!current || current.img !== prior) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }

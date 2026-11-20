@@ -114,6 +114,7 @@ const ICONS = {
   clone: '<circle cx="8" cy="8" r="4.5"/><path d="M8 5.5v5M5.5 8h5"/><path d="M13 13.5h5.5a2 2 0 0 1 2 2V20H11.5v-4.5a2 2 0 0 1 1.5-2z"/><path d="M15.75 13.5V10"/>',
   adjust: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
   history: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4.5l3 2"/>',
+  image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="m20.5 16-5-5-8.5 8.5"/>',
   minus: '<path d="M6 12h12"/>', plus: '<path d="M12 6v12M6 12h12"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
@@ -224,6 +225,9 @@ const STYLE = `
 #ink-cleanup .ic-nums label{display:grid;gap:2px;font-size:12px;color:var(--ic-muted)}
 #ink-cleanup input[type=number]{width:100%;min-height:44px;font:inherit;font-size:16px;color:inherit;background:var(--ic-fill);border:0;border-radius:10px;padding:0 10px}
 #ink-cleanup select{display:none}
+#ink-cleanup select.ic-pick{display:block;width:100%;min-height:44px;font:inherit;font-size:16px;color:var(--ic-text);background:var(--ic-fill);border:0;border-radius:10px;padding:0 10px;margin-top:4px}
+#ink-cleanup .ic-layer{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:end}
+#ink-cleanup .ic-layer select.ic-pick{margin-top:0}
 #ink-cleanup ink-slider{display:block;position:relative;height:44px;touch-action:pan-y;cursor:pointer;outline:none}
 #ink-cleanup ink-slider .sl-track{position:absolute;left:0;right:0;top:50%;height:6px;margin-top:-3px;border-radius:3px;background:var(--ic-fill2);pointer-events:none}
 #ink-cleanup ink-slider .sl-fill{position:absolute;top:0;bottom:0;border-radius:3px;background:var(--ic-accent)}
@@ -264,7 +268,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const previousFocus = document.activeElement;
     const host = document.createElement('div'); host.id = 'ink-cleanup'; host.setAttribute('role', 'dialog'); host.setAttribute('aria-modal', 'true'); host.setAttribute('aria-labelledby', 'ic-title');
     const keyOf = m => Object.keys(TOOL_KEYS).find(k => TOOL_KEYS[k] === m)?.toUpperCase();
-    const toolButtons = TOOL_GROUPS.map(g => g.map(m => { const word = TOOLS.find(t => t[0] === m)[1]; return `<button type="button" data-mode="${m}" aria-pressed="false" title="${word} (${keyOf(m)})">${icon(m)}<span>${word}</span></button>`; }).join('')).join('<hr aria-hidden="true">');
+    const toolButtons = TOOL_GROUPS.map(g => g.map(m => { const word = TOOLS.find(t => t[0] === m)[1]; return `<button type="button" data-mode="${m}" aria-pressed="false" title="${word} (${keyOf(m)})">${icon(m)}<span>${word}</span></button>` + (m === 'move' ? `<button type="button" data-action="addimage" title="Add an image (I)">${icon('image')}<span>Add image</span></button>` : ''); }).join('')).join('<hr aria-hidden="true">');
     const slider = (id, label, min, max, value, extra = '') => `<label class="ic-field">${label}<ink-slider id="${id}" min="${min}" max="${max}" step="1" value="${value}" default="${value}" aria-label="${label}"${extra}${extra.includes('unit=') ? '' : ' unit=""'}></ink-slider></label>`;
     const hint = (m) => `<p class="ic-hint">${TOOLS.find(t => t[0] === m)[2]}</p>`;
     host.innerHTML = `<style>${STYLE}</style>
@@ -313,8 +317,10 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     <label class="ic-field">Feather<ink-slider id="ic-rf-feather" min="0" max="40" step="1" value="0" default="0" unit=" px" aria-label="Feather"></ink-slider></label>
     <p class="ic-hint">Shift moves the edge out or in, Smooth rounds off jagged edges, Feather softens it. It shows as you slide.</p></div></details></div>
   <div class="ic-sec" data-for="move">${hint('move')}<p class="ic-readout" data-readout>Nothing to move</p>
+   <div class="ic-layer" data-layer hidden><label class="ic-field">Opacity<ink-slider id="ic-layer-opacity" min="0" max="100" step="1" value="100" default="100" unit="%" aria-label="Opacity"></ink-slider></label><label class="ic-field">Blend<select id="ic-layer-blend" class="ic-pick" aria-label="Blend"><option value="source-over">Normal</option><option value="multiply">Multiply</option><option value="darken">Darken</option><option value="color-burn">Colour burn</option><option value="screen">Screen</option><option value="lighten">Lighten</option><option value="color-dodge">Colour dodge</option><option value="overlay">Overlay</option><option value="soft-light">Soft light</option><option value="hard-light">Hard light</option><option value="difference">Difference</option><option value="exclusion">Exclusion</option><option value="hue">Hue</option><option value="saturation">Saturation</option><option value="color">Colour</option><option value="luminosity">Luminosity</option></select></label></div>
    <div class="ic-row"><button type="button" data-action="flipx">Flip across</button><button type="button" data-action="flipy">Flip up and down</button><button type="button" data-action="turn90">Turn 90°</button></div>
-   <div class="ic-row"><button type="button" data-action="duplicate">Duplicate</button><button type="button" data-action="putback">Put it back</button><button type="button" class="ic-primary" data-action="place">Place it</button></div>
+   <div class="ic-row"><button type="button" data-action="duplicate">Duplicate</button><button type="button" data-action="putback">Put it back</button><button type="button" class="ic-danger" data-action="seldelete" data-float-only hidden>Delete it</button><button type="button" class="ic-primary" data-action="place">Place it</button></div>
+   <div class="ic-row"><button type="button" data-action="addimage">Add an image</button><button type="button" data-action="pasteimage">Paste a picture</button></div>
    <label class="ic-switch">Snap straight across or up and down<input id="ic-snap" type="checkbox" checked></label>
    <details><summary>Exact amounts</summary><div class="ic-nums"><label>Right<input id="ic-mx" type="number" step="0.01" value="0" inputmode="decimal"></label><label>Down<input id="ic-my" type="number" step="0.01" value="0" inputmode="decimal"></label><label>Size %<input id="ic-ms" type="number" min="5" max="2000" step="1" value="100" inputmode="decimal"></label><label>Turn °<input id="ic-mr" type="number" step="1" value="0" inputmode="decimal"></label></div><p class="ic-hint" data-units></p><div class="ic-row"><button type="button" data-action="exactmove">Move by these</button></div></details></div>
   <div class="ic-sec" data-for="crop">${hint('crop')}<div class="ic-row"><button type="button" class="ic-primary" data-action="crop" disabled>Crop</button><button type="button" data-action="trim">Trim empty edges</button></div><div class="ic-row"><button type="button" data-action="uncrop">Show the whole picture</button></div>
@@ -333,7 +339,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
  </div>
   ${linkedCount >= 2 ? `<label class="ic-switch ic-linked">Also update the ${linkedCount - 1} other ${linkedCount === 2 ? 'copy' : 'copies'}<input id="ic-linked" type="checkbox"${options.linked ? ' checked' : ''}></label>` : ''}
 </div>
-<nav class="ic-tools" aria-label="Cleanup tools">${toolButtons}</nav>`;
+<nav class="ic-tools" aria-label="Cleanup tools">${toolButtons}</nav><input type="file" id="ic-file" accept="image/*" hidden aria-hidden="true" tabindex="-1">`;
     (document.querySelector('#viewport') || document.body).append(host);
     const $ = (s) => host.querySelector(s);
     const view = $('canvas'), work = canvasOf(1, 1), original = canvasOf(1, 1), wctx = work.getContext('2d', { willReadFrequently: true });
@@ -486,7 +492,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       else {
         if (floatView._src !== float.src) { floatView.width = float.w; floatView.height = float.h; const g = floatView.getContext('2d'); g.clearRect(0, 0, float.w, float.h); g.drawImage(float.src, 0, 0); floatView._src = float.src; }
         const p = at(float), w = float.w * k, h = float.h * k, T = float.T;
-        Object.assign(floatView.style, { display: 'block', width: w + 'px', height: h + 'px', transform: `translate(${p.x - w / 2}px,${p.y - h / 2}px) rotate(${T.rot}rad) scale(${T.s * T.fx},${T.s * T.fy})` });
+        Object.assign(floatView.style, { display: 'block', width: w + 'px', height: h + 'px', opacity: String(float.opacity ?? 1), mixBlendMode: !float.blend || float.blend === 'source-over' ? 'normal' : float.blend, transform: `translate(${p.x - w / 2}px,${p.y - h / 2}px) rotate(${T.rot}rad) scale(${T.s * T.fx},${T.s * T.fy})` });
       }
       const f = mode === 'move' && !comparing ? (float || pendingBox) : null;
       if (!f) { xbox.style.display = 'none'; return; }
@@ -494,7 +500,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       Object.assign(xbox.style, { display: 'block', width: w + 'px', height: h + 'px', transform: `translate(${p.x - w / 2}px,${p.y - h / 2}px) rotate(${f.T.rot}rad)` });
     };
     const inches = (px, digits = 2) => (px / ppi()).toFixed(digits) + ' in';
-    const readoutText = () => float ? moveWords(float.T0, float.T, float.w, float.h, ppi())
+    const readoutText = () => float ? (float.placed ? 'The added picture · ' + moveWords(float.T0, float.T, float.w, float.h, ppi()).replace(/^Not moved · /, '') : moveWords(float.T0, float.T, float.w, float.h, ppi())) + ((float.opacity ?? 1) < 1 ? ` · ${Math.round((float.opacity ?? 1) * 100)}% opacity` : '')
       : pendingBox ? `${sel ? 'The selection' : 'The whole picture'}, ${ppi() ? `${inches(pendingBox.w)} × ${inches(pendingBox.h)}` : `${pendingBox.w} × ${pendingBox.h} px`}. Drag it to move it.` : sel ? 'There is no ink in the selection.' : 'Nothing to move.';
     const readouts = () => {
       const r = $('[data-readout]'); if (r) r.textContent = readoutText();
@@ -505,6 +511,9 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       const T = float?.T, T0 = float?.T0 || T, unit = ppi() || 1, set = (id, v) => { const n = $(id); if (document.activeElement !== n) n.value = v; };
       set('#ic-mx', T ? +((T.cx - T0.cx) / unit).toFixed(ppi() ? 2 : 0) : 0); set('#ic-my', T ? +((T.cy - T0.cy) / unit).toFixed(ppi() ? 2 : 0) : 0);
       set('#ic-ms', T ? Math.round(T.s * 100) : 100); set('#ic-mr', T ? Math.round(T.rot * 180 / Math.PI) : 0);
+      $('[data-layer]').hidden = !float;
+      $('[data-float-only]').hidden = !float;
+      if (float) { set('#ic-layer-opacity', Math.round((float.opacity ?? 1) * 100)); set('#ic-layer-blend', float.blend || 'source-over'); }
     };
     const showMoving = (live = false) => { placeMoving(); readouts(); if (live) say(readoutText(), true); };
     // Lift the selected ink, or all of it with nothing selected. A copy leaves the original where it is.
@@ -565,12 +574,54 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       const { px, py } = growPads(f.T, f.w, f.h, work.width, work.height);
       if (px || py) growPicture(px, py);
       const T = { ...f.T, cx: f.T.cx + px, cy: f.T.cy + py };
-      drawPiece(wctx, f.src, f, T);
+      wctx.save(); wctx.globalAlpha = Math.max(0, Math.min(1, f.opacity ?? 1)); wctx.globalCompositeOperation = f.blend || 'source-over'; drawPiece(wctx, f.src, f, T); wctx.restore();
       if (f.mask) { const c = canvasOf(work.width, work.height); drawPiece(c.getContext('2d'), f.mask, f, T); setSel(maskFrom(c, work.width, work.height)); } else setSel(null);
       fitLimit();
       if (px || py) say('The picture grew to fit it. The tattoo keeps its real size and its spot on the body.');
       return true;
     };
+    // Add an image: a photo or picture from the iPad comes in as a floating piece over the picture, where
+    // the view is looking, at most 60% of the picture's size. It moves, sizes, turns and flips like any
+    // piece, with its own opacity and blend, and goes into the picture with Place it (or any other tool,
+    // or Done). Bringing it in is one undo step. Pictures over 1600 px are scaled down as they come in.
+    const readImageFile = file => new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file), img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file could not be opened as a picture. Try a JPEG or PNG.')); };
+      img.src = url;
+    });
+    const placeImage = (img, name = '') => {
+      const nw = img.naturalWidth || img.width || 0, nh = img.naturalHeight || img.height || 0;
+      if (!nw || !nh) { say('That picture is empty.'); return false; }
+      const q = Math.min(1, 1600 / Math.max(nw, nh)), w = Math.max(1, Math.round(nw * q)), h = Math.max(1, Math.round(nh * q));
+      const src = canvasOf(w, h), g = src.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(img, 0, 0, w, h);
+      commitFloat(); endLive(); endRefine(); cut = null; comparing = false; closeHistory();
+      if (mode !== 'move') setTool('move');
+      snapshot('Add image');
+      const r = stage.getBoundingClientRect(), c = workPt(r.left + r.width / 2, r.top + r.height / 2);
+      const cx = Math.max(0, Math.min(work.width, c.x)), cy = Math.max(0, Math.min(work.height, c.y));
+      const s = Math.max(0.05, Math.min(20, 0.6 * work.width / w, 0.6 * work.height / h)), T = { cx, cy, s, rot: 0, fx: 1, fy: 1 };
+      float = { src, mask: null, w, h, T, T0: { ...T }, copy: true, placed: true, name: String(name).slice(0, 80), opacity: 1, blend: 'source-over' };
+      setSel(null); pendingBox = null; nudge = null; layerGo = -1; used.add('image'); draw();
+      say('Picture added. Drag it, size it with the corners, then tap Place it.');
+      return true;
+    };
+    const takeImageFile = async file => {
+      if (!file) return;
+      if (file.type && !file.type.startsWith('image/')) { say('That is not a picture. Pick a photo or an image file.'); return; }
+      try { const img = await readImageFile(file); if (!settled) placeImage(img, file.name); } catch (error) { if (!settled) say(error.message, true); }
+    };
+    const imageIn = list => [...(list || [])].find(f => f && f.type?.startsWith('image/'));
+    const pasteImage = async () => {
+      if (!navigator.clipboard?.read) { say('Copy a picture, then press Command V here.'); return; }
+      try {
+        for (const item of await navigator.clipboard.read()) { const t = item.types.find(x => x.startsWith('image/')); if (t) { const b = await item.getType(t); return takeImageFile(new File([b], 'Pasted picture', { type: t })); } }
+        say('There is no picture to paste. Copy one first, for example with Copy in Procreate or Photos.');
+      } catch { say('Could not read a picture to paste. Copy one first, then try again.'); }
+    };
+    // opacity and blend of the floating piece: one undo step for each go on the slider or each blend picked
+    let layerGo = -1;
+    const layerStep = label => { if (layerGo !== history.length) { snapshot(label); layerGo = history.length; } };
     const selOpNow = e => e?.shiftKey ? 'add' : e?.altKey ? 'subtract' : $('#ic-sel-op').value;
     const changeSel = (m, op) => {
       commitFloat(); endLive(); endRefine(); cut = null;
@@ -795,7 +846,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     host.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.mode)));
 
     const hideConfirm = () => { confirmBox.hidden = true; };
-    const finish = result => { if (settled) return; settled = true; if (livePending) cancelAnimationFrame(livePending); document.removeEventListener('keydown', keyOutside, true); window.removeEventListener('blur', cancelStroke); observer.disconnect(); host.remove(); previousFocus?.focus?.(); resolve(result); };
+    const finish = result => { if (settled) return; settled = true; if (livePending) cancelAnimationFrame(livePending); document.removeEventListener('keydown', keyOutside, true); document.removeEventListener('paste', onPaste, true); window.removeEventListener('blur', cancelStroke); observer.disconnect(); host.remove(); previousFocus?.focus?.(); resolve(result); };
     const askCancel = () => { if (!dirty()) return finish(null); confirmBox.hidden = false; button('keep').focus(); };
 
     // Pointers: one finger or the Pencil uses the tool, two fingers pinch and pan in every tool.
@@ -945,6 +996,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (e.key === 'Enter' && mode === 'move' && float && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); act('place'); return; }
       if ((e.key === 'Delete' || e.key === 'Backspace') && (sel || float)) { e.preventDefault(); act('seldelete'); return; }
       if (cmd || e.altKey) return;
+      if (k === 'i') { e.preventDefault(); act('addimage'); return; }
       if (TOOL_KEYS[k] && !(e.target instanceof HTMLElement && e.target.closest('ink-slider'))) { e.preventDefault(); setTool(TOOL_KEYS[k]); return; }
       if (e.key === '[' || e.key === ']') { e.preventDefault(); const s = $('#ic-brush'); s.value = Math.round(s.value * (e.key === '[' ? 1 / 1.25 : 1.25)); return; }
       if (e.key === '0') { e.preventDefault(); act('fit'); return; }
@@ -998,6 +1050,8 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (action === 'cancel') return askCancel();
       if (action === 'discard') return finish(null);
       if (action === 'keep') return;
+      if (action === 'addimage') { commitFloat(); draw(); const f = $('#ic-file'); f.value = ''; f.click(); return; }
+      if (action === 'pasteimage') { commitFloat(); draw(); pasteImage(); return; }
       if (!FLOAT_KEEP.includes(action)) commitFloat();
       if (selectAction(action)) { draw(); return; }
       if (action === 'apply') {
@@ -1052,6 +1106,16 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     button('compare').addEventListener('pointerdown', () => { clearTimeout(holdCompare.timer); holdCompare.held = false; holdCompare.timer = setTimeout(() => { if (comparing) return; holdCompare.held = true; comparing = true; used.add('compare'); draw(); }, 280); });
     const releaseCompare = () => { clearTimeout(holdCompare.timer); if (holdCompare.held) { holdCompare.held = false; holdCompare.swallow = true; comparing = false; draw(); setTimeout(() => { holdCompare.swallow = false; }, 400); } };
     for (const t of ['pointerup', 'pointercancel', 'pointerleave']) button('compare').addEventListener(t, releaseCompare);
+
+    // a picture comes in from the file picker, a paste (Command V) or a file dropped on the picture
+    $('#ic-file').addEventListener('change', e => { const f = e.target.files?.[0]; e.target.value = ''; takeImageFile(f); });
+    const onPaste = e => { if (settled || e.target.closest?.('input[type=number],textarea,[contenteditable]')) return; const f = imageIn(e.clipboardData?.files); if (!f) return; e.preventDefault(); e.stopImmediatePropagation(); takeImageFile(f); };
+    document.addEventListener('paste', onPaste, true);
+    stage.addEventListener('dragover', e => { if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    stage.addEventListener('drop', e => { const f = imageIn(e.dataTransfer?.files); if (!f) return; e.preventDefault(); takeImageFile(f); });
+    $('#ic-layer-opacity').addEventListener('input', () => { if (!float) return; layerStep('Opacity'); float.opacity = boundedValue('#ic-layer-opacity', 0, 100) / 100; placeMoving(); say(`Opacity ${Math.round(float.opacity * 100)}%`, true); });
+    $('#ic-layer-opacity').addEventListener('change', () => { layerGo = -1; readouts(); });
+    $('#ic-layer-blend').addEventListener('change', e => { if (!float) return; layerGo = -1; layerStep('Blend'); layerGo = -1; float.blend = e.target.value; placeMoving(); readouts(); say(`Blend: ${e.target.selectedOptions[0].textContent}.`); });
 
     setImage(current);
     if (session) { full.width = baseline.width = fullImage.naturalWidth; full.height = baseline.height = fullImage.naturalHeight; full.getContext('2d').drawImage(fullImage, 0, 0); baseline.getContext('2d').drawImage(restoreImage, 0, 0); rect = { ...session.crop }; work.width = original.width = rect.w; work.height = original.height = rect.h; wctx.drawImage(full, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); original.getContext('2d').drawImage(baseline, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); }
