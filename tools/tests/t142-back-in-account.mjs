@@ -22,7 +22,7 @@ export default async function (p) {
   // the account refuses every write while block is on, like a server that does not answer
   let block = false;
   await p.setRequestInterception(true);
-  p.on('request', (r) => { if (r.isInterceptResolutionHandled()) return; if (block && /\/rest\/v1\/projects|\/storage\/v1\/object\/artwork/.test(r.url()) && r.method() !== 'GET') r.abort('connectionfailed'); else r.continue(); });
+  p.on('request', (r) => { if (r.isInterceptResolutionHandled()) return; if (block && /\/rest\/v1\/projects|\/storage\/v1\/object\/artwork/.test(r.url()) && !['GET', 'OPTIONS'].includes(r.method())) r.abort('connectionfailed'); else r.continue(); });
   const stuckNow = async (names) => { block = true; await rename(names); const ok = await until(() => window.__ink.account().fix === true, null, 'stuck'); block = false; return ok; };
   const tapLine = async () => { await p.evaluate(() => document.querySelector('#top .brand').click()); await until(() => window.__ink.account().view === 'fix' && document.querySelector('#acctFix') && !/Looking at/.test(document.querySelector('#acctFix').textContent), null, 'fix view'); };
   try {
@@ -49,7 +49,7 @@ export default async function (p) {
     await tapLine();
     check('tapping it opens Put it in your account', (await acct()).view === 'fix');
     let t = await panelText();
-    check('it says the last try and offers to send it', /last saved/.test(t) && /Last try: No connection/.test(t), t.slice(0, 260));
+    check('it says the last try and offers to send it', /last saved/.test(t) && /Last try: Your account is answering, but saving the project \(\d+ KB\) did not get through/.test(t), t.slice(0, 260));
     await p.screenshot({ path: 'shots/t142-send.png' });
     await clickText('Put it in my account');
     await until(() => /saved to your account/.test(document.querySelector('#acctFix').textContent), null, 'sent');

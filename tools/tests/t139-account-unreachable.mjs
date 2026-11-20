@@ -30,7 +30,7 @@ export default async function (p) {
   const busy = await p.evaluate(() => !document.querySelector('#account').hidden && document.querySelector('#account').textContent);
   check('Sign in opens at once and says it is reaching the account', !!busy && /Reaching your account/.test(busy), String(busy).slice(0, 80));
   let said = '';
-  for (let i = 0; i < 40 && !said; i++) { await wait(500); const t = await toastText(); if (/No connection to your account/.test(t)) said = t; }
+  for (let i = 0; i < 40 && !said; i++) { await wait(500); const t = await toastText(); if (/No connection to your account|account took too long to answer/.test(t)) said = t; }
   const took = (Date.now() - tc) / 1000;
   check('it gives up and says so instead of waiting for ever', !!said && took < 16, `${took.toFixed(1)} s: ${said}`);
   check('the panel closes when it gives up', await p.evaluate(() => document.querySelector('#account').hidden));

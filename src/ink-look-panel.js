@@ -29,12 +29,15 @@ export const MODE_TIPS = {
 const SLIDERS = [['hue', 'Hue', -180, 180, '°'], ['sat', 'Saturation', -100, 100, ''], ['light', 'Brightness', -100, 100, ''], ['contrast', 'Contrast', -100, 100, '']];
 const SWATCHES = ['#b0413e', '#c9822b', '#d8b23c', '#3f7d4e', '#2f6c8f', '#4b3f8f', '#8a3f78', '#ffffff', '#1d1b1a'];
 
-const CSS = `#inkLook{position:fixed;z-index:5;left:calc(12px + env(safe-area-inset-left,0px));top:var(--below,64px);width:340px;max-width:calc(100vw - 24px);display:flex;flex-direction:column;color:var(--text);font:500 15px/1.3 var(--body);border-radius:20px;overflow:hidden;box-sizing:border-box;overscroll-behavior:contain}
+// The panel itself is what scrolls, with its title held at the top, the way the Body and Pose panels
+// do (2026-11-20, Jake: a finger could not scroll it on the iPad and moved the whole screen instead).
+// A list scrolling inside a blurred glass box does not take the finger on the iPad.
+const CSS = `#inkLook{position:fixed;z-index:5;left:calc(12px + env(safe-area-inset-left,0px));top:var(--below,64px);width:340px;max-width:calc(100vw - 24px);display:block;color:var(--text);font:500 15px/1.3 var(--body);border-radius:20px;box-sizing:border-box;overflow-x:hidden;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y}
 #inkLook *{box-sizing:border-box}#inkLook[hidden]{display:none!important}
 #inkLook button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent}
-#inkLook .lk-head{display:flex;align-items:center;gap:8px;padding:10px 10px 8px 16px;min-height:60px;border-bottom:1px solid var(--line)}
+#inkLook .lk-head{display:flex;align-items:center;gap:8px;padding:10px 10px 8px 16px;min-height:60px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:1;background:var(--surface-solid);border-radius:20px 20px 0 0}
 #inkLook .lk-title{flex:1;min-width:0}#inkLook .lk-title h2{margin:0;font:700 17px/1.2 var(--body);letter-spacing:-.01em}#inkLook .lk-title small{display:block;color:var(--muted);font-size:13px;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#inkLook .lk-body{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding:4px 14px 16px}
+#inkLook .lk-body{padding:4px 14px 16px}
 #inkLook h3{margin:16px 2px 8px;color:var(--muted);font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase}
 #inkLook .lk-gname{margin:10px 2px 6px;color:var(--muted);font-size:12.5px;font-weight:600}
 #inkLook .lk-modes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
@@ -59,7 +62,7 @@ const CSS = `#inkLook{position:fixed;z-index:5;left:calc(12px + env(safe-area-in
 #inkLook .lk-locked{margin:10px 2px;padding:10px 12px;border-radius:12px;background:var(--fill);font-size:14px}
 body.comment-only #inkLook{display:none!important}
 body.hands-on #inkLook{opacity:.25;transition:opacity .12s ease}
-@media (max-width:600px){#inkLook{left:0;right:0;top:auto;bottom:0;width:auto;max-width:none;max-height:62vh;border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}}
+@media (max-width:600px){#inkLook{left:0;right:0;top:auto;bottom:0;width:auto;max-width:none;max-height:62vh;border-radius:22px 22px 0 0;padding-bottom:env(safe-area-inset-bottom,0px)}#inkLook .lk-head{border-radius:22px 22px 0 0}}
 @media (prefers-reduced-motion:no-preference){#inkLook:not([hidden]){animation:lk-in .22s cubic-bezier(.2,.9,.3,1)}@keyframes lk-in{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}}
 @media (prefers-reduced-motion:no-preference) and (max-width:600px){@keyframes lk-in{from{opacity:0;transform:translateY(40px)}to{opacity:1;transform:none}}}`;
 
@@ -67,10 +70,10 @@ body.hands-on #inkLook{opacity:.25;transition:opacity .12s ease}
 // undo step, onClose(), onUse(kind) when a blend ('blend') or colour ('colour') is first changed.
 export function createInkLook(o) {
   if (!document.getElementById('lk-css')) { const s = document.createElement('style'); s.id = 'lk-css'; s.textContent = CSS; document.head.append(s); }
-  const host = document.createElement('aside'); host.id = 'inkLook'; host.className = 'glass'; host.hidden = true;
+  const host = document.createElement('aside'); host.id = 'inkLook'; host.className = 'glass'; host.hidden = true; host.dataset.scroll = '';
   host.setAttribute('role', 'dialog'); host.setAttribute('aria-label', 'Blend and colour');
   host.innerHTML = `<div class="lk-head"><div class="lk-title"><h2>Blend and colour</h2><small id="lkName"></small></div><button class="btn primary" id="lkDone" type="button">Done</button></div>
-<div class="lk-body" data-scroll><div id="lkLocked" class="lk-locked" hidden>This tattoo is locked. Unlock it to change how its ink looks.</div>
+<div class="lk-body"><div id="lkLocked" class="lk-locked" hidden>This tattoo is locked. Unlock it to change how its ink looks.</div>
 <h3>Blend mode</h3><div id="lkModes"></div><p class="lk-tip" id="lkTip"></p>
 <div class="lk-row"><label for="lkStrength">Ink strength</label><ink-slider id="lkStrength" min="15" max="100" default="92" aria-label="Ink strength"></ink-slider><output id="lkStrengthV"></output></div>
 <h3>Adjust colour</h3><div id="lkSliders"></div>

@@ -48,7 +48,7 @@ export async function startFakeSupabase({ realtime = true, port = 0, db = 'ink_f
   await pool.query(PLATFORM);
   await pool.query(readFileSync(sql, 'utf8'));
   await pool.query(readFileSync(sql, 'utf8')); // setup.sql must be safe to run twice
-  const files = new Map(), codes = new Map(), refresh = new Map(), log = [];
+  const files = new Map(), listCalls = [], codes = new Map(), refresh = new Map(), log = [];
 
   // Run fn(client) as this caller, the way PostgREST does: one transaction, role and claims set.
   async function as(uid, fn) {
@@ -142,6 +142,15 @@ export async function startFakeSupabase({ realtime = true, port = 0, db = 'ink_f
         if (!pub || !pub.public || !f) return send(400, { statusCode: '404', error: 'not_found', message: 'Object not found' });
         return send(200, f.body, f.type);
       }
+      // listing a folder: the names right inside it that this person may read
+      s = /^\/storage\/v1\/object\/list\/([^/]+)$/.exec(path);
+      if (s && req.method === 'POST') {
+        const bucket = decodeURIComponent(s[1]), b = json(), prefix = String(b.prefix || '').replace(/\/+$/, ''), limit = Math.min(+b.limit || 100, 1000), offset = +b.offset || 0;
+        listCalls.push(bucket + '/' + prefix);
+        const rows = await as(uid, (c) => c.query("select name, id, created_at from storage.objects where bucket_id = $1 and name like $2 order by name limit $3 offset $4", [bucket, prefix + '/%', 100000, 0])).then((r) => r.rows);
+        const out = rows.map((r) => ({ ...r, name: r.name.slice(prefix.length + 1) })).filter((r) => !r.name.includes('/')).slice(offset, offset + limit);
+        return send(200, out.map((r) => ({ name: r.name, id: r.id, created_at: r.created_at, metadata: {} })));
+      }
       s = /^\/storage\/v1\/object\/([^/]+)\/(.+)$/.exec(path);
       if (s) {
         const [, bucket, name] = s.map(decodeURIComponent);
@@ -224,7 +233,7 @@ export async function startFakeSupabase({ realtime = true, port = 0, db = 'ink_f
   return {
     presenceLog, topicsNow, setRealtime(on) { realtime = on; if (!on) for (const c of wss.clients) c.terminate(); },
     url: `http://127.0.0.1:${server.address().port}`, anonKey: jwt({ role: 'anon', exp: Math.floor(Date.now() / 1000) + 86400 * 365 }),
-    pool, files, codes, log, as,
+    pool, files, listCalls, codes, log, as,
     async stop() { for (const c of wss.clients) c.terminate(); const closed = new Promise((r) => server.close(r)); if (server.closeAllConnections) server.closeAllConnections(); await closed; await pool.end(); const a = new pg.Client({ database: 'postgres' }); await a.connect(); await a.query(`drop database if exists ${db} with (force)`); await a.end(); },
   };
 }

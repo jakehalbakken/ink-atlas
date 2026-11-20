@@ -39,6 +39,7 @@ const plain = (e) => {
   if (/rate limit|too many|security purposes/i.test(m)) return 'Too many tries for now. Wait a minute and try again.';
   if (/token has expired|otp.*(expired|invalid)|invalid.*token/i.test(m)) return 'That code did not work or has expired. Ask for a new one.';
   if (/error sending|smtp|sending.*email/i.test(m)) return 'The email could not be sent. Use a password instead.';
+  if (/did not answer in time/i.test(m)) return 'Your account took too long to answer. Your work is still saved on this device.';
   if (/failed to fetch|network|load failed/i.test(m)) return 'No connection to your account right now. Your work is still saved on this device.';
   if (/unable to validate email|invalid email/i.test(m)) return 'That email address does not look right.';
   if (/signups not allowed for otp|user not found/i.test(m)) return 'There is no account with that email yet. Make one with New here.';
@@ -50,6 +51,12 @@ const plain = (e) => {
 };
 export const plainError = plain;
 const check = ({ data, error }) => { if (error) throw new Error(plain(error)); return data; };
+// A failed step of a send, in plain words: step says which (a picture, the project), net whether the
+// line dropped or the account was slow, as against the account refusing it.
+const NO_LINE = /No connection to your account|took too long to answer/;
+export function stepError(e, step) { const m = plain(e), err = new Error(m); err.step = step; err.net = NO_LINE.test(m); return err; }
+export const sizeText = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB');
+const stepCheck = (res, step) => { if (res.error) throw stepError(res.error, step); return res.data; };
 
 // A request to the account that hangs (a slow or unreachable server) gives up after a while, so
 // signing in and the account panel say so instead of waiting for ever. Artwork uploads and
@@ -58,7 +65,9 @@ export const ACCOUNT_WAIT_MS = 15000;
 function timedFetch(input, init = {}) {
   const url = typeof input === 'string' ? input : (input && input.url) || '';
   if (/\/storage\/v1\//.test(url) || init.signal || typeof AbortController === 'undefined') return fetch(input, init);
-  const c = new AbortController(), t = setTimeout(() => c.abort(), ACCOUNT_WAIT_MS);
+  // a big project goes up as one request: it gets a second more for every 100 KB it carries
+  const size = typeof init.body === 'string' ? init.body.length : 0;
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ACCOUNT_WAIT_MS + Math.min(120000, Math.round(size / 100)));
   return fetch(input, { ...init, signal: c.signal }).catch((e) => { throw c.signal.aborted ? new TypeError('Load failed: the account did not answer in time') : e; }).finally(() => clearTimeout(t));
 }
 // Gives up on a promise after ms, with the plain no-connection message.
@@ -103,21 +112,50 @@ export async function openCloud() {
   });
   const uid = () => { if (!user) throw new Error('Sign in first.'); return user.id; };
 
-  async function uploadArtwork(bucket, folder, images, keys, done) {
-    const todo = keys.filter((k) => typeof images[k] === 'string' && !(done && done.has(k)));
-    let i = 0;
+  // What is in a folder already, by file name, so pictures that are up are not sent again (a big
+  // project after a lost save would otherwise send every picture each time). On no answer it gives
+  // back what it has and the pictures go up as before.
+  async function namesIn(bucket, folder) {
+    const names = new Set();
+    try {
+      for (let off = 0; off < 50000; off += 1000) {
+        const { data, error } = await inTime(sb.storage.from(bucket).list(folder, { limit: 1000, offset: off, sortBy: { column: 'name', order: 'asc' } }), 15000);
+        if (error || !Array.isArray(data)) break;
+        for (const f of data) if (f && typeof f.name === 'string') names.add(f.name);
+        if (data.length < 1000) break;
+      }
+    } catch (e) { /* send them all, as before */ }
+    return names;
+  }
+  // progress(sent, total) after each picture. A picture whose line drops is tried three times; a
+  // picture that still does not go stops the send with a stepError naming it.
+  async function uploadArtwork(bucket, folder, images, keys, done, progress) {
+    let todo = keys.filter((k) => typeof images[k] === 'string' && !(done && done.has(k)));
+    if (!todo.length) return;
+    const there = await namesIn(bucket, folder);
+    for (const k of todo) if (there.has(pathKey(k)) && done) done.add(k);
+    todo = todo.filter((k) => !there.has(pathKey(k)));
+    let i = 0, sent = 0; const total = todo.length;
+    if (total && progress) progress(0, total);
     const worker = async () => {
       while (i < todo.length) {
-        const k = todo[i++];
-        const blob = await dataToBlob(images[k]);
-        // sent as raw bytes with its type (a Blob would go as a form upload)
-        const { error } = await sb.storage.from(bucket).upload(folder + '/' + pathKey(k), await blob.arrayBuffer(), { contentType: blob.type || 'image/png', upsert: false, cacheControl: '31536000' });
-        // the same key always holds the same picture, so "already there" means done
-        if (error && !/exists|duplicate|409/i.test(String(error.message || '') + (error.statusCode || ''))) throw new Error(plain(error));
+        const n = i, k = todo[i++];
+        const blob = await dataToBlob(images[k]), bytes = await blob.arrayBuffer();
+        for (let attempt = 0; ; attempt++) {
+          let error = null;
+          // sent as raw bytes with its type (a Blob would go as a form upload)
+          try { ({ error } = await sb.storage.from(bucket).upload(folder + '/' + pathKey(k), bytes, { contentType: blob.type || 'image/png', upsert: false, cacheControl: '31536000' })); } catch (e) { error = e; }
+          // the same key always holds the same picture, so "already there" means done
+          if (!error || /exists|duplicate|409/i.test(String(error.message || '') + (error.statusCode || ''))) break;
+          const err = stepError(error, `sending picture ${n + 1} of ${total} (${sizeText(bytes.byteLength)})`);
+          if (!err.net || attempt >= 2) throw err;
+          await new Promise((r) => setTimeout(r, attempt ? 4000 : 1500));
+        }
         if (done) done.add(k);
+        sent++; if (progress) progress(sent, total);
       }
     };
-    await Promise.all(Array.from({ length: Math.min(4, todo.length) }, worker));
+    await Promise.all(Array.from({ length: Math.min(3, todo.length) }, worker));
   }
   // failed: keys that could not be asked about (no answer, refused), as against simply not there
   async function downloadArtwork(get, keys) {
@@ -188,21 +226,26 @@ export async function openCloud() {
       const d = check(await sb.from('projects').select('id,name,rev,archived,state,updated_at,edited_by').eq('id', id).limit(1));
       return d && d[0] && !d[0].archived ? d[0] : null;
     },
+    // Whether the account answers at all, after a send failed: a quick, small read.
+    async ping() { try { const { error } = await inTime(sb.from('projects').select('id').limit(1), 8000); return !error; } catch (e) { return false; } },
     folderFor(id, shared) { return shared ? 'p/' + id : uid(); },
     // done: the set of artwork keys known to be up already (kept by the caller per folder).
-    async create(state, images, name, done) {
+    async create(state, images, name, done, opts = {}) {
       const me = uid(), r = row(state, images, name);
-      await uploadArtwork('artwork', me, images, r.image_keys, done);
-      return check(await sb.from('projects').insert({ ...r, edited_by: this.displayName() || null }).select('id,name,rev,updated_at').single());
+      await uploadArtwork('artwork', me, images, r.image_keys, done, opts.progress);
+      const step = `saving the project (${sizeText(JSON.stringify(r).length)})`;
+      try { return stepCheck(await sb.from('projects').insert({ ...r, edited_by: this.displayName() || null }).select('id,name,rev,updated_at').single(), step); } catch (e) { throw e.step ? e : stepError(e, step); }
     },
     // Saves only if nobody else saved since `rev`. Returns the new row, or { conflict: true }.
     // opts.shared: the artwork goes to the project's shared folder. opts.mine false: someone
     // who joined the project, who cannot rename it, so the name is left as it is.
     async save(id, rev, state, images, name, done, opts = {}) {
       const r = row(state, images, name);
-      await uploadArtwork('artwork', this.folderFor(id, opts.shared), images, r.image_keys, done);
+      await uploadArtwork('artwork', this.folderFor(id, opts.shared), images, r.image_keys, done, opts.progress);
       if (opts.mine === false) delete r.name;
-      const d = check(await sb.from('projects').update({ ...r, rev: rev + 1, edited_by: this.displayName() || null }).eq('id', id).eq('rev', rev).select('id,name,rev,updated_at,shared'));
+      const step = `saving the project (${sizeText(JSON.stringify(r).length)})`;
+      let d;
+      try { d = stepCheck(await sb.from('projects').update({ ...r, rev: rev + 1, edited_by: this.displayName() || null }).eq('id', id).eq('rev', rev).select('id,name,rev,updated_at,shared'), step); } catch (e) { throw e.step ? e : stepError(e, step); }
       return d && d[0] ? d[0] : { conflict: true };
     },
     // Artwork by key from this account's folders (nothing is ever deleted there), to bring back

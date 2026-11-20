@@ -79,7 +79,7 @@ export function createAccount(api) {
   const currentSig = () => sigOf(JSON.stringify(api.snapshot().state));
   // fix: the line under Ink Atlas becomes a button that opens Put it in your account (fixView),
   // and the account button carries a mark, while this device's project is not safely there
-  let stuck = '', stuckOn = false, goneName = '';
+  let stuck = '', stuckOn = false, goneName = '', sending = '', onSending = null;
   const status = (text, bad, fix) => {
     lastStatus = text; const was = stuckOn; stuckOn = !!fix;
     api.setSaved(text, bad, fix ? () => openFix() : null);
@@ -163,18 +163,20 @@ export function createAccount(api) {
     if (myBind() && blankOverReal()) { status(api.looksBlank(api.snapshot().state) ? 'Not sent: only samples here, so your account copy is kept. Tap to open it' : 'Not sent, so your account copy is kept. Tap to choose', true, true); return; }
     pushing = true; status('Saving to your account');
     let gone = false;
+    // pictures going up, said on the line and in Put it in your account while they go
+    const progress = (sent, total) => { sending = sent < total ? `Sending your pictures: ${sent} of ${total}` : ''; status(sending ? 'Saving to your account: ' + sent + ' of ' + total + ' pictures' : 'Saving to your account'); if (onSending) onSending(sending); };
     try {
       for (let tries = 0; ; tries++) {
         const snap = api.snapshot(), json = JSON.stringify(snap.state), sig = sigOf(json), b = myBind();
         if (b && b.sig === sig) break;
         const state = JSON.parse(json), name = api.projectName();
         if (!b) {
-          const r = await cloud.create(state, snap.images, name, doneSet());
+          const r = await cloud.create(state, snap.images, name, doneSet(), { progress });
           setBind({ uid: user().id, id: r.id, rev: r.rev, sig, name: r.name, shared: false, mine: true }); setBase(r.id, json);
           break;
         }
         if (b.role === 'comment') { const r = await pushComments(b, json, snap.images); if (r === 'again') continue; break; }
-        const r = await cloud.save(b.id, b.rev, state, snap.images, name, doneFor(b), { shared: !!b.shared, mine: b.mine !== false });
+        const r = await cloud.save(b.id, b.rev, state, snap.images, name, doneFor(b), { shared: !!b.shared, mine: b.mine !== false, progress });
         if (!r.conflict) {
           setBind({ ...b, rev: r.rev, sig, name: r.name || b.name, shared: !!(b.shared || r.shared) }); setBase(b.id, json);
           // sharing was switched on from another device: the artwork goes where everyone can see it
@@ -210,10 +212,19 @@ export function createAccount(api) {
       if (myBind() && myBind().sig === currentSig()) stuck = '';
       if (!gone) status(myBind() && myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account');
     } catch (e) {
-      stuck = plainError(e) || 'Your account did not take it.';
+      stuck = await whyNot(e);
       status(STUCK, true, true);
       clearTimeout(retry); retry = setTimeout(push, 30000);
-    } finally { if (pushing) { pushing = false; if (again) { again = false; push(); } } }
+    } finally { sending = ''; if (onSending) onSending(''); if (pushing) { pushing = false; if (again) { again = false; push(); } } }
+  }
+  // The reason a send stopped, in plain words. When the line dropped, a quick read tells a dropped
+  // line from an account that answers but did not take this send, and the step that failed is named.
+  async function whyNot(e) {
+    const why = plainError(e) || 'Your account did not take it.';
+    if (!e || !e.step) return why;
+    if (!e.net) return `Your account turned down ${e.step}: ${why}`;
+    const up = await (cloud && cloud.ping ? cloud.ping() : Promise.resolve(false));
+    return up ? `Your account is answering, but ${e.step} did not get through. Your work is still saved on this device, and it tries again by itself in 30 seconds.` : why;
   }
   // Someone who can only comment: what goes up is the account's project with their comments,
   // answers and reference pictures on it, and what is on screen becomes exactly that.
@@ -630,7 +641,9 @@ export function createAccount(api) {
   // other real work, the one tap keeps both, and replacing it is a second, named step that first
   // keeps the account's copy on this device (Find my saves).
   const n_ = (n) => `${n} tattoo${n === 1 ? '' : 's'}`;
-  async function waitPush() { await push(); for (let i = 0; i < 400 && (pushing || again); i++) await new Promise((r) => setTimeout(r, 150)); }
+  // waits for the send to finish, however long a big project's pictures take (it used to give up
+  // after a minute and show the reason of the try before, as if this one had failed)
+  async function waitPush() { await push(); for (let i = 0; i < 8000 && (pushing || again); i++) await new Promise((r) => setTimeout(r, 150)); }
   const there = () => !!(myBind() && myBind().sig === currentSig());
   async function planFix() {
     const local = api.snapshot().state, n = api.realCount(local), name = api.projectName(), b = myBind();
@@ -654,7 +667,14 @@ export function createAccount(api) {
     put(header('Put it in your account', () => show('home')), body, msgEl, why);
     const doneNow = (text) => { stuck = ''; goneName = ''; if (api.tried) api.tried('accountFix'); status('Saved to your account'); body.replaceChildren(h('p', { class: 'acct-here good', text })); why && why.remove(); };
     const go = (label, fn, id, cls = 'btn primary') => h('button', { class: cls, type: 'button', id, text: label, onclick: () => run(fn) });
-    const sendOrSay = async (okText) => { await waitPush(); if (!there()) throw new Error(stuck ? 'It did not go: ' + stuck : 'It did not go. Your account did not take it, so try again in a moment.'); doneNow(okText); };
+    const sendOrSay = async (okText) => {
+      const line = h('p', { class: 'muted', id: 'acctFixSending', text: 'Sending…' }); body.append(line); stuck = '';
+      onSending = (t) => { line.textContent = t || 'Sending…'; };
+      try { await waitPush(); } finally { onSending = null; line.remove(); }
+      if (!there() && why && stuck) why.textContent = 'Last try: ' + stuck;
+      if (!there()) throw new Error(stuck ? 'It did not go: ' + stuck : 'It did not go. Your account did not take it, so try again in a moment.');
+      doneNow(okText);
+    };
     const draw = (p) => {
       if (view !== 'fix') return;
       const k = p.kind;

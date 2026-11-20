@@ -118,7 +118,7 @@ export function createLayersDock(o) {
   let open = innerWidth >= WIDE; try { const v = localStorage.getItem(DOCK_KEY); if (v === 'open' || v === 'rail') open = v === 'open'; } catch { /* private mode */ }
   let openMore = null, lastKey = '';
   const folded = new Set(); // groups folded shut on this screen only
-  const host = document.createElement('aside'); host.id = 'layersDock'; host.className = 'glass'; host.setAttribute('aria-label', 'Layers');
+  const host = document.createElement('aside'); host.id = 'layersDock'; host.className = 'glass holds-scroll'; host.setAttribute('aria-label', 'Layers');
   host.innerHTML = `<div class="ld-head"><div class="ld-title"><h2>Layers</h2><small id="ldCount"></small></div><div class="ld-adds" id="ldAdds" role="group" aria-label="Add"></div><button class="ld-ib ld-toggle" id="ldToggle" type="button"></button></div>
 <div class="ld-kinds" id="ldKinds" role="group" aria-label="Quick hide"><button class="ld-kind" id="ldPlanned" type="button" data-kind="planned" aria-pressed="false"></button><button class="ld-kind" id="ldExisting" type="button" data-kind="existing" aria-pressed="false"></button></div>
 <div class="ld-list" id="ldList" data-scroll></div>
