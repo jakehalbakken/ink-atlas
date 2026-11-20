@@ -6183,7 +6183,7 @@ function adoptState() {
 }
 /* ---------- loop ---------- */
 let last = performance.now();
-let camMoving = false, booted = false;
+let camMoving = false, booted = false, cameUpEmpty = false;
 function tick(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now; // slow frames still glide in about the same time
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) { $('#size').textContent = sizeText(t); likeRender(t); } }
@@ -6196,7 +6196,9 @@ function tick(now) {
 /* ---------- boot ---------- */
 (async function boot() {
   store = await openStore();
-  scanSaved = await scanRead(); // before the project opens, so its tattoos sit on the scan they were placed on
+  // before the project opens, so its tattoos sit on the scan they were placed on; a storage that does
+  // not answer must never hold the project back, so it gives up after a few seconds
+  scanSaved = await Promise.race([scanRead(), new Promise((res) => setTimeout(() => res(null), 3000))]);
   let opened = false, note = '';
   if (store.ok) {
     let loaded = null;
@@ -6216,7 +6218,9 @@ function tick(now) {
       }
     }
   }
-  if (!opened) { state = freshState(); selectedId = null; applyShape(); await seedSamples(); }
+  // a fresh project (the save on this device missing, unreadable, or storage off) is never
+  // sent over the copy in the account (account.js asks cameUpEmpty)
+  if (!opened) { cameUpEmpty = true; state = freshState(); selectedId = null; applyShape(); await seedSamples(); }
   skinMat.color.set(skinColor());
   syncDecals(); renderUI();
   if (store.ok) { save(); store.gc(Object.keys(usedImages())).catch(() => 0); } else setSaved('Not saved: storage is off in this view', true);
@@ -6235,8 +6239,10 @@ function startAccount() {
   const clearHistory = () => { undoStack.length = 0; redoStack.length = 0; refreshUndo(); };
   account = createAccount({
     snapshot: () => ({ state, images: usedImages() }),
+    cameUpEmpty: () => cameUpEmpty,
     projectName: () => state.projectName || 'My tattoos',
     async open(next, imgs, name, opts = {}) {
+      cameUpEmpty = false; // the account's own copy is on screen now
       if (opts.live) {
         // someone else's changes to a project worked on together: keep the view and selection
         const keep = selectedId, sheetOpen = !$('#sheet')?.hidden, before = othersBefore();

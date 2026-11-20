@@ -51,10 +51,24 @@ const plain = (e) => {
 export const plainError = plain;
 const check = ({ data, error }) => { if (error) throw new Error(plain(error)); return data; };
 
+// A request to the account that hangs (a slow or unreachable server) gives up after a while, so
+// signing in and the account panel say so instead of waiting for ever. Artwork uploads and
+// downloads are left alone, since a big picture on a slow line can take longer.
+export const ACCOUNT_WAIT_MS = 15000;
+function timedFetch(input, init = {}) {
+  const url = typeof input === 'string' ? input : (input && input.url) || '';
+  if (/\/storage\/v1\//.test(url) || init.signal || typeof AbortController === 'undefined') return fetch(input, init);
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ACCOUNT_WAIT_MS);
+  return fetch(input, { ...init, signal: c.signal }).catch((e) => { throw c.signal.aborted ? new TypeError('Load failed: the account did not answer in time') : e; }).finally(() => clearTimeout(t));
+}
+// Gives up on a promise after ms, with the plain no-connection message.
+export function inTime(promise, ms = ACCOUNT_WAIT_MS) {
+  let t; return Promise.race([promise, new Promise((_, rej) => { t = setTimeout(() => rej(new Error('Load failed: the account did not answer in time')), ms); })]).finally(() => clearTimeout(t));
+}
 let clientPromise = null;
 function client() {
   if (!cloudConfigured) return Promise.reject(new Error('Accounts are not switched on for this copy of Ink Atlas.'));
-  if (!clientPromise) clientPromise = import('@supabase/supabase-js').then(({ createClient }) => createClient(URL_, KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'ia-auth' } }));
+  if (!clientPromise) clientPromise = import('@supabase/supabase-js').then(({ createClient }) => createClient(URL_, KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: 'ia-auth' }, global: { fetch: timedFetch } }));
   return clientPromise;
 }
 const homeUrl = () => location.origin + location.pathname;
@@ -78,7 +92,9 @@ async function sha256Hex(text) {
 
 export async function openCloud() {
   const sb = await client();
-  let user = (await sb.auth.getSession()).data.session?.user || null;
+  // signing in again on this device refreshes its session with the server; a hang there must not
+  // leave the Sign in button waiting for ever
+  let user = (await inTime(sb.auth.getSession(), 10000)).data.session?.user || null;
   const listeners = new Set();
   sb.auth.onAuthStateChange((event, session) => {
     const next = session?.user || null;

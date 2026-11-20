@@ -144,6 +144,7 @@ export function createAccount(api) {
     if (api.holding && api.holding()) { clearTimeout(retry); retry = setTimeout(push, 1500); return; } // trying something out on this screen: nothing goes up until it is done
     if (!myBind() && !following()) return;
     if (myBind() && myBind().sig === currentSig()) { status('Saved to your account'); return; }
+    if (myBind() && api.cameUpEmpty && api.cameUpEmpty()) { status('Not sent to your account: the save on this device could not be read', true); return; }
     pushing = true; status('Saving to your account');
     try {
       for (let tries = 0; ; tries++) {
@@ -441,6 +442,19 @@ export function createAccount(api) {
     if (bind && bind.uid !== u.id) setBind(null);
     refreshBadge();
     if (pendingJoin) { const t = pendingJoin; pendingJoin = null; await joinWith(t); return; }
+    // this device's save was missing or unreadable: bring the account's copy back instead of sending the blank one up
+    if (myBind() && api.cameUpEmpty && api.cameUpEmpty()) {
+      const b = myBind();
+      try {
+        const p = await cloud.load(b.id);
+        markUp(p);
+        await api.open(p.state, p.images, p.name, { keepCopy: true, reason: 'Before opening a project from your account' });
+        setBind({ ...b, rev: p.rev, sig: currentSig(), name: p.name, shared: p.shared, mine: p.mine, role: p.role }); setBase(p.id, stateJson());
+        api.saveNow(); status('Saved to your account');
+        api.toast(`The save on this device could not be read, so "${p.name}" was opened from your account.`);
+      } catch (e) { status('Not sent to your account: the save on this device could not be read', true); }
+      return;
+    }
     if (myBind()) { pull(true); status(myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account'); if (myBind().sig !== currentSig()) push(); if (!root.hidden && view === 'signin') show('home'); return; }
     if (following()) { push(); if (!root.hidden && view === 'signin') show('home'); return; }
     if (pendingShare) { const s = pendingShare; pendingShare = null; follow(true); ls.set(ASKED, u.id); await push(); close(); api.toast(myBind() ? `"${s}" is saved to your account.` : 'Signed in. Your account could not be reached just now; it will try again.'); return; }
@@ -837,7 +851,12 @@ export function createAccount(api) {
   }
 
   async function start() {
-    btn.addEventListener('click', async () => { try { await ready(); } catch (e) { api.toast(plainError(e)); return; } open(); show(user() ? 'home' : 'signin'); });
+    btn.addEventListener('click', async () => {
+      // the panel opens at once; reaching the account can take a moment, and at worst says it could not
+      if (!cloud) { open(); view = 'busy'; panel.replaceChildren(header('Your account'), h('p', { text: 'Reaching your account…' })); }
+      try { await ready(); } catch (e) { if (view === 'busy') close(); api.toast(plainError(e)); return; }
+      open(); show(user() ? 'home' : 'signin');
+    });
     const q = new URLSearchParams(location.search), shareId = q.get('share'), joinId = q.get('join');
     if (shareId || joinId) { q.delete('share'); q.delete('join'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '') + location.hash); }
     // a session saved on this device (or arriving from an email link) loads the client at once;
@@ -845,7 +864,7 @@ export function createAccount(api) {
     let hasSession = false; try { hasSession = !!localStorage.getItem('ia-auth') || /access_token=|token_hash=|type=(signup|magiclink|recovery)/.test(location.hash + location.search); } catch (e) { /* no storage */ }
     if (joinId && !shareId) pendingJoin = joinId;
     if (hasSession || shareId || joinId) {
-      try { await ready(); } catch (e) { if (shareId || joinId) api.toast(plainError(e)); return; }
+      try { await ready(); } catch (e) { if (shareId || joinId) api.toast(plainError(e)); else status('Saved on this device. Your account could not be reached', true); return; }
       if (user()) afterSignIn('INITIAL');
       else if (pendingJoin) { open(); mode = 'create'; show('signin', 'Someone invited you to work on their tattoo project with them. Make a free account, or sign in, to join it.'); }
     }
