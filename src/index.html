@@ -407,7 +407,7 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
 #bLook span{display:flex;flex-direction:column;align-items:flex-start;min-width:0;text-align:left}#bLook small{color:var(--muted);font-size:12px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}#bLook small:empty{display:none}
 #sheet #name{min-width:0} /* an input is as wide as 20 letters by default, which pushed Done to its own line */
 /* the name, bin, fold and Done stay at the top of the panel while it scrolls (2026-11-20 audit: in landscape with More controls open they scrolled out of reach) */
-#sheet>.row:first-child{position:sticky;top:-10px;z-index:3;margin:-10px -12px 0;padding:10px 12px 6px;background:var(--surface-solid)}
+#sheet>.row:first-child{position:sticky;top:-10px;z-index:3;margin:-10px -12px 0;padding:10px 12px 2px;background:var(--surface-solid)}
 @media(orientation:landscape) and (max-height:650px){#sheet>.row:first-child{top:-8px;margin-top:-8px;padding-top:8px}}
 /* in the right-hand column each slider gets the whole width, so it is long enough to set by finger */
 #sheet{container-type:inline-size;container-name:sheet}
