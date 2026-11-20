@@ -79,6 +79,8 @@ import { keepVersion, useVersion, versionList } from './versions.js';
 import { matchesComment } from './comment-find.js';
 import { writePrefs, readPrefs as readDevicePrefs } from './prefs.js';
 import { initWrapStudio } from './wrap-studio.js';
+import { scanRead, scanWrite, shapeOf } from './scan-store.js';
+import { mul3, turnY, scanHeightInches } from './scan-fit.js';
 import { limbAxis, limbPlace, limbPoint, LimbDrag, rotFor, rotRound, shareRound, wrapAngle as wrapA } from './wrap-drag.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
 const newSeen = readSeen();
@@ -169,9 +171,14 @@ let faceMorphCache = { key: '', off: null };
 const vertEnd = () => (genitalsShown() ? COUNTS.body + COUNTS.eyes + COUNTS.genital : COUNTS.body + COUNTS.eyes) * 3;
 // Put raw positions on the body and refresh everything derived from them.
 let afterShape = null; // set once the hair strands exist
+// A 3D scan of me (see that section): kept on this device, shown while the body has the shape
+// it was fitted to, so moving a slider or undoing the scan leaves the plain body.
+let scanSaved = null;
+function scanOffsets(st = state) { const s = scanSaved; return s && s.on !== false && s.shape === shapeOf(st) ? s.off : null; }
 function setBodyPositions(pos, withGenitals) {
   bodyGeo.attributes.position.array.set(pos); bodyGeo.attributes.position.needsUpdate = true;
   bodyGeo.setIndex(withGenitals ? idxAll : idxBody);
+  const so = scanOffsets(); if (so) { const P = bodyGeo.attributes.position.array, n = Math.min(P.length, so.length); for (let i = 0; i < n; i++) P[i] += so[i]; }
   bodyGeo.computeVertexNormals();
   const fm = faceShapeOffsets(); if (fm) { const P = bodyGeo.attributes.position.array; for (let i = 0; i < fm.length; i++) P[i] += fm[i]; bodyGeo.computeVertexNormals(); }
   bodyGeo.computeBoundingBox(); bodyGeo.computeBoundingSphere();
@@ -1367,6 +1374,7 @@ function renderSheet() {
   $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Already on you, so fingers on the body won\'t move it. The size, turn and nudge controls here still fine-tune it.':t.locked?'Locked in place: fingers on the body won\'t move it, and everything in this panel still works.':isWrap(t)&&!taught.has('wrapMove')?`Drag it sideways to turn it round your ${/leg/.test(wrapInfo(t).L.key)?'leg':'arm'}, up or down to slide it along. Grab it anywhere, even round the back.`:taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
 }
 function renderBody() {
+  if (typeof scanButtons === 'function') scanButtons();
   const sw = $('#skins'); sw.replaceChildren();
   SKINS.forEach((c, i) => sw.append(el('button', { class: 'sw' + (i === state.skin && !state.skinHex ? ' on' : ''), type: 'button', style: `background:${c}`, 'aria-label': 'Skin tone ' + (i + 1), onclick: () => { snapshot(); state.skin = i; state.skinHex = null; skinOwnOpen = false; skinMat.color.set(c); needsRender = true; renderBody(); save(); refreshUndo(); } })));
   // your own tone: any shade in between, warmer or cooler, or matched from a photo
@@ -2778,6 +2786,7 @@ const SHOW = {
   covered: () => { if (!room.on || room.fitId) roomOn(); return [$('#roomCover').hidden ? '#roomText' : '#roomCover', 'This line says how much of each area is covered so far, and how much with your planned pieces: handy for planning a sleeve or a back piece.']; },
   message: () => { toggle('#share', true); return ['#cMessage', 'Every planned tattoo in a few lines of text, with its size, where it sits, the time it takes and your note, ready to paste into a message to your artist.']; },
   planCal: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; planSitsRender(t); if (!$('#planSits').hidden) return ['#planCal', 'Every planned piece’s sittings in date order, with a warning when one lands while another is still fresh. Add every sitting to calendar saves them all at once.']; return [null, 'Give two or more planned tattoos a first sitting date in More controls. Then the plan lists every sitting in date order and can add them all to your calendar.']; },
+  bodyScan: () => { toggle('#bodyPop', true); return ['#scanBtn', 'Pick a 3D scan of yourself from Files, a GLB, OBJ or USDZ from Scaniverse or Polycam, and the body moves onto it. How to scan yourself is just under it.']; },
   measureMe: () => { toggle('#bodyPop', true); return ['#measureMeBtn', 'Measure me takes you through each tape measurement with a drawing of where it goes, then fits the body to all of them.']; },
   numberPad: () => { toggle('#bodyPop', true); const G = fitGroupEls.find((x) => x.g.title === 'Arms'); if (G) G.d.open = true; refreshMeasures(true); return ['.mval[data-m=upperArmSize]', 'Tap a number: a number pad opens instead of the keyboard, so the screen stays put.']; },
   bodyInches: () => { toggle('#bodyPop', true); const G = fitGroupEls.find((x) => x.g.title === 'Arms'); if (G) G.d.open = true; refreshMeasures(true); return ['.mval[data-m=upperArmSize]', 'Your upper arm measured round the biceps. Slide and the number follows. Tap it to type your own.']; },
@@ -4510,7 +4519,9 @@ const fitEls = {}; const fitGroupEls = [];
 const MEASURE_OF = Object.fromEntries(MEASURES.map((m) => [m.key, m]));
 const measureEls = {}; let measured = {}, measureTimer = 0, liveKey = null, liveRaf = 0, measureBusy = false;
 function measureNow(keys, st = state) {
-  const { positions, joints } = shapeWithJoints(st), r = measureBody(positions, joints, INDEX, COUNTS.body, keys), out = {};
+  const { positions, joints } = shapeWithJoints(st), so = scanOffsets(st);
+  if (so) for (let i = 0; i < COUNTS.body * 3; i++) positions[i] += so[i]; // the tape goes round the scan
+  const r = measureBody(positions, joints, INDEX, COUNTS.body, keys), out = {};
   for (const k of Object.keys(r)) out[k] = unitsToInches(r[k], st.heightCm || 175);
   return out;
 }
@@ -4686,6 +4697,124 @@ function openMeasureMe() {
 }
 function closeMeasureMe() { if (measureMe) { measureMe.close(); measureMe = null; } toggle('#measureMe', false); }
 $('#measureMeBtn').addEventListener('click', openMeasureMe);
+/* ---------- a 3D scan of me ---------- */
+// Body > Bring in a 3D scan of me: a GLB, OBJ or USDZ from Scaniverse, Polycam or the like
+// (scan-load.js). The body keeps its own mesh and is moved onto the scan's surface (scan-fit.js,
+// in a worker so the screen stays smooth), with the sliders moved as near as they go too, so
+// tattoos, poses, wraps, measurements and every export work on it. One undo step. The fitted
+// shape is kept on this device only (scan-store.js); the file itself is never kept.
+const SCAN_SHOW = ['chest', 'waist', 'hips', 'upperArmSize', 'thighSize', 'calfSize'];
+let scanJob = null, scanLast = null, scanUndoAt = null;
+function scanButtons() {
+  const has = !!scanSaved, active = !!scanOffsets(), off = has && scanSaved.on === false;
+  $('#scanBtn').textContent = scanJob ? 'Fitting your scan…' : has ? 'Bring in another scan' : 'Bring in a 3D scan of me';
+  $('#scanBtn').disabled = !!scanJob;
+  $('#scanRow').hidden = !has; $('#scanShow').textContent = off ? 'Show my scan' : 'Hide my scan'; $('#scanShow').setAttribute('aria-pressed', String(!off));
+  $('#scanPaused').hidden = $('#scanBack').hidden = !has || off || active;
+}
+function scanSheet(msg, f = null, err = false) {
+  toggle('#scanSheet', true); $('#scanMsg').textContent = msg;
+  $('.scan-busy').classList.toggle('err', err); $('#scanSub').hidden = err;
+  $('#scanCancel').textContent = err ? 'Close' : 'Cancel';
+  if (f != null) { $('#scanProg').style.width = `${Math.round(f * 100)}%`; $('.scan-prog').setAttribute('aria-valuenow', String(Math.round(f * 100))); }
+}
+function fitInWorker(scan, st, turn) {
+  return new Promise((res, rej) => {
+    const w = new Worker(new URL('./scan-worker.js', import.meta.url), { type: 'module' });
+    scanJob = { stop: () => { w.terminate(); rej(new Error('stopped')); } };
+    w.onmessage = (e) => { const d = e.data; if (d.progress != null) scanSheet('Fitting the body to your scan…', 0.08 + d.progress * 0.92); else { w.terminate(); if (d.error) rej(new Error(d.error)); else res(d.done); } };
+    w.onerror = (e) => { w.terminate(); rej(new Error(e.message || 'The fit stopped')); };
+    w.postMessage({ pts: scan.pts, nrm: scan.nrm, state: st, turn });
+  });
+}
+async function bringScan(file, { turn = null, scan = null } = {}) {
+  if (scanJob) return;
+  toggle('#bodyPop', false); toggle('#scanHow', false); toggle('#scanBar', false); closePad();
+  scanJob = { stop: () => {} }; scanButtons(); scanSheet('Reading your scan…', 0.02);
+  try {
+    if (!scan) { const { readScan } = await import('./scan-load.js'); scan = await readScan(file); }
+    if (!scanJob) return; // cancelled while reading
+    scanLast = { name: file.name, scan };
+    scanSheet('Fitting the body to your scan…', 0.08);
+    const st = { figure: state.figure, muscle: state.muscle ?? 0.5, weight: state.weight ?? 0.5, fit: { ...(state.fit || {}) } };
+    const res = await fitInWorker(scan, st, turn);
+    scanJob = null; toggle('#scanSheet', false);
+    if (!(res.coverage > 0.5)) { scanSheet('That scan does not look like a whole body standing up. Scan from head to feet, standing, and try again.', null, true); scanButtons(); return; }
+    useScan(res, st, file.name, !!turn);
+  } catch (err) {
+    const stopped = err && err.message === 'stopped'; scanJob = null; scanButtons();
+    if (stopped) { toggle('#scanSheet', false); return; }
+    scanSheet(err && err.message && !/^[A-Z][a-z]+Error|undefined|null/.test(err.message) && err.message.length < 160 ? err.message : 'That scan could not be fitted. Try exporting it again as GLB.', null, true);
+  }
+}
+function useScan(res, st, name, turned) {
+  const shape = { figure: st.figure, muscle: st.muscle, weight: st.weight, fit: res.fit };
+  const tape = state.measured ? { ...state.measured } : (scanSaved && scanSaved.tape) || null;
+  scanSaved = { v: 1, name, at: Date.now(), shape: shapeOf(shape), state: shape, off: res.off, align: res.align, stance: res.stance, measures: res.measures, quality: res.quality, coverage: res.coverage, tape, on: true };
+  snapshot(); scanUndoAt = undoStack.length - 1;
+  reshape(() => { state.fit = res.fit; delete state.measured; });
+  // the file's own height when it is a person's (most apps save metres)
+  const inches = scanHeightInches(res.align.tall), cm = inches && inches * 2.54;
+  if (cm >= 150 && cm <= 205 && Math.abs(cm - (state.heightCm || 175)) > 0.5) { heightSlide = null; setHeightCm(cm); }
+  commit(); markTried('bodyScan'); scanButtons(); syncFitUI();
+  scanWrite(scanSaved).then((ok) => { if (!ok) toast('Your scan is on the body, but this device could not keep it for next time.'); });
+  if (!viewLocked) fullBody(0);
+  openScanBar(turned);
+}
+function scanMeasureText() {
+  const s = scanSaved; if (!s) return [];
+  const k = (state.heightCm || 175) / 175;
+  return SCAN_SHOW.filter((key) => s.measures[key] != null && fitVisibleKey(key)).map((key) => ({ key, label: MEASURE_OF[key].label, v: s.measures[key] * k, tape: s.tape && s.tape[key] }));
+}
+function openScanBar(turned) {
+  const s = scanSaved; if (!s) return;
+  const mm = Math.max(1, Math.round(s.quality.median * ((state.heightCm || 175) / 175) * 1000));
+  $('#scanText').textContent = `${turned ? 'Turned round. ' : ''}Your scan is on the body, within about ${mm} mm over most of the skin.`;
+  $('#scanMeas').replaceChildren(...scanMeasureText().map((r) => el('span', { 'data-key': r.key }, `${r.label} `, el('b', { text: inchText(r.v) }), r.tape ? `, tape ${typedText(r.tape)}` : '')));
+  const hIn = (state.heightCm || 175) / 2.54, ft = Math.floor(Math.round(hIn) / 12);
+  $('#scanHeight').textContent = `Height ${ft}′ ${Math.round(hIn) - ft * 12}″`;
+  toggle('#scanBar', true);
+}
+function scanHeightEdit() {
+  closePad();
+  padOpen = openPad({
+    title: 'Height', hint: 'Your real height sets the scan’s real size.', inches: (state.heightCm || 175) / 2.54, units: ['ft', 'cm'], host: $('#viewport'), place: placePad,
+    onDone: (inches) => {
+      padOpen = null; if (inches == null) return;
+      const cm = inches * 2.54; if (!(cm >= 120 && cm <= 230)) { toast(`Type your height like 5' 10" or 178 cm.`); return; }
+      snapshot(); heightSlide = null; setHeightCm(cm); markTried('heightExact'); commit(); openScanBar(false);
+    },
+    onCancel: () => { padOpen = null; },
+  });
+  padOpen.el.id = 'measurePad';
+}
+$('#scanBtn').addEventListener('click', () => $('#scanFile').click());
+$('#scanHowBtn').addEventListener('click', () => { toggle('#bodyPop', false); toggle('#scanHow', true); });
+$('#scanHowPick').addEventListener('click', () => $('#scanFile').click());
+$('#scanFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) bringScan(f); });
+$('#scanCancel').addEventListener('click', () => { const j = scanJob; scanJob = null; if (j) j.stop(); toggle('#scanSheet', false); scanButtons(); });
+$('#scanDone').addEventListener('click', () => { closePad(); toggle('#scanBar', false); });
+$('#scanHeight').addEventListener('click', scanHeightEdit);
+$('#scanTurn').addEventListener('click', () => {
+  if (!scanSaved || !scanLast) { toast('Bring the scan in again to turn it.'); return; }
+  const R = mul3(turnY(Math.PI), scanSaved.align.R), back = scanUndoAt != null ? undoStack[scanUndoAt] : null;
+  if (back) { undoStack.length = scanUndoAt; restore(back); refreshUndo(); }
+  bringScan({ name: scanLast.name }, { turn: R, scan: scanLast.scan });
+});
+$('#scanShow').addEventListener('click', () => {
+  if (!scanSaved) return; scanSaved.on = scanSaved.on === false; scanWrite(scanSaved);
+  reshape(() => {}); commit(); scanButtons();
+});
+$('#scanBack').addEventListener('click', () => {
+  if (!scanSaved) return; const sh = scanSaved.state;
+  snapshot(); reshape(() => { state.figure = sh.figure; state.muscle = sh.muscle; state.weight = sh.weight; state.fit = { ...sh.fit }; delete state.measured; }); commit(); scanButtons(); syncFitUI();
+  toast('Your scan is back on the body.', 'Undo', undo);
+});
+$('#scanRemove').addEventListener('click', () => {
+  if (!scanSaved) return; scanSaved = null; scanLast = null; scanWrite(null);
+  reshape(() => {}); commit(); scanButtons(); toggle('#scanBar', false);
+  toast('Your scan is off this device. The body keeps the sliders it gave.');
+});
 $('#mmClose').addEventListener('click', closeMeasureMe);
 // Keep browser/page zoom separate from the 3D camera. Single-finger panel
 // scrolling is allowed; pinching panels must not zoom the entire app off-screen.
@@ -6067,6 +6196,7 @@ function tick(now) {
 /* ---------- boot ---------- */
 (async function boot() {
   store = await openStore();
+  scanSaved = await scanRead(); // before the project opens, so its tattoos sit on the scan they were placed on
   let opened = false, note = '';
   if (store.ok) {
     let loaded = null;
@@ -6199,6 +6329,7 @@ window.__ink = {
   sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, bodyChange: () => bodyChangeLast, mirror: () => mirrorLast, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
+  scan: () => ({ saved: !!scanSaved, on: !!(scanSaved && scanSaved.on !== false), active: !!scanOffsets(), busy: !!scanJob, off: scanSaved ? Array.from(scanSaved.off) : null, align: scanSaved && scanSaved.align, stance: scanSaved && scanSaved.stance, measures: scanSaved && scanSaved.measures, quality: scanSaved && scanSaved.quality, coverage: scanSaved && scanSaved.coverage, undoAt: scanUndoAt, undoLen: undoStack.length }),
   face: () => { const F = bodyGeo.attributes.face; let alpha = 0; if (F) for (let i = 2; i < F.array.length; i += 3) if (F.array[i] > 0.05) alpha++; let morph = 0; const off = faceShapeOffsets(); if (off) for (const v of off) morph = Math.max(morph, Math.abs(v)); return { saved: !!face.saved, on: !!(face.saved && face.saved.on !== false), busy: face.busy, tone: face.tone || null, skin: skinColor(), alpha, morph, stored: !!faceRead() }; },
   cover: () => { const t = sel(); return t ? coverOf(t) : null; },
   covered: () => ({ text: $('#roomCover').hidden ? '' : $('#roomCover').textContent, list: room.on ? coverList() : null }),

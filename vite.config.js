@@ -74,7 +74,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
         // The cutout runtime and model are big and only needed when someone uses
         // automatic cutout: fetch them then, and keep them for offline use after.
-        globIgnores: ['vision/**'],
+        globIgnores: ['vision/**', 'assets/draco_*', 'assets/scan-worker-*'],
         runtimeCaching: [{ urlPattern: /\/vision\/[^/]+\.(?:js|wasm|tflite|task)$/, handler: 'CacheFirst', options: { cacheName: 'ink-atlas-vision', expiration: { maxEntries: 12 } } }],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },

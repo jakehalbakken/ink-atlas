@@ -209,6 +209,10 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
 .np-keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.np-extra{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .np-k{min-height:52px;font:500 22px var(--body);font-variant-numeric:tabular-nums}.np-frac{min-height:44px;font-size:20px}.np-k[hidden]{display:none}
 .np-foot{display:flex;gap:8px}.np-foot .btn{flex:1;min-height:48px}.np-foot .btn[hidden]{display:none}
+#scanSheet .modal{width:min(520px,100%)}.scan-busy{display:flex;flex-direction:column;gap:12px;padding:8px 2px 4px}#scanMsg{font-weight:600;font-size:17px;margin:0}.scan-prog{height:8px;border-radius:4px;background:var(--fill);overflow:hidden}.scan-prog i{display:block;height:100%;width:0;background:var(--stencil);transition:width .3s}.scan-busy.err .scan-prog{display:none}
+#scanHow .modal{width:min(560px,100%)}.scan-how{overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}.scan-how ol{padding-left:22px;display:flex;flex-direction:column;gap:10px;margin:12px 0}.scan-how li{line-height:1.4}.scan-how .btn{width:100%;margin-top:8px}
+#scanBar{position:fixed;left:50%;transform:translateX(-50%);z-index:8;padding:10px;display:flex;flex-direction:column;gap:8px;max-width:calc(100% - 32px);width:520px;top:auto;bottom:calc(16px + env(safe-area-inset-bottom,0px))}#scanBar[hidden]{display:none}#scanBar .row{display:flex;gap:8px}#scanBar .row .btn{flex:1;padding:0 10px;white-space:nowrap}#scanText{margin:0 6px;font-weight:600;text-align:center}#scanMeas{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:center;font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums}#scanMeas b{color:var(--text);font-weight:600}
+body:has(#scanBar:not([hidden])) #foot{visibility:hidden}
 #measureMe .modal{width:min(900px,100%);height:min(760px,100%)}
 .mm{display:flex;gap:24px;flex:1;min-height:0}.mm[data-step=done],.mm[data-step=busy]{display:block}
 .mm-left{flex:0 0 38%;display:flex;align-items:center;justify-content:center;min-width:0}.mm-fig{width:100%;max-width:260px}
@@ -323,7 +327,7 @@ ink-slider:focus-visible .sl-thumb{outline:2px solid var(--stencil);outline-offs
    column takes (Layers, with the edit panel under it or beside the rail): the bars across the
    top and the hint at the bottom keep clear of it. */
 :root:has(#wrapStudio:not([hidden])),body.painting{--layers-w:0px!important}
-#tapeBar,#roomBar,#pinBar,#painBar,#selfBar,#paintBar,#procreateBar,#followBar,#toast,#tapPlaceBar{margin-left:calc((var(--left-w,0px) - var(--layers-w,0px)) / 2);max-width:max(220px,calc(100% - 32px - var(--layers-w,0px) - var(--left-w,0px)))!important}
+#tapeBar,#roomBar,#pinBar,#painBar,#selfBar,#paintBar,#procreateBar,#followBar,#toast,#tapPlaceBar,#scanBar{margin-left:calc((var(--left-w,0px) - var(--layers-w,0px)) / 2);max-width:max(220px,calc(100% - 32px - var(--layers-w,0px) - var(--left-w,0px)))!important}
 /* the tape measure and Open skin bars sit along the bottom, where the long strip of tattoos used to be, so the head, chest and arms you tap on stay clear (2026-11-19) */
 @media (min-width:700px){#tapeBar,#roomBar{top:auto!important;bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom,0px))}body:has(#tapeBar:not([hidden])) #foot,body:has(#roomBar:not([hidden])) #foot{visibility:hidden}}
 /* with a sheet like Plan or Share open in the middle, messages drop to the bottom so they never sit over its buttons */
@@ -461,6 +465,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
 <body>
 <div id="viewport">
 <div id="stage" aria-label="3D body. Drag to look around. Pinch, pan and twist the view with two fingers away from selected ink. Tap a tattoo to select it."></div>
+<div id="scanBar" class="glass" role="group" aria-label="Your scan" hidden><p id="scanText" aria-live="polite"></p><div id="scanMeas"></div><div class="row"><button class="btn" id="scanHeight" type="button"></button><button class="btn" id="scanTurn" type="button">Turn it round</button><button class="btn primary" id="scanDone" type="button">Done</button></div></div>
 <div id="tapeBar" class="glass" role="group" aria-label="Tape measure" hidden><div class="row"><button class="btn" id="tapeAlong" type="button" aria-pressed="true">Along the skin</button><button class="btn" id="tapeAround" type="button" aria-pressed="false">Around</button><button class="btn" id="tapeDone" type="button">Done</button></div><p id="tapeText" aria-live="polite">Tap two points on the body.</p></div>
 <div id="tapeLabel" hidden></div>
 <div id="spotLayer" aria-hidden="true"></div>
@@ -521,7 +526,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
   <button class="btn quiet" id="hText" type="button" aria-label="Height: type your own" style="font-variant-numeric:tabular-nums;align-self:flex-start"></button>
   <button class="btn" id="measureMeBtn" type="button">Measure me with a tape</button>
   </section>
-  <section class="sec"><h5>From your photos</h5>
+  <section class="sec"><h5>From your photos and scans</h5>
   <button class="btn" id="bodyPhotoBtn" type="button">Match a photo of me</button>
   <input type="file" id="bodyPhotoFile" accept="image/*" hidden>
   <button class="btn" id="faceBtn" type="button">Add my face</button>
@@ -530,6 +535,15 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
     <button class="btn" id="faceRemove" type="button">Remove</button>
   </div>
   <input type="file" id="faceFile" accept="image/*" hidden>
+  <button class="btn" id="scanBtn" type="button">Bring in a 3D scan of me</button>
+  <div class="pair" role="group" aria-label="Your scan" id="scanRow" hidden>
+    <button class="btn" id="scanShow" type="button">Hide my scan</button>
+    <button class="btn" id="scanRemove" type="button">Remove</button>
+  </div>
+  <p class="tip" id="scanPaused" hidden>Your scan is off while the sliders differ from it.</p>
+  <button class="btn" id="scanBack" type="button" hidden>Back to my scan</button>
+  <button class="btn quiet" id="scanHowBtn" type="button">How to scan yourself</button>
+  <input type="file" id="scanFile" hidden>
   </section>
   <section class="sec"><h5>Skin</h5>
   <div id="skins"></div>
@@ -759,6 +773,22 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
 <input id="file" type="file" accept="image/png,image/jpeg,image/webp,.json,application/json" multiple hidden>
 <input id="paintedFile" type="file" hidden>
 
+<div id="scanSheet" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="scanTitle"><header><h2 id="scanTitle">Your 3D scan</h2><button class="btn" type="button" id="scanCancel">Cancel</button></header>
+<div class="scan-busy"><p id="scanMsg" aria-live="polite">Reading your scan…</p><div class="scan-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100"><i id="scanProg"></i></div><p class="tip" id="scanSub">This takes about half a minute. The body is moved onto your scan, so tattoos, poses and sharing all work on it.</p></div>
+</div></div>
+<div id="scanHow" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="scanHowTitle"><header><h2 id="scanHowTitle">How to scan yourself</h2><button class="btn" type="button" data-close="scanHow">Done</button></header>
+<div class="scan-how">
+<p>Two free iPhone and iPad apps make a 3D model of you that comes in here: <b>Scaniverse</b> and <b>Polycam</b>. Both need someone to hold the phone.</p>
+<ol>
+<li><b>Wear tight clothes.</b> Shorts and a fitted top, or swimwear. Loose clothes scan as your shape.</li>
+<li><b>Stand still, arms slightly out.</b> Feet a little apart, hands a hand's width from your hips, looking straight ahead.</li>
+<li><b>Someone walks round you.</b> Slowly, twice: once with the phone at chest height, once lower for the legs and feet. Good, even light helps.</li>
+<li><b>Export the model.</b> In the app, share or export the scan as GLB (or OBJ or USDZ) and save it to Files.</li>
+<li><b>Bring it in.</b> Body, Bring in a 3D scan of me, and pick the file.</li>
+</ol>
+<p class="tip">The scan stays on this device. Only the body shape it gives goes into your project.</p>
+<button class="btn primary" id="scanHowPick" type="button">Pick a scan file</button>
+</div></div></div>
 <div id="measureMe" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="mmTitle"><header><h2 id="mmTitle">Measure me</h2><button class="btn" type="button" id="mmClose">Close</button></header><div id="mmHost" style="display:flex;flex-direction:column;flex:1;min-height:0"></div></div></div>
 <div id="pcMenu" class="scrim" hidden><div class="modal glass" role="dialog" aria-labelledby="pcmTitle"><header><h2 id="pcmTitle">Procreate</h2><button class="btn" type="button" data-close="pcMenu">Done</button></header>
 <h3 class="shHead">Paint the whole body in 3D</h3>

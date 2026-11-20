@@ -190,3 +190,11 @@ export function selfieRotations(side='R',high=false,rig){
  return pack({...(rig&&rig.joints?arm(other,{...STRAIGHT_DOWN,rig}):{}),...arm(side,{...o,rig})});
 }
 export const SELFIE_CHEST=Object.freeze({hang:1,reach:.2,elbow:1,palm:.6,fist:.45}),SELFIE_FACE=Object.freeze({hang:1,reach:.5,elbow:1.3,palm:.6,fist:.45});
+// For fitting the body to a 3D scan (scan-fit.js): each arm out by lift (radians on the rest
+// skeleton's own angle, as above) and straight 0..1, and each leg out to the side by spread
+// (radians), so the body can stand the way the person stood for the scan.
+export function stanceRotations({L={},R={},legL=0,legR=0}={},rig){
+ const a=arm('R',{...R,rig},arm('L',{...L,rig}));
+ add(a,'upperleg01.L','z',legL);add(a,'upperleg01.R','z',-legR);
+ return pack(a);
+}
