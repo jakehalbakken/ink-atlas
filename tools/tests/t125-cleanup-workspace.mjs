@@ -65,7 +65,7 @@ export default async function (p) {
   await p.keyboard.press('ArrowRight'); await p.keyboard.press('ArrowUp'); await wait(200);
   assert.equal(JSON.stringify((await st()).tattoos.at(-1)), x0, 'arrow keys do not reach the body');
   await p.keyboard.press('e'); assert.equal(await pressed(), 'erase', 'E picks Erase');
-  assert.deepEqual(await shownSections(), ['erase restore']);
+  assert.deepEqual(await shownSections(), ['erase restore clone']);
   await p.keyboard.press('c'); assert.equal(await pressed(), 'crop', 'C picks Crop');
   // a box drawn right to left and bottom to top shows in Exact size, in whole pixels inside the picture
   const box = await p.evaluate(() => {
@@ -100,7 +100,7 @@ export default async function (p) {
     assert.deepEqual(r.out, [], name + ': nothing off screen');
     assert(r.scrollW <= 0, name + ': no sideways scroll');
     assert(r.stage[0] > 300 && r.stage[1] > 300, name + ': the picture keeps most of the screen ' + r.stage);
-    assert.equal(r.tools, 8);
+    assert.equal(r.tools, 10, 'ten tools in the rail');
     await p.screenshot({ path: `shots/t125-${name}-${theme}.png` });
     await p.click('[data-action=cancel]'); await wait(200); assert.equal(await p.$('#ink-cleanup'), null, 'Cancel with no changes just closes');
   };

@@ -1,4 +1,5 @@
 // Local-only artwork editor. The caller retains the untouched source artwork.
+import { dabCoverage, strokeCoverage, compositeBrush, blurRGBA, wandMask, growSimilar, selectSimilar, refineMask, borderColor, removeBackground, brightnessContrast, levels, curveLut, threshold, sharpen, blur, applyMasked, histogram, autoLevels } from './cleanup-tools.js';
 import { rectMask, lassoMask, pieceMask, combineMasks, invertMask, isEmptyMask, maskBounds, inkBounds, identityFor, pieceToLocal, growPads, snapStraight, snapTurn, twoFingerTransform, moveWords } from './cleanup-select.js';
 // No image leaves the device. All edits remain a draft until Apply.
 export function removeLightPixels(data, threshold = 235) {
@@ -109,26 +110,36 @@ const ICONS = {
   backdrop: '<rect x="3.5" y="3.5" width="17" height="17" rx="3"/><path d="M3.5 3.5H12V12H3.5zM12 12h8.5v8.5H12z" fill="currentColor" opacity=".4" stroke="none"/>',
   select: '<path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M12 4h2M18 4h.5A1.5 1.5 0 0 1 20 5.5V8M20 12v2M20 18v.5a1.5 1.5 0 0 1-1.5 1.5H18M14 20h-2M8 20H5.5A1.5 1.5 0 0 1 4 18.5V18M4 14v-2"/>',
   move: '<path d="M12 3v18M3 12h18"/><path d="m9 6 3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/>',
+  wand: '<path d="m4 20 10-10"/><path d="m12.5 8.5 3 3"/><path d="M17 3v3M15.5 4.5h3M20 8.5v2M19 9.5h2M10.5 3v2M9.5 4h2"/>',
+  clone: '<circle cx="8" cy="8" r="4.5"/><path d="M8 5.5v5M5.5 8h5"/><path d="M13 13.5h5.5a2 2 0 0 1 2 2V20H11.5v-4.5a2 2 0 0 1 1.5-2z"/><path d="M15.75 13.5V10"/>',
+  adjust: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
+  history: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4.5l3 2"/>',
   minus: '<path d="M6 12h12"/>', plus: '<path d="M12 6v12M6 12h12"/>',
 };
 const icon = (name) => `<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
 
 const TOOLS = [
-  ['cutout', 'Cut out', 'Tap the design to keep it and lose everything round it. Tap more parts to add them.'],
-  ['color', 'Background', 'Tap the background to remove that colour where it touches, or remove the white paper in one go.'],
-  ['erase', 'Erase', 'Drag over anything you don’t want. Pinch to get closer.'],
-  ['restore', 'Restore', 'Drag to paint the original picture back.'],
   ['select', 'Select', 'Tap a piece of the design to select it, or drag a box or a loop round what you want.'],
+  ['wand', 'Magic wand', 'Tap a colour to select it. Tolerance sets how close a colour has to be. Shift adds, Alt takes away.'],
   ['move', 'Move', 'Drag the selection to move it. The corners size it, the dot above turns it, and two fingers on it do both. With nothing selected, the whole picture moves.'],
   ['crop', 'Crop', 'Drag a box round what to keep, then Crop.'],
-  ['lines', 'Lines', 'Slide to darken faint lines. It shows as you slide.'],
+  ['cutout', 'Cut out', 'Tap the design to keep it and lose everything round it. Tap more parts to add them.'],
+  ['color', 'Background', 'Remove background takes away the colour round the edge in one tap, and the slider shows the result as you slide. Or tap a colour on the picture to remove just that.'],
+  ['erase', 'Erase', 'Drag over anything you don’t want. Pinch to get closer.'],
+  ['restore', 'Restore', 'Drag to paint the original picture back.'],
+  ['clone', 'Clone', 'Tap where to copy from, then paint over the mark. Heal blends the copy into the light and colour round it.'],
+  ['adjust', 'Adjust', 'Pick an adjustment. It shows as you slide and the whole change is one undo step. With a selection, only the selected part changes.'],
 ];
-const TOOL_KEYS = { w: 'cutout', b: 'color', e: 'erase', r: 'restore', m: 'select', v: 'move', c: 'crop', l: 'lines' };
+// the rail's groups: choosing, cleaning, adjusting
+const TOOL_GROUPS = [['select', 'wand', 'move', 'crop'], ['cutout', 'color', 'erase', 'restore', 'clone'], ['adjust']];
+const BRUSH_TOOLS = ['erase', 'restore', 'clone'];
+const TOOL_KEYS = { m: 'select', w: 'wand', v: 'move', c: 'crop', u: 'cutout', b: 'color', e: 'erase', r: 'restore', s: 'clone', a: 'adjust', l: 'adjust' };
+const ADJUSTS = [['lines', 'Darker lines'], ['light', 'Light'], ['levels', 'Levels'], ['curves', 'Curves'], ['threshold', 'Threshold'], ['sharpen', 'Sharpen'], ['blur', 'Blur']];
 const MOVE_KINDS = ['move', 'scale', 'turn', 'xform2'];
 
 const STYLE = `
 #ink-cleanup{--ic-bg:var(--bg,#121318);--ic-text:var(--text,#f1f2f6);--ic-muted:var(--muted,#a0a5b3);--ic-card:var(--surface-raised,#23252e);--ic-fill:var(--fill,rgba(255,255,255,.07));--ic-fill2:var(--fill-strong,rgba(255,255,255,.12));--ic-line:var(--line,rgba(255,255,255,.12));--ic-accent:var(--stencil,#8474ff);--ic-on:var(--seg-on,#4b4e5a);--ic-danger:var(--danger,#ff8f86);
- position:fixed;inset:0;z-index:10000;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;background:var(--ic-bg);color:var(--ic-text);box-sizing:border-box;
+ position:fixed;inset:0;z-index:10000;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto;column-gap:10px;background:var(--ic-bg);color:var(--ic-text);box-sizing:border-box;
  padding:max(6px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left));font:400 15px/1.35 var(--body,-apple-system,BlinkMacSystemFont,system-ui,sans-serif);overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;animation:ic-in .22s ease-out}
 @keyframes ic-in{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){#ink-cleanup,#ink-cleanup *{animation:none!important;transition:none!important}}
@@ -151,7 +162,7 @@ const STYLE = `
 #ink-cleanup .ic-confirm p{margin:0 0 4px;font-size:15px;font-weight:600}
 #ink-cleanup .ic-confirm button{width:100%}
 @keyframes ic-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:none}}
-#ink-cleanup .ic-work{position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;border-radius:20px;min-height:140px;background:repeating-conic-gradient(#d9dade 0% 25%,#f3f3f5 0% 50%) 50%/22px 22px}
+#ink-cleanup .ic-work{grid-column:2;grid-row:2;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center;touch-action:none;border-radius:20px;min-height:140px;background:repeating-conic-gradient(#d9dade 0% 25%,#f3f3f5 0% 50%) 50%/22px 22px}
 #ink-cleanup .ic-work[data-backdrop=white]{background:#fff}#ink-cleanup .ic-work[data-backdrop=dark]{background:#26282c}
 #ink-cleanup canvas{flex:none;display:block;touch-action:none;transform-origin:center;max-width:none;max-height:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.08))}
 #ink-cleanup .ic-work.ic-original::after{content:'Original';position:absolute;top:12px;left:12px;background:rgba(20,21,26,.72);color:#fff;font-size:12px;font-weight:650;padding:5px 10px;border-radius:99px;letter-spacing:.02em}
@@ -162,12 +173,33 @@ const STYLE = `
 #ink-cleanup .ic-view{position:absolute;left:10px;bottom:10px;display:flex;gap:2px;padding:3px;border-radius:14px;background:rgba(20,21,26,.7);color:#f4f5f8;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
 #ink-cleanup .ic-view button{background:transparent;border-radius:10px}
 #ink-cleanup .ic-view output{font-size:13px;font-variant-numeric:tabular-nums;min-width:44px;text-align:center}
-#ink-cleanup .ic-dock{display:grid;gap:10px;padding-top:10px;min-width:0}
-#ink-cleanup .ic-tools{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:2px;padding:4px;border-radius:18px;background:var(--ic-fill)}
-#ink-cleanup .ic-tools button{flex-direction:column;gap:3px;min-height:58px;padding:6px 2px;font-size:12px;font-weight:600;background:transparent;color:var(--ic-muted);border-radius:14px}
+#ink-cleanup .ic-dock{grid-column:2;grid-row:3;display:grid;gap:10px;padding-top:10px;min-width:0}
+#ink-cleanup .ic-tools{grid-column:1;grid-row:2/span 2;display:flex;flex-direction:column;gap:2px;padding:4px;border-radius:18px;background:var(--ic-fill);width:76px;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;scrollbar-width:none}
+#ink-cleanup .ic-tools::-webkit-scrollbar{display:none}
+#ink-cleanup .ic-tools button{flex:none;flex-direction:column;gap:2px;min-height:56px;width:100%;padding:5px 2px;font-size:11px;line-height:1.15;font-weight:600;background:transparent;color:var(--ic-muted);border-radius:14px;text-align:center}
 #ink-cleanup .ic-tools button[aria-pressed=true]{background:var(--ic-on);color:var(--ic-text);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+#ink-cleanup .ic-tools hr{flex:none;width:44px;margin:4px auto;border:0;border-top:1px solid var(--ic-line)}
+#ink-cleanup .ic-opts-head{display:flex;align-items:center;gap:8px;margin:0;font-size:15px;font-weight:650}
+#ink-cleanup .ic-opts-head kbd{margin-left:auto;font:600 11px/1 var(--body,system-ui);color:var(--ic-muted);border:1px solid var(--ic-line);border-radius:6px;padding:4px 6px}
+#ink-cleanup .ic-chips{display:flex;flex-wrap:wrap;gap:6px}
+#ink-cleanup .ic-chips button{min-height:38px;font-size:13px;padding:0 12px;border-radius:99px}
+#ink-cleanup .ic-chips button[aria-pressed=true]{background:var(--ic-on);box-shadow:0 1px 3px rgba(0,0,0,.18)}
+#ink-cleanup .ic-adj[hidden]{display:none}#ink-cleanup .ic-adj{display:grid;gap:10px}
+#ink-cleanup canvas.ic-graph{position:static;width:100%;height:auto;aspect-ratio:1/1;max-height:240px;border-radius:12px;background:var(--ic-fill);filter:none;touch-action:none}
+#ink-cleanup canvas.ic-hist{aspect-ratio:3/1;max-height:110px}
+#ink-cleanup .ic-swatch{display:inline-block;width:22px;height:22px;border-radius:7px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25);vertical-align:middle}
+#ink-cleanup .ic-history{position:absolute;right:0;top:52px;z-index:6;width:min(300px,calc(100vw - 32px));max-height:min(60vh,460px);overflow:auto;overscroll-behavior:contain;touch-action:pan-y;background:var(--surface-solid,#1b1d24);border-radius:16px;padding:8px;box-shadow:var(--shadow,0 12px 34px rgba(0,0,0,.4));animation:ic-pop .18s ease-out;transform-origin:top right}
+#ink-cleanup .ic-history[hidden]{display:none}
+#ink-cleanup .ic-history h3{margin:4px 8px 6px;font-size:13px;font-weight:650;color:var(--ic-muted);text-transform:uppercase;letter-spacing:.04em}
+#ink-cleanup .ic-history button{width:100%;justify-content:flex-start;background:transparent;font-weight:500;gap:10px;text-align:left}
+#ink-cleanup .ic-history button[aria-current=step]{background:var(--stencil-soft,rgba(132,116,255,.22));font-weight:650}
+#ink-cleanup .ic-history button.ic-later{color:var(--ic-muted);font-style:italic}
+#ink-cleanup .ic-history .n{min-width:22px;color:var(--ic-muted);font-variant-numeric:tabular-nums;font-size:12px}
+#ink-cleanup .ic-src{position:absolute;left:0;top:0;width:28px;height:28px;margin:-14px 0 0 -14px;pointer-events:none;display:none;border-radius:50%;border:1.5px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.6)}
+#ink-cleanup .ic-src::before,#ink-cleanup .ic-src::after{content:'';position:absolute;left:50%;top:50%;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+#ink-cleanup .ic-src::before{width:18px;height:1.5px;margin:-.75px 0 0 -9px}#ink-cleanup .ic-src::after{width:1.5px;height:18px;margin:-9px 0 0 -.75px}
 #ink-cleanup .ic-opts{background:var(--ic-card);border-radius:20px;padding:12px 16px;display:grid;gap:10px;align-content:start;height:min(34vh,268px);overflow:auto;touch-action:pan-y;overscroll-behavior:contain}
-#ink-cleanup .ic-sec{display:grid;gap:10px}#ink-cleanup .ic-sec[hidden]{display:none}
+#ink-cleanup .ic-sec,#ink-cleanup .ic-refine{display:grid;gap:10px}#ink-cleanup .ic-refine{padding-bottom:8px}#ink-cleanup .ic-sec[hidden]{display:none}
 #ink-cleanup .ic-hint{margin:0;font-size:13px;color:var(--ic-muted)}
 #ink-cleanup .ic-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 #ink-cleanup .ic-row>button{flex:1 1 auto}
@@ -205,13 +237,13 @@ const STYLE = `
 #ink-cleanup .ic-xbox .h-stick{position:absolute;left:50%;top:-36px;height:36px;border-left:1.5px solid #fff;pointer-events:none}
 #ink-cleanup .ic-readout{margin:0;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
 #ink-cleanup .ic-sec .ic-hint[hidden]{display:none}
-@media (max-width:560px){#ink-cleanup .ic-tools{grid-auto-columns:minmax(56px,1fr);overflow-x:auto;scrollbar-width:none}}
+@media (max-width:560px){#ink-cleanup .ic-tools{width:60px}#ink-cleanup .ic-tools button{font-size:10px}}
 #ink-cleanup .ic-linked{border-top:0;padding:0 16px;background:var(--ic-card);border-radius:16px}
 @media (min-width:980px) and (orientation:landscape){
- #ink-cleanup{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto minmax(0,1fr);column-gap:12px}
- #ink-cleanup .ic-dock{grid-column:2;grid-row:2;padding-top:0;align-content:start;grid-template-rows:auto minmax(0,1fr) auto;min-height:0}
- #ink-cleanup .ic-tools{grid-row:1;grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr))}
- #ink-cleanup .ic-opts{grid-row:2;height:auto;max-height:none}
+ #ink-cleanup{grid-template-columns:auto minmax(0,1fr) 340px;grid-template-rows:auto minmax(0,1fr);column-gap:12px}
+ #ink-cleanup .ic-tools{grid-row:2}
+ #ink-cleanup .ic-dock{grid-column:3;grid-row:2;padding-top:0;align-content:start;grid-template-rows:minmax(0,1fr) auto;min-height:0}
+ #ink-cleanup .ic-opts{height:auto;max-height:none}
 }
 `;
 
@@ -230,35 +262,55 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
   return new Promise(resolve => {
     const previousFocus = document.activeElement;
     const host = document.createElement('div'); host.id = 'ink-cleanup'; host.setAttribute('role', 'dialog'); host.setAttribute('aria-modal', 'true'); host.setAttribute('aria-labelledby', 'ic-title');
-    const toolButtons = TOOLS.map(([m, word]) => `<button type="button" data-mode="${m}" aria-pressed="false">${icon(m)}<span>${word}</span></button>`).join('');
+    const keyOf = m => Object.keys(TOOL_KEYS).find(k => TOOL_KEYS[k] === m)?.toUpperCase();
+    const toolButtons = TOOL_GROUPS.map(g => g.map(m => { const word = TOOLS.find(t => t[0] === m)[1]; return `<button type="button" data-mode="${m}" aria-pressed="false" title="${word} (${keyOf(m)})">${icon(m)}<span>${word}</span></button>`; }).join('')).join('<hr aria-hidden="true">');
+    const slider = (id, label, min, max, value, extra = '') => `<label class="ic-field">${label}<ink-slider id="${id}" min="${min}" max="${max}" step="1" value="${value}" default="${value}" aria-label="${label}"${extra}${extra.includes('unit=') ? '' : ' unit=""'}></ink-slider></label>`;
     const hint = (m) => `<p class="ic-hint">${TOOLS.find(t => t[0] === m)[2]}</p>`;
     host.innerHTML = `<style>${STYLE}</style>
 <header class="ic-bar">
  <div class="ic-side"><button type="button" class="ic-plain" data-action="cancel">Cancel</button><button type="button" class="ic-plain" data-action="reset">Start over</button>
   <div class="ic-confirm" role="alertdialog" aria-label="Discard changes" hidden><p>Throw away these changes?</p><button type="button" class="ic-danger" data-action="discard">Discard changes</button><button type="button" data-action="keep">Keep editing</button></div></div>
  <div class="ic-title"><h2 id="ic-title">Clean up</h2><span class="ic-note">Your original picture is kept</span></div>
- <div class="ic-side"><button type="button" class="ic-icon ic-plain" data-action="undo" aria-label="Undo" title="Undo" disabled>${icon('undo')}</button><button type="button" class="ic-icon ic-plain" data-action="redo" aria-label="Redo" title="Redo" disabled>${icon('redo')}</button><button type="button" class="ic-icon ic-plain" data-action="compare" aria-pressed="false" aria-label="Show original" title="Show original">${icon('compare')}</button><button type="button" class="ic-primary" data-action="apply">Done</button></div>
+ <div class="ic-side"><button type="button" class="ic-icon ic-plain" data-action="undo" aria-label="Undo" title="Undo" disabled>${icon('undo')}</button><button type="button" class="ic-icon ic-plain" data-action="redo" aria-label="Redo" title="Redo" disabled>${icon('redo')}</button><button type="button" class="ic-icon ic-plain" data-action="history" aria-pressed="false" aria-label="History" title="History (Y)">${icon('history')}</button><button type="button" class="ic-icon ic-plain" data-action="compare" aria-pressed="false" aria-label="Show original" title="Show original: tap, or press and hold">${icon('compare')}</button><button type="button" class="ic-primary" data-action="apply">Done</button>
+  <div class="ic-history" role="dialog" aria-label="History" hidden><h3>History</h3><div data-history-list></div></div></div>
 </header>
-<div class="ic-work"><canvas aria-label="Tattoo picture"></canvas><canvas class="ic-sel" aria-hidden="true"></canvas><canvas class="ic-float" aria-hidden="true"></canvas><div class="ic-xbox"><span class="h-stick"></span><span data-handle="turn" class="h-turn" aria-label="Turn"></span><span data-handle="scale" class="h-tl"></span><span data-handle="scale" class="h-tr"></span><span data-handle="scale" class="h-br"></span><span data-handle="scale" class="h-bl"></span></div><div class="ic-cropbox"></div><div class="ic-ring"></div><p class="ic-status" role="status" aria-live="polite"></p>
+<div class="ic-work"><canvas aria-label="Tattoo picture"></canvas><canvas class="ic-sel" aria-hidden="true"></canvas><canvas class="ic-float" aria-hidden="true"></canvas><div class="ic-xbox"><span class="h-stick"></span><span data-handle="turn" class="h-turn" aria-label="Turn"></span><span data-handle="scale" class="h-tl"></span><span data-handle="scale" class="h-tr"></span><span data-handle="scale" class="h-br"></span><span data-handle="scale" class="h-bl"></span></div><div class="ic-cropbox"></div><div class="ic-ring"></div><div class="ic-src" aria-hidden="true"></div><p class="ic-status" role="status" aria-live="polite"></p>
  <div class="ic-view"><button type="button" class="ic-icon" data-action="backdrop" aria-label="Change the backdrop" title="Backdrop">${icon('backdrop')}</button><select id="ic-backdrop" aria-label="Backdrop"><option value="checker">Checker</option><option value="white">White</option><option value="dark">Dark</option></select><button type="button" class="ic-icon" data-action="zoomout" aria-label="Zoom out">${icon('minus')}</button><button type="button" class="ic-icon" data-action="fit" aria-label="Fit the picture" title="Fit"><output id="ic-zoom">100%</output></button><button type="button" class="ic-icon" data-action="zoomin" aria-label="Zoom in">${icon('plus')}</button></div>
 </div>
 <div class="ic-dock">
  <div class="ic-opts">
+  <p class="ic-opts-head"><span data-tool-name>Erase</span><kbd data-tool-key>E</kbd></p>
   <div class="ic-sec" data-for="cutout">${hint('cutout')}<div class="ic-seg-label">Keep</div><div class="ic-seg" data-select="ic-cutout-keep"></div><select id="ic-cutout-keep" aria-label="What the cutout keeps"><option value="subject">What I tapped</option><option value="ink">Just the ink</option></select><p class="ic-hint">Pick Just the ink for a photo of a tattoo on skin.</p></div>
-  <div class="ic-sec" data-for="color">${hint('color')}<div class="ic-row"><button type="button" data-action="paper">Remove white paper</button></div><div class="ic-seg" data-select="ic-paper-scope"></div><select id="ic-paper-scope" aria-label="Where to remove white paper"><option value="all">Everywhere</option><option value="edges">Just the edges</option></select>
+  <div class="ic-sec" data-for="color">${hint('color')}<div class="ic-row"><button type="button" class="ic-primary" data-action="bgremove">Remove background</button><button type="button" data-action="paper">Remove white paper</button></div>
+   <p class="ic-hint" data-bg-color hidden></p>
+   <div class="ic-seg" data-select="ic-paper-scope"></div><select id="ic-paper-scope" aria-label="Where to remove the background"><option value="all">Everywhere</option><option value="edges">Just the edges</option></select>
+   ${slider('ic-bg-range', 'Background range', 0, 160, 40, ' aria-description="How close a colour has to be to the background to go"')}
    <label class="ic-field">Light shades kept<ink-slider id="ic-threshold" min="100" max="255" step="1" value="235" default="235" aria-label="How light counts as paper"></ink-slider></label>
    <label class="ic-field">Colour range for a tap<ink-slider id="ic-color-tolerance" min="0" max="100" step="1" value="24" default="24" aria-label="How close a colour counts"></ink-slider></label></div>
-  <div class="ic-sec" data-for="erase restore"><p class="ic-hint" data-hint-erase>${TOOLS[2][2]}</p><p class="ic-hint" data-hint-restore>${TOOLS[3][2]}</p>
+  <div class="ic-sec" data-for="erase restore clone"><p class="ic-hint" data-hint-erase>${TOOLS.find(t => t[0] === 'erase')[2]}</p><p class="ic-hint" data-hint-restore>${TOOLS.find(t => t[0] === 'restore')[2]}</p>
+   <div class="ic-clone-only"><p class="ic-hint">${TOOLS.find(t => t[0] === 'clone')[2]}</p><div class="ic-seg" data-select="ic-clone-kind"></div><select id="ic-clone-kind" aria-label="Clone or heal"><option value="clone">Clone</option><option value="heal">Heal</option></select>
+    <div class="ic-row" style="margin-top:10px"><button type="button" data-action="setsource" aria-pressed="false">Pick where to copy from</button></div><p class="ic-hint" data-src-info>No spot picked yet. Tap the picture where it looks right.</p></div>
    <label class="ic-field">Brush size<ink-slider id="ic-brush" min="2" max="150" step="1" value="24" default="24" unit=" pt" aria-label="Brush size"></ink-slider></label>
-   <label class="ic-field">Soft edge<ink-slider id="ic-feather" min="0" max="100" step="1" value="0" default="0" unit="%" aria-label="Soft edge"></ink-slider></label>
+   <label class="ic-field">Strength<ink-slider id="ic-opacity" min="1" max="100" step="1" value="100" default="100" unit="%" aria-label="Strength"></ink-slider></label>
+   <div class="ic-seg-label">Edge</div><div class="ic-seg" data-select="ic-edge"></div><select id="ic-edge" aria-label="Brush edge"><option value="hard">Hard</option><option value="soft">Soft</option></select>
+   <label class="ic-field" data-soft-row>Soft edge<ink-slider id="ic-feather" min="0" max="100" step="1" value="0" default="0" unit="%" aria-label="Soft edge"></ink-slider></label>
    <label class="ic-switch">Only the Pencil draws<input id="ic-stylus-only" type="checkbox"></label>
    <label class="ic-switch">Press harder for a bigger brush<input id="ic-pressure" type="checkbox"></label><p class="ic-hint" data-hint-sel hidden>Only the selected part changes. Clear the selection in Select to work on all of it.</p></div>
-  <div class="ic-sec" data-for="select">${hint('select')}<p class="ic-readout" data-sel-info>Nothing selected</p>
+  <div class="ic-sec" data-for="select">${hint('select')}
    <div class="ic-seg-label">Drag to draw</div><div class="ic-seg" data-select="ic-sel-shape"></div><select id="ic-sel-shape" aria-label="What a drag draws"><option value="box">Box</option><option value="lasso">Freehand loop</option></select>
+   <label class="ic-field">Tap joins bits closer than<ink-slider id="ic-sel-reach" min="0" max="60" step="1" value="2" default="2" unit=" px" aria-label="Gaps a tap joins"></ink-slider></label></div>
+  <div class="ic-sec" data-for="wand">${hint('wand')}
+   ${slider('ic-wand-tol', 'Tolerance', 0, 255, 32)}
+   <label class="ic-switch">Touching only<input id="ic-wand-contig" type="checkbox" checked></label></div>
+  <div class="ic-sec" data-for="select wand"><p class="ic-readout" data-sel-info>Nothing selected</p>
    <div class="ic-seg-label">A new selection</div><div class="ic-seg" data-select="ic-sel-op"></div><select id="ic-sel-op" aria-label="What a new selection does"><option value="new">Replaces</option><option value="add">Adds</option><option value="subtract">Takes away</option></select>
    <div class="ic-row"><button type="button" class="ic-primary" data-action="tomove">Move it</button><button type="button" data-action="selall">Select all</button><button type="button" data-action="selinvert">Invert</button></div>
-   <div class="ic-row"><button type="button" data-action="selnone">Clear selection</button><button type="button" class="ic-danger" data-action="seldelete">Delete it</button></div>
-   <label class="ic-field">Tap joins bits closer than<ink-slider id="ic-sel-reach" min="0" max="60" step="1" value="2" default="2" unit=" px" aria-label="Gaps a tap joins"></ink-slider></label></div>
+   <div class="ic-row"><button type="button" data-action="selgrow" title="Spread into touching pixels of the same colour">Grow</button><button type="button" data-action="selsimilar" title="Add every pixel of the same colour">Similar</button><button type="button" data-action="selnone">Clear</button><button type="button" class="ic-danger" data-action="seldelete">Delete it</button></div>
+   <details data-refine><summary>Refine edge</summary><div class="ic-refine">
+    <label class="ic-field">Shift edge<ink-slider id="ic-rf-shift" min="-20" max="20" step="1" value="0" default="0" origin="0" unit=" px" aria-label="Shift edge"></ink-slider></label>
+    <label class="ic-field">Smooth<ink-slider id="ic-rf-smooth" min="0" max="20" step="1" value="0" default="0" unit=" px" aria-label="Smooth"></ink-slider></label>
+    <label class="ic-field">Feather<ink-slider id="ic-rf-feather" min="0" max="40" step="1" value="0" default="0" unit=" px" aria-label="Feather"></ink-slider></label>
+    <p class="ic-hint">Shift moves the edge out or in, Smooth rounds off jagged edges, Feather softens it. It shows as you slide.</p></div></details></div>
   <div class="ic-sec" data-for="move">${hint('move')}<p class="ic-readout" data-readout>Nothing to move</p>
    <div class="ic-row"><button type="button" data-action="flipx">Flip across</button><button type="button" data-action="flipy">Flip up and down</button><button type="button" data-action="turn90">Turn 90°</button></div>
    <div class="ic-row"><button type="button" data-action="duplicate">Duplicate</button><button type="button" data-action="putback">Put it back</button><button type="button" class="ic-primary" data-action="place">Place it</button></div>
@@ -266,11 +318,21 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
    <details><summary>Exact amounts</summary><div class="ic-nums"><label>Right<input id="ic-mx" type="number" step="0.01" value="0" inputmode="decimal"></label><label>Down<input id="ic-my" type="number" step="0.01" value="0" inputmode="decimal"></label><label>Size %<input id="ic-ms" type="number" min="5" max="2000" step="1" value="100" inputmode="decimal"></label><label>Turn °<input id="ic-mr" type="number" step="1" value="0" inputmode="decimal"></label></div><p class="ic-hint" data-units></p><div class="ic-row"><button type="button" data-action="exactmove">Move by these</button></div></details></div>
   <div class="ic-sec" data-for="crop">${hint('crop')}<div class="ic-row"><button type="button" class="ic-primary" data-action="crop" disabled>Crop</button><button type="button" data-action="trim">Trim empty edges</button></div><div class="ic-row"><button type="button" data-action="uncrop">Show the whole picture</button></div>
    <details><summary>Exact size in pixels</summary><div class="ic-nums"><label>X<input id="ic-x" type="number" min="0" value="0" inputmode="numeric"></label><label>Y<input id="ic-y" type="number" min="0" value="0" inputmode="numeric"></label><label>Width<input id="ic-w" type="number" min="1" inputmode="numeric"></label><label>Height<input id="ic-h" type="number" min="1" inputmode="numeric"></label></div><div class="ic-row"><button type="button" data-action="exactcrop">Crop to these</button></div></details></div>
-  <div class="ic-sec" data-for="lines">${hint('lines')}<label class="ic-field">Darker lines<ink-slider id="ic-contrast" min="-80" max="150" step="1" value="25" default="25" origin="0" unit="%" aria-label="How much darker"></ink-slider></label><div class="ic-row"><button type="button" data-action="contrast">Darken lines</button></div></div>
+  <div class="ic-sec" data-for="adjust">${hint('adjust')}<div class="ic-chips" role="tablist" aria-label="Adjustments">${ADJUSTS.map(([k, w]) => `<button type="button" role="tab" data-adj="${k}" aria-pressed="false">${w}</button>`).join('')}</div>
+   <div class="ic-adj" data-adj-for="lines"><label class="ic-field">Darker lines<ink-slider id="ic-contrast" min="-80" max="150" step="1" value="25" default="25" origin="0" unit="%" aria-label="How much darker"></ink-slider></label><div class="ic-row"><button type="button" data-action="contrast">Darken lines</button></div></div>
+   <div class="ic-adj" data-adj-for="light">${slider('ic-bright', 'Brightness', -100, 100, 0, ' origin="0"')}${slider('ic-con', 'Contrast', -100, 100, 0, ' origin="0"')}</div>
+   <div class="ic-adj" data-adj-for="levels"><canvas class="ic-graph ic-hist" width="512" height="170" aria-label="How much of each shade there is"></canvas>
+    ${slider('ic-lv-black', 'Black point', 0, 254, 0)}${slider('ic-lv-gamma', 'Middle', 10, 400, 100, ' origin="100"')}${slider('ic-lv-white', 'White point', 1, 255, 255)}<div class="ic-row"><button type="button" data-action="autolevels">Auto</button></div></div>
+   <div class="ic-adj" data-adj-for="curves"><canvas class="ic-graph" data-curve width="400" height="400" aria-label="Curve: drag a point, tap to add one, double-tap a point to remove it"></canvas>
+    <div class="ic-row"><button type="button" data-curve-preset="contrast">More contrast</button><button type="button" data-curve-preset="lighter">Lighter</button><button type="button" data-curve-preset="darker">Darker</button><button type="button" data-curve-preset="reset">Straight</button></div><p class="ic-hint">Drag a point. Tap the line to add a point, double-tap one to take it off.</p></div>
+   <div class="ic-adj" data-adj-for="threshold">${slider('ic-th-level', 'Level', 1, 254, 128)}${slider('ic-th-soft', 'Soft edges', 0, 40, 6)}<p class="ic-hint">Turns the design into black ink on a clear picture, like a stencil.</p></div>
+   <div class="ic-adj" data-adj-for="sharpen">${slider('ic-sh-amount', 'Amount', 0, 300, 0, ' unit="%"')}${slider('ic-sh-radius', 'Radius', 1, 10, 2, ' unit=" px"')}</div>
+   <div class="ic-adj" data-adj-for="blur">${slider('ic-bl-radius', 'Radius', 0, 40, 0, ' unit=" px"')}</div>
+  </div>
  </div>
   ${linkedCount >= 2 ? `<label class="ic-switch ic-linked">Also update the ${linkedCount - 1} other ${linkedCount === 2 ? 'copy' : 'copies'}<input id="ic-linked" type="checkbox"${options.linked ? ' checked' : ''}></label>` : ''}
- <nav class="ic-tools" aria-label="Cleanup tools">${toolButtons}</nav>
-</div>`;
+</div>
+<nav class="ic-tools" aria-label="Cleanup tools">${toolButtons}</nav>`;
     (document.querySelector('#viewport') || document.body).append(host);
     const $ = (s) => host.querySelector(s);
     const view = $('canvas'), work = canvasOf(1, 1), original = canvasOf(1, 1), wctx = work.getContext('2d', { willReadFrequently: true });
@@ -283,25 +345,31 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     let live = null, livePending = 0, statusTimer = 0;
     const pts = new Map(); let stroke = null, pinch = null, pencilSeen = false;
     const button = action => host.querySelector(`[data-action="${action}"]`);
+    // The workspace can sit inside a scaled box (the iPad's visual viewport fits #viewport to what is on
+    // screen), so screen pixels and the workspace's own CSS pixels differ by `hostK()`. Pointer maths
+    // works in screen pixels against the picture's screen box; anything placed in the stage converts.
+    const hostK = () => { const r = host.getBoundingClientRect(); return host.offsetWidth ? r.width / host.offsetWidth || 1 : 1; };
+    const toStage = (x, y) => { const s = stage.getBoundingClientRect(), k = hostK(); return { x: (x - s.left) / k, y: (y - s.top) / k }; };
+    const workToStage = (x, y) => { const r = view.getBoundingClientRect(); return toStage(r.left + x * r.width / work.width, r.top + y * r.height / work.height); };
     const say = (text, hold = false) => { status.textContent = text; status.classList.toggle('on', !!text); clearTimeout(statusTimer); if (text && !hold) statusTimer = setTimeout(() => status.classList.remove('on'), 4200); };
     const setImage = image => { const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight)); work.width = Math.max(1, Math.round(image.naturalWidth * scale)); work.height = Math.max(1, Math.round(image.naturalHeight * scale)); wctx.drawImage(image, 0, 0, work.width, work.height); original.width = work.width; original.height = work.height; original.getContext('2d').drawImage(work, 0, 0); full.width = baseline.width = work.width; full.height = baseline.height = work.height; full.getContext('2d').drawImage(work, 0, 0); baseline.getContext('2d').drawImage(work, 0, 0); rect = { x: 0, y: 0, w: work.width, h: work.height }; };
     const merge = () => { const ctx = full.getContext('2d'); ctx.clearRect(rect.x, rect.y, rect.w, rect.h); ctx.drawImage(work, rect.x, rect.y); };
     const capture = () => ({ fw: full.width, fh: full.height, full: full.getContext('2d').getImageData(0, 0, full.width, full.height), baseline: baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height), rect: { ...rect }, w: work.width, h: work.height, pixels: wctx.getImageData(0, 0, work.width, work.height), original: original.getContext('2d').getImageData(0, 0, original.width, original.height), sel, ref: { ...ref }, float: float ? { ...float, T: { ...float.T } } : null });
     const trim = stack => { while (stack.length > 1 && stack.reduce((n, s) => n + (s.selOnly ? 0 : (s.w * s.h + s.fw * s.fh) * 8 + (s.float ? s.float.w * s.float.h * 8 : 0)) + (s.sel ? s.sel.length : 0), 0) > 48 * 1024 * 1024) stack.shift(); };
-    const snapshot = () => { history.push(capture()); trim(history); future = []; };
+    let stepLabel = 'Edit';
+    const snapshot = (label = stepLabel) => { history.push({ ...capture(), label }); trim(history); future = []; renderHistory(); };
     const restore = state => { work.width = original.width = state.w; work.height = original.height = state.h; wctx.putImageData(state.pixels, 0, 0); original.getContext('2d').putImageData(state.original, 0, 0); full.width = baseline.width = state.fw; full.height = baseline.height = state.fh; full.getContext('2d').putImageData(state.full, 0, 0); baseline.getContext('2d').putImageData(state.baseline, 0, 0); rect = { ...state.rect }; crop = null; sel = state.sel || null; selVer++; ref = { ...state.ref }; float = state.float ? { ...state.float, T: { ...state.float.T } } : null; nudge = null; };
     // a selection change alone is a light undo step: only the selection is kept
-    const snapshotSel = () => { history.push({ selOnly: true, sel }); trim(history); future = []; };
+    const snapshotSel = (label = 'Selection') => { history.push({ selOnly: true, sel, label }); trim(history); future = []; renderHistory(); };
     const restoreEntry = e => { if (e.selOnly) { sel = e.sel && e.sel.length === work.width * work.height ? e.sel : null; selVer++; } else restore(e); };
-    const entryNow = e => e.selOnly ? { selOnly: true, sel } : capture();
+    const entryNow = e => e.selOnly ? { selOnly: true, sel, label: e.label } : { ...capture(), label: e.label };
     const fit = () => { zoom = 1; panX = panY = 0; };
     const boundedValue = (id, min, max) => { const n = Number($(id).value); return Math.min(max, Math.max(min, Number.isFinite(n) ? n : min)); };
-    const brushMode = () => mode === 'erase' || mode === 'restore';
+    const brushMode = () => BRUSH_TOOLS.includes(mode);
     const placeCropbox = () => {
       if (!crop || comparing || mode !== 'crop' || Math.abs(crop.w) < 1 || Math.abs(crop.h) < 1) { cropbox.style.display = 'none'; return; }
-      const r = view.getBoundingClientRect(), s = stage.getBoundingClientRect(), k = r.width / work.width;
-      const x = Math.min(crop.x, crop.x + crop.w), y = Math.min(crop.y, crop.y + crop.h);
-      Object.assign(cropbox.style, { display: 'block', left: (r.left - s.left + x * k) + 'px', top: (r.top - s.top + y * k) + 'px', width: Math.abs(crop.w) * k + 'px', height: Math.abs(crop.h) * k + 'px' });
+      const x = Math.min(crop.x, crop.x + crop.w), y = Math.min(crop.y, crop.y + crop.h), a = workToStage(x, y), b = workToStage(x + Math.abs(crop.w), y + Math.abs(crop.h));
+      Object.assign(cropbox.style, { display: 'block', left: a.x + 'px', top: a.y + 'px', width: (b.x - a.x) + 'px', height: (b.y - a.y) + 'px' });
     };
     const layout = () => {
       const scale = Math.min(1, stage.clientWidth / view.width, stage.clientHeight / view.height), w = view.width * scale, h = view.height * scale;
@@ -317,32 +385,56 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       const scale = Math.min(1, 1600 / Math.max(source.naturalWidth, source.naturalHeight));
       view.width = comparing ? Math.max(1, Math.round(source.naturalWidth * scale)) : work.width; view.height = comparing ? Math.max(1, Math.round(source.naturalHeight * scale)) : work.height;
       const ctx = view.getContext('2d'); ctx.clearRect(0, 0, view.width, view.height); ctx.drawImage(comparing ? source : work, 0, 0, view.width, view.height);
-      button('undo').disabled = !history.length; button('redo').disabled = !future.length; button('crop').disabled = !crop || Math.abs(crop.w) < 2 || Math.abs(crop.h) < 2;
+      button('undo').disabled = !history.length; button('redo').disabled = !future.length; renderHistory(); button('crop').disabled = !crop || Math.abs(crop.w) < 2 || Math.abs(crop.h) < 2;
       button('uncrop').disabled = rect.x === 0 && rect.y === 0 && rect.w === full.width && rect.h === full.height;
       button('compare').setAttribute('aria-pressed', String(comparing)); stage.classList.toggle('ic-original', comparing);
       pendingBox = null;
+      if (cloneSrc && (cloneSrc.w !== work.width || cloneSrc.h !== work.height)) { cloneSrc = null; cloneOffset = null; $('[data-src-info]').textContent = sourceWords(); }
       if (mode === 'move' && !float && !comparing) { const b = maskBounds(sel, work.width, work.height, wctx.getImageData(0, 0, work.width, work.height).data); if (b) pendingBox = { w: b.w, h: b.h, T: identityFor(b) }; }
       drawOverlay(); readouts();
       layout();
     };
     const pos = event => { const r = view.getBoundingClientRect(); return { pressure: brushPressureScale(event.pointerType, event.pressure, $('#ic-pressure').checked), x: Math.max(0, Math.min(work.width, (event.clientX - r.left) * work.width / r.width)), y: Math.max(0, Math.min(work.height, (event.clientY - r.top) * work.height / r.height)) }; };
     const insidePicture = e => { const b = view.getBoundingClientRect(); return e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom; };
-    const brush = (a, b) => {
-      const r = view.getBoundingClientRect(), baseSize = boundedValue('#ic-brush', 2, 150) * work.width / r.width, feather = boundedValue('#ic-feather', 0, 100) / 100;
-      const distance = Math.hypot(b.x - a.x, b.y - a.y), steps = Math.max(0, Math.ceil(distance / Math.max(1, baseSize * Math.min(a.pressure ?? 1, b.pressure ?? 1) / 4)));
-      for (let i = 0; i <= steps; i++) {
-        const x = a.x + (b.x - a.x) * i / (steps || 1), y = a.y + (b.y - a.y) * i / (steps || 1), size = baseSize * ((a.pressure ?? 1) + ((b.pressure ?? 1) - (a.pressure ?? 1)) * i / (steps || 1));
-        if (feather) {
-          const radius = size / 2, left = Math.max(0, Math.floor(x - radius)), top = Math.max(0, Math.floor(y - radius)), width = Math.min(work.width, Math.ceil(x + radius)) - left, height = Math.min(work.height, Math.ceil(y + radius)) - top; if (width < 1 || height < 1) continue;
-          const d = wctx.getImageData(left, top, width, height), base = original.getContext('2d').getImageData(left, top, width, height);
-          d.data.set(featherBrushPixels(d.data, base.data, width, height, x - left, y - top, radius, feather, mode === 'restore')); wctx.putImageData(d, left, top);
-        } else { wctx.save(); wctx.beginPath(); wctx.arc(x, y, size / 2, 0, Math.PI * 2); wctx.clip(); wctx.clearRect(x - size, y - size, size * 2, size * 2); if (mode === 'restore') wctx.drawImage(original, 0, 0); wctx.restore(); }
+    // Brushes (Erase, Restore, Clone, Heal) work on a coverage mask for the whole stroke: the picture is
+    // worked out again from the picture before the stroke, so Strength caps what one stroke can do,
+    // however often it goes over a spot, and a selection limits it, soft edges and all.
+    const brushRadius = (pt, pressure = 1) => Math.max(0.5, pt * pressure * work.width / Math.max(1, view.getBoundingClientRect().width) / 2);
+    // Hard and Soft are a shortcut for the Soft edge slider: Hard is 0, Soft starts at 60%, and moving the
+    // slider picks the switch that matches, so the two never disagree.
+    const featherNow = () => boundedValue('#ic-feather', 0, 100) / 100;
+    $('#ic-edge').addEventListener('change', e => { const f = $('#ic-feather'); if (e.target.value === 'hard') f.value = 0; else if (!(+f.value > 0)) f.value = 60; });
+    $('#ic-feather').addEventListener('input', e => { const want = +e.target.value > 0 ? 'soft' : 'hard', sel = $('#ic-edge'); if (sel.value !== want) { sel.value = want; sel.dispatchEvent(new Event('change', { bubbles: true })); } });
+    const startBrush = (st, p) => {
+      const w = work.width, h = work.height, img = wctx.getImageData(0, 0, w, h);
+      st.base = img.data.slice(); st.out = img; st.cov = new Uint8Array(w * h); st.pt = boundedValue('#ic-brush', 2, 150); st.feather = featherNow();
+      st.opacity = boundedValue('#ic-opacity', 1, 100) / 100; st.kind2 = mode === 'clone' ? $('#ic-clone-kind').value : mode; st.sel = sel;
+      if (mode === 'restore') st.orig = original.getContext('2d').getImageData(0, 0, w, h).data;
+      if (mode === 'clone') {
+        if (!cloneOffset) cloneOffset = { x: p.x - cloneSrc.x, y: p.y - cloneSrc.y };
+        st.offset = { ...cloneOffset };
+        if (st.kind2 === 'heal') { const r = Math.max(4, brushRadius(st.pt)); st.lowBase = blurRGBA(st.base, w, h, r); }
       }
     };
+    const brush = (st, a, b) => {
+      const w = work.width, h = work.height, box = strokeCoverage(st.cov, w, h, a, b, brushRadius(st.pt, a.pressure ?? 1), brushRadius(st.pt, b.pressure ?? 1), st.feather);
+      if (!box) return;
+      compositeBrush(st.out.data, st.base, st.cov, w, h, box, { kind: st.kind2, opacity: st.opacity, sel: st.sel, orig: st.orig, src: st.base, offset: st.offset, lowBase: st.lowBase, lowSrc: st.lowBase });
+      wctx.putImageData(st.out, 0, 0, box.x0, box.y0, box.x1 - box.x0, box.y1 - box.y0);
+    };
+    let cloneSrc = null, cloneOffset = null, pickingSource = false;
+    const placeSource = (extra = null) => {
+      const m = $('.ic-src');
+      if (mode !== 'clone' || comparing || !cloneSrc) { m.style.display = 'none'; return; }
+      const at = extra || cloneSrc, q = workToStage(at.x, at.y); Object.assign(m.style, { display: 'block', transform: `translate(${q.x}px,${q.y}px)` });
+    };
+    const sourceWords = () => cloneSrc ? 'Copying from the cross. Paint over the mark. Tap Pick where to copy from to choose again.' : 'No spot picked yet. Tap the picture where it looks right.';
+    const setSource = p => { cloneSrc = { x: p.x, y: p.y, w: work.width, h: work.height }; cloneOffset = null; pickingSource = false; button('setsource').setAttribute('aria-pressed', 'false'); $('[data-src-info]').textContent = sourceWords(); placeSource(); say('Copying from there. Now paint over the mark.'); };
     const showRing = (e, on) => {
       if (!on || !brushMode() || comparing) { ring.style.display = 'none'; return; }
-      const s = stage.getBoundingClientRect(), d = boundedValue('#ic-brush', 2, 150) * brushPressureScale(e.pointerType, e.pressure, $('#ic-pressure').checked) * zoom;
-      Object.assign(ring.style, { display: 'block', width: d + 'px', height: d + 'px', transform: `translate(${e.clientX - s.left - d / 2}px,${e.clientY - s.top - d / 2}px)` });
+      // the ring is the brush's real footprint: its size in screen points, whatever the zoom
+      const k = hostK(), d = boundedValue('#ic-brush', 2, 150) * brushPressureScale(e.pointerType, e.pressure, $('#ic-pressure').checked) / k, q = toStage(e.clientX, e.clientY);
+      Object.assign(ring.style, { display: 'block', width: d + 'px', height: d + 'px', transform: `translate(${q.x - d / 2}px,${q.y - d / 2}px)` });
     };
 
     // Select and Move. A selection is a mask over the picture (one byte a pixel). Move lifts the selected
@@ -387,8 +479,8 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       }
     };
     const placeMoving = () => {
-      const r = view.getBoundingClientRect(), s = stage.getBoundingClientRect(), k = r.width / work.width;
-      const at = f => ({ x: r.left - s.left + f.T.cx * k, y: r.top - s.top + f.T.cy * k });
+      const r = view.getBoundingClientRect(), k = r.width / work.width / hostK();
+      const at = f => workToStage(f.T.cx, f.T.cy);
       if (!float || comparing) floatView.style.display = 'none';
       else {
         if (floatView._src !== float.src) { floatView.width = float.w; floatView.height = float.h; const g = floatView.getContext('2d'); g.clearRect(0, 0, float.w, float.h); g.drawImage(float.src, 0, 0); floatView._src = float.src; }
@@ -419,7 +511,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (float) return true;
       const b = maskBounds(sel, work.width, work.height, wctx.getImageData(0, 0, work.width, work.height).data);
       if (!b) { say(sel ? 'There is no ink in the selection to move.' : 'There is nothing in the picture to move.'); return false; }
-      endLive(); cut = null; snapshot();
+      endLive(); cut = null; snapshot(copy ? 'Duplicate' : 'Move');
       const src = canvasOf(b.w, b.h), g = src.getContext('2d'); g.drawImage(work, -b.x, -b.y);
       let mask = null;
       if (sel) { const mc = selCanvas(); g.globalCompositeOperation = 'destination-in'; g.drawImage(mc, -b.x, -b.y); mask = canvasOf(b.w, b.h); mask.getContext('2d').drawImage(mc, -b.x, -b.y); }
@@ -427,7 +519,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       float = { src, mask, w: b.w, h: b.h, T: identityFor(b), T0: identityFor(b), copy };
       used.add('move'); pendingBox = null; draw(); return true;
     };
-    const startStep = () => float ? (snapshot(), true) : liftPiece();
+    const startStep = () => float ? (snapshot('Move'), true) : liftPiece();
     const loadRect = () => { work.width = original.width = rect.w; work.height = original.height = rect.h; wctx.drawImage(full, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); original.getContext('2d').drawImage(baseline, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); };
     const resizeCanvas = (c, w, h, draw) => { const n = canvasOf(w, h), g = n.getContext('2d'); g.imageSmoothingQuality = 'high'; draw(g, c); c.width = w; c.height = h; c.getContext('2d').drawImage(n, 0, 0); };
     // Grow evenly: the uncropped picture and the restore picture get the same transparent margin.
@@ -480,9 +572,9 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     };
     const selOpNow = e => e?.shiftKey ? 'add' : e?.altKey ? 'subtract' : $('#ic-sel-op').value;
     const changeSel = (m, op) => {
-      commitFloat(); endLive(); cut = null;
+      commitFloat(); endLive(); endRefine(); cut = null;
       const next = combineMasks(sel, m, op); if (next === sel) { draw(); return false; }
-      snapshotSel(); setSel(next); used.add('select'); draw(); return true;
+      snapshotSel(op === 'add' ? 'Add to selection' : op === 'subtract' ? 'Take from selection' : m ? 'Select' : 'Clear selection'); setSel(next); used.add('select'); draw(); return true;
     };
     const tapSelect = (p, e) => {
       const r = view.getBoundingClientRect(), m = pieceMask(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height, p.x, p.y, boundedValue('#ic-sel-reach', 0, 60), 24 * work.width / Math.max(1, r.width)), op = selOpNow(e);
@@ -498,28 +590,53 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const nudgeBy = (dx, dy) => {
       const now = performance.now();
       if (!float) { if (!liftPiece()) return; nudge = { at: now, n: history.length }; }
-      else if (!nudge || now - nudge.at > 800 || nudge.n !== history.length) { snapshot(); nudge = { at: now, n: history.length }; }
+      else if (!nudge || now - nudge.at > 800 || nudge.n !== history.length) { snapshot('Nudge'); nudge = { at: now, n: history.length }; }
       nudge.at = now; float.T = { ...float.T, cx: float.T.cx + dx, cy: float.T.cy + dy }; showMoving(true);
     };
-    // with a selection, Erase and Restore only change what is selected: outside it the stroke is put back
-    const keepOutside = (a, b) => {
-      if (!stroke?.outside || !sel) return;
-      const r = view.getBoundingClientRect(), size = boundedValue('#ic-brush', 2, 150) * work.width / r.width + 4;
-      const x0 = Math.floor(Math.min(a.x, b.x) - size), y0 = Math.floor(Math.min(a.y, b.y) - size), x1 = Math.ceil(Math.max(a.x, b.x) + size), y1 = Math.ceil(Math.max(a.y, b.y) + size);
-      wctx.save(); wctx.beginPath(); wctx.rect(x0, y0, x1 - x0, y1 - y0); wctx.clip(); wctx.globalCompositeOperation = 'destination-in'; wctx.drawImage(selCanvas(), 0, 0); wctx.globalCompositeOperation = 'source-over'; wctx.drawImage(stroke.outside, 0, 0); wctx.restore();
-    };
-
     // Paper strength and darker lines show as you slide: the first change takes one undo step and keeps
     // the picture from before it, and every later change in the same go is worked out from that picture.
-    const endLive = () => { live = null; };
-    const liveOutput = (kind, data) => kind === 'paper'
-      ? ($('#ic-paper-scope').value === 'edges' ? removeEdgeLightPixels(data, work.width, work.height, boundedValue('#ic-threshold', 100, 255)) : removeLightPixels(data, boundedValue('#ic-threshold', 100, 255)))
-      : contrastPixels(data, boundedValue('#ic-contrast', -80, 150));
+    // Adjustments, background removal and darker lines show as you slide: the first change takes one undo
+    // step and keeps the picture from before it, and every later change in the same go is worked out from
+    // that picture. Adjustments go back to zero once applied (the picture now holds the change), as in
+    // Photoshop; Light shades kept, Background range and Darker lines keep their value.
+    const ADJ_SLIDERS = { light: ['#ic-bright', '#ic-con'], levels: ['#ic-lv-black', '#ic-lv-gamma', '#ic-lv-white'], threshold: [], sharpen: ['#ic-sh-amount'], blur: ['#ic-bl-radius'] };
+    const LIVE_LABEL = { paper: 'White paper', bg: 'Background', lines: 'Darker lines', light: 'Brightness and contrast', levels: 'Levels', curves: 'Curves', threshold: 'Threshold', sharpen: 'Sharpen', blur: 'Blur' };
+    let curvePts = [{ x: 0, y: 0 }, { x: 255, y: 255 }];
+    const resetAdjust = kind => {
+      for (const id of ADJ_SLIDERS[kind] || []) { const n = $(id); n.value = n.getAttribute('default'); }
+      if (kind === 'curves') { curvePts = [{ x: 0, y: 0 }, { x: 255, y: 255 }]; drawCurve(); }
+    };
+    const endLive = () => { if (live && (ADJ_SLIDERS[live.kind] || live.kind === 'curves')) resetAdjust(live.kind); live = null; };
+    const liveOutput = (kind, data) => {
+      const w = work.width, h = work.height, v = id => boundedValue(id, -1e9, 1e9);
+      let out;
+      if (kind === 'paper') return $('#ic-paper-scope').value === 'edges' ? removeEdgeLightPixels(data, w, h, boundedValue('#ic-threshold', 100, 255)) : removeLightPixels(data, boundedValue('#ic-threshold', 100, 255));
+      if (kind === 'bg') out = removeBackground(data, w, h, { color: bgColor, range: boundedValue('#ic-bg-range', 0, 160), soft: 18, edgesOnly: $('#ic-paper-scope').value === 'edges' });
+      else
+      if (kind === 'lines') out = contrastPixels(data, boundedValue('#ic-contrast', -80, 150));
+      else if (kind === 'light') out = brightnessContrast(data, v('#ic-bright'), v('#ic-con'));
+      else if (kind === 'levels') out = levels(data, { inBlack: v('#ic-lv-black'), inWhite: Math.max(v('#ic-lv-black') + 1, v('#ic-lv-white')), gamma: v('#ic-lv-gamma') / 100 });
+      else if (kind === 'curves') { const lut = curveLut(curvePts); out = new Uint8ClampedArray(data); for (let i = 0; i < out.length; i += 4) { out[i] = lut[data[i]]; out[i + 1] = lut[data[i + 1]]; out[i + 2] = lut[data[i + 2]]; } }
+      else if (kind === 'threshold') out = threshold(data, v('#ic-th-level'), v('#ic-th-soft'));
+      else if (kind === 'sharpen') out = sharpen(data, w, h, v('#ic-sh-amount') / 100, v('#ic-sh-radius'));
+      else if (kind === 'blur') out = blur(data, w, h, v('#ic-bl-radius'));
+      // with a selection, only what is selected changes (a feathered selection changes partly)
+      return kind === 'lines' ? out : applyMasked(data, out, sel);
+    };
     const runLive = kind => {
-      if (!live || live.kind !== kind || live.w !== work.width || live.h !== work.height) { cut = null; snapshot(); live = { kind, w: work.width, h: work.height, base: wctx.getImageData(0, 0, work.width, work.height) }; }
+      if (!live || live.kind !== kind || live.w !== work.width || live.h !== work.height) { endLive(); cut = null; snapshot(LIVE_LABEL[kind] || 'Adjust'); live = { kind, w: work.width, h: work.height, base: wctx.getImageData(0, 0, work.width, work.height) }; used.add(kind === 'paper' || kind === 'bg' ? 'background' : 'adjust'); }
       wctx.putImageData(new ImageData(liveOutput(kind, live.base.data), live.w, live.h), 0, 0); draw();
     };
-    const scheduleLive = kind => { if (livePending) return; livePending = requestAnimationFrame(() => { livePending = 0; if (!settled) runLive(kind); }); };
+    let liveKind = null;
+    const scheduleLive = kind => { liveKind = kind; if (livePending) return; livePending = requestAnimationFrame(() => { livePending = 0; if (!settled) runLive(liveKind); }); };
+    // Remove background: the colour round the picture's edge, worked out once when it is first used
+    let bgColor = null;
+    const startBackground = () => {
+      const c = borderColor(live?.kind === 'bg' ? live.base.data : wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height);
+      if (!c) { say('The edge of the picture is already clear, so there is no background to remove. Tap a colour to remove it instead.'); return false; }
+      bgColor = c; const info = $('[data-bg-color]'); info.hidden = false; info.innerHTML = `<span class="ic-swatch" style="background:rgb(${c.r},${c.g},${c.b})"></span> Background colour found round the edge. Slide Background range for more or less.`;
+      return true;
+    };
 
     // Automatic cutout. Taps add up: each one gathers another part of the design from
     // the picture as it was before the first tap. Any other edit starts a new cutout.
@@ -533,19 +650,19 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
         if (!cut || cut.w !== work.width || cut.h !== work.height) { const base = wctx.getImageData(0, 0, work.width, work.height), canvas = canvasOf(work.width, work.height); canvas.getContext('2d').putImageData(base, 0, 0); cut = { base, canvas, w: work.width, h: work.height, masks: [], steps: [] }; }
         const conf = await segmentAt(cut.canvas, p.x, p.y); if (settled || !cut) return;
         const mask = tapMask(conf, cut.w, cut.h, p.x, p.y), r = applyCutout(cut.base.data, cut.w, cut.h, [...cut.masks, mask], keep);
-        snapshot(); cut.masks.push(mask); cut.steps.push('tap'); wctx.putImageData(new ImageData(r.data, cut.w, cut.h), 0, 0); say(cutMessage(keep, cut.masks.length));
+        snapshot('Cut out'); cut.masks.push(mask); cut.steps.push('tap'); wctx.putImageData(new ImageData(r.data, cut.w, cut.h), 0, 0); say(cutMessage(keep, cut.masks.length));
       } catch (error) { say(error && /^(Nothing found|No dark ink)/.test(error.message) ? error.message : 'The cutout tool could not load. Check your connection and tap again.'); }
       finally { cutting = false; host.removeAttribute('aria-busy'); if (!settled) draw(); }
     };
     $('#ic-cutout-keep').addEventListener('change', async e => {
       if (!cut || !cut.masks.length || cutting) return;
-      try { const { applyCutout } = await import('./auto-cutout.js'); const r = applyCutout(cut.base.data, cut.w, cut.h, cut.masks, e.target.value); endLive(); snapshot(); cut.steps.push('keep'); wctx.putImageData(new ImageData(r.data, cut.w, cut.h), 0, 0); say(cutMessage(e.target.value, cut.masks.length)); } catch (error) { say(error.message); }
+      try { const { applyCutout } = await import('./auto-cutout.js'); const r = applyCutout(cut.base.data, cut.w, cut.h, cut.masks, e.target.value); endLive(); snapshot('Cut out'); cut.steps.push('keep'); wctx.putImageData(new ImageData(r.data, cut.w, cut.h), 0, 0); say(cutMessage(e.target.value, cut.masks.length)); } catch (error) { say(error.message); }
       draw();
     });
     const removeColourAt = p => {
       const x = Math.min(work.width - 1, Math.floor(p.x)), y = Math.min(work.height - 1, Math.floor(p.y)), d = wctx.getImageData(0, 0, work.width, work.height);
       if (!d.data[(y * work.width + x) * 4 + 3]) { say('That spot is already clear. Tap the colour you want gone.'); return; }
-      endLive(); cut = null; snapshot(); d.data.set(removeConnectedColor(d.data, work.width, work.height, x, y, boundedValue('#ic-color-tolerance', 0, 100))); wctx.putImageData(d, 0, 0); say('That colour is gone where it touches. Undo brings it back.'); draw();
+      endLive(); cut = null; snapshot('Remove a colour'); d.data.set(removeConnectedColor(d.data, work.width, work.height, x, y, boundedValue('#ic-color-tolerance', 0, 100))); wctx.putImageData(d, 0, 0); say('That colour is gone where it touches. Undo brings it back.'); draw();
     };
 
     // Segmented switches drive the hidden selects, so the selects stay the one source of truth.
@@ -556,19 +673,122 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       seg.addEventListener('click', e => { const b = e.target.closest('button'); if (!b || select.value === b.dataset.value) return; select.value = b.dataset.value; select.dispatchEvent(new Event('change', { bubbles: true })); });
       select.addEventListener('change', paint); paint();
     });
-    $('#ic-paper-scope').addEventListener('change', () => { if (live?.kind === 'paper') runLive('paper'); });
+    $('#ic-paper-scope').addEventListener('change', () => { if (live?.kind === 'paper' || live?.kind === 'bg') runLive(live.kind); });
+    $('#ic-bg-range').addEventListener('input', () => { if (live?.kind === 'bg' || startBackground()) scheduleLive('bg'); });
+    for (const [kind, ids] of Object.entries({ light: ['#ic-bright', '#ic-con'], levels: ['#ic-lv-black', '#ic-lv-gamma', '#ic-lv-white'], threshold: ['#ic-th-level', '#ic-th-soft'], sharpen: ['#ic-sh-amount', '#ic-sh-radius'], blur: ['#ic-bl-radius'] }))
+      for (const id of ids) $(id).addEventListener('input', () => scheduleLive(kind));
     $('#ic-threshold').addEventListener('input', () => scheduleLive('paper'));
     $('#ic-contrast').addEventListener('input', () => scheduleLive('lines'));
     const backdrops = ['checker', 'white', 'dark'];
     $('#ic-backdrop').addEventListener('change', e => { stage.dataset.backdrop = e.target.value; });
+
+    // Magic wand: tap a colour to select it (touching pixels only, or every pixel of that colour), Grow and
+    // Similar spread the selection by the same Tolerance, Refine edge shifts, smooths and feathers it live.
+    const pixels = () => wctx.getImageData(0, 0, work.width, work.height).data;
+    const wandAt = (p, e) => {
+      const x = Math.min(work.width - 1, Math.floor(p.x)), y = Math.min(work.height - 1, Math.floor(p.y));
+      const m = wandMask(pixels(), work.width, work.height, x, y, boundedValue('#ic-wand-tol', 0, 255), $('#ic-wand-contig').checked), op = selOpNow(e);
+      used.add('wand'); changeSel(m, op);
+      say(op === 'subtract' ? 'Taken out of the selection.' : op === 'add' ? 'Added to the selection.' : 'Selected by colour. Erase, Move or adjust it now, or Grow it.');
+    };
+    let refine = null;
+    const endRefine = () => { if (!refine) return; refine = null; for (const id of ['#ic-rf-shift', '#ic-rf-smooth', '#ic-rf-feather']) $(id).value = 0; };
+    const runRefine = () => {
+      if (!refine) { if (!sel) { say('Select something first, then refine its edge.'); for (const id of ['#ic-rf-shift', '#ic-rf-smooth', '#ic-rf-feather']) $(id).value = 0; return; } commitFloat(); endLive(); snapshotSel('Refine edge'); refine = { base: sel, w: work.width, h: work.height }; used.add('refine'); }
+      if (refine.w !== work.width || refine.h !== work.height) { endRefine(); return; }
+      const m = refineMask(refine.base, refine.w, refine.h, { shift: boundedValue('#ic-rf-shift', -20, 20), smooth: boundedValue('#ic-rf-smooth', 0, 20), feather: boundedValue('#ic-rf-feather', 0, 40) });
+      sel = isEmptyMask(m) ? null : m; selVer++; drawOverlay(); readouts();
+    };
+    let refinePending = 0;
+    for (const id of ['#ic-rf-shift', '#ic-rf-smooth', '#ic-rf-feather']) $(id).addEventListener('input', () => { if (refinePending) return; refinePending = requestAnimationFrame(() => { refinePending = 0; if (!settled) runRefine(); }); });
+
+    // Adjust: one chip per adjustment, each with its own sliders; changes show as you slide.
+    let adjTab = 'levels';
+    const setAdjust = k => {
+      if (adjTab !== k) endLive(); adjTab = k;
+      host.querySelectorAll('[data-adj]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.adj === k)));
+      host.querySelectorAll('[data-adj-for]').forEach(n => { n.hidden = n.dataset.adjFor !== k; });
+      if (k === 'levels') drawHistogram(); if (k === 'curves') drawCurve();
+    };
+    host.querySelectorAll('[data-adj]').forEach(b => b.addEventListener('click', () => setAdjust(b.dataset.adj)));
+    const cssVar = (name, fallback) => getComputedStyle(host).getPropertyValue(name).trim() || fallback;
+    const drawHistogram = () => {
+      const c = $('.ic-hist'), g = c.getContext('2d'), bins = histogram(live?.kind === 'levels' ? live.base.data : pixels(), sel), max = Math.max(1, ...bins.slice(1, 255));
+      g.clearRect(0, 0, c.width, c.height); g.fillStyle = cssVar('--ic-muted', '#999');
+      for (let i = 0; i < 256; i++) { const hgt = Math.min(1, bins[i] / max) * (c.height - 8); g.fillRect(i * 2, c.height - hgt, 2, hgt); }
+      const mark = (v, color) => { g.fillStyle = color; g.fillRect(Math.round(v * 2) - 1, 0, 3, c.height); };
+      mark(boundedValue('#ic-lv-black', 0, 254), '#000'); mark(boundedValue('#ic-lv-white', 1, 255), '#fff');
+    };
+    for (const id of ['#ic-lv-black', '#ic-lv-white']) $(id).addEventListener('input', () => requestAnimationFrame(drawHistogram));
+    const drawCurve = () => {
+      const c = $('[data-curve]'), g = c.getContext('2d'), W = c.width, H = c.height, X = v => v / 255 * W, Y = v => H - v / 255 * H;
+      g.clearRect(0, 0, W, H); g.strokeStyle = cssVar('--ic-line', 'rgba(128,128,128,.35)'); g.lineWidth = 1;
+      for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(i * W / 4, 0); g.lineTo(i * W / 4, H); g.moveTo(0, i * H / 4); g.lineTo(W, i * H / 4); g.stroke(); }
+      g.beginPath(); g.moveTo(0, H); g.lineTo(W, 0); g.setLineDash([6, 6]); g.stroke(); g.setLineDash([]);
+      const lut = curveLut(curvePts); g.strokeStyle = cssVar('--ic-text', '#fff'); g.lineWidth = 3; g.beginPath();
+      for (let i = 0; i < 256; i++) i ? g.lineTo(X(i), Y(lut[i])) : g.moveTo(X(i), Y(lut[i])); g.stroke();
+      for (const q of curvePts) { g.beginPath(); g.arc(X(q.x), Y(q.y), 11, 0, Math.PI * 2); g.fillStyle = cssVar('--ic-text', '#fff'); g.fill(); g.lineWidth = 2; g.strokeStyle = 'rgba(0,0,0,.55)'; g.stroke(); }
+    };
+    {
+      // the curve: drag a point, tap the line to add one, double-tap a point (or drag it off the side) to take it off
+      const c = $('[data-curve]'); let drag = null, lastTap = { at: 0, i: -1 };
+      const at = e => { const r = c.getBoundingClientRect(); return { x: Math.max(0, Math.min(255, (e.clientX - r.left) / r.width * 255)), y: Math.max(0, Math.min(255, 255 - (e.clientY - r.top) / r.height * 255)) }; };
+      const near = q => { const r = c.getBoundingClientRect(), slop = 26 * 255 / Math.max(1, r.width); let best = -1, d = slop; curvePts.forEach((p, i) => { const k = Math.hypot(p.x - q.x, p.y - q.y); if (k < d) { d = k; best = i; } }); return best; };
+      c.style.touchAction = 'none';
+      c.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation(); try { c.setPointerCapture(e.pointerId); } catch (_) { /* synthetic */ }
+        const q = at(e); let i = near(q); const now = performance.now();
+        if (i >= 0 && i === lastTap.i && now - lastTap.at < 340 && i !== 0 && i !== curvePts.length - 1) { curvePts.splice(i, 1); lastTap = { at: 0, i: -1 }; scheduleLive('curves'); drawCurve(); return; }
+        if (i < 0) { if (curvePts.length >= 12) return; curvePts.push(q); curvePts.sort((a, b) => a.x - b.x); i = curvePts.indexOf(q); scheduleLive('curves'); }
+        lastTap = { at: now, i }; drag = { id: e.pointerId, i }; drawCurve();
+      });
+      c.addEventListener('pointermove', e => {
+        if (!drag || e.pointerId !== drag.id) return; e.preventDefault(); const q = at(e), i = drag.i, last = curvePts.length - 1;
+        const lo = i === 0 ? 0 : curvePts[i - 1].x + 2, hi = i === last ? 255 : curvePts[i + 1].x - 2;
+        curvePts[i] = { x: i === 0 || i === last ? Math.max(i === 0 ? 0 : lo, Math.min(i === last ? 255 : hi, q.x)) : Math.max(lo, Math.min(hi, q.x)), y: q.y };
+        scheduleLive('curves'); drawCurve();
+      });
+      const up = e => { if (drag && e.pointerId === drag.id) drag = null; };
+      c.addEventListener('pointerup', up); c.addEventListener('pointercancel', up);
+      host.querySelectorAll('[data-curve-preset]').forEach(b => b.addEventListener('click', () => {
+        const k = b.dataset.curvePreset;
+        curvePts = k === 'contrast' ? [{ x: 0, y: 0 }, { x: 64, y: 44 }, { x: 192, y: 212 }, { x: 255, y: 255 }] : k === 'lighter' ? [{ x: 0, y: 0 }, { x: 110, y: 150 }, { x: 255, y: 255 }] : k === 'darker' ? [{ x: 0, y: 0 }, { x: 150, y: 108 }, { x: 255, y: 255 }] : [{ x: 0, y: 0 }, { x: 255, y: 255 }];
+        if (k === 'reset' && live?.kind === 'curves') { runLive('curves'); } else if (k !== 'reset') runLive('curves');
+        drawCurve();
+      }));
+    }
+
+    // History: every step in words, newest at the bottom. A tap goes straight back (or forward) to it.
+    const historyBox = $('.ic-history');
+    const closeHistory = () => { historyBox.hidden = true; button('history').setAttribute('aria-pressed', 'false'); };
+    function renderHistory() {
+      if (!historyBox || historyBox.hidden) return;
+      const rows = [`<button type="button" data-go="0"${history.length ? '' : ' aria-current="step"'}><span class="n">0</span>Opened</button>`];
+      history.forEach((e, i) => rows.push(`<button type="button" data-go="${i + 1}"${i === history.length - 1 ? ' aria-current="step"' : ''}><span class="n">${i + 1}</span>${e.label || 'Edit'}</button>`));
+      [...future].reverse().forEach((e, i) => rows.push(`<button type="button" class="ic-later" data-go="${history.length + i + 1}"><span class="n">${history.length + i + 1}</span>${e.label || 'Edit'}</button>`));
+      const list = $('[data-history-list]'); list.innerHTML = rows.join('');
+      list.querySelector('[aria-current=step]')?.scrollIntoView?.({ block: 'nearest' });
+    }
+    const goToStep = n => {
+      endLive(); endRefine(); commitFloat(); cut = null; const dims = work.width + 'x' + work.height;
+      while (history.length > n) { const e = history.pop(); future.push(entryNow(e)); restoreEntry(e); }
+      while (history.length < n && future.length) { const e = future.pop(); history.push(entryNow(e)); restoreEntry(e); }
+      if (dims !== work.width + 'x' + work.height) { fit(); syncFields(); }
+      used.add('history'); renderHistory(); draw(); say(n ? `Back to step ${n}: ${history[n - 1]?.label || 'Edit'}.` : 'Back to the picture as it opened. Redo or tap a later step to come forward.');
+    };
+    $('[data-history-list]').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) goToStep(+b.dataset.go); });
 
     const setTool = m => {
       cancelStroke(); endLive(); if (mode === 'move' && m !== 'move') commitFloat(); mode = m; comparing = false; crop = null; hideConfirm();
       host.querySelectorAll('[data-mode]').forEach(n => n.setAttribute('aria-pressed', String(n.dataset.mode === m)));
       host.querySelectorAll('.ic-sec').forEach(s => { s.hidden = !s.dataset.for.split(' ').includes(m); });
       $('[data-hint-erase]').hidden = m !== 'erase'; $('[data-hint-restore]').hidden = m !== 'restore';
-      stage.style.cursor = brushMode() ? 'none' : m === 'crop' || m === 'select' ? 'crosshair' : m === 'move' ? 'move' : m === 'lines' ? 'grab' : 'pointer';
-      ring.style.display = 'none'; draw();
+      $('.ic-clone-only').hidden = m !== 'clone';
+      const t = TOOLS.find(x => x[0] === m); $('[data-tool-name]').textContent = t ? t[1] : ''; $('[data-tool-key]').textContent = keyOf(m) || '';
+      if (m === 'clone') { pickingSource = !cloneSrc; $('[data-src-info]').textContent = sourceWords(); button('setsource').setAttribute('aria-pressed', String(pickingSource)); }
+      if (m === 'adjust') setAdjust(adjTab);
+      stage.style.cursor = brushMode() && !(m === 'clone' && pickingSource) ? 'none' : m === 'crop' || m === 'select' || m === 'wand' || m === 'clone' ? 'crosshair' : m === 'move' ? 'move' : m === 'adjust' ? 'grab' : 'pointer';
+      ring.style.display = 'none'; closeHistory(); draw(); placeSource();
     };
     host.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.mode)));
 
@@ -583,7 +803,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (!startStep()) { st.kind = 'pan'; return false; }
       st.started = true; st.T0 = { ...float.T }; return true;
     };
-    const stagePoint = (x, y) => { const s = stage.getBoundingClientRect(); return { x: x - s.left - s.width / 2, y: y - s.top - s.height / 2 }; };
+    const stagePoint = (x, y) => { const q = toStage(x, y); return { x: q.x - stage.clientWidth / 2, y: q.y - stage.clientHeight / 2 }; };
     const cancelStroke = () => { if (stroke && stage.hasPointerCapture?.(stroke.id)) { try { stage.releasePointerCapture(stroke.id); } catch (_) { /* gone */ } } stroke = null; };
     const takeBackStroke = () => {
       if (!stroke) return;
@@ -622,14 +842,15 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       const stylusOnly = $('#ic-stylus-only').checked && e.pointerType !== 'pen';
       let kind = 'pan';
       if (comparing) kind = 'pan';
+      else if (mode === 'clone' && (pickingSource || !cloneSrc || e.altKey)) kind = insidePicture(e) ? 'srcpick' : 'pan';
       else if (brushMode() || mode === 'crop') { if (stylusOnly) { kind = 'pan'; say('Only the Pencil draws. Fingers move the picture.'); } else if (insidePicture(e)) kind = brushMode() ? 'brush' : 'crop'; }
-      else if (mode === 'cutout' || mode === 'color') kind = insidePicture(e) ? 'tap' : 'pan';
+      else if (mode === 'cutout' || mode === 'color' || mode === 'wand') kind = insidePicture(e) ? 'tap' : 'pan';
       else if (mode === 'select') kind = 'seltap';
       else if (mode === 'move') { const h = e.target.closest?.('[data-handle]'); kind = h ? h.dataset.handle : onPiece(e) ? 'move' : 'pan'; }
       stroke = { id: e.pointerId, type: e.pointerType, kind, start, pan0: { x: panX, y: panY }, moved: false, last: null };
       if (kind === 'seltap') stroke.path = [workPt(e.clientX, e.clientY)];
       if (kind === 'scale' || kind === 'turn') startMove(stroke);
-      if (kind === 'brush') { endLive(); cut = null; stroke.future = future; stroke.undoTo = history.length; snapshot(); if (sel) { stroke.outside = canvasOf(work.width, work.height); const o = stroke.outside.getContext('2d'); o.drawImage(work, 0, 0); o.globalCompositeOperation = 'destination-out'; o.drawImage(selCanvas(), 0, 0); } stroke.last = pos(e); brush(stroke.last, stroke.last); keepOutside(stroke.last, stroke.last); showRing(e, true); draw(); }
+      if (kind === 'brush') { endLive(); cut = null; stroke.future = future; stroke.undoTo = history.length; snapshot(mode === 'clone' ? ($('#ic-clone-kind').value === 'heal' ? 'Heal' : 'Clone') : mode === 'erase' ? 'Erase' : 'Restore'); stroke.last = pos(e); startBrush(stroke, stroke.last); brush(stroke, stroke.last, stroke.last); used.add(mode); showRing(e, true); draw(); }
       else if (kind === 'crop') { endLive(); stroke.cropBefore = crop; const p = pos(e); crop = { x: p.x, y: p.y, w: 0, h: 0 }; draw(); }
     });
     stage.addEventListener('pointermove', e => {
@@ -665,10 +886,10 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
         return;
       }
       if (!stroke.moved && Math.hypot(e.clientX - stroke.start.x, e.clientY - stroke.start.y) > 8) stroke.moved = true;
-      if (stroke.kind === 'tap' && stroke.moved) stroke.kind = 'pan';
-      if (stroke.kind === 'pan') { panX = stroke.pan0.x + e.clientX - stroke.start.x; panY = stroke.pan0.y + e.clientY - stroke.start.y; layout(); return; }
+      if ((stroke.kind === 'tap' || stroke.kind === 'srcpick') && stroke.moved) stroke.kind = 'pan';
+      if (stroke.kind === 'pan') { const k = hostK(); panX = stroke.pan0.x + (e.clientX - stroke.start.x) / k; panY = stroke.pan0.y + (e.clientY - stroke.start.y) / k; layout(); return; }
       if (stroke.kind === 'crop') { const p = pos(e); crop.w = p.x - crop.x; crop.h = p.y - crop.y; draw(); return; }
-      if (stroke.kind === 'brush') { const p = pos(e); brush(stroke.last, p); keepOutside(stroke.last, p); stroke.last = p; showRing(e, true); draw(); }
+      if (stroke.kind === 'brush') { const p = pos(e); brush(stroke, stroke.last, p); stroke.last = p; showRing(e, true); if (mode === 'clone') placeSource({ x: p.x - stroke.offset.x, y: p.y - stroke.offset.y }); draw(); }
     });
     const endPointer = (e, cancelled) => {
       pts.delete(e.pointerId);
@@ -688,7 +909,8 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
         if (s.kind === 'sel') finishSelDraw(s, e); else tapSelect(workPt(e.clientX, e.clientY), e); return;
       }
       const s = stroke; cancelStroke(); if (e.pointerType !== 'pen') showRing(e, false);
-      if (s.kind === 'tap' && !cancelled) { const p = pos(e); if (mode === 'cutout') runCutout(p); else removeColourAt(p); }
+      if (s.kind === 'tap' && !cancelled) { const p = pos(e); if (mode === 'cutout') runCutout(p); else if (mode === 'wand') wandAt(p, e); else removeColourAt(p); }
+      if (s.kind === 'srcpick' && !cancelled && !s.moved) setSource(pos(e));
       if (s.kind === 'crop') { if (!crop || Math.abs(crop.w) < 2 || Math.abs(crop.h) < 2) crop = null; else { const b = boxOf(crop); $('#ic-x').value = b.x; $('#ic-y').value = b.y; $('#ic-w').value = b.w; $('#ic-h').value = b.h; say('Tap Crop to keep what is inside the box.'); } draw(); }
     };
     stage.addEventListener('pointerup', e => endPointer(e, false));
@@ -724,6 +946,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (TOOL_KEYS[k] && !(e.target instanceof HTMLElement && e.target.closest('ink-slider'))) { e.preventDefault(); setTool(TOOL_KEYS[k]); return; }
       if (e.key === '[' || e.key === ']') { e.preventDefault(); const s = $('#ic-brush'); s.value = Math.round(s.value * (e.key === '[' ? 1 / 1.25 : 1.25)); return; }
       if (e.key === '0') { e.preventDefault(); act('fit'); return; }
+      if (k === 'y') { e.preventDefault(); act('history'); return; }
       if (e.key === '=' || e.key === '+' || e.key === '-') { e.preventDefault(); act(e.key === '-' ? 'zoomout' : 'zoomin'); }
     };
     const keyOutside = e => { if (!host.contains(e.target)) key(e); };
@@ -731,21 +954,21 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     // a box drawn either way, in whole pixels inside the picture (the exact size fields show it too)
     const boxOf = c => { const x = Math.max(0, Math.floor(Math.min(c.x, c.x + c.w))), y = Math.max(0, Math.floor(Math.min(c.y, c.y + c.h))); return { x, y, w: Math.max(1, Math.min(work.width - x, Math.round(Math.abs(c.w)))), h: Math.max(1, Math.min(work.height - y, Math.round(Math.abs(c.h)))) }; };
     const syncFields = () => { $('#ic-x').value = $('#ic-y').value = 0; $('#ic-w').value = work.width; $('#ic-h').value = work.height; };
-    const applyCrop = c => { const { x, y, w, h } = exactCrop(c, work.width, work.height); endLive(); snapshot(); merge(); rect = { x: rect.x + x, y: rect.y + y, w, h }; const p = wctx.getImageData(x, y, w, h), o = original.getContext('2d').getImageData(x, y, w, h); work.width = original.width = w; work.height = original.height = h; wctx.putImageData(p, 0, 0); original.getContext('2d').putImageData(o, 0, 0); crop = null; setSel(null); fit(); syncFields(); };
+    const applyCrop = c => { const { x, y, w, h } = exactCrop(c, work.width, work.height); endLive(); snapshot('Crop'); merge(); rect = { x: rect.x + x, y: rect.y + y, w, h }; const p = wctx.getImageData(x, y, w, h), o = original.getContext('2d').getImageData(x, y, w, h); work.width = original.width = w; work.height = original.height = h; wctx.putImageData(p, 0, 0); original.getContext('2d').putImageData(o, 0, 0); crop = null; setSel(null); fit(); syncFields(); };
     const observer = new ResizeObserver(layout); observer.observe(stage);
 
-    const VIEW_ONLY = ['fit', 'zoomin', 'zoomout', 'compare', 'cancel', 'apply', 'undo', 'backdrop', 'discard', 'keep'];
+    const VIEW_ONLY = ['fit', 'zoomin', 'zoomout', 'compare', 'cancel', 'apply', 'undo', 'backdrop', 'discard', 'keep', 'history', 'setsource'];
     // actions that leave a floating piece up (the rest place it first)
-    const FLOAT_KEEP = ['fit', 'zoomin', 'zoomout', 'compare', 'cancel', 'discard', 'keep', 'backdrop', 'undo', 'redo', 'flipx', 'flipy', 'turn90', 'putback', 'duplicate', 'exactmove', 'seldelete', 'tomove'];
+    const FLOAT_KEEP = ['fit', 'zoomin', 'zoomout', 'compare', 'cancel', 'discard', 'keep', 'backdrop', 'undo', 'redo', 'flipx', 'flipy', 'turn90', 'putback', 'duplicate', 'exactmove', 'seldelete', 'tomove', 'history', 'setsource'];
     const pieceStep = change => { if (!startStep()) return true; float.T = change({ ...float.T }); showMoving(); say(readoutText()); return true; };
     const selectAction = action => {
       if (action === 'selall') { changeSel(rectMask(work.width, work.height, { x: 0, y: 0, w: work.width, h: work.height }), 'new'); say('Everything is selected.'); return true; }
       if (action === 'selnone') { if (!sel) say('Nothing is selected.'); else { changeSel(null, 'new'); say('Selection cleared.'); } return true; }
       if (action === 'selinvert') { if (!sel) { say('Select something first, then flip the selection to everything else.'); return true; } changeSel(invertMask(sel), 'new'); say(sel ? 'Now everything else is selected.' : 'Nothing is left outside the selection.'); return true; }
       if (action === 'seldelete') {
-        if (float) { snapshot(); float = null; setSel(null); say('Deleted. Undo brings it back.'); return true; }
+        if (float) { snapshot('Delete'); float = null; setSel(null); say('Deleted. Undo brings it back.'); return true; }
         if (!sel) { say('Select something first.'); return true; }
-        endLive(); cut = null; snapshot(); wctx.save(); wctx.globalCompositeOperation = 'destination-out'; wctx.drawImage(selCanvas(), 0, 0); wctx.restore(); say('Deleted. Undo brings it back.'); return true;
+        endLive(); cut = null; snapshot('Delete'); wctx.save(); wctx.globalCompositeOperation = 'destination-out'; wctx.drawImage(selCanvas(), 0, 0); wctx.restore(); say('Deleted. Undo brings it back.'); return true;
       }
       if (action === 'tomove') { setTool('move'); say(pendingBox ? 'Drag the selection to move it. Use the corners to size it and the dot to turn it.' : readoutText()); return true; }
       if (action === 'flipx') return pieceStep(T => ({ ...T, fx: -T.fx }));
@@ -760,7 +983,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       }
       if (action === 'exactmove') {
         const num = id => { const n = Number($(id).value); return Number.isFinite(n) ? n : 0; }, unit = ppi() || 1;
-        if (!float) { if (!liftPiece()) return true; } else snapshot();
+        if (!float) { if (!liftPiece()) return true; } else snapshot('Move');
         const T0 = float.T0; float.T = { ...float.T, cx: T0.cx + num('#ic-mx') * unit, cy: T0.cy + num('#ic-my') * unit, s: Math.max(0.05, Math.min(20, (num('#ic-ms') || 100) / 100)), rot: num('#ic-mr') * Math.PI / 180 };
         showMoving(); say(readoutText()); return true;
       }
@@ -777,7 +1000,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (selectAction(action)) { draw(); return; }
       if (action === 'apply') {
         host.querySelectorAll('button,input').forEach(b => b.disabled = true);
-        try { merge(); trimToInk(); const dataUrl = work.toDataURL('image/png'), saved = validateCleanupSession({ version: 1, sourceHash, outputHash: await fingerprint(dataUrl), workingDataUrl: full.toDataURL('image/png'), restoreDataUrl: baseline.toDataURL('image/png'), crop: { ...rect } }); return finish({ dataUrl, aspect: work.width / work.height, session: saved, linked: linkedCount >= 2 ? !!$('#ic-linked')?.checked : undefined, ...placement(), used: [...used], settings: { paperThreshold: boundedValue('#ic-threshold', 100, 255), contrast: boundedValue('#ic-contrast', -80, 150) } }); }
+        try { merge(); trimToInk(); const dataUrl = work.toDataURL('image/png'), saved = validateCleanupSession({ version: 1, sourceHash, outputHash: await fingerprint(dataUrl), workingDataUrl: full.toDataURL('image/png'), restoreDataUrl: baseline.toDataURL('image/png'), crop: { ...rect } }); return finish({ dataUrl, aspect: work.width / work.height, session: saved, linked: linkedCount >= 2 ? !!$('#ic-linked')?.checked : undefined, ...placement(), used: [...used], settings: { paperThreshold: boundedValue('#ic-threshold', 100, 255), contrast: boundedValue('#ic-contrast', -80, 150), brush: boundedValue('#ic-brush', 2, 150), opacity: boundedValue('#ic-opacity', 1, 100), edge: $('#ic-edge').value, wandTolerance: boundedValue('#ic-wand-tol', 0, 255) } }); }
         catch (error) { host.querySelectorAll('button,input').forEach(b => b.disabled = false); say(error.message, true); draw(); return; }
       }
       if (action === 'backdrop') { const s = $('#ic-backdrop'); s.value = backdrops[(backdrops.indexOf(s.value) + 1) % backdrops.length]; s.dispatchEvent(new Event('change')); say(`Backdrop: ${s.selectedOptions[0].textContent}.`); return; }
@@ -791,21 +1014,42 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
         crop = c; applyCrop(c); say(action === 'trim' ? 'Empty edges trimmed. Undo puts them back.' : 'Cropped. Undo puts it back.'); draw(); return;
       }
       const dims = work.width + 'x' + work.height;
-      if (action === 'undo' && history.length) { endLive(); const e = history.pop(); future.push(entryNow(e)); trim(future); restoreEntry(e); say(e.selOnly ? 'Selection undone.' : 'Undone.'); }
-      if (action === 'redo' && future.length) { endLive(); const e = future.pop(); history.push(entryNow(e)); trim(history); restoreEntry(e); say('Redone.'); }
+      if (action === 'undo' && history.length) { endLive(); endRefine(); const e = history.pop(); future.push(entryNow(e)); trim(future); restoreEntry(e); say(e.selOnly ? 'Selection undone.' : 'Undone.'); }
+      if (action === 'redo' && future.length) { endLive(); endRefine(); const e = future.pop(); history.push(entryNow(e)); trim(history); restoreEntry(e); say('Redone.'); }
       if ((action === 'undo' || action === 'redo') && float && mode !== 'move') setTool('move');
-      if (action === 'reset') { endLive(); snapshot(); setImage(source); crop = null; float = null; setSel(null); ref = refAfterReset(); say('Back to the original. Undo brings your edits back.'); }
+      if (action === 'reset') { endLive(); snapshot('Start over'); setImage(source); crop = null; float = null; setSel(null); ref = refAfterReset(); say('Back to the original. Undo brings your edits back.'); }
       if (action === 'paper') {
         if (live?.kind === 'paper') say('White paper is already off. Slide Light shades kept to the left to take away more.');
         else { runLive('paper'); say($('#ic-paper-scope').value === 'edges' ? 'White paper at the edges removed. Light areas inside the lines are kept.' : 'White paper removed. Slide Light shades kept to take away more or less.'); }
       }
+      if (action === 'history') { if (historyBox.hidden) { historyBox.hidden = false; button('history').setAttribute('aria-pressed', 'true'); renderHistory(); } else closeHistory(); return; }
+      if (action === 'bgremove') {
+        if (live?.kind === 'bg') say('Background is off. Slide Background range to take away more or less.');
+        else if (startBackground()) { runLive('bg'); say('Background removed. Slide Background range for more or less, or tap a colour to take it away.'); }
+      }
+      if (action === 'setsource') { pickingSource = !pickingSource || !cloneSrc; button('setsource').setAttribute('aria-pressed', String(pickingSource)); stage.style.cursor = pickingSource ? 'crosshair' : 'none'; say(pickingSource ? 'Tap the spot to copy from. Alt-click works too.' : sourceWords()); return; }
+      if (action === 'selgrow' || action === 'selsimilar') {
+        if (!sel) { say('Select something first, with the magic wand or Select.'); return; }
+        const f = action === 'selgrow' ? growSimilar : selectSimilar, m = f(pixels(), work.width, work.height, sel, boundedValue('#ic-wand-tol', 0, 255));
+        if (!changeSel(m, 'new')) say('Nothing more to add at this Tolerance. Raise Tolerance in Magic wand.'); else say(action === 'selgrow' ? 'Grown into touching pixels of the same colour.' : 'Every pixel of the same colour is selected.');
+        return;
+      }
+      if (action === 'autolevels') {
+        const lv = autoLevels(histogram(live?.kind === 'levels' ? live.base.data : pixels(), sel));
+        $('#ic-lv-black').value = lv.inBlack; $('#ic-lv-white').value = lv.inWhite; $('#ic-lv-gamma').value = 100; runLive('levels'); drawHistogram(); say('Levels set from the darkest and lightest parts.');
+      }
       if (action === 'contrast') { if (live?.kind === 'lines') say('Slide Darker lines to change how much.'); else { runLive('lines'); say('Lines darkened. Slide to change how much.'); } }
-      if (action === 'uncrop') { endLive(); snapshot(); merge(); work.width = original.width = full.width; work.height = original.height = full.height; wctx.drawImage(full, 0, 0); original.getContext('2d').drawImage(baseline, 0, 0); rect = { x: 0, y: 0, w: full.width, h: full.height }; crop = null; setSel(null); say('The whole picture is back. Your edits are kept.'); }
+      if (action === 'uncrop') { endLive(); snapshot('Whole picture'); merge(); work.width = original.width = full.width; work.height = original.height = full.height; wctx.drawImage(full, 0, 0); original.getContext('2d').drawImage(baseline, 0, 0); rect = { x: 0, y: 0, w: full.width, h: full.height }; crop = null; setSel(null); say('The whole picture is back. Your edits are kept.'); }
       if (action === 'crop' && crop) { applyCrop(boxOf(crop)); say('Cropped. Undo puts it back.'); }
       if (['reset', 'uncrop'].includes(action) || (['undo', 'redo'].includes(action) && dims !== work.width + 'x' + work.height)) { fit(); syncFields(); }
       draw();
     }
-    host.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b || b.disabled) return; act(b.dataset.action); });
+    host.addEventListener('click', e => { const b = e.target.closest('[data-action]'); if (!b || b.disabled) return; if (b.dataset.action === 'compare' && holdCompare.swallow) { holdCompare.swallow = false; return; } act(b.dataset.action); });
+    // Show original: a tap switches to it and back, holding it shows it only while held
+    const holdCompare = { timer: 0, held: false, swallow: false };
+    button('compare').addEventListener('pointerdown', () => { clearTimeout(holdCompare.timer); holdCompare.held = false; holdCompare.timer = setTimeout(() => { if (comparing) return; holdCompare.held = true; comparing = true; used.add('compare'); draw(); }, 280); });
+    const releaseCompare = () => { clearTimeout(holdCompare.timer); if (holdCompare.held) { holdCompare.held = false; holdCompare.swallow = true; comparing = false; draw(); setTimeout(() => { holdCompare.swallow = false; }, 400); } };
+    for (const t of ['pointerup', 'pointercancel', 'pointerleave']) button('compare').addEventListener(t, releaseCompare);
 
     setImage(current);
     if (session) { full.width = baseline.width = fullImage.naturalWidth; full.height = baseline.height = fullImage.naturalHeight; full.getContext('2d').drawImage(fullImage, 0, 0); baseline.getContext('2d').drawImage(restoreImage, 0, 0); rect = { ...session.crop }; work.width = original.width = rect.w; work.height = original.height = rect.h; wctx.drawImage(full, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); original.getContext('2d').drawImage(baseline, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); }
