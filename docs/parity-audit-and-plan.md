@@ -729,6 +729,14 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-20 QA batch 4 (built on batches 2 and 3, which went live 17:00 UTC; not live)
+
+- Phone: the Tape measure, How I see it, Comments, Pain map (and the other top bars) took the full width and sat over the Layers rail's Add and Procreate buttons; the rail now steps aside while one is open and comes back after Done. iPad unchanged. Check: t149 (fails on main).
+- Measured wrap: a tape number that changed the template's size kept the 3D leg's texture at the old size, so every later upload failed in WebGL ("Offset overflows texture dimensions") and the leg could keep the old picture. A resize now makes a new texture. Check: t150 (fails on main).
+- Clean up: the original, full and baseline pictures were read back off the graphics chip at every undo step, slider change and Restore stroke; they are now kept in memory (`willReadFrequently`). Check: t151 (13 full-size reads in one short session on main, none now).
+- Regression check t152: graphics memory flat through pictures in and out, shape changes and tool opens (read-only `__ink.gpu()` test hook). Nothing was leaking.
+- Full suite: 243 pass plus the six account checks; t131, t25 and t8 failed only under load and pass alone. Not checked on an iPad yet.
+
 ## 2026-11-20 QA batch 3 (built on batch 2, not live)
 
 - A message (toast) no longer takes taps: only its own button does. After one Share file was saved, the message sat over the last Share card in the reopened sheet and caught the tap; it was also why t38 timed out and why t25's repeat-tap cycling failed. Check: t146.
