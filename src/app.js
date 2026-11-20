@@ -1011,7 +1011,7 @@ function limbMove(G, x, y) {
 }
 // A tattoo's middle moved by a step over the skin, kept on the skin (rest positions, like everything
 // placed), or null where there is no skin there.
-function slideOnSkin(t, delta) {
+function followSkin(t, delta) {
   const n = new V3(...t.normal).normalize(), p = new V3(...t.pos).add(delta);
   ray.set(p.clone().addScaledVector(n, 0.04), n.clone().negate()); ray.far = 0.1;
   const h = ray.intersectObject(body, false)[0]; ray.far = Infinity;
@@ -1067,7 +1067,7 @@ canvas.addEventListener('pointermove', (e) => {
       if (gest.limb) { const to = limbMove(gest.limb, e.clientX, e.clientY); if (to) { if (!gest.snap) { snapshot(); gest.snap = true; } Object.assign(t, to); inkDirty = true; markTried('wrapGrab'); } return; }
       let h = gest.free ? null : hitBody(e.clientX - gest.ox, e.clientY - gest.oy);
       if (!h && !gest.free) gest.free = true; // its middle went off the body: from here it follows the skin under the finger
-      if (gest.free) { const a = hitBody(e.clientX - dx, e.clientY - dy), b = hitBody(e.clientX, e.clientY), to = a && b && slideOnSkin(t, b.point.clone().sub(a.point)); if (to) h = { point: new V3(...to.pos), normal: new V3(...to.normal) }; }
+      if (gest.free) { const a = hitBody(e.clientX - dx, e.clientY - dy), b = hitBody(e.clientX, e.clientY), to = a && b && followSkin(t, b.point.clone().sub(a.point)); if (to) h = { point: new V3(...to.pos), normal: new V3(...to.normal) }; }
       if (h) { if (!gest.snap) { snapshot(); gest.snap = true; } t.pos = h.point.toArray(); t.normal = h.normal.clone().normalize().toArray(); updateLiveGuides(t); inkDirty = true; if (decalWasSleeve.has(t.id)) markTried('forearmSmooth'); }
     }
   } else if (pts.size === 2) {

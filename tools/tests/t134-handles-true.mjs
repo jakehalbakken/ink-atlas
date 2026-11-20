@@ -94,4 +94,5 @@ export default async function (p) {
       assert.ok((await tat()).w > w0 * 1.5, `${c.name}: spreading two fingers grows it`);
     }
   }
+  console.log('PASS t134 handles where you expect them: Layers under the top bar, corners on the ink, out grows and in shrinks, the turn follows the finger, a drag stays under the finger, at both iPad orientations');
 }
