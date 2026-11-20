@@ -1,5 +1,5 @@
 // Local-only artwork editor. The caller retains the untouched source artwork.
-import { rectMask, lassoMask, pieceMask, combineMasks, invertMask, isEmptyMask, maskBounds, identityFor, pieceToLocal, growPads, snapStraight, snapTurn, twoFingerTransform, moveWords } from './cleanup-select.js';
+import { rectMask, lassoMask, pieceMask, combineMasks, invertMask, isEmptyMask, maskBounds, inkBounds, identityFor, pieceToLocal, growPads, snapStraight, snapTurn, twoFingerTransform, moveWords } from './cleanup-select.js';
 // No image leaves the device. All edits remain a draft until Apply.
 export function removeLightPixels(data, threshold = 235) {
   const out = new Uint8ClampedArray(data);
@@ -275,7 +275,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const $ = (s) => host.querySelector(s);
     const view = $('canvas'), work = canvasOf(1, 1), original = canvasOf(1, 1), wctx = work.getContext('2d', { willReadFrequently: true });
     const selOver = $('canvas.ic-sel'), floatView = $('canvas.ic-float'), xbox = $('.ic-xbox');
-    let sel = null, selVer = 0, float = null, pendingBox = null, grow = 1, nudge = null, lookCache = null, selCache = null, infoCache = null; const used = new Set();
+    let sel = null, selVer = 0, float = null, pendingBox = null, ref = { x: 0, y: 0, w: 1, h: 1 }, nudge = null, lookCache = null, selCache = null, infoCache = null; const used = new Set();
     const status = $('.ic-status'), stage = $('.ic-work'), ring = $('.ic-ring'), cropbox = $('.ic-cropbox'), confirmBox = $('.ic-confirm');
     const full = canvasOf(1, 1), baseline = canvasOf(1, 1); let rect = { x: 0, y: 0, w: 1, h: 1 };
     let zoom = 1, panX = 0, panY = 0;
@@ -286,10 +286,10 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const say = (text, hold = false) => { status.textContent = text; status.classList.toggle('on', !!text); clearTimeout(statusTimer); if (text && !hold) statusTimer = setTimeout(() => status.classList.remove('on'), 4200); };
     const setImage = image => { const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight)); work.width = Math.max(1, Math.round(image.naturalWidth * scale)); work.height = Math.max(1, Math.round(image.naturalHeight * scale)); wctx.drawImage(image, 0, 0, work.width, work.height); original.width = work.width; original.height = work.height; original.getContext('2d').drawImage(work, 0, 0); full.width = baseline.width = work.width; full.height = baseline.height = work.height; full.getContext('2d').drawImage(work, 0, 0); baseline.getContext('2d').drawImage(work, 0, 0); rect = { x: 0, y: 0, w: work.width, h: work.height }; };
     const merge = () => { const ctx = full.getContext('2d'); ctx.clearRect(rect.x, rect.y, rect.w, rect.h); ctx.drawImage(work, rect.x, rect.y); };
-    const capture = () => ({ fw: full.width, fh: full.height, full: full.getContext('2d').getImageData(0, 0, full.width, full.height), baseline: baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height), rect: { ...rect }, w: work.width, h: work.height, pixels: wctx.getImageData(0, 0, work.width, work.height), original: original.getContext('2d').getImageData(0, 0, original.width, original.height), sel, grow, float: float ? { ...float, T: { ...float.T } } : null });
+    const capture = () => ({ fw: full.width, fh: full.height, full: full.getContext('2d').getImageData(0, 0, full.width, full.height), baseline: baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height), rect: { ...rect }, w: work.width, h: work.height, pixels: wctx.getImageData(0, 0, work.width, work.height), original: original.getContext('2d').getImageData(0, 0, original.width, original.height), sel, ref: { ...ref }, float: float ? { ...float, T: { ...float.T } } : null });
     const trim = stack => { while (stack.length > 1 && stack.reduce((n, s) => n + (s.selOnly ? 0 : (s.w * s.h + s.fw * s.fh) * 8 + (s.float ? s.float.w * s.float.h * 8 : 0)) + (s.sel ? s.sel.length : 0), 0) > 48 * 1024 * 1024) stack.shift(); };
     const snapshot = () => { history.push(capture()); trim(history); future = []; };
-    const restore = state => { work.width = original.width = state.w; work.height = original.height = state.h; wctx.putImageData(state.pixels, 0, 0); original.getContext('2d').putImageData(state.original, 0, 0); full.width = baseline.width = state.fw; full.height = baseline.height = state.fh; full.getContext('2d').putImageData(state.full, 0, 0); baseline.getContext('2d').putImageData(state.baseline, 0, 0); rect = { ...state.rect }; crop = null; sel = state.sel || null; selVer++; grow = state.grow || 1; float = state.float ? { ...state.float, T: { ...state.float.T } } : null; nudge = null; };
+    const restore = state => { work.width = original.width = state.w; work.height = original.height = state.h; wctx.putImageData(state.pixels, 0, 0); original.getContext('2d').putImageData(state.original, 0, 0); full.width = baseline.width = state.fw; full.height = baseline.height = state.fh; full.getContext('2d').putImageData(state.full, 0, 0); baseline.getContext('2d').putImageData(state.baseline, 0, 0); rect = { ...state.rect }; crop = null; sel = state.sel || null; selVer++; ref = { ...state.ref }; float = state.float ? { ...state.float, T: { ...state.float.T } } : null; nudge = null; };
     // a selection change alone is a light undo step: only the selection is kept
     const snapshotSel = () => { history.push({ selOnly: true, sel }); trim(history); future = []; };
     const restoreEntry = e => { if (e.selOnly) { sel = e.sel && e.sel.length === work.width * work.height ? e.sel : null; selVer++; } else restore(e); };
@@ -349,9 +349,10 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     // ink (or the whole picture) as a floating piece with its own size, turn and flip, drawn over the
     // picture until it is placed, so moving it again never blurs it. Each drag is one undo step. A piece
     // moved past the edge grows the picture evenly on both sides, so its middle and every piece's real size
-    // on the body stay the same (the width grows by `grow`).
+    // on the body stay the same. `ref` is where the picture that is on the body now sits in the uncropped
+    // picture, so a crop, a trim or a grow keeps every piece at its real size and in its place on the skin.
     const widthIn = Number(options.widthInches) > 0 ? Number(options.widthInches) : 0;
-    const ppi = () => widthIn ? work.width / (widthIn * grow) : 0;
+    const ppi = () => widthIn ? ref.w / widthIn : 0;
     const maskCanvas = (m, w, h) => { const c = canvasOf(w, h), d = new ImageData(w, h); for (let i = 0; i < m.length; i++) { const j = i * 4; d.data[j] = d.data[j + 1] = d.data[j + 2] = 255; d.data[j + 3] = m[i]; } c.getContext('2d').putImageData(d, 0, 0); return c; };
     const selCanvas = () => { if (!sel) return null; if (!selCache || selCache.ver !== selVer) selCache = { ver: selVer, c: maskCanvas(sel, work.width, work.height) }; return selCache.c; };
     const setSel = m => { sel = m && m.length === work.width * work.height && !isEmptyMask(m) ? m : null; selVer++; };
@@ -431,13 +432,30 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const resizeCanvas = (c, w, h, draw) => { const n = canvasOf(w, h), g = n.getContext('2d'); g.imageSmoothingQuality = 'high'; draw(g, c); c.width = w; c.height = h; c.getContext('2d').drawImage(n, 0, 0); };
     // Grow evenly: the uncropped picture and the restore picture get the same transparent margin.
     const growPicture = (px, py) => {
-      const W = work.width; merge();
+      merge();
       for (const c of [full, baseline]) resizeCanvas(c, c.width + 2 * px, c.height + 2 * py, (g, from) => g.drawImage(from, px, py));
       rect = { x: rect.x, y: rect.y, w: rect.w + 2 * px, h: rect.h + 2 * py };
       const fc = full.getContext('2d'); fc.clearRect(rect.x, rect.y, rect.w, rect.h); fc.drawImage(work, rect.x + px, rect.y + py);
       loadRect(); setSel(null);
-      grow *= work.width / W;
+      ref = { ...ref, x: ref.x + px, y: ref.y + py };
     };
+    // Done keeps only the ink: empty edges (nearly clear pixels too) are left out of the picture, so the
+    // box round the tattoo on the body hugs its ink and its size reads true. The uncropped picture keeps them.
+    let opened = null;
+    const trimToInk = () => {
+      const b = inkBounds(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height);
+      if (!b || (b.x === 0 && b.y === 0 && b.w === work.width && b.h === work.height)) return;
+      rect = { x: rect.x + b.x, y: rect.y + b.y, w: b.w, h: b.h }; loadRect();
+    };
+    // How the picture now on the body differs from the one that went in: its width as a share of the old
+    // width, and how far its middle moved in shares of the old width and height (right and down).
+    const placement = () => {
+      const widthScale = rect.w / ref.w, dx = (rect.x + rect.w / 2 - ref.x - ref.w / 2) / ref.w, dy = (rect.y + rect.h / 2 - ref.y - ref.h / 2) / ref.h;
+      const out = {}; if (Math.abs(widthScale - 1) > 1e-6) out.widthScale = widthScale; if (Math.abs(dx) > 1e-6 || Math.abs(dy) > 1e-6) out.shift = { x: dx, y: dy }; return out;
+    };
+    // Start over brings back the picture first uploaded. With a saved session it lines up with the uncropped
+    // picture, so the tattoo stays put; otherwise it fills the tattoo's box as it did before.
+    const refAfterReset = () => opened && session && full.width === opened.fw && full.height === opened.fh ? { ...opened.ref } : { ...rect };
     // Keep the picture inside the 1600 px the cleanup works in: scale everything down together.
     const fitLimit = () => {
       const big = Math.max(full.width, full.height); if (big <= 1600) return;
@@ -445,6 +463,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       for (const c of [full, baseline]) resizeCanvas(c, Math.max(1, Math.round(c.width * k)), Math.max(1, Math.round(c.height * k)), (g, from) => g.drawImage(from, 0, 0, Math.max(1, Math.round(from.width * k)), Math.max(1, Math.round(from.height * k))));
       const x = Math.min(full.width - 1, Math.round(rect.x * k)), y = Math.min(full.height - 1, Math.round(rect.y * k));
       rect = { x, y, w: Math.max(1, Math.min(full.width - x, Math.round(rect.w * k))), h: Math.max(1, Math.min(full.height - y, Math.round(rect.h * k))) }; loadRect();
+      ref = { x: ref.x * k, y: ref.y * k, w: ref.w * k, h: ref.h * k };
       if (m) { const c = canvasOf(work.width, work.height); c.getContext('2d').drawImage(m, 0, 0, work.width, work.height); setSel(maskFrom(c, work.width, work.height)); } else setSel(null);
     };
     // Place the floating piece. No undo step of its own: the picture looks the same before and after.
@@ -758,7 +777,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (selectAction(action)) { draw(); return; }
       if (action === 'apply') {
         host.querySelectorAll('button,input').forEach(b => b.disabled = true);
-        try { merge(); const dataUrl = work.toDataURL('image/png'), saved = validateCleanupSession({ version: 1, sourceHash, outputHash: await fingerprint(dataUrl), workingDataUrl: full.toDataURL('image/png'), restoreDataUrl: baseline.toDataURL('image/png'), crop: { ...rect } }); return finish({ dataUrl, aspect: work.width / work.height, session: saved, linked: linkedCount >= 2 ? !!$('#ic-linked')?.checked : undefined, widthScale: Math.abs(grow - 1) > 1e-6 ? grow : undefined, used: [...used], settings: { paperThreshold: boundedValue('#ic-threshold', 100, 255), contrast: boundedValue('#ic-contrast', -80, 150) } }); }
+        try { merge(); trimToInk(); const dataUrl = work.toDataURL('image/png'), saved = validateCleanupSession({ version: 1, sourceHash, outputHash: await fingerprint(dataUrl), workingDataUrl: full.toDataURL('image/png'), restoreDataUrl: baseline.toDataURL('image/png'), crop: { ...rect } }); return finish({ dataUrl, aspect: work.width / work.height, session: saved, linked: linkedCount >= 2 ? !!$('#ic-linked')?.checked : undefined, ...placement(), used: [...used], settings: { paperThreshold: boundedValue('#ic-threshold', 100, 255), contrast: boundedValue('#ic-contrast', -80, 150) } }); }
         catch (error) { host.querySelectorAll('button,input').forEach(b => b.disabled = false); say(error.message, true); draw(); return; }
       }
       if (action === 'backdrop') { const s = $('#ic-backdrop'); s.value = backdrops[(backdrops.indexOf(s.value) + 1) % backdrops.length]; s.dispatchEvent(new Event('change')); say(`Backdrop: ${s.selectedOptions[0].textContent}.`); return; }
@@ -775,7 +794,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       if (action === 'undo' && history.length) { endLive(); const e = history.pop(); future.push(entryNow(e)); trim(future); restoreEntry(e); say(e.selOnly ? 'Selection undone.' : 'Undone.'); }
       if (action === 'redo' && future.length) { endLive(); const e = future.pop(); history.push(entryNow(e)); trim(history); restoreEntry(e); say('Redone.'); }
       if ((action === 'undo' || action === 'redo') && float && mode !== 'move') setTool('move');
-      if (action === 'reset') { endLive(); snapshot(); setImage(source); crop = null; float = null; setSel(null); grow = 1; say('Back to the original. Undo brings your edits back.'); }
+      if (action === 'reset') { endLive(); snapshot(); setImage(source); crop = null; float = null; setSel(null); ref = refAfterReset(); say('Back to the original. Undo brings your edits back.'); }
       if (action === 'paper') {
         if (live?.kind === 'paper') say('White paper is already off. Slide Light shades kept to the left to take away more.');
         else { runLive('paper'); say($('#ic-paper-scope').value === 'edges' ? 'White paper at the edges removed. Light areas inside the lines are kept.' : 'White paper removed. Slide Light shades kept to take away more or less.'); }
@@ -790,6 +809,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
 
     setImage(current);
     if (session) { full.width = baseline.width = fullImage.naturalWidth; full.height = baseline.height = fullImage.naturalHeight; full.getContext('2d').drawImage(fullImage, 0, 0); baseline.getContext('2d').drawImage(restoreImage, 0, 0); rect = { ...session.crop }; work.width = original.width = rect.w; work.height = original.height = rect.h; wctx.drawImage(full, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); original.getContext('2d').drawImage(baseline, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); }
+    ref = { ...rect }; opened = { ref: { ...ref }, fw: full.width, fh: full.height };
     syncFields();
     const edge = session ? 'clear' : edgeKind(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height), paper = edge === 'paper' || edge === 'white';
     if (paper) { const level = paperLevel(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height); if (level != null) $('#ic-threshold').value = Math.max(150, Math.min(235, level - 8)); }
