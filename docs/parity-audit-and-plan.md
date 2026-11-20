@@ -728,3 +728,11 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - Ink Atlas open twice (two tabs, or the home-screen app resumed while another copy worked): a copy that comes back to the screen with nothing unsaved opens the newer save; a copy that saves over a newer save made elsewhere first keeps that version as an earlier save ("Saved in another window", Find my saves) and says so. `store.js` writes an optional `sid` per save (older records read as `'t'+savedAt`), no migration. Check: t145 (fails on the live build, passes here).
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
+
+## 2026-11-20 QA batch 3 (built on batch 2, not live)
+
+- A message (toast) no longer takes taps: only its own button does. After one Share file was saved, the message sat over the last Share card in the reopened sheet and caught the tap; it was also why t38 timed out and why t25's repeat-tap cycling failed. Check: t146.
+- No text box, list or field anywhere under 16px (one rule in `index.html`); Notes, Line up, the Artwork library, Body tools and Photo fit had 15px ones, so the iPad zoomed in. Clean up's Hard and Soft at 44 pt. Check: t147 panel sweep (27 flows at both iPad orientations: on screen, uncovered, 44 pt, 16px).
+- Body tools note box: dark text in the light look (was white on near-white). Check: t148 contrast of every text box in five panels, light and dark.
+- t27 fixed in the test (it read the On my skin button's `data-status`).
+- Full suite: 239 pass plus the six account checks; t104, t131, t66, t70 and t8 failed only under load and pass alone. Not checked on an iPad yet.
