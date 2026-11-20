@@ -1621,7 +1621,9 @@ async function syncOverlayNow() {
   if (!overlay) return;
   const f = overlayFrame;
   if (!overlayCanvas) overlayCanvas = document.createElement('canvas');
-  if (overlayCanvas.width !== f.w || overlayCanvas.height !== f.h) { overlayCanvas.width = f.w; overlayCanvas.height = f.h; }
+  // a texture keeps the size it was first sent at, so a template of a new size needs a new one, or every
+  // later upload fails and the leg keeps the old picture (2026-11-20)
+  if (overlayCanvas.width !== f.w || overlayCanvas.height !== f.h) { overlayCanvas.width = f.w; overlayCanvas.height = f.h; if (overlayTex) { overlayTex.dispose(); overlayTex = null; } }
   const g = overlayCanvas.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, f.w, f.h);
   const k2 = f.w / f.wMm, M = [k2, 0, 0, -k2, f.originMm[0] * k2, f.originMm[1] * k2];
   await drawContent(g, M, r, { fill: 'rgba(255,255,255,.10)', accent: '#8474ff', body: true });

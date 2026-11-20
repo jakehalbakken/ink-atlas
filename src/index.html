@@ -361,6 +361,8 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
 /* a phone: the edit panel runs along the bottom, so the Layers rail steps aside while it is open,
    and the view buttons drop the words Full body to keep the lock in reach */
 @media (max-width:699px){body:has(#sheet:not([hidden])) #layersDock.rail{display:none!important}
+  /* on a phone the bars across the top take the full width and sat over the rail's Add and Procreate buttons: the rail steps aside while one is open (2026-11-20) */
+  body:has(#tapeBar:not([hidden])) #layersDock,body:has(#pinBar:not([hidden])) #layersDock,body:has(#selfBar:not([hidden])) #layersDock,body:has(#painBar:not([hidden])) #layersDock,body:has(#roomBar:not([hidden])) #layersDock,body:has(#tapPlaceBar:not([hidden])) #layersDock,body:has(#suggestBar:not([hidden])) #layersDock,body:has(#followBar:not([hidden])) #layersDock{visibility:hidden;pointer-events:none}
   body:has(.pop:not([hidden]):not(#bodyMatch):not(#spotPop)) #layersDock,body:has(#lookMenu:not([hidden])) #layersDock,body:has(#inkLook:not([hidden])) #layersDock{visibility:hidden;pointer-events:none}}
 @media (max-width:520px){#views .btn{min-width:44px;padding:0 9px}#views #full{font-size:0;gap:0;width:44px;min-width:44px;padding:0;justify-content:center}#views #full::before{margin:0}}
 /* Phones: the pain map and open skin bars take the tattoo list's place at the bottom while they
