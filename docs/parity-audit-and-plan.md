@@ -722,3 +722,9 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - Pictures kept while any save names them (`store.js`): clean-up reads every stored save (project, earlier saves, set-aside saves) in the same transaction before removing a picture, so a second copy of the app open on the device can no longer remove pictures another copy's save uses; a save writes a picture again if it was removed underneath it; no clean-up on a start that left a piece out or opened blank; a picture that fails to open gets one more try. Tests `store-keep.test.mjs` (fails on the old code), t143. Not checked on the iPad.
 - Layout: sliders full width in the right-hand column (container query on `#sheet`), Light two to a row, How I see it names wrap, Clean up's opening tip says the tools are at the left and goes once a tool is picked, a taller settings card on an iPad held upright. t144. A sticky name row was tried and dropped: it covered buttons under it.
 - Still failing on main and here: t123 (Preview menu finger scroll), t27 (disk-full draft).
+
+## 2026-11-20 QA batch 2 (built, not live)
+
+- Ink Atlas open twice (two tabs, or the home-screen app resumed while another copy worked): a copy that comes back to the screen with nothing unsaved opens the newer save; a copy that saves over a newer save made elsewhere first keeps that version as an earlier save ("Saved in another window", Find my saves) and says so. `store.js` writes an optional `sid` per save (older records read as `'t'+savedAt`), no migration. Check: t145 (fails on the live build, passes here).
+- The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
+- Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
