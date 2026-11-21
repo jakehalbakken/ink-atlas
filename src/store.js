@@ -35,7 +35,7 @@ export async function openStore() {
   // what this page remembers, so two copies of the app never drop each other's earlier saves.
   const pushRecovery = (s, state, keys, reason, done) => {
     const g = s.get('recovery');
-    g.onsuccess = () => {
+    g.onsuccess = guarded(s, () => {
       const list = Array.isArray(g.result) ? g.result.filter((r) => r && typeof r.id === 'string') : [];
       const json = JSON.stringify(state), sig = sigOf(json);
       if (list.length && list[0].sig === sig) { index = list; done(false); return; }
@@ -44,19 +44,23 @@ export async function openStore() {
       const drop = next.splice(MAX_RECOVERY);
       s.put({ state: JSON.parse(json), imageKeys: keys }, 'rec:' + id); for (const d of drop) s.delete('rec:' + d.id); s.put(next, 'recovery');
       index = next; done(true);
-    };
+    });
   };
   const tx = (mode, fn) => new Promise((res, rej) => {
     let t; try { t = db.transaction(STORE, mode); } catch (e) { rej(e); return; }
-    t.oncomplete = () => res(); t.onabort = t.onerror = () => rej(t.error || new Error('Storage failed'));
+    t.oncomplete = () => res(); t.onabort = t.onerror = () => rej(t.inkErr || t.error || new Error('Storage failed'));
     try { fn(t.objectStore(STORE)); } catch (e) { try { t.abort(); } catch (_) { /* already closed */ } rej(e); }
   });
+  // A write made from inside a request's own callback (a put once a read answers) that throws, such as a
+  // full disk or a value that cannot be stored, aborts its transaction on purpose and keeps that error for
+  // the save to report, instead of leaving an uncaught error behind (found 2026-11-21 under a full disk).
+  const guarded = (s, fn) => (...a) => { try { return fn(...a); } catch (e) { const t = s.transaction; t.inkErr = e; try { t.abort(); } catch (_) { /* already closed */ } } };
   const getMany = async (keys) => { const out = {}; await tx('readonly', (s) => { for (const k of keys) { const r = s.get(k); r.onsuccess = () => { out[k] = r.result; }; } }); return out; };
   const imagesFor = async (keys) => { const got = await getMany(keys.map((k) => 'img:' + k)); const images = {}; for (const k of keys) { const v = got['img:' + k]; if (typeof v === 'string') { images[k] = v; stored.add(k); } } return images; };
   // A picture this page already wrote is checked, not trusted: another copy of the app open on the same
   // device (a second tab, the home-screen app and Safari) can have removed it since, and a save that
   // only named it would then point at nothing (2026-11-20).
-  const putImages = (s, imgs, keys) => { for (const k of keys) { if (!stored.has(k)) { s.put(imgs[k], 'img:' + k); continue; } const c = s.count('img:' + k); c.onsuccess = () => { if (!c.result) s.put(imgs[k], 'img:' + k); }; } };
+  const putImages = (s, imgs, keys) => { for (const k of keys) { if (!stored.has(k)) { s.put(imgs[k], 'img:' + k); continue; } const c = s.count('img:' + k); c.onsuccess = guarded(s, () => { if (!c.result) s.put(imgs[k], 'img:' + k); }); } };
   // Every picture key a stored record names: the project, each earlier save, the list of them and each set-aside save.
   const namedBy = (key, v, into) => {
     if (!v || typeof v !== 'object') return;
@@ -89,7 +93,7 @@ export async function openStore() {
       await tx('readwrite', (s) => {
         putImages(s, imgs, keys);
         const g = s.get('project');
-        g.onsuccess = () => {
+        g.onsuccess = guarded(s, () => {
           const cur = g.result, write = () => s.put({ format: 2, state, imageKeys: keys, savedAt: Date.now(), sid }, 'project');
           const theirs = sidOf(cur);
           if (theirs && theirs !== mine && cur && typeof cur === 'object' && hasWork(cur.state)) {
@@ -97,7 +101,7 @@ export async function openStore() {
             try { for (const k of imageKeysFor(cur.state)) ks.add(k); } catch (e) { /* keeps what it lists */ }
             pushRecovery(s, cur.state, [...ks], 'Saved in another window', (kept) => { other = kept; write(); });
           } else write();
-        };
+        });
       });
       mine = sid; keys.forEach((k) => stored.add(k));
       return { other };
