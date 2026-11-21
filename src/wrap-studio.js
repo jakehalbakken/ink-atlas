@@ -428,7 +428,8 @@ async function masks(create) {
   const im = e.ink ? await C.loadImg(e.ink) : null, ig = e.gap ? await C.loadImg(e.gap) : null;
   if (o && (im || ig)) { w = (im || ig).naturalWidth; hh = (im || ig).naturalHeight; }
   else { if (!create) { mask.key = k; mask.ink = mask.gap = null; return mask; } const b = t.bounds; o = [b.minX - 20, b.maxY + 20]; w = Math.ceil((b.w + 40) * ppmm); hh = Math.ceil((b.h + 40) * ppmm); }
-  const mk = (img) => { const c = document.createElement('canvas'); c.width = w; c.height = hh; if (img) c.getContext('2d').drawImage(img, 0, 0); return c; };
+  // read back at every overlap check and brush stroke, so kept in memory rather than on the graphics chip (2026-11-21)
+  const mk = (img) => { const c = document.createElement('canvas'); c.width = w; c.height = hh; const g = c.getContext('2d', { willReadFrequently: true }); if (img) g.drawImage(img, 0, 0); return c; };
   Object.assign(mask, { key: k, ink: mk(im), gap: mk(ig), w, h: hh, ppmm, o: o.slice() });
   return mask;
 }
@@ -1154,7 +1155,7 @@ async function checkCollisions() {
   if (!ps.length || (!e.ink && !e.gap)) { collisions.result = null; collisions.img = null; return; }
   const m = await masks(false); if (!m || !m.ink) { collisions.result = null; return; }
   const w = m.w, hh = m.h, art = document.createElement('canvas'); art.width = w; art.height = hh;
-  const g = art.getContext('2d');
+  const g = art.getContext('2d', { willReadFrequently: true });
   for (const p of ps) { const im = await C.loadImg(p.img); if (!im) continue; g.save(); setAffine(g, maskAffine(m), pieceAffine(p, im)); g.drawImage(im, 0, 0, im.naturalWidth, im.naturalHeight); g.restore(); }
   const A = g.getImageData(0, 0, w, hh).data, I = m.ink.getContext('2d').getImageData(0, 0, w, hh).data, P = m.gap.getContext('2d').getImageData(0, 0, w, hh).data;
   const inkBin = new Uint8Array(w * hh); for (let i = 0; i < w * hh; i++) inkBin[i] = I[i * 4 + 3] > 100 ? 1 : 0;

@@ -729,6 +729,12 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-21 QA batch 6 (built on batch 5, which waits for Jake's yes; not live)
+
+- Audited at iPad portrait and landscape: every control in the start screen, the edit sheet, Blend and colour, Body, Preview, Plan, Share and New to try is 44 pt or more and on screen or in a panel that scrolls; no panel scrolls sideways. A 68-tattoo project (Jake has 73) selects, saves, undoes and opens panels in about the same time as two tattoos. No hard-coded colours that break the light look.
+- Measured wrap: each move of a plant ran the overlap check, which read the ink mask, the gap mask and the plants back off the graphics chip (about 1400 x 670 each, no willReadFrequently), a pause on the iPad on every nudge. The masks and the plants' picture now live in memory. Check: t155 (30 such reads in ten moves on batch 5, none now).
+- A tapped control kept its hover look on the iPad until the next tap elsewhere: Hard or Soft and other segments, Preview's rows, Share and Plan cards, On my skin or Planned, the bin. Every :hover is now inside (hover:hover). Check: t156 (five loose hover rules on batch 5, none now).
+
 ## 2026-11-20 QA batch 5 (built on batch 4, which went live 17:31 UTC; not live)
 
 - Blend and colour scrolls under a finger (Jake: "I'm not actually able to scroll down on that panel. It scrolls the entire screen and glitches"). Its list scrolled inside a blurred glass box (backdrop-filter on the panel, `overflow:hidden`, the list as the scroller), a shape the iPad does not hand the finger to; the Body, Pose and Preview panels, which do scroll there, are themselves the scroller. Now `#inkLook` is the scroller with its title sticky at the top. Headless Chrome scrolls both shapes, so the check is on the shape plus a real touch drag. Sweep: the Layers list and the comments bar had the same shape and now keep their blur on a `::before` layer (`.glass.holds-scroll`). Check: t153 (Blend and colour over a mode, two sliders and a gap, Layers with 30 lines, Body, Preview, Plan, Share, New to try; iPad portrait, landscape, phone; the page and 3D view stay still).
