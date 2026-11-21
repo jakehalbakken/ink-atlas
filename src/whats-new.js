@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'openOnce', date: '2026-11-21', title: 'A double tap opens one window', how: 'Select a tattoo and tap Clean up twice quickly: one workspace opens, not two stacked one over the other. Projects, Planning, Body tools, Fit to a photo, Artwork library and Placement tools under Plan do the same.', show: 'cleanup' },
   { id: 'wrapSmooth', date: '2026-11-21', title: 'Moving a plant in the wrap is smoother', how: 'Plan > Measured wrap, with the tattoo already there traced. On the design step, drag a plant over the old ink and nudge it about: the warning about old ink and protected gaps keeps up with it without the short pause after each move.', show: 'measuredWrap' },
   { id: 'tapLooks', date: '2026-11-21', title: 'No highlight left behind after a tap', how: 'Open Preview and tap Light, or tap a choice like Hard or Soft in Clean up: once your finger lifts, only the choice you picked stays highlighted. Before, the last row or segment you touched kept a grey highlight and looked picked.', show: 'light' },
   { id: 'panelScroll', date: '2026-11-20', title: 'Blend and colour scrolls with a finger', how: 'Select a tattoo and tap Blend and colour. Drag a finger up anywhere in the panel, even over a slider or a blend mode: the panel scrolls down to Recolour and Invert, and the body and the screen stay still. The Layers list and the list of comments scroll the same way when they are long.', show: 'blendModes' },
