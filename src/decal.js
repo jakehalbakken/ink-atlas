@@ -44,7 +44,7 @@ export function buildAdjacency(index) {
 // limb: { joints: [[x,y,z], ...] down the limb in the standing body, keep: Uint8Array per vertex
 // (the limb's own skin, for its radius), rest: the standing positions }. Returns null when the
 // piece is small enough for the stencil unfold below, which follows bumps more closely.
-function limbFlat(geo, t, frame, startTri, limb) {
+function limbFlat(geo, t, frame, startTri, limb, box) {
   const P = geo.attributes.position.array, Q = limb.rest, I = geo.index.array, verts = (P.length / 3) | 0;
   const J = limb.joints, segs = [];
   let total = 0;
@@ -133,7 +133,8 @@ function limbFlat(geo, t, frame, startTri, limb) {
   const nrm = (x) => { const n = Math.hypot(...x) || 1; return x.map((y) => y / n); };
   const Rr = nrm(toRest([frame.right.x, frame.right.y, frame.right.z])), Ur = nrm(toRest([frame.up.x, frame.up.y, frame.up.z]));
   const rx = dt(Rr, eRound), rs = dt(Rr, eDown), ux = dt(Ur, eRound), us = dt(Ur, eDown);
-  const w = t.width, h = t.width / t.aspect, round = Math.abs(rx) * w + Math.abs(ux) * h;
+  // a warped piece is judged by the size of the box its warped picture fills
+  const w = t.width * (box ? box[2] - box[0] : 1), h = t.width / t.aspect * (box ? box[3] - box[1] : 1), round = Math.abs(rx) * w + Math.abs(ux) * h;
   // Most pieces part way round are unfolded like a stencil, which follows bumps more closely. A
   // band at least a third of the way round a forearm or lower leg is laid out as a sleeve too: the
   // ankle and wrist narrow fast, and a stencil turned off the limb's line tore there into a V.
@@ -158,9 +159,17 @@ function limbFlat(geo, t, frame, startTri, limb) {
   };
 }
 
-export function buildDecal(geo, adj, t, frame, startTri, limb) {
-  const sleeve = limb ? limbFlat(geo, t, frame, startTri, limb) : null;
-  if (sleeve) return buildSleeve(geo, adj, t, startTri, sleeve);
+// box: for a warped tattoo, the part of its frame the warped picture fills ([x0, y0, x1, y1], 0..1
+// being the unwarped picture, already mirrored for a mirrored tattoo); the texture then covers that
+// box instead of the frame, so the skin past the old edge carries the warped ink too.
+const inBox = (box) => {
+  if (!box) return (r) => r;
+  const x0 = box[0], y0 = box[1], bw = Math.max(1e-4, box[2] - box[0]), bh = Math.max(1e-4, box[3] - box[1]);
+  return (r) => [(r[0] - x0) / bw, (r[1] - y0) / bh];
+};
+export function buildDecal(geo, adj, t, frame, startTri, limb, box) {
+  const sleeve = limb ? limbFlat(geo, t, frame, startTri, limb, box) : null;
+  if (sleeve) return buildSleeve(geo, adj, t, startTri, sleeve, box);
   const P = geo.attributes.position.array, N = geo.attributes.normal.array, I = geo.index.array;
   const tris = (I.length / 3) | 0, verts = (P.length / 3) | 0;
   const w = t.width, h = t.width / t.aspect;
@@ -191,12 +200,14 @@ export function buildDecal(geo, adj, t, frame, startTri, limb) {
       if (Math.sign(area2(order[0], order[1], order[2])) === side0) return;
     }
   };
-  const rect = (ix) => {
+  const toBox = inBox(box);
+  const raw = (ix) => {
     const x = flat[ix * 2], y = flat[ix * 2 + 1];
     const halfW = Math.max(1e-4, (w / 2) * (1 + taper * clamp(2 * y / h, -1, 1)));
     const yb = y - 0.35 * w * bend * (x / (w / 2)) * (x / (w / 2));
     return [0.5 + x / (2 * halfW), 0.5 - yb / h];
   };
+  const rect = (ix) => toBox(raw(ix));
   const len3 = (a, b) => Math.hypot(P[a * 3] - P[b * 3], P[a * 3 + 1] - P[b * 3 + 1], P[a * 3 + 2] - P[b * 3 + 2]);
   const len2 = (a, b) => Math.hypot(flat[a * 2] - flat[b * 2], flat[a * 2 + 1] - flat[b * 2 + 1]);
   const faceN = (o) => { const a = I[o] * 3, b = I[o + 1] * 3, c = I[o + 2] * 3;
@@ -226,7 +237,15 @@ export function buildDecal(geo, adj, t, frame, startTri, limb) {
     }
     const A = rect(a), B = rect(b), C = rect(c);
     const minU = Math.min(A[0], B[0], C[0]), maxU = Math.max(A[0], B[0], C[0]), minV = Math.min(A[1], B[1], C[1]), maxV = Math.max(A[1], B[1], C[1]);
-    if (maxU < -edge || minU > 1 + edge || maxV < -edge || minV > 1 + edge) continue; // outside the artwork
+    if (maxU < -edge || minU > 1 + edge || maxV < -edge || minV > 1 + edge) { // outside the artwork
+      // a warp can move the whole picture off its old frame: the walk still crosses the old frame to
+      // reach it, drawing nothing there
+      if (!box) continue;
+      const Ar = raw(a), Br = raw(b), Cr = raw(c);
+      if (Math.max(Ar[0], Br[0], Cr[0]) < -edge || Math.min(Ar[0], Br[0], Cr[0]) > 1 + edge || Math.max(Ar[1], Br[1], Cr[1]) < -edge || Math.min(Ar[1], Br[1], Cr[1]) > 1 + edge) continue;
+      for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !seen[nb]) { seen[nb] = 1; parent[nb] = tri; queue.push(nb); } }
+      continue;
+    }
     for (const [vi, r] of [[a, A], [b, B], [c, C]]) {
       pos.push(P[vi * 3] + N[vi * 3] * 0.0004, P[vi * 3 + 1] + N[vi * 3 + 1] * 0.0004, P[vi * 3 + 2] + N[vi * 3 + 2] * 0.0004);
       supports.push(vi);
@@ -242,15 +261,17 @@ export function buildDecal(geo, adj, t, frame, startTri, limb) {
 // The band version: walk out from the anchor over connected skin, each triangle drawn with its
 // sleeve coordinates; one that crosses the back of the limb (opposite the anchor) is drawn twice,
 // once from each side, so the two ends of the artwork meet there with no gap.
-function buildSleeve(geo, adj, t, startTri, sleeve) {
+function buildSleeve(geo, adj, t, startTri, sleeve, box) {
   const P = geo.attributes.position.array, N = geo.attributes.normal.array, I = geo.index.array;
   const tris = (I.length / 3) | 0, w = t.width, h = t.width / t.aspect;
   const bend = clamp(t.bend || 0, -1, 1), taper = clamp(t.taper || 0, -0.75, 0.75), m = UV_MARGIN, span = 1 - 2 * m, edge = 0.05;
-  const rect = ([x, y]) => {
+  const toBox = inBox(box);
+  const rawOf = ([x, y]) => {
     const halfW = Math.max(1e-4, (w / 2) * (1 + taper * clamp(2 * y / h, -1, 1)));
     const yb = y - 0.35 * w * bend * (x / (w / 2)) * (x / (w / 2));
     return [0.5 + x / (2 * halfW), 0.5 - yb / h];
   };
+  const rect = (q) => toBox(rawOf(q));
   const pos = [], uv = [], supports = [], from = [], seen = new Uint8Array(tris), queue = [startTri | 0];
   seen[startTri | 0] = 1;
   let head = 0;
@@ -258,11 +279,14 @@ function buildSleeve(geo, adj, t, startTri, sleeve) {
     const tri = queue[head++], o = tri * 3, vs = [I[o], I[o + 1], I[o + 2]];
     if (!sleeve.on(vs[0]) || !sleeve.on(vs[1]) || !sleeve.on(vs[2])) continue;
     const turns = vs.map((v) => sleeve.turn(v)), across = Math.max(...turns) - Math.min(...turns) > Math.PI;
-    let inside = false;
+    let inside = false, near = false;
     for (const k of across ? [1, -1] : [0]) {
       const rs = vs.map((v, i) => rect(sleeve.at(v, k && turns[i] * k < 0 ? k : 0)));
       const minU = Math.min(rs[0][0], rs[1][0], rs[2][0]), maxU = Math.max(rs[0][0], rs[1][0], rs[2][0]), minV = Math.min(rs[0][1], rs[1][1], rs[2][1]), maxV = Math.max(rs[0][1], rs[1][1], rs[2][1]);
-      if (maxU < -edge || minU > 1 + edge || maxV < -edge || minV > 1 + edge) continue;
+      if (maxU < -edge || minU > 1 + edge || maxV < -edge || minV > 1 + edge) {
+        if (box && !near) { const rr = vs.map((v, i) => rawOf(sleeve.at(v, k && turns[i] * k < 0 ? k : 0))); near = !(Math.max(...rr.map((q) => q[0])) < -edge || Math.min(...rr.map((q) => q[0])) > 1 + edge || Math.max(...rr.map((q) => q[1])) < -edge || Math.min(...rr.map((q) => q[1])) > 1 + edge); }
+        continue;
+      }
       inside = true;
       for (let i = 0; i < 3; i++) {
         const vi = vs[i];
@@ -271,7 +295,7 @@ function buildSleeve(geo, adj, t, startTri, sleeve) {
       }
       from.push(tri);
     }
-    if (!inside) continue;
+    if (!inside && !near) continue;
     for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !seen[nb]) { seen[nb] = 1; queue.push(nb); } }
   }
   return { positions: new Float32Array(pos), uvs: new Float32Array(uv), supports: new Uint32Array(supports), tris: new Uint32Array(from), sleeve: true };

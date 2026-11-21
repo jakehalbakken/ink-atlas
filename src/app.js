@@ -28,6 +28,8 @@ import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
 import { createLayersDock, kindShown, WIDE as LD_WIDE } from './layers-dock.js';
 import { createInkLook } from './ink-look-panel.js';
+import { warpOf, warpKey, warpBounds, renderWarp, warpCanvasSize, identityWarp, hasWarp, describeWarp } from './ink-warp.js';
+import { createWarpPanel } from './warp-panel.js';
 import { makeArtistPacket } from './artist-packet.js';
 import { cleanState, imageKeysFor, REACTIONS, SUGGEST_KEYS } from './project.js';
 import { openStore } from './store.js';
@@ -118,6 +120,7 @@ const kindOff = { planned: false, existing: false };
 function viewShows(t) { return (!soloIds || soloIds.has(t.id)) && kindShown(t, kindOff); }
 let layersDock = null;
 let inkLook = null, inkLookId = null, lookSnap = false, lookDraft = null; // Blend and colour (src/ink-look-panel.js)
+let warpPanel = null; // Bend and warp on the body (src/warp-panel.js)
 const undoStack = [];
 const redoStack = [];
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -323,6 +326,8 @@ function freeArea() {
   // is along the bottom and Layers folds to a rail that floats over the body
   const col = innerWidth >= LD_WIDE, sh = $('#sheet');
   let right = b.right - 12, bottom = b.bottom - 12;
+  // Bend and warp puts the sheet and Layers aside and has its bar along the bottom
+  if (document.body.classList.contains('warping')) { const wb = $('#warpBar').getBoundingClientRect(); return { top, left: b.left + 12, right, bottom: Math.max(top + 80, (wb.height ? wb.top : bottom) - 14) }; }
   if (!sh.hidden) { const r = sh.getBoundingClientRect(); if (r.width && r.height) { if (col) right = Math.min(right, r.left - 8); else bottom = Math.min(bottom, r.top - 14); } }
   const ld = $('#layersDock'); if (ld && parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--layers-w')) > 0) { const lr = ld.getBoundingClientRect(); if (lr.width) right = Math.min(right, lr.left - 8); }
   bottom = Math.max(top + 80, bottom);
@@ -474,6 +479,47 @@ function loadImg(keyName) {
   if (imgEls[keyName]) return Promise.resolve(imgEls[keyName]);
   return new Promise((res) => { const im = new Image(); im.onload = () => { imgEls[keyName] = im; res(im); }; im.onerror = () => res(null); im.src = images[keyName]; });
 }
+/* ---------- warped artwork (src/ink-warp.js) ---------- */
+// A warped tattoo's picture is its artwork bent into the warp's shape, drawn upright (as it looks
+// before mirroring) over the box the shape fills. The decal lays that box on the skin, so everything
+// that reads the decal (the body, files, bakes, ink picking) sees the warped ink. Cached by artwork,
+// shape and size; the artwork itself is never changed.
+const warpSrcCache = new Map(), warpArtCache = new Map();
+let warpDraft = null; // the tattoo being warped right now: its picture is drawn small until the finger lifts
+function warpSource(key, im) {
+  let s = warpSrcCache.get(key); if (s) return s;
+  const k = Math.min(1, 1600 / Math.max(im.naturalWidth || im.width, im.naturalHeight || im.height)), c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round((im.naturalWidth || im.width) * k)); c.height = Math.max(1, Math.round((im.naturalHeight || im.height) * k));
+  const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, c.width, c.height);
+  s = g.getImageData(0, 0, c.width, c.height); c.width = c.height = 0;
+  if (warpSrcCache.size > 6) warpSrcCache.delete(warpSrcCache.keys().next().value);
+  warpSrcCache.set(key, s); return s;
+}
+// the box the warped picture fills, in the tattoo's frame (0..1 is the unwarped picture), as laid on
+// the skin: mirrored left to right when the tattoo is mirrored. null when it is not warped.
+function warpBoxOf(t) {
+  const w = warpOf(t); if (!w) return null;
+  const b = warpBounds(w); return t.flip ? [1 - b[2], b[1], 1 - b[0], b[3]] : b;
+}
+// { canvas, aspect, box } for a warped tattoo, or null. max: the longest side in pixels.
+function warpArt(t, max) {
+  const w = warpOf(t), im = w && imgEls[t.img]; if (!im) return null;
+  const big = max || (warpDraft === t.id ? 384 : 1024), box = warpBounds(w), key = [t.img, t.imageTopDown === false ? 0 : 1, t.aspect.toFixed(4), warpKey(w), big].join('|');
+  let a = warpArtCache.get(key); if (a) return a;
+  const src = warpSource(t.img, im), size = warpCanvasSize(box, t.aspect, src.width, big);
+  const px = renderWarp(src, w, size, box, { flipY: t.imageTopDown === false });
+  const c = document.createElement('canvas'); c.width = size.width; c.height = size.height;
+  c.getContext('2d').putImageData(new ImageData(px, size.width, size.height), 0, 0);
+  a = { canvas: c, aspect: size.aspect, box };
+  if (warpArtCache.size > 12) { const old = warpArtCache.keys().next().value; const o = warpArtCache.get(old); warpArtCache.delete(old); if (o && o.canvas) o.canvas.width = o.canvas.height = 0; }
+  warpArtCache.set(key, a); return a;
+}
+// The artwork as it is drawn on the body, for flat files (stencil, prints, thumbnails, Ink check):
+// for a warped tattoo, the warped picture with the width and shape of the box it fills, upright.
+function asDrawn(t, max = 2048) {
+  const a = warpArt(t, max); if (!a) return { t, im: imgEls[t.img] || null };
+  return { t: { ...t, width: t.width * (a.box[2] - a.box[0]), aspect: a.aspect, imageTopDown: true, warp: undefined }, im: a.canvas };
+}
 // The ink's picture for the body, multiplied over the lit skin. Plain Multiply with no colour
 // changes is the artwork drawn at its strength over white, as it always was. Colour adjustments
 // change the artwork's own colours first; any other blend mode is worked out against the plain
@@ -481,14 +527,14 @@ function loadImg(keyName) {
 // enc: 'screen' (the body on screen), 'raw' (plain multiply of the adjusted ink, for files that
 // carry their own blend mode, like the PSD), 'linear' (for skin pictures baked in linear light).
 function inkTexture(t, enc = 'screen') {
-  const im = imgEls[t.img]; const c = document.createElement('canvas');
-  const W = Math.min(lookDraft === t.id ? 384 : 1024, Math.max(64, im ? im.naturalWidth : 256)); c.width = W; c.height = Math.max(8, Math.round(W / t.aspect));
+  const wa = imgEls[t.img] ? warpArt(t) : null, im = wa ? wa.canvas : imgEls[t.img], aspect = wa ? wa.aspect : t.aspect, topDown = wa ? true : t.imageTopDown; const c = document.createElement('canvas');
+  const W = Math.min(lookDraft === t.id || warpDraft === t.id ? 384 : 1024, Math.max(64, im ? (im.naturalWidth || im.width) : 256)); c.width = W; c.height = Math.max(8, Math.round(W / aspect));
   let g = c.getContext('2d', { willReadFrequently: hasLook(t) }); const mode = blendOf(t), strength = t.opacity ?? 0.92, mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height;
   const drawArt = (alpha) => { g.save(); g.globalAlpha = alpha; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } g.drawImage(im, mx, my, c.width - 2 * mx, c.height - 2 * my); g.restore(); };
   const ratio = !!im && mode !== DEFAULT_BLEND && enc !== 'raw' && enc !== 'alpha';
   if (enc === 'alpha') { // the changed artwork itself, see-through where it is, for a file layer in any mode
     if (im) { drawArt(1); const d = g.getImageData(0, 0, c.width, c.height); adjustPixels(d.data, t.adjust); for (let o = 3; o < d.data.length; o += 4) d.data[o] *= strength; g.putImageData(d, 0, 0); }
-    const tex = new THREE.CanvasTexture(c); tex.flipY = !t.imageTopDown; tex.colorSpace = THREE.SRGBColorSpace; return tex;
+    const tex = new THREE.CanvasTexture(c); tex.flipY = !topDown; tex.colorSpace = THREE.SRGBColorSpace; return tex;
   }
   const ageIt = (d) => { const mm = t.width * 1000 * (state.heightCm || 175) / 175; ageInk(d.data, c.width, c.height, agingYears, (c.width * (1 - 2 * UV_MARGIN)) / Math.max(1, mm)); };
   let lift = false;
@@ -513,7 +559,7 @@ function inkTexture(t, enc = 'screen') {
     } else if (im) drawArt(strength);
     if (im && agingYears > 0) { const d = g.getImageData(0, 0, c.width, c.height); ageIt(d); g.putImageData(d, 0, 0); }
   }
-  const tex = new THREE.CanvasTexture(c); tex.flipY = !t.imageTopDown; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const tex = new THREE.CanvasTexture(c); tex.flipY = !topDown; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
   tex.userData.ratio = !!ratio; tex.userData.lift = lift; return tex;
 }
 // How a decal's material puts its texture on: multiplied, or multiplied doubled when the blend
@@ -618,12 +664,12 @@ function wrapRound(t) {
 // how each tattoo was laid last time (sleeve or stencil), so a drag across the bar keeps it one way
 const decalWasSleeve = new Map();
 function decalGeometry(t) {
-  const st = startTriangle(t), limb = decalLimb(st), { positions, uvs, supports, tris, sleeve } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), st, limb && { ...limb, prev: decalWasSleeve.get(t.id) });
+  const st = startTriangle(t), limb = decalLimb(st), { positions, uvs, supports, tris, sleeve } = buildDecal(bodyGeo, bodyAdjacency(), t, frameOf(t), st, limb && { ...limb, prev: decalWasSleeve.get(t.id) }, warpBoxOf(t));
   if (limb && t.id != null) decalWasSleeve.set(t.id, !!sleeve);
   const out = new THREE.BufferGeometry();
   out.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   out.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  out.userData.supports = supports; out.userData.tris = tris; out.userData.sleeve = !!sleeve;
+  out.userData.supports = supports; out.userData.tris = tris; out.userData.sleeve = !!sleeve; out.userData.box = warpBoxOf(t) || [0, 0, 1, 1];
   return out;
 }
 // Whether a decal's artwork has ink at (u, v): a 256-wide copy, dark enough to show.
@@ -692,7 +738,7 @@ let gapTimer = 0;
 function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; }, 120); }
 let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
 let agingYears = 0; // view only: how the ink looks after this many years
-function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0, lookKey(t), blendOf(t) !== DEFAULT_BLEND ? skinColor() : '', lookDraft === t.id ? 'draft' : ''].join('|'); }
+function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0, lookKey(t), blendOf(t) !== DEFAULT_BLEND ? skinColor() : '', lookDraft === t.id || warpDraft === t.id ? 'draft' : '', warpKey(warpOf(t))].join('|'); }
 function syncDecals() {
   const ids = new Set(state.tattoos.map((t) => t.id));
   for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); d.tex.dispose(); d.outline.material.map.dispose(); delete decals[id]; }
@@ -707,10 +753,10 @@ function syncDecals() {
     }
     const tk = texKeyOf(t);
     if (d.texKey !== tk && imgEls[t.img]) { if (d.tex) d.tex.dispose(); d.tex = inkTexture(t); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
-    const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, shapeKey].join('|');
+    const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t)), shapeKey].join('|');
     if (d.geoKey !== gk) { d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
-    d.mesh.visible = !t.hidden && !!d.tex && viewShows(t); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting;
+    d.mesh.visible = !t.hidden && !!d.tex && viewShows(t); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting && !(warpPanel && warpPanel.isOpen()); // the warp grid is the outline then
   });
   syncPaint();
   needsRender = true;
@@ -954,8 +1000,8 @@ function select(id, focus) { if (id && selfV.mode === 'seen') { selfV.focus = id
 // the size said as an everyday thing: about the size of a credit card
 function likeOf(t) { if (!t) return ''; const k = (state.heightCm || 175) / 175, w = t.width * 100 * k / 2.54; return sizeLikeText(w, w / t.aspect); }
 function likeRender(t) { const lk = likeOf(t); $('#likeLine').textContent = lk; $('#likeLine').hidden = !lk; }
-function sizeText(t) {
-  const k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
+function sizeText(t0) {
+  const t = shownSize(t0), k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
   return `≈ ${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in  ·  ${w.toFixed(0)} × ${h.toFixed(0)} cm`;
 }
 const SLOTS = [
@@ -981,6 +1027,7 @@ async function addImage(dataUrl, name, place) {
   const p = place || nextSlot();
   const t = { id: uid(), name: name || 'Tattoo', img: k, imageTopDown:true, aspect: im.naturalWidth / im.naturalHeight, pos: p.pos, normal: p.normal, width: p.width || 0.11, rot: p.rot || 0, opacity: p.opacity ?? 0.92, flip: false, locked: false, hidden: false };
   for (const k of ['wrap', 'bend', 'taper']) if (p[k]) t[k] = p[k];
+  if (p.warp) t.warp = structuredClone(p.warp);
   state.artworks ||= {}; t.artworkId = uid(); const sourceKey = src === dataUrl ? k : uid(); if (sourceKey !== k) images[sourceKey] = dataUrl; state.artworks[t.artworkId] = { source: sourceKey, output: k, name: t.name };
   state.tattoos.push(t); return t;
 }
@@ -1263,6 +1310,32 @@ function stencilSpot(t, rx, ry) {
   }
   return best;
 }
+// A point of the tattoo's warp frame (x 0..1 from the left of the artwork, y 0..1 from the top, as
+// drawn, before any mirror) on screen, on the skin it lies on: ok when that skin faces you and the
+// stencil really reaches there. The decal's picture covers the warp's box (warpBoxOf), so the frame
+// point is first put in that box.
+function warpSpot(t, px, py) {
+  const geo = decals[t.id] && decals[t.id].mesh.geometry, box = (geo && geo.userData.box) || warpBoxOf(t) || [0, 0, 1, 1];
+  const X = t.flip ? 1 - px : px, q = stencilSpot(t, (X - box[0]) / (box[2] - box[0]), (py - box[1]) / (box[3] - box[1]));
+  if (!q) return null;
+  const s = screenOf(q.pos); return { x: s.x, y: s.y, ok: q.face > 0.1 && q.gap < 0.02 && inFront(q.pos) };
+}
+// How the screen point moves as the frame point does there: measured on the stencil itself, a little
+// inside its edge when the point is past it; flat from the tattoo's frame when nothing is on screen.
+function warpJac(t, px, py) {
+  const geo = decals[t.id] && decals[t.id].mesh.geometry, b0 = (geo && geo.userData.box) || warpBoxOf(t) || [0, 0, 1, 1];
+  const fb = t.flip ? [1 - b0[2], b0[1], 1 - b0[0], b0[3]] : b0, bw = fb[2] - fb[0], bh = fb[3] - fb[1];
+  const cx = THREE.MathUtils.clamp(px, fb[0] + bw * 0.04, fb[2] - bw * 0.04), cy = THREE.MathUtils.clamp(py, fb[1] + bh * 0.04, fb[3] - bh * 0.04);
+  const dx = (cx + bw * 0.03 <= fb[2] ? 1 : -1) * bw * 0.03, dy = (cy + bh * 0.03 <= fb[3] ? 1 : -1) * bh * 0.03;
+  const a = warpSpot(t, cx, cy), b = warpSpot(t, cx + dx, cy), c = warpSpot(t, cx, cy + dy);
+  if (a && b && c && a.ok) {
+    const J = [[(b.x - a.x) / dx, (c.x - a.x) / dy], [(b.y - a.y) / dx, (c.y - a.y) / dy]];
+    if (Math.abs(J[0][0] * J[1][1] - J[0][1] * J[1][0]) > 1e-3) return J;
+  }
+  const spot = viewSpot(t), f = frameOf({ ...t, normal: spot.normal }), o = new V3(...spot.pos), h = t.width / t.aspect;
+  const s0 = screenOf(o), sx = screenOf(o.clone().addScaledVector(f.right, (t.flip ? -1 : 1) * t.width * 0.05)), sy = screenOf(o.clone().addScaledVector(f.up, -h * 0.05));
+  return [[(sx.x - s0.x) / 0.05, (sy.x - s0.x) / 0.05], [(sx.y - s0.y) / 0.05, (sy.y - s0.y) / 0.05]];
+}
 // Whether a point is in front of the camera (one behind it projects back to front on the screen).
 const inFront = (v) => v.clone().applyMatrix4(camera.matrixWorldInverse).z < -camera.near;
 function handleSpots(t) {
@@ -1442,7 +1515,7 @@ function renderBody() {
   syncFitUI();
   $('#rHeight').value = Math.round(state.heightCm); { const inch = state.heightCm / 2.54, ft = Math.floor((inch + 0.05) / 12), ins = Math.max(0, inch - ft * 12); $('#hText').textContent = `${ft} ft ${ins.toFixed(1).replace(/\.0$/, '')} in  ·  ${(+state.heightCm.toFixed(1))} cm`; }
 }
-function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); followInkLook(); }
+function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); followInkLook(); if (warpPanel) warpPanel.refresh(); renderSheetWarp(); }
 function toast(msg, action, fn, ms = 5200) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   // below a bar that is showing at the top, never behind it
@@ -1560,6 +1633,8 @@ function guessPpi() {
 }
 let rsPpi = 0, rsId = null;
 function inchesOf(t) { const w = t.width * state.heightCm / 175 * 100 / 2.54; return { w, h: w / t.aspect }; }
+// The width and shape a tattoo fills on the skin: a warped one fills the box of its warped picture.
+function shownSize(t) { const w = warpOf(t); if (!w) return t; const b = warpBounds(w), bw = b[2] - b[0], bh = b[3] - b[1]; return { ...t, width: t.width * bw, aspect: t.aspect * bw / bh }; }
 function renderRealSize() {
   const t = state.tattoos.find((x) => x.id === rsId); if (!t) { $('#realSize').hidden = true; return; }
   const { w, h } = inchesOf(t), box = $('#rsArt'), img = $('#rsImg');
@@ -1601,8 +1676,9 @@ const planStencilList = () => state.tattoos.filter((q) => q.status !== 'existing
 async function planStencils() {
   const list = planStencilList(); if (list.length < 2) return null;
   const P = await import('./print-size.js'), pieces = [], art = {};
-  for (const t of list) {
-    const size = P.pieceSize(t, state.heightCm), im = imgEls[t.img] || await loadImg(t.img); if (!im) continue;
+  for (const t0 of list) {
+    if (!(imgEls[t0.img] || await loadImg(t0.img))) continue;
+    const { t, im } = asDrawn(t0), size = P.pieceSize(t, state.heightCm); if (!im) continue;
     const { S, c, r } = stencilCanvas(im, t, size, st.detail); if (!r.linePixels) continue;
     const jpg = new Uint8Array(await (await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.95))).arrayBuffer());
     const name = t.name || 'Tattoo', note = P.sizeNote(size) + ', stencil' + (t.flip ? ', mirrored as on the body' : '');
@@ -1626,11 +1702,13 @@ $('#stAll').addEventListener('click', async () => {
   } finally { b.disabled = false; }
 });
 async function makeStencil() {
-  const t = state.tattoos.find((x) => x.id === st.id); if (!t) { showStencil(false); return; }
+  let t = state.tattoos.find((x) => x.id === st.id); if (!t) { showStencil(false); return; }
   const run = ++st.run; st.png = st.pdf = null; stReady(false);
+  // a warped tattoo's stencil is its warped picture, at the size of the box it fills on the skin
+  const im0 = imgEls[t.img] || await loadImg(t.img), drawn = asDrawn(t); t = drawn.t;
   const P = await import('./print-size.js'), size = P.pieceSize(t, state.heightCm);
   $('#stText').textContent = `${t.name || 'Tattoo'}: ${P.sizeNote(size)} at real size.` + (t.flip ? ' Mirrored as on your body.' : '') + ' Getting it ready.';
-  const im = imgEls[t.img] || await loadImg(t.img);
+  const im = im0 && drawn.im;
   await new Promise((r) => setTimeout(r, 20)); // let the sheet show before the work
   if (run !== st.run) return;
   if (!im) { $('#stText').textContent = 'This artwork could not be read.'; return; }
@@ -1671,12 +1749,13 @@ $('#stPrint').addEventListener('click', () => { if (st.pdf) saveFile(st.base + '
 const ic = { id: null, run: 0, wantIn: null, last: null };
 const hexRgb = (h) => { const n = parseInt(String(h).replace('#', ''), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 async function runInkCheck() {
-  const t = state.tattoos.find((x) => x.id === ic.id); if (!t) { showInkCheck(false); return; }
+  let t = state.tattoos.find((x) => x.id === ic.id); if (!t) { showInkCheck(false); return; }
+  let drawnIm = null; if (warpOf(t)) { if (!imgEls[t.img]) await loadImg(t.img); const d = asDrawn(t); t = d.t; drawnIm = d.im; }
   const run = ++ic.run, k = state.heightCm / 175, wMm = t.width * 1000 * k, hMm = wMm / t.aspect, wIn = wMm / 25.4;
   const inTxt = (v) => (v < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toString());
   const name = t.name || 'This tattoo';
   $('#icText').textContent = `${name} at ${inTxt(wIn)} in wide, on your skin. Checking.`; $('#icList').replaceChildren(); $('#icResize').hidden = true;
-  const im = imgEls[t.img] || await loadImg(t.img);
+  const im = drawnIm || imgEls[t.img] || await loadImg(t.img);
   await new Promise((r) => setTimeout(r, 20));
   if (run !== ic.run) return;
   if (!im) { $('#icText').textContent = 'This artwork could not be read.'; return; }
@@ -2793,7 +2872,7 @@ function renderNew() {
   }));
 }
 function openNew(on = true) { closePanels(); toggle('#planMenu', false); $('#newPop').hidden = !on; renderNew(); }
-function closePanels() { cancelGesture(); showLook(false); if (inkLook) inkLook.close(); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#pcMenu', '#newPop']) toggle(id, false); }
+function closePanels() { cancelGesture(); showLook(false); if (inkLook) inkLook.close(); if (warpPanel) warpPanel.close(); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#pcMenu', '#newPop']) toggle(id, false); }
 function needTattoo() {
   const t = sel() || state.tattoos.find((x) => !x.hidden) || state.tattoos[0];
   if (!t) { toast('Add a tattoo first, then try this.'); return null; }
@@ -2904,6 +2983,7 @@ const SHOW = {
   selfEyes: () => { showLook(true); return ['#selfBtn', 'Tap How I see it. My eyes puts you behind your own eyes: drag to turn your head and eyes as far as they really go.']; },
   selfSeen: () => { showLook(true); return ['#selfBtn', 'Tap How I see it, then What I can’t see. The darker skin is what you need a mirror for.']; },
   selfMirror: () => { showLook(true); return ['#selfBtn', 'Tap How I see it, then Mirror selfie. Drag to turn, pinch to step closer, then Save picture.']; },
+  warpInk: () => { const t = needTattoo(); if (!t) return null; if (!openWarp('warp')) return ['#bWarp', 'Bend and warp shapes a tattoo right on the skin.']; return ['#warpMode', 'Drag a dot on the grid to bend that part of the tattoo. Distort moves the corners in perspective, and Arc curves the whole piece.']; },
   blendModes: () => { const t = needTattoo(); if (!t) return null; openInkLook(t.id); return ['#lkModes .lk-modes[aria-label=Darker]', 'Pick how the ink mixes with your skin, like a layer in Procreate or Photoshop. Multiply is the usual, Colour burn and Linear burn go deeper, Screen and Overlay lighten or punch it up. Done keeps it, and Undo puts it back.']; },
   inkColours: () => { const t = needTattoo(); if (!t) return null; openInkLook(t.id); return ['#lkSliders', 'Slide Hue, Saturation, Brightness or Contrast and the ink changes on the body as you go. Recolour and Invert are just under. Your artwork file stays as it is.']; },
   relaxedArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=relaxedSides]', 'Tap Arms relaxed at sides. The upper arms hang straight down with a small natural bend at the elbow, palms to your thighs, and your tattoos go with the skin. Standing puts you back.']; },
@@ -3502,8 +3582,8 @@ function closeUpShot(t, size = 720) {
   }
   return out.toDataURL('image/jpeg', 0.82);
 }
-function artThumb(t, size = 360) {
-  const im = imgEls[t.img]; if (!im) return null;
+function artThumb(t0, size = 360) {
+  const { t, im } = asDrawn(t0, 1024); if (!im) return null;
   const k = Math.min(1, size / Math.max(im.naturalWidth || im.width, im.naturalHeight || im.height)), w = Math.max(1, Math.round((im.naturalWidth || im.width) * k)), h = Math.max(1, Math.round((im.naturalHeight || im.height) * k));
   const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
   g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
@@ -5055,6 +5135,18 @@ function openInkLook(id){const t=state.tattoos.find(x=>x.id===id);if(!t)return;c
 function followInkLook(){if(!inkLook||!inkLook.isOpen())return;const t=sel();if(!t){inkLook.close();return;}if(t.id!==inkLookId)inkLookId=t.id;inkLook.render();}
 function renderSheetLook(){const b=$('#bLook'),t=sel();if(!b||!t)return;b.setAttribute('aria-expanded',String(!!(inkLook&&inkLook.isOpen())));b.title=describeLook(t);$('#bLookMode').textContent=hasLook(t)?describeLook(t):'';}
 $('#bLook').addEventListener('click',()=>{const t=sel();if(!t)return;if(inkLook.isOpen())inkLook.close();else openInkLook(t.id);});
+// Bend and warp: a grid on the tattoo on the skin, Distort for the corners, Arc to curve it; the shape
+// is t.warp, live while a finger moves (small pictures), one undo step a drag or slider pull
+warpPanel=createWarpPanel({get:()=>sel(),spot:warpSpot,jac:warpJac,vp:viewportBox,
+  canChange:t=>!!t&&!cannotMove(t)&&!t.hidden,
+  begin:()=>snapshot(),end:()=>commit(),
+  change:fn=>{const t=sel();if(!t)return;fn(t);inkDirty=true;needsRender=true;},
+  draft:on=>{const t=sel();warpDraft=on&&t?t.id:null;if(!on)inkDirty=true;},
+  used:()=>markTried('warpInk'),
+  onClose:()=>{warpDraft=null;renderSheetWarp();syncDecals();}});
+function openWarp(mode){const t=sel();if(!t||cannotMove(t)||t.hidden)return false;closePanels();cancelGesture();if(tapPlaceId){tapPlaceId=null;renderSheet();}const ok=warpPanel.open(mode);renderSheetWarp();syncDecals();if(ok&&!viewLocked){const a=warpSpot(t,0,0),b=warpSpot(t,1,1);if(!a||!b||Math.hypot(a.x-b.x,a.y-b.y)<260||!inSight(t)){const sp=viewSpot(t),z=shownSize(t);aimView(sp.pos,sp.normal,Math.max(z.width,z.width/z.aspect)*1.5+0.04);}}return ok;}
+function renderSheetWarp(){const b=$('#bWarp'),t=sel();if(!b||!t)return;const w=warpOf(t);b.setAttribute('aria-pressed',String(!!(warpPanel&&warpPanel.isOpen())));b.classList.toggle('has-warp',!!w);b.disabled=!!t.hidden;b.title=w?describeWarp(w):'Bend and warp';}
+$('#bWarp').addEventListener('click',()=>{if(warpPanel.isOpen())warpPanel.close();else openWarp();});
 $('#openUnplaced').addEventListener('click',()=>{
  toggle('#planMenu',false);const host=el('section',{class:'scrim',role:'dialog','aria-modal':'true','aria-label':'Saved artwork to place'});host.style.zIndex=10000;const panel=el('div',{class:'modal glass'},el('h2',{text:'Saved artwork to place'}),el('p',{text:'These pieces had no body position in the imported project. Place one deliberately, then adjust it on the body.'}));
  for(const record of state.unplacedTattoos||[])panel.append(el('button',{class:'card',text:'Place '+record.name+' on body',onclick:async()=>{
@@ -6090,8 +6182,8 @@ async function printRealSize() {
   try {
     const { pieceSize, layoutPrint, buildPrintPdf, sizeNote } = await import('./print-size.js');
     const pieces = [], art = {};
-    for (const t of list) {
-      const size = pieceSize(t, state.heightCm), im = imgEls[t.img];
+    for (const t0 of list) {
+      const { t, im } = asDrawn(t0), size = pieceSize(t, state.heightCm);
       const name = t.name || 'Tattoo', note = sizeNote(size) + (t.status === 'existing' ? ', already on me' : '') + (t.flip ? ', mirrored as on the body' : '');
       // about 200 dots per inch, capped so a big back piece stays a sensible file
       const scale = Math.min(1, 3000 / Math.max(size.w, size.h) / (200 / 72)), cw = Math.max(1, Math.round(size.w / 72 * 200 * scale)), ch = Math.max(1, Math.round(size.h / 72 * 200 * scale));
@@ -6386,7 +6478,7 @@ function tick(now) {
   if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) { $('#size').textContent = sizeText(t); likeRender(t); } }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
-  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (tape.on) placeTape(); if (pins.on) placePins(); if (pointing.els.length) placePoints(); }
+  if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (warpPanel && warpPanel.isOpen()) warpPanel.place(); if (tape.on) placeTape(); if (pins.on) placePins(); if (pointing.els.length) placePoints(); }
   requestAnimationFrame(tick);
 }
 

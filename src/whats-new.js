@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'warpInk', date: '2026-11-21', title: 'Bend and warp a tattoo on the body', how: 'Select a tattoo and tap Bend and warp. Drag a dot on the grid to bend that part of the tattoo, right on the skin. Distort stretches the four corners in perspective, and Arc curves the whole piece up or down. Reset puts it back flat, and Undo takes back each drag. The artwork itself never changes, and stencils, prints and the 3D files carry the new shape.', show: 'warpInk' },
   { id: 'posedShape', date: '2026-11-21', title: 'Change your shape while posed', how: 'Pick a pose under Preview > Pose, then open Body and slide Weight or Muscle. The posed body keeps up with your finger instead of catching between frames.', show: 'posedShape' },
   { id: 'bentJoint', date: '2026-11-21', title: 'Ink over a bent elbow or knee', how: 'Put a tattoo over the point of your elbow or your knee, then Preview > Pose > Boxing guard or Squat. The skin stretches evenly across the joint, as real skin does, so the ink bends with it instead of one line turning into a thick smeared bar.', show: 'bentJoint' },
   { id: 'openOnce', date: '2026-11-21', title: 'A double tap opens one window', how: 'Select a tattoo and tap Clean up twice quickly: one workspace opens, not two stacked one over the other. Projects, Planning, Body tools, Fit to a photo, Artwork library and Placement tools under Plan do the same.', show: 'cleanup' },
