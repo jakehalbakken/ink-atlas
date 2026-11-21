@@ -2908,6 +2908,7 @@ const SHOW = {
   inkColours: () => { const t = needTattoo(); if (!t) return null; openInkLook(t.id); return ['#lkSliders', 'Slide Hue, Saturation, Brightness or Contrast and the ink changes on the body as you go. Recolour and Invert are just under. Your artwork file stays as it is.']; },
   relaxedArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=relaxedSides]', 'Tap Arms relaxed at sides. The upper arms hang straight down with a small natural bend at the elbow, palms to your thighs, and your tattoos go with the skin. Standing puts you back.']; },
   elbowDetail: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=relaxedSides]', 'Tap Arms relaxed at sides, then Back or Left in the view buttons and zoom in on an elbow: the point of the elbow, the bumps either side and the crease in front are on the skin now.']; },
+  posedShape: () => { toggle('#bodyPop', true); return ['#rWeight', 'Pick a pose under Preview > Pose first, then slide Weight or Muscle here. The posed body follows the slider without stalling between frames.']; },
   bentJoint: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=guard]', 'Tap Boxing guard, or Squat under Legs. The skin over the point of the elbow and the knee cap now stretches evenly across the joint, so ink there bends with it instead of one line turning into a thick smeared bar.']; },
   straightArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=straightDown]', 'Tap Arms straight down, Arms straight out or Palms forward. The elbows go fully straight and your arm tattoos go with the skin. Standing puts you back.']; },
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
@@ -4525,8 +4526,8 @@ function bindShape(r, set) {
   r.addEventListener('input', () => { if (!shapeSlide) { snapshot(); shapeSlide = anchorsNow(); } set(+r.value / 100); applyShape(); applyAnchors(shapeSlide); syncDecals(); });
   r.addEventListener('change', () => { shapeSlide = null; commit(); });
 }
-bindShape($('#rMuscle'), (v) => { state.muscle = v; markTried('definition'); refreshMeasures(); });
-bindShape($('#rWeight'), (v) => { state.weight = v; refreshMeasures(); });
+bindShape($('#rMuscle'), (v) => { state.muscle = v; markTried('definition'); if (poseView.active) markTried('posedShape'); refreshMeasures(); });
+bindShape($('#rWeight'), (v) => { state.weight = v; if (poseView.active) markTried('posedShape'); refreshMeasures(); });
 /* ---------- your own skin tone ---------- */
 function skinFromSliders() {
   markTried('skin-tone');

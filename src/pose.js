@@ -104,41 +104,56 @@ function weightsFor(){
 // between the two sides changes: each vertex keeps its own bones and its share of the rest.
 // Worked out per rest shape; vertexBones and boneWeightSum still read MakeHuman's own weights.
 export const HINGE_SPREAD=Object.freeze({elbow:.06,knee:.07});
+let BELOW=null;const belowMap=()=>BELOW||(BELOW=(()=>{const m=new Map();for(const [i,b] of POSE_BONES.entries())m.set(i,b.parent>=0?[...(m.get(b.parent)||[]),b.parent]:[]);return m;})());
+const SETS=new Map();function hingeSets(h,below){let s=SETS.get(h);if(s)return s;const up=new Set(h.upper.map(n=>boneIndex[n])),lowRoot=new Set(h.lower.map(n=>boneIndex[n])),low=new Set(lowRoot);
+ for(const [i] of POSE_BONES.entries())if(below.get(i).some(a=>lowRoot.has(a)))low.add(i);s={up,low};SETS.set(h,s);return s;}
+// MakeHuman's own weights, each vertex's summed to one, and each hinge's two sides from them
+let NORM=null;function normBase(){if(NORM)return NORM;const NV=RIG.vertexCount,ws=new Float64Array(W.length);
+ for(let v=0;v<NV;v++){let sum=0;for(let j=OFF[v];j<OFF[v+1];j++)sum+=W[j];for(let j=OFF[v];j<OFF[v+1];j++)ws[j]=W[j]/sum;}
+ const below=belowMap(),hw=HINGES.map(h=>{const {up,low}=hingeSets(h,below),wu=new Float32Array(NV),wl=new Float32Array(NV);
+  for(let v=0;v<NV;v++)for(let j=OFF[v];j<OFF[v+1];j++){if(up.has(IDS[j]))wu[v]+=ws[j];else if(low.has(IDS[j]))wl[v]+=ws[j];}return {wu,wl};});
+ return NORM={ws,hw};}
 const spreadCache=new WeakMap();
 function spreadWeights(rest){
- const hit=spreadCache.get(rest.positions);if(hit&&hit.joints===rest.joints)return hit.v;
- const base=weightsFor(),P=rest.positions,NV=RIG.vertexCount;
- const lists=Array.from({length:NV},(_,v)=>{const a=[];for(let k=OFF[v];k<OFF[v+1];k++)a.push([IDS[k],W[k]]);return a;});
- const below=new Map();for(const [i,b] of POSE_BONES.entries())below.set(i,b.parent>=0?[...(below.get(b.parent)||[]),b.parent]:[]);
+ // the app hands the same position buffer back after changing it in place (a scan put on or taken off
+ // keeps the joints), so the cache also checks a sample of the positions
+ const P0=rest.positions;let sig=0;for(let i=0;i<P0.length;i+=97)sig+=P0[i]*(1+i%7);
+ const hit=spreadCache.get(P0);if(hit&&hit.joints===rest.joints&&hit.sig===sig)return hit.v;
+ const base=weightsFor(),P=rest.positions,NV=RIG.vertexCount,below=belowMap();
+ // only the vertices near a hinge change; the rest keep MakeHuman's weights as they are
+ const changed=new Map(),listOf=v=>changed.get(v)||Array.from({length:OFF[v+1]-OFF[v]},(_,i)=>[IDS[OFF[v]+i],W[OFF[v]+i]]);
  HINGES.forEach((h,hi)=>{
-  const {wu,wl}=base[hi],up=new Set(h.upper.map(n=>boneIndex[n])),lowRoot=new Set(h.lower.map(n=>boneIndex[n]));
-  const low=new Set([...lowRoot]);for(const [i] of POSE_BONES.entries())if(below.get(i).some(a=>lowRoot.has(a)))low.add(i);
+  const {wu,wl}=base[hi],{up,low}=hingeSets(h,below);
   const A=joint(rest,...h.a),B=joint(rest,...h.b),C=joint(rest,...h.c),ua=unit(sub(B,A)),uc=unit(sub(C,B)),n=unit([ua[0]+uc[0],ua[1]+uc[1],ua[2]+uc[2]]);
-  const width=HINGE_SPREAD[h.kind],fade=.02,near=.16,sv=new Float64Array(NV).fill(NaN);
+  const width=HINGE_SPREAD[h.kind],fade=.02,near=.16,cand=[];
   // where MakeHuman hands over: the side-of-plane distance at which the lower share crosses a half
   const bins=new Float64Array(64),cnt=new Float64Array(64);
-  for(let v=0;v<NV;v++){const g=wu[v]+wl[v];if(g<.5)continue;const d=[P[v*3]-B[0],P[v*3+1]-B[1],P[v*3+2]-B[2]];if(len(d)>near)continue;const s=dot(d,n);sv[v]=s;
+  for(let v=0;v<NV;v++){const g=wu[v]+wl[v];if(g<.5)continue;const dx=P[v*3]-B[0],dy=P[v*3+1]-B[1],dz=P[v*3+2]-B[2];if(dx*dx+dy*dy+dz*dz>near*near)continue;const s=dx*n[0]+dy*n[1]+dz*n[2];cand.push(v,s);
    const b=Math.floor((s+.08)/.0025);if(b>=0&&b<64){bins[b]+=wl[v]/g;cnt[b]++;}}
   let c=0;for(let b=1;b<64;b++){const p0=cnt[b-1]?bins[b-1]/cnt[b-1]:NaN,p1=cnt[b]?bins[b]/cnt[b]:NaN;if(p0<.5&&p1>=.5){c=-.08+(b-.5+(.5-p0)/((p1-p0)||1))*.0025;break;}}
   // the new share: half straight ramp, half smoothstep, so no ring takes most of the turn
-  for(let v=0;v<NV;v++){
-   const s=sv[v];if(!(s===s))continue;const x=s-c,ax=Math.abs(x);if(ax>width+fade)continue;
+  for(let i=0;i<cand.length;i+=2){
+   const v=cand[i],x=cand[i+1]-c,ax=Math.abs(x);if(ax>width+fade)continue;
    const g=wu[v]+wl[v],old=wl[v]/g,t=clamp((x+width)/(2*width),0,1),target=(t*t*(3-2*t)+t)/2,k=ax<=width?1:1-smooth(width,width+fade,ax);
    const share=old+(target-old)*k*clamp((g-.5)/.4,0,1);if(Math.abs(share-old)<1e-4)continue;
-   const nu=g*(1-share),nl=g*share,L=lists[v],out=[];
-   for(const [b,w] of L){if(up.has(b)){if(wu[v]>1e-9)out.push([b,w*nu/wu[v]]);}else if(low.has(b)){if(wl[v]>1e-9)out.push([b,w*nl/wl[v]]);}else out.push([b,w]);}
+   const nu=g*(1-share),nl=g*share,out=[];
+   for(const [b,w] of listOf(v)){if(up.has(b)){if(wu[v]>1e-9)out.push([b,w*nu/wu[v]]);}else if(low.has(b)){if(wl[v]>1e-9)out.push([b,w*nl/wl[v]]);}else out.push([b,w]);}
    if(wu[v]<=1e-9&&nu>1e-9)out.push([boneIndex[h.upper[h.upper.length-1]],nu]);
    if(wl[v]<=1e-9&&nl>1e-9)out.push([boneIndex[h.lower[0]],nl]);
-   lists[v]=out.filter(([,w])=>w>1e-9);
+   changed.set(v,out.filter(([,w])=>w>1e-9));
   }
  });
- let total=0;for(const L of lists)total+=L.length;
+ let total=OFF[NV];for(const [v,L] of changed)total+=L.length-(OFF[v+1]-OFF[v]);
  const off=new Uint32Array(NV+1),ids=new Uint16Array(total),ws=new Float64Array(total);
- for(let v=0,k=0;v<NV;v++){off[v]=k;let sum=0;for(const [,w] of lists[v])sum+=w;for(const [b,w] of lists[v]){ids[k]=b;ws[k++]=w/sum;}off[v+1]=k;}
- // the per-hinge sides, from the spread weights, for the corrections below
- const hw=HINGES.map(h=>{const up=new Set(h.upper.map(n=>boneIndex[n])),lowRoot=new Set(h.lower.map(n=>boneIndex[n])),low=new Set([...lowRoot]);for(const [i] of POSE_BONES.entries())if(below.get(i).some(a=>lowRoot.has(a)))low.add(i);
-  const wu=new Float32Array(NV),wl=new Float32Array(NV);for(let v=0;v<NV;v++)for(let k=off[v];k<off[v+1];k++){if(up.has(ids[k]))wu[v]+=ws[k];else if(low.has(ids[k]))wl[v]+=ws[k];}return {wu,wl};});
- const v={off,ids,ws,hw};spreadCache.set(rest.positions,{joints:rest.joints,v});return v;
+ for(let v=0,k=0;v<NV;v++){off[v]=k;const L=changed.get(v);
+  if(L){let sum=0;for(const [,w] of L)sum+=w;for(const [b,w] of L){ids[k]=b;ws[k++]=w/sum;}}
+  else{const NW=normBase().ws;for(let j=OFF[v];j<OFF[v+1];j++){ids[k]=IDS[j];ws[k++]=NW[j];}}
+  off[v+1]=k;}
+ // the per-hinge sides, from the spread weights, for the corrections below (only changed vertices differ)
+ const hw=normBase().hw.map(({wu:bu,wl:bl},hi)=>{const {up,low}=hingeSets(HINGES[hi],below),wu=bu.slice(),wl=bl.slice();
+  for(const v of changed.keys()){wu[v]=0;wl[v]=0;for(let k=off[v];k<off[v+1];k++){if(up.has(ids[k]))wu[v]+=ws[k];else if(low.has(ids[k]))wl[v]+=ws[k];}}
+  return {wu,wl};});
+ const v={off,ids,ws,hw};spreadCache.set(P0,{joints:rest.joints,sig,v});return v;
 }
 // Angle of a hinge in a pose (0 = straight as at rest), and the fold direction in the
 // upper bone's rest frame.

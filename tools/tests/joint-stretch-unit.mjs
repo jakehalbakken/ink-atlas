@@ -59,5 +59,30 @@ for (const [name, shape] of Object.entries(shapes)) {
 const rest = createRestRig({ figure: 'male' });
 const old = { elbow: worst(rest, 'elbow', 'L', { noSpread: true, contactAll: true }).out.guard, knee: worst(rest, 'knee', 'L', { noSpread: true, contactAll: true }).out.squat };
 assert.ok(old.elbow > 3 && old.knee > 3, 'the old skinning stretched the point of the elbow and the knee cap about three times: ' + JSON.stringify(old));
+// a slider moved in a pose makes a new shape every frame: working out the spread for it must
+// cost little next to the posing itself (it rebuilt every vertex's weights, about 2.6 times a
+// posed frame, before 2026-11-21; now only the vertices near the joints)
+{
+  const rot = catalogRotations('guard', rest);
+  for (let i = 0; i < 3; i++) { const r = createRestRig({ figure: 'male', weight: 0.3 + i * 0.01 }); skinPose(r, rot, {}); skinPose(r, rot, {}); }
+  let first = 0, again = 0;
+  for (let i = 0; i < 8; i++) {
+    const r = createRestRig({ figure: 'male', weight: 0.45 + i * 0.01 });
+    let t = performance.now(); skinPose(r, rot, {}); first += performance.now() - t;
+    t = performance.now(); skinPose(r, rot, {}); again += performance.now() - t;
+  }
+  assert.ok(first < again * 2, `a new shape poses in ${(first / 8).toFixed(1)} ms against ${(again / 8).toFixed(1)} ms once known`);
+  report.push(`new shape ${(first / 8).toFixed(1)} ms, known ${(again / 8).toFixed(1)} ms`);
+}
+// the app changes its position buffer in place (a scan put on or taken off keeps the joints):
+// the spread must follow the new positions, not the ones it first saw
+{
+  const r = createRestRig({ figure: 'male' }), rot = catalogRotations('guard', r), P = new Float32Array(r.positions);
+  const view = { positions: P, joints: r.joints }; skinPose(view, rot, {});
+  for (let i = 0; i < P.length; i += 3) P[i] *= 1.04;
+  const again = skinPose(view, rot, {}).positions, fresh = skinPose({ positions: new Float32Array(P), joints: r.joints }, rot, {}).positions;
+  let d = 0; for (let i = 0; i < again.length; i++) d = Math.max(d, Math.abs(again[i] - fresh[i]));
+  assert.ok(d < 1e-6, 'a buffer changed in place is spread again: ' + d);
+}
 assert.ok(POSE_CATALOG.guard && POSE_CATALOG.squat);
-console.log('PASS joint-stretch-unit:', report.filter((x) => /guard|squat/.test(x)).join('; '), '| old', old.elbow.toFixed(2), old.knee.toFixed(2));
+console.log('PASS joint-stretch-unit:', report.filter((x) => /guard|squat|shape/.test(x)).join('; '), '| old', old.elbow.toFixed(2), old.knee.toFixed(2));

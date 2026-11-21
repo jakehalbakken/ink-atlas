@@ -5,6 +5,7 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'posedShape', date: '2026-11-21', title: 'Change your shape while posed', how: 'Pick a pose under Preview > Pose, then open Body and slide Weight or Muscle. The posed body keeps up with your finger instead of catching between frames.', show: 'posedShape' },
   { id: 'bentJoint', date: '2026-11-21', title: 'Ink over a bent elbow or knee', how: 'Put a tattoo over the point of your elbow or your knee, then Preview > Pose > Boxing guard or Squat. The skin stretches evenly across the joint, as real skin does, so the ink bends with it instead of one line turning into a thick smeared bar.', show: 'bentJoint' },
   { id: 'openOnce', date: '2026-11-21', title: 'A double tap opens one window', how: 'Select a tattoo and tap Clean up twice quickly: one workspace opens, not two stacked one over the other. Projects, Planning, Body tools, Fit to a photo, Artwork library and Placement tools under Plan do the same.', show: 'cleanup' },
   { id: 'wrapSmooth', date: '2026-11-21', title: 'Moving a plant in the wrap is smoother', how: 'Plan > Measured wrap, with the tattoo already there traced. On the design step, drag a plant over the old ink and nudge it about: the warning about old ink and protected gaps keeps up with it without the short pause after each move.', show: 'measuredWrap' },
