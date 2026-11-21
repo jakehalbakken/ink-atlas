@@ -101,6 +101,28 @@ export function warpBounds(w, samples = 40) {
   return [x0, y0, x1, y1];
 }
 
+// The same warp for a new picture frame: box = [x, y, w, h] is where the new picture sits in the old
+// one's frame (as you look at it, before mirroring), as when a picture is trimmed to its ink, cropped
+// or grown. Each new grid point is where the old warp puts that point of the old frame, in the new
+// frame's units, so the ink stays bent the same way on the same skin. Past the old frame's edge the
+// warp carries on in a straight line from its edge.
+export function reframeWarp(w, box) {
+  if (!w || !box) return w;
+  const [bx, by, bw, bh] = box; if (!(bw > 1e-6 && bh > 1e-6)) return w;
+  const f = warpFn(w), h = 1e-3, n = w.n, p = [];
+  const at = (s, t) => {
+    const sc = clamp(s, 0, 1), tc = clamp(t, 0, 1), c = f(sc, tc);
+    if (s === sc && t === tc) return c;
+    const ds = sc >= 1 ? -h : h, dt = tc >= 1 ? -h : h, a = f(sc + ds, tc), b = f(sc, tc + dt);
+    const ks = (s - sc) / ds, kt = (t - tc) / dt;
+    return [c[0] + (a[0] - c[0]) * ks + (b[0] - c[0]) * kt, c[1] + (a[1] - c[1]) * ks + (b[1] - c[1]) * kt];
+  };
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const [x, y] = at(bx + bw * j / (n - 1), by + bh * i / (n - 1));
+    p.push(clamp((x - bx) / bw, LIM[0], LIM[1]), clamp((y - by) / bh, LIM[0], LIM[1]));
+  }
+  return { n, p };
+}
 // The same shape on a finer or coarser grid (the grid size changes, the artwork does not move).
 export function regrid(w, n) {
   if (!WARP_SIZES.includes(n)) return w;

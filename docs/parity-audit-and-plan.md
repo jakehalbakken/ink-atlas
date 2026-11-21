@@ -729,7 +729,15 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-21 QA batch 10 (built on batch 9; not live)
+## 2026-11-21 QA batch 11 (built on batch 10; not live)
+
+Audit of Bend and warp and batch 10 once live, at iPad, Split View and phone sizes, light and dark, posed, turned, and with Copy to other side: clean apart from the two below.
+
+- A bent tattoo kept its warp in the old picture's frame when Trim to the ink, a Clean up crop or a grow changed the frame, so the bend landed on a different part of the ink: the piece slid about 3 mm and lost some of its bend. `reframeWarp` in `ink-warp.js` (pure) moves the warp into the new frame, called from `keepInkInPlace`; no storage change. t160 (plain, mirrored, upside down, Clean up), `ink-warp-unit.mjs`.
+- The line under the size ("in from the nearest tattoo") read the tattoo's picture back off the graphics chip after every move or resize. `artInk` now keeps each picture's ink once (`artInkCache`, by the image itself). t159.
+- New to try: warpTrim, moveLight.
+
+## 2026-11-21 QA batch 10 (built on batch 9; live 2026-11-21 19:43 UTC)
 
 - The top bar fits a narrow iPad. An audit at iPad mini upright (744 px), iPad Air upright (820 px), Split View and Slide Over widths (678 and 640 px) found the toolbar running off the right edge, so Share and the account buttons could not be reached; with Before/after or another look on, the Preview button read "Preview: Before/after" and pushed it further. Now the views go to their own row first, then the Preview button drops the look's name (it stays as the button's spoken name), then the toolbar buttons show only their glyphs at 44 pt, Share keeping its word (`fitLookLabel` in `app.js`, run from `placeChrome` and the toolbar's ResizeObserver). iPad landscape keeps the full words. Opening Share also slid the whole app sideways when the browser scrolled the fixed `#viewport` to show a control; any such scroll is now put back at once. Check: t158 (six widths, plain and with a look on, every button on screen and 44 pt, no sideways shift; fails on batch 9). New to try: The top bar fits a narrow iPad.
 - A save that fails part way says why. When the device ran out of space while a picture or an earlier save was being written, the error came back as a plain AbortError (and an uncaught QuotaExceededError on the page), so the save line said "Not saved" with no reason. Each step that writes inside a save now hands its own error to the transaction (`guarded` in `store.js`), so the line reads "Not saved: this device is out of space", nothing on the disk changes and the next save goes through. Check: `store-fail.test.mjs` (a full disk on the project, a picture and the earlier-save copy; fails on batch 9).

@@ -3,7 +3,7 @@
 // lines straight, Arc keeps the middle line's length, the box covers the shape, and the pixels come
 // out where the warp puts them with no gaps between the grid's triangles.
 import assert from 'node:assert/strict';
-import { identityWarp, isIdentity, cleanWarp, warpAt, warpBounds, regrid, movePoint, distortCorner, cornerIndexes, arcWarp, renderWarp, warpCanvasSize, homography, applyH, convexQuad, hasWarp, describeWarp, warpKey } from '../../src/ink-warp.js';
+import { identityWarp, isIdentity, cleanWarp, warpAt, warpBounds, regrid, movePoint, distortCorner, cornerIndexes, arcWarp, renderWarp, warpCanvasSize, homography, applyH, convexQuad, hasWarp, describeWarp, warpKey, reframeWarp, warpFn } from '../../src/ink-warp.js';
 const near = (a, b, e = 1e-9, m = '') => assert.ok(Math.abs(a - b) < e, `${m} ${a} vs ${b}`);
 
 // identity is exact everywhere, for every grid size
@@ -79,5 +79,19 @@ assert.equal(cleanWarp({ n: 3, p: Array(18).fill(NaN) }), null);
   const S = 1024, data = new Uint8ClampedArray(S * S * 4).fill(200), w = movePoint(identityWarp(5), 12, 0.6, 0.6), box = warpBounds(w);
   const t0 = performance.now(); renderWarp({ data, width: S, height: S }, w, warpCanvasSize(box, 1, S, 384), box); const dt = performance.now() - t0;
   assert.ok(dt < 200, 'preview size drawn in ' + dt.toFixed(0) + ' ms');
+}
+// a warp moved into a new picture frame (trimmed, cropped or grown) puts every point of the artwork where it was
+{
+  const w = { n: 3, p: [0, 0, 0.5, 0, 1, 0.1, 0, 0.5, 0.5, 0.5, 1, 0.75, 0, 1, 0.5, 1, 1, 1.1] };
+  for (const [box, tol] of [[[0.6, 0.075, 0.25, 0.5], 0.01], [[-0.25, -0.25, 1.5, 1.5], 0.025], [[0, 0, 1, 1], 1e-9]]) {
+    const r = reframeWarp(w, box), f0 = warpFn(w), f1 = warpFn(r); let e = 0;
+    for (let i = 0; i <= 10; i++) for (let j = 0; j <= 10; j++) {
+      const s = j / 10, t = i / 10, os = box[0] + box[2] * s, ot = box[1] + box[3] * t;
+      if (os < 0 || os > 1 || ot < 0 || ot > 1) continue;
+      const a = f0(os, ot), b = f1(s, t); e = Math.max(e, Math.hypot(box[0] + box[2] * b[0] - a[0], box[1] + box[3] * b[1] - a[1]));
+    }
+    assert.ok(e < tol, 'reframed warp within ' + tol + ' of the old one: ' + e.toFixed(4));
+  }
+  assert.ok(isIdentity(reframeWarp(identityWarp(4), [0.2, 0.3, 0.5, 0.4])), 'a flat grid stays flat in any frame');
 }
 console.log('ink-warp-unit ok');
