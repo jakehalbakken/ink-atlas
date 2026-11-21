@@ -114,6 +114,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--stencil);outlin
 .toolbar .btn[aria-expanded=true],.toolbar .btn.active{background:var(--stencil-soft);color:var(--text)}
 .tb-sep{flex:none;width:1px;height:24px;margin:0 4px;background:var(--line)}
 #lookBtn{max-width:230px;overflow:hidden;text-overflow:ellipsis;display:inline-flex;justify-content:flex-start}
+body.tb-short #top .toolbar .tb:not(#shareBtn),body.tb-icons #top .toolbar .tb{font-size:0;gap:0;width:44px;min-width:44px;padding:0;justify-content:center}body.tb-short #top .toolbar .tb[class*=" i-"]::before,body.tb-icons #top .toolbar .tb[class*=" i-"]::before{width:22px;height:22px;margin:0}
 #newBtn{padding:0 12px 0 10px;gap:6px;color:var(--stencil)}#newBtn .count-badge{margin:0}
 #views{display:flex;align-items:center;gap:2px;padding:4px;flex:none}
 body.views-low #views{position:fixed;left:50%;transform:translateX(-50%);top:var(--views-top,76px)}

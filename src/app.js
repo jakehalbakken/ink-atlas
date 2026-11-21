@@ -293,8 +293,14 @@ function aimView(pos, normal, ext) {
 // The part of the screen that no panel covers: below the top bar, above (or left of) the dock.
 // #viewport's place on screen and its scale (it follows iOS's visual viewport), for turning window
 // coordinates into its own.
+// #viewport and the page never scroll: the layout is fixed to the screen. Something wider than the
+// screen (the toolbar on an iPad mini, 2026-11-21) let a focus or a jump to a button slide the whole
+// app 60 px sideways and leave it there, so any such slide is put straight back.
+{ const vpEl = document.getElementById('viewport'); if (vpEl) vpEl.addEventListener('scroll', () => { if (vpEl.scrollLeft || vpEl.scrollTop) vpEl.scrollTo(0, 0); }, { passive: true });
+  addEventListener('scroll', () => { const d = document.scrollingElement; if (d && (d.scrollLeft || d.scrollTop)) d.scrollTo(0, 0); }, { passive: true }); }
 function viewportBox() { const e = $('#viewport'), r = e.getBoundingClientRect(); return { left: r.left, top: r.top, k: (e.offsetWidth && r.width / e.offsetWidth) || 1 }; }
 function placeChrome() {
+  if (typeof fitLookLabel === 'function') try { fitLookLabel(); } catch {}
   const body = document.body, v = $('#views'), tb = $('#top .toolbar'), br = $('#top .brand');
   body.classList.remove('views-low');
   const vr = v.getBoundingClientRect(), tr = tb.getBoundingClientRect(), b = br.getBoundingClientRect();
@@ -2988,6 +2994,7 @@ const SHOW = {
   inkColours: () => { const t = needTattoo(); if (!t) return null; openInkLook(t.id); return ['#lkSliders', 'Slide Hue, Saturation, Brightness or Contrast and the ink changes on the body as you go. Recolour and Invert are just under. Your artwork file stays as it is.']; },
   relaxedArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=relaxedSides]', 'Tap Arms relaxed at sides. The upper arms hang straight down with a small natural bend at the elbow, palms to your thighs, and your tattoos go with the skin. Standing puts you back.']; },
   elbowDetail: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=relaxedSides]', 'Tap Arms relaxed at sides, then Back or Left in the view buttons and zoom in on an elbow: the point of the elbow, the bumps either side and the crease in front are on the skin now.']; },
+  barFits: () => ['#shareBtn', 'Share and every button up here stay on screen, even on an iPad mini upright or with Ink Atlas beside another app.'],
   posedShape: () => { toggle('#bodyPop', true); return ['#rWeight', 'Pick a pose under Preview > Pose first, then slide Weight or Muscle here. The posed body follows the slider without stalling between frames.']; },
   bentJoint: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=guard]', 'Tap Boxing guard, or Squat under Legs. The skin over the point of the elbow and the knee cap now stretches evenly across the joint, so ink there bends with it instead of one line turning into a thick smeared bar.']; },
   straightArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=straightDown]', 'Tap Arms straight down, Arms straight out or Palms forward. The elbows go fully straight and your arm tattoos go with the skin. Standing puts you back.']; },
@@ -4550,9 +4557,32 @@ function renderLook() {
   const on = [];
   if ($('#baBtn').getAttribute('aria-pressed') === 'true') on.push('Before / after');
   for (const id of ['#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn']) { const t = $(id).textContent, i = t.indexOf(': '); $(id).classList.toggle('on', i > 0); if (i > 0) on.push(t.slice(i + 2)); }
-  $('#lookBtn').textContent = on.length ? 'Preview: ' + on.join(', ') : 'Preview';
+  lookLabel = on.length ? 'Preview: ' + on.join(', ') : 'Preview';
   $('#lookBtn').classList.toggle('active', on.length > 0);
+  fitLookLabel();
 }
+// The toolbar always fits the screen. Between a phone and a full iPad (an iPad mini upright, a
+// big iPad split in half, a Stage Manager window) the labelled buttons ran past the right edge and
+// Share and the account button could not be reached (2026-11-21), worse with a preview on
+// ("Preview: Before / after"). So, one step at a time until it fits: the Preview button says just
+// Preview (filled in, and its spoken name still says what is on), then Body, Preview and Plan show
+// their icons only, then Share too. The save line next to Ink Atlas always stays.
+let lookLabel = 'Preview';
+function fitLookLabel() {
+  const b = $('#lookBtn'), tb = $('#top .toolbar'), cl = document.body.classList;
+  const over = () => tb.getBoundingClientRect().right > innerWidth - 4 || tb.getBoundingClientRect().left < 0;
+  cl.remove('tb-short', 'tb-icons');
+  if (b.textContent !== lookLabel) b.textContent = lookLabel;
+  if (lookLabel === 'Preview') b.removeAttribute('aria-label'); else b.setAttribute('aria-label', lookLabel);
+  if (innerWidth <= 620) return; // the phone layout has its own icon-only toolbar
+  // measured with the view switcher on its own row, as placeChrome puts it when the top row is full
+  const low = cl.contains('views-low'); cl.add('views-low');
+  if (over() && lookLabel !== 'Preview') b.textContent = 'Preview';
+  if (over()) cl.add('tb-short');
+  if (over()) cl.add('tb-icons');
+  if (!low) cl.remove('views-low');
+}
+$('#shareBtn').addEventListener('click', () => { const cl = document.body.classList; if (cl.contains('tb-short') || cl.contains('tb-icons') || ($('#lookBtn').textContent === 'Preview' && lookLabel !== 'Preview')) markTried('barFits'); });
 $('#lookBtn').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#posePop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); showLook(); });
 // picking one of them closes the little menu: its own panel (or the wipe) takes over
 for (const id of ['#baBtn', '#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn', '#tapeBtn', '#pinsBtn']) $(id).addEventListener('click', () => showLook(false));
