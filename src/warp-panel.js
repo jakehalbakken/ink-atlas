@@ -70,9 +70,13 @@ export function createWarpPanel(api) {
     const g = drag; if (!g || g.id !== e.pointerId) return;
     const t = api.get(); if (!t) return;
     if (!g.moved && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 3) return;
-    // follow the finger a step at a time through the skin's own stretch where the dot is, so the dot
-    // stays under the finger on a curved arm as well as on the flat of the back
-    const J = api.jac(t, g.px, g.py), dd = J && solve(J, e.clientX - g.x, e.clientY - g.y);
+    // follow the finger through the skin's own stretch where the dot is, so the dot stays under the
+    // finger on a curved arm as well as on the flat of the back. Where the dot's own spot on the skin
+    // is on screen, aim from there at the finger, so a small error on a curve never builds up over a
+    // long drag; past the stencil's edge, follow the finger's own steps.
+    const J = api.jac(t, g.px, g.py), at = api.spot(t, g.px, g.py);
+    const fix = at && at.ok && Math.hypot(e.clientX - at.x, e.clientY - at.y) < 160;
+    const dd = J && (fix ? solve(J, e.clientX - at.x, e.clientY - at.y) : solve(J, e.clientX - g.x, e.clientY - g.y));
     g.x = e.clientX; g.y = e.clientY;
     if (!dd) return;
     const nx = g.px + dd[0], ny = g.py + dd[1];

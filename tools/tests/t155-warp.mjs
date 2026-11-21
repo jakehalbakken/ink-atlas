@@ -22,6 +22,8 @@ export default async function (p) {
   const dotsNow = () => p.$$eval('#warpPts .wpt', (bs) => bs.map((b) => { const r = b.getBoundingClientRect(); return { k: +b.dataset.k, x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, shown: !b.hidden, on: b.classList.contains('on') }; }));
   const tat = (id) => p.evaluate((id) => JSON.parse(JSON.stringify(window.__ink.state().tattoos.find((x) => x.id === id))), id);
   const ink = (id) => p.evaluate((id) => window.__ink.inkOnSkin(id), id);
+  // until the view has stopped gliding (opening frames a small tattoo)
+  const still = async () => { let prev = ''; for (let i = 0; i < 40; i++) { const now = JSON.stringify(await p.evaluate(() => window.__ink.cam())); if (now === prev) return; prev = now; await wait(250); } };
   const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
 
@@ -42,7 +44,7 @@ export default async function (p) {
     // 1. the tile, the bar and the grid
     const tile = await rect('#bWarp'); assert.ok(tile.vis && tile.w >= 44 && tile.h >= 44, 'Bend and warp tile 44pt: ' + tile.w + 'x' + tile.h);
     assert.equal(await p.$eval('#bWarp', (e) => e.textContent.trim()), 'Bend and warp');
-    await p.click('#bWarp'); await wait(1600);
+    await p.click('#bWarp'); await wait(600); await still();
     assert.ok((await rect('#warpBar')).vis, 'the bar shows');
     assert.equal(await p.$eval('#dock', (e) => getComputedStyle(e).visibility), 'hidden', 'the sheet steps aside');
     assert.equal(await p.$eval('#layersDock', (e) => getComputedStyle(e).visibility), 'hidden', 'Layers steps aside');
@@ -67,7 +69,7 @@ export default async function (p) {
     assert.ok(t1.warp && t1.warp.n === 4 && t1.warp.p.length === 32, 'the shape is kept as a warp');
     assert.equal(t1.width, t0.width, 'the size is the same'); assert.deepEqual(t1.pos, t0.pos, 'the place is the same'); assert.equal(t1.img, t0.img, 'the artwork never changes');
     dots = await dotsNow(); const after = dots.find((d) => d.k === edge.k);
-    assert.ok(Math.hypot(after.x - (edge.x + ux * 60), after.y - (edge.y + uy * 60)) < 22, 'the dot lands where the finger let go: ' + Math.hypot(after.x - (edge.x + ux * 60), after.y - (edge.y + uy * 60)).toFixed(1));
+    assert.ok(Math.hypot(after.x - (edge.x + ux * 60), after.y - (edge.y + uy * 60)) < 22, 'the dot lands where the finger let go at ' + W + ': ' + Math.hypot(after.x - (edge.x + ux * 60), after.y - (edge.y + uy * 60)).toFixed(1));
     const ink1 = await ink(id);
     assert.ok(ink1.area > ink0.area * 1.02 || dist(ink1.c, ink0.c) > 0.002, `the ink on the skin bends (area ${ink0.area.toFixed(5)} to ${ink1.area.toFixed(5)}, moved ${(dist(ink1.c, ink0.c) * 1000).toFixed(1)} mm)`);
     // one undo step
