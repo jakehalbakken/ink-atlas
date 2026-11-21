@@ -7,7 +7,7 @@ function decode(s,Type){const bytes=Uint8Array.from(atob(s),c=>c.charCodeAt(0));
 const BASE=decode(BODY_BASE,Float32Array), JB=decode(RIG.jointBase,Float64Array);
 const JT=Object.fromEntries(Object.entries(RIG.jointTargets).map(([k,v])=>[k,decode(v,Float64Array)]));
 const T=Object.fromEntries(Object.entries(TARGETS).map(([k,v])=>[k,{i:decode(v.i,Uint16Array),d:decode(v.d,Int16Array),s:v.s}]));
-const OFF=decode(RIG.offsets,Uint32Array), IDS=decode(RIG.boneIds,Uint16Array), W=decode(RIG.weights,Float64Array);
+const OFF=decode(RIG.offsets,Uint32Array), IDS=decode(RIG.boneIds,Uint16Array), W=decode(RIG.weights,Float64Array), OFF0=OFF, IDS0=IDS, W0=W;
 export const POSE_BONES=Object.freeze(RIG.bones.map(b=>Object.freeze({...b})));
 export const POSE_FIDELITY=Object.freeze({vertexCount:RIG.vertexCount,maxInfluences:RIG.maxInfluences,
   skinning:'all-influence normalized CPU dual quaternion blend with hinge corrections',jointTargets:'full-precision source joint averages',
@@ -95,6 +95,51 @@ function weightsFor(){
   return {wu,wl};
  });return hingeWeights;
 }
+// MakeHuman hands the elbow and the knee from one bone to the next over a ring or two of the
+// mesh, so a bent joint put nearly all of its stretch into one ring of skin, three times its
+// length over the point of the elbow or the knee cap, and a fine line of ink there turned into
+// a thick smeared bar (2026-11-21, Jake: "Ink is looking weird on my elbow"). For posing, the
+// hand-over is spread over HINGE_SPREAD either side of where MakeHuman puts it, across the plane
+// between the two bones, so the stretch spreads along the joint as skin does. Only the split
+// between the two sides changes: each vertex keeps its own bones and its share of the rest.
+// Worked out per rest shape; vertexBones and boneWeightSum still read MakeHuman's own weights.
+export const HINGE_SPREAD=Object.freeze({elbow:.06,knee:.07});
+const spreadCache=new WeakMap();
+function spreadWeights(rest){
+ const hit=spreadCache.get(rest.positions);if(hit&&hit.joints===rest.joints)return hit.v;
+ const base=weightsFor(),P=rest.positions,NV=RIG.vertexCount;
+ const lists=Array.from({length:NV},(_,v)=>{const a=[];for(let k=OFF[v];k<OFF[v+1];k++)a.push([IDS[k],W[k]]);return a;});
+ const below=new Map();for(const [i,b] of POSE_BONES.entries())below.set(i,b.parent>=0?[...(below.get(b.parent)||[]),b.parent]:[]);
+ HINGES.forEach((h,hi)=>{
+  const {wu,wl}=base[hi],up=new Set(h.upper.map(n=>boneIndex[n])),lowRoot=new Set(h.lower.map(n=>boneIndex[n]));
+  const low=new Set([...lowRoot]);for(const [i] of POSE_BONES.entries())if(below.get(i).some(a=>lowRoot.has(a)))low.add(i);
+  const A=joint(rest,...h.a),B=joint(rest,...h.b),C=joint(rest,...h.c),ua=unit(sub(B,A)),uc=unit(sub(C,B)),n=unit([ua[0]+uc[0],ua[1]+uc[1],ua[2]+uc[2]]);
+  const width=HINGE_SPREAD[h.kind],fade=.02,near=.16,sv=new Float64Array(NV).fill(NaN);
+  // where MakeHuman hands over: the side-of-plane distance at which the lower share crosses a half
+  const bins=new Float64Array(64),cnt=new Float64Array(64);
+  for(let v=0;v<NV;v++){const g=wu[v]+wl[v];if(g<.5)continue;const d=[P[v*3]-B[0],P[v*3+1]-B[1],P[v*3+2]-B[2]];if(len(d)>near)continue;const s=dot(d,n);sv[v]=s;
+   const b=Math.floor((s+.08)/.0025);if(b>=0&&b<64){bins[b]+=wl[v]/g;cnt[b]++;}}
+  let c=0;for(let b=1;b<64;b++){const p0=cnt[b-1]?bins[b-1]/cnt[b-1]:NaN,p1=cnt[b]?bins[b]/cnt[b]:NaN;if(p0<.5&&p1>=.5){c=-.08+(b-.5+(.5-p0)/((p1-p0)||1))*.0025;break;}}
+  // the new share: half straight ramp, half smoothstep, so no ring takes most of the turn
+  for(let v=0;v<NV;v++){
+   const s=sv[v];if(!(s===s))continue;const x=s-c,ax=Math.abs(x);if(ax>width+fade)continue;
+   const g=wu[v]+wl[v],old=wl[v]/g,t=clamp((x+width)/(2*width),0,1),target=(t*t*(3-2*t)+t)/2,k=ax<=width?1:1-smooth(width,width+fade,ax);
+   const share=old+(target-old)*k*clamp((g-.5)/.4,0,1);if(Math.abs(share-old)<1e-4)continue;
+   const nu=g*(1-share),nl=g*share,L=lists[v],out=[];
+   for(const [b,w] of L){if(up.has(b)){if(wu[v]>1e-9)out.push([b,w*nu/wu[v]]);}else if(low.has(b)){if(wl[v]>1e-9)out.push([b,w*nl/wl[v]]);}else out.push([b,w]);}
+   if(wu[v]<=1e-9&&nu>1e-9)out.push([boneIndex[h.upper[h.upper.length-1]],nu]);
+   if(wl[v]<=1e-9&&nl>1e-9)out.push([boneIndex[h.lower[0]],nl]);
+   lists[v]=out.filter(([,w])=>w>1e-9);
+  }
+ });
+ let total=0;for(const L of lists)total+=L.length;
+ const off=new Uint32Array(NV+1),ids=new Uint16Array(total),ws=new Float64Array(total);
+ for(let v=0,k=0;v<NV;v++){off[v]=k;let sum=0;for(const [,w] of lists[v])sum+=w;for(const [b,w] of lists[v]){ids[k]=b;ws[k++]=w/sum;}off[v+1]=k;}
+ // the per-hinge sides, from the spread weights, for the corrections below
+ const hw=HINGES.map(h=>{const up=new Set(h.upper.map(n=>boneIndex[n])),lowRoot=new Set(h.lower.map(n=>boneIndex[n])),low=new Set([...lowRoot]);for(const [i] of POSE_BONES.entries())if(below.get(i).some(a=>lowRoot.has(a)))low.add(i);
+  const wu=new Float32Array(NV),wl=new Float32Array(NV);for(let v=0;v<NV;v++)for(let k=off[v];k<off[v+1];k++){if(up.has(ids[k]))wu[v]+=ws[k];else if(low.has(ids[k]))wl[v]+=ws[k];}return {wu,wl};});
+ const v={off,ids,ws,hw};spreadCache.set(rest.positions,{joints:rest.joints,v});return v;
+}
 // Angle of a hinge in a pose (0 = straight as at rest), and the fold direction in the
 // upper bone's rest frame.
 function hingeState(rest,transforms,h){
@@ -115,7 +160,10 @@ export function skinPose(rest,rotations={},options={}){
  if(rest.positions.length!==RIG.vertexCount*3)throw new Error('Mismatched body vertex order/count');finite(rest.positions,'Rest positions');
  const transforms=poseTransforms(rest,rotations),positions=new Float32Array(rest.positions.length);
  let source=rest.positions;
- const hinges=options.linear?[]:HINGES.map(h=>({h,s:hingeState(rest,transforms,h)})).filter(x=>x.s.bend>.05),hw=hinges.length?weightsFor():null;
+ const hinges=options.linear?[]:HINGES.map(h=>({h,s:hingeState(rest,transforms,h)})).filter(x=>x.s.bend>.05);
+ // options.noSpread skins with MakeHuman's own narrow hand-over at the elbows and knees (for comparisons)
+ const sp=hinges.length&&!options.noSpread?spreadWeights(rest):null,hw0=hinges.length?weightsFor():null,hw=sp?sp.hw:hw0;
+ const OFF=sp?sp.off:OFF0,IDS=sp?sp.ids:IDS0,W=sp?sp.ws:W0;
  // biceps: a rest-space bump on the front of the upper arm, before skinning
  for(const {h,s} of hinges){
   if(!h.bulge||!s.dir)continue;
@@ -150,9 +198,10 @@ export function skinPose(rest,rotations={},options={}){
   }
  }
  // volume: bending squeezes the flesh round a joint, so it swells back out around the
- // bend (most at the point of the elbow or the knee cap, least on the inside)
+ // bend (most at the point of the elbow or the knee cap, least on the inside). Less than before the
+ // hand-over was spread, which keeps more of the volume by itself; still on MakeHuman's own band.
  for(const {h,s} of options.noSwell?[]:hinges){
-  const {wu,wl}=hw[HINGES.indexOf(h)],inner=unit([s.f[0]-s.u[0],s.f[1]-s.u[1],s.f[2]-s.u[2]]),E=s.elbow,k=(options.swell??(h.kind==='elbow'?.0068:.0062))*smooth(.1,.9,s.bend);
+  const {wu,wl}=hw0[HINGES.indexOf(h)],inner=unit([s.f[0]-s.u[0],s.f[1]-s.u[1],s.f[2]-s.u[2]]),E=s.elbow,k=(options.swell??(h.kind==='elbow'?.004:.0052))*smooth(.1,.9,s.bend);
   for(let v=0;v<RIG.vertexCount;v++){
    const mix=4*wu[v]*wl[v];if(mix<.02)continue;
    const o=v*3,d=[positions[o]-E[0],positions[o+1]-E[1],positions[o+2]-E[2]],l=len(d);if(l<1e-5||l>.09)continue;
@@ -160,16 +209,20 @@ export function skinPose(rest,rotations={},options={}){
    positions[o]+=d[0]*f;positions[o+1]+=d[1]*f;positions[o+2]+=d[2]*f;
   }
  }
- // contact: inside a bent hinge, skin from either side stops at the plane between them
+ // contact: inside a bent hinge, skin from either side stops at the plane between them. Only on
+ // the inside of the bend: over the point of the elbow or the knee cap there is nothing to press
+ // against, and flattening that skin onto the plane stretched one ring of it to three times its
+ // length (the smeared bar of ink, 2026-11-21).
  for(const {h,s} of options.noContact?[]:hinges){
   if(s.bend<.35)continue;
-  const {wu,wl}=hw[HINGES.indexOf(h)],n=unit([s.u[0]+s.f[0],s.u[1]+s.f[1],s.u[2]+s.f[2]]),E=s.elbow,reach=s.upperLen*.75,gap=.0012,ease=smooth(.35,.9,s.bend);
+  const {wu,wl}=hw[HINGES.indexOf(h)],n=unit([s.u[0]+s.f[0],s.u[1]+s.f[1],s.u[2]+s.f[2]]),inner=unit([s.f[0]-s.u[0],s.f[1]-s.u[1],s.f[2]-s.u[2]]),E=s.elbow,reach=s.upperLen*.75,gap=.0012,ease=smooth(.35,.9,s.bend);
   for(let v=0;v<RIG.vertexCount;v++){
    const t=wu[v]+wl[v];if(t<.5)continue;
    const o=v*3,d=[positions[o]-E[0],positions[o+1]-E[1],positions[o+2]-E[2]];if(len(d)>reach)continue;
    const side=dot(d,n),upper=wu[v]>=wl[v];
    const over=upper?side+gap:gap-side;if(over<=0)continue;
-   const k=(upper?-over:over)*ease*Math.min(1,t);
+   const l=len(d),inside=options.contactAll?1:l<1e-6?1:smooth(-.2,.2,dot(d,inner)/l);if(inside<=0)continue;
+   const k=(upper?-over:over)*ease*Math.min(1,t)*inside;
    positions[o]+=n[0]*k;positions[o+1]+=n[1]*k;positions[o+2]+=n[2]*k;
   }
  }

@@ -27,7 +27,7 @@ export function scanParts() {
 // stance -> a function that poses any standing positions of this body that way
 export function skinForState(state) {
   const rig = createRestRig(state);
-  return (stance) => { const rot = stanceRotations(stance, rig); return (positions) => skinPose({ positions, joints: rig.joints }, rot, { noSwell: true, noContact: true, bulge: 0 }).positions; };
+  return (stance) => { const rot = stanceRotations(stance, rig); return (positions) => skinPose({ positions, joints: rig.joints }, rot, { noSwell: true, noContact: true, bulge: 0, noSpread: true }).positions; };
 }
 
 // Fit the body of this state to a scan. Returns fitScan's answer, its offsets on body vertices.
