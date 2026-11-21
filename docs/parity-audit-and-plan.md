@@ -729,7 +729,13 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-21 QA batch 6 (built on batch 5, which went live 2026-11-21 00:34 UTC; not live)
+## 2026-11-21 QA batch 7 (built on batch 6, which went live 2026-11-21 02:02 UTC; not live)
+
+- Audited with nothing to fix: canvases read back off the graphics chip more than once (a probe over 19 tools on an unminified build; only Match a photo of me reads its photo, once per photo); the Preview bars (How I see it, Tape measure, Pain map, Open skin, Comments, Before / after) at iPad portrait, landscape and a phone, for 44 pt, covered and off-screen controls; 27 panels opened and then turned to the other orientation; each panel opened and closed 12 times (no listeners, page nodes or memory left behind).
+- A double tap opened a screen twice: Clean up (two workspaces, one over the other), Projects, Planning, Body tools, Fit to a photo, Artwork library and Placement tools each opened a second copy when tapped again before the first appeared. Each now opens once while it is opening or open (`runOnce` and `oneAtATime` in `app.js`), and opens again normally once closed. Buttons that open and close a panel (Body, Preview, Share) still close on a second tap. Check: t157 (fails on batch 6).
+- Full suite: 242 pass in the full run plus the account checks (t81, t83, t84, t139, t142, t154, RLS); t71, t73, t8, t9 and t82 failed only under load and pass alone (t82 failed once alone, then passed twice, on this build and on batch 6). Not checked on an iPad yet.
+
+## 2026-11-21 QA batch 6 (built on batch 5; live 2026-11-21 02:02 UTC)
 
 - Audited at iPad portrait and landscape: every control in the start screen, the edit sheet, Blend and colour, Body, Preview, Plan, Share and New to try is 44 pt or more and on screen or in a panel that scrolls; no panel scrolls sideways. A 68-tattoo project (Jake has 73) selects, saves, undoes and opens panels in about the same time as two tattoos. No hard-coded colours that break the light look.
 - Measured wrap: each move of a plant ran the overlap check, which read the ink mask, the gap mask and the plants back off the graphics chip (about 1400 x 670 each, no willReadFrequently), a pause on the iPad on every nudge. The masks and the plants' picture now live in memory. Check: t155 (30 such reads in ten moves on batch 5, none now).
