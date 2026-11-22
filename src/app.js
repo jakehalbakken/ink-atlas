@@ -4208,7 +4208,7 @@ function roomColours() {
 // the share of the skin under ink: each tattoo's box times how much of its artwork is ink
 function inkShares() {
   const r = roomData(); let ink = 0, plan = 0;
-  for (const t of state.tattoos) { if (t.hidden) continue; const st = artStats(t); if (!st) continue; const a = t.width * (t.width / t.aspect) * st.fill; if (t.status === 'existing') ink += a; else plan += a; }
+  for (const t of state.tattoos) { if (t.hidden) continue; const st = artStats(t); if (!st) continue; const sh = shownSize(t), a = sh.width * (sh.width / sh.aspect) * st.fill; if (t.status === 'existing') ink += a; else plan += a; }
   return { inkShare: Math.min(1, ink / r.total), planShare: Math.min(1, plan / r.total) };
 }
 function roomSummaryText() {
@@ -4222,13 +4222,14 @@ function coverList() {
   const tattoos = [];
   for (const t of state.tattoos) {
     if (t.hidden) continue; const st = artStats(t); if (!st) continue;
-    tattoos.push({ pts: inkPoints(t), inkArea: t.width * (t.width / t.aspect) * st.fill, planned: t.status !== 'existing' });
+    const sh = shownSize(t); if (sh !== t) markTried('coverBent');
+    tattoos.push({ pts: inkPoints(t), inkArea: sh.width * (sh.width / sh.aspect) * st.fill, planned: t.status !== 'existing' });
   }
   return coveredByArea(P, n, (v) => r.coverAreaOf[v], r.areas, tattoos);
 }
 function coverRender() {
   const el = $('#roomCover'); if (!room.on || room.fitId) { el.hidden = true; return; }
-  const key = room.key + '|' + (room.inks || []).length + '|' + state.tattoos.map((t) => t.id + (t.hidden ? 'h' : '') + t.status + t.width).join(',');
+  const key = room.key + '|' + (room.inks || []).length + '|' + state.tattoos.map((t) => t.id + (t.hidden ? 'h' : '') + t.status + t.width + warpKey(warpOf(t))).join(',');
   if (room.coverKey !== key) { room.coverKey = key; room.coverWords = coveredText(coverList()); }
   el.textContent = room.coverWords; el.hidden = !room.coverWords;
 }
