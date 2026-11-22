@@ -729,6 +729,15 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-22 QA batch 15 (built on batch 14; not live)
+
+- How covered each area is (Open skin) and Find room's room needed now count a bent tattoo at the area of the box it is bent into (`shownSize` in `inkShares` and `coverList`), and the covered picture redraws when a bend changes (`warpKey` in its key). Before, a piece bent to half its width still counted its whole flat area. Test: t165.
+- Picture with sizes draws the dashed box round where a bent tattoo actually sits (`warpBoxOf` in `labelsShot`), plain or mirrored, instead of round the flat square. Test: t166.
+- A bent tattoo is grabbed only where its ink sits (`insideTattoo` uses the warp box), so a touch on the bare skin where the flat square used to be orbits the view as it should. Test: t167.
+- New to try: How covered you are counts a bent tattoo right; A bent tattoo moves only from where it is; the Picture with sizes line now mentions the dashed box.
+- Full suite run on this build. Every check passes; t132, t166, t23, t25, t49, t71, t79, t8 and t9 failed under load and passed when run alone (t9 twice more).
+- Still open: framing a tattoo in view and `isWrap` still use the flat width for a bent tattoo. Both are minor.
+
 ## 2026-11-22 QA batch 14 (built on batch 13; not live)
 
 - Try other spots keeps up while it is open: resizing, bending or deleting a bend, or picking another tattoo, now updates the spot notes and the title within about a quarter second (`spotsFollow` in `app.js`). It waits while a finger is still on the body, because each refresh costs about 50 ms. Test: t163.
