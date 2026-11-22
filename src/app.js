@@ -450,8 +450,11 @@ function frameOf(t) {
 }
 function insideTattoo(point, t, pad = 1.12) {
   const f = frameOf(t); const d = point.clone().sub(new V3(...t.pos));
-  const hw = Math.max(t.width / 2 * pad, 0.028), hh = Math.max(t.width / t.aspect / 2 * pad, 0.028);
-  return Math.abs(d.dot(f.right)) <= hw && Math.abs(d.dot(f.up)) <= hh && Math.abs(d.dot(f.n)) < 0.09;
+  // a bent tattoo is held by the box it fills on the skin (warpBoxOf), not the flat file's square
+  const w = t.width, h = t.width / t.aspect, b = warpBoxOf(t) || [0, 0, 1, 1];
+  const cx = (b[0] + b[2] - 1) / 2 * w, cy = (1 - b[1] - b[3]) / 2 * h;
+  const hw = Math.max((b[2] - b[0]) * w / 2 * pad, 0.028), hh = Math.max((b[3] - b[1]) * h / 2 * pad, 0.028);
+  return Math.abs(d.dot(f.right) - cx) <= hw && Math.abs(d.dot(f.up) - cy) <= hh && Math.abs(d.dot(f.n)) < 0.09;
 }
 const inkPixels=new WeakMap();
 function inkIdsAt(x,y,bodyHit=hitBody(x,y)) {
@@ -1104,7 +1107,7 @@ function onSelectedInk(x, y, slop = 0) {
   const h = hitBody(x, y), wrap = isWrap(t);
   // a piece that goes round an arm or leg is grabbed anywhere on it, front, side or back; the flat
   // box round its middle would reach onto the body beside the limb, so it is only for other pieces
-  if (!wrap && h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t)) return true;
+  if (!wrap && h && h.normal.dot(new V3(...t.normal)) > 0 && insideTattoo(h.point, t)) { if (warpOf(t)) markTried('grabBent'); return true; }
   if (onSelectedDecal(x, y, h)) return true;
   // a fingertip is wide: a near miss on a thin band still takes hold of it
   if (slop) for (const [dx, dy] of [[slop, 0], [-slop, 0], [0, slop], [0, -slop]]) if (onSelectedDecal(x + dx, y + dy, hitBody(x + dx, y + dy))) return true;
