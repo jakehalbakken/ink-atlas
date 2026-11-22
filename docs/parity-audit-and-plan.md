@@ -729,6 +729,14 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-22 QA batch 14 (built on batch 13; not live)
+
+- Try other spots keeps up while it is open: resizing, bending or deleting a bend, or picking another tattoo, now updates the spot notes and the title within about a quarter second (`spotsFollow` in `app.js`). It waits while a finger is still on the body, because each refresh costs about 50 ms. Test: t163.
+- A bent tattoo's size is now read from the box it is bent into (`shownSize`) in If your body changes, the Arms and legs unrolled labels, the pain map reading, How it holds up there, and Find room. Before, these used the flat width. Test: t164.
+- New to try: Try other spots keeps up; More pictures read a bent tattoo right.
+- Full suite run on this build. Every check passes; t104, t132, t46, t8 and t9 failed under load and passed when run alone.
+- Still open: Covered by area and Find room's room needed use the flat area times fill for a bent tattoo. The difference is small, so it is left for now.
+
 ## 2026-11-22 QA batch 13 (built on batch 12; not live)
 
 Audit of every place that gives or sets a tattoo's size, once Bend and warp was live: the size under the name already gave the box a bent piece fills on the skin, but nine other places still read the flat file's width and shape.
