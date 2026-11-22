@@ -8,7 +8,8 @@ export default async function(p) {
  await p.click('#bCleanup');await wait();await p.click('[data-mode="color"]');await p.click('[data-action="paper"]');await p.click('[data-action="apply"]');await wait(800);
  const art=await p.evaluate(()=>{const s=window.__ink.state(),t=s.tattoos[0];return {id:t.id,img:t.img,art:s.artworks[t.artworkId]};});
  assert(art.art.source!==art.img,'immutable original retained separately');assert.equal(art.art.output,art.img);
- await p.reload({waitUntil:'load'});await wait(1600);
+ // let the save finish before reloading (a reload mid-write is the save racing the test, not the app losing it)
+ await p.evaluate(()=>window.__ink.flush());await p.reload({waitUntil:'load'});await p.waitForFunction(()=>window.__ink&&window.__ink.ready(),{timeout:30000});await wait(800);
  assert.equal(await p.evaluate(()=>window.__ink.state().tattoos[0].img),art.img,'cleanup survives reload');
  await p.click('#ldList .ld-tat');await wait();await p.click('#bCleanup');await wait();
  assert(await p.$('[data-action="reset"]'),'source available after reload');await p.click('[data-action="cancel"]');

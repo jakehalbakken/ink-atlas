@@ -30,7 +30,9 @@ export default async function(p){
  assert.match(await p.$eval('#size',e=>e.textContent),/in/);
  // the handle followed the new corner (it sits on the ink itself, which at this size stops short of
  // its lower right corner under the arm, so it moves out by less than the 1.5x)
- const s2=await box('#hSize');assert.ok(Math.hypot(s2.x-c.x,s2.y-c.y)>Math.hypot(s.x-c.x,s.y-c.y)*1.1,'handle moved out with the corner');
+ // the handles follow the next drawn frame, which can take a while in a busy headless renderer: wait up to 3 s
+ const far=(q)=>Math.hypot(q.x-c.x,q.y-c.y)>Math.hypot(s.x-c.x,s.y-c.y)*1.1;let s2=await box('#hSize');for(let i=0;i<15&&!far(s2);i++){await wait(200);s2=await box('#hSize');}
+ assert.ok(Math.hypot(s2.x-c.x,s2.y-c.y)>Math.hypot(s.x-c.x,s.y-c.y)*1.1,'handle moved out with the corner');
  // one undo restores the size
  await p.click('#undo');await wait(300);a=await st();assert.ok(Math.abs(a.w-before.w)<1e-9,'one undo');
  // turn a quarter with a finger: drag the round handle around the middle
