@@ -1534,7 +1534,7 @@ function renderBody() {
   syncFitUI();
   $('#rHeight').value = Math.round(state.heightCm); { const inch = state.heightCm / 2.54, ft = Math.floor((inch + 0.05) / 12), ins = Math.max(0, inch - ft * 12); $('#hText').textContent = `${ft} ft ${ins.toFixed(1).replace(/\.0$/, '')} in  ·  ${(+state.heightCm.toFixed(1))} cm`; }
 }
-function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); followInkLook(); if (warpPanel) warpPanel.refresh(); renderSheetWarp(); }
+function renderUI() { needsRender = true; tuckHair(); renderProcreateBar(); $('#cV47Source').hidden=!state.v47Source; $('#openUnplaced').hidden=!(state.unplacedTattoos||[]).length; renderTray(); renderSheet(); renderBody(); refreshUndo(); if (room && room.on) roomRefresh(); renderPins(); followInkLook(); if (warpPanel) warpPanel.refresh(); renderSheetWarp(); spotsFollow(); }
 function toast(msg, action, fn, ms = 5200) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   // below a bar that is showing at the top, never behind it
@@ -2421,6 +2421,16 @@ function renderSpots() {
   document.querySelectorAll('#spotSide [data-side]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.side === spotSide)));
   document.querySelectorAll('#spotChoices [data-spot]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.spot === spotId)));
   spotNotes(t);
+}
+// while Try other spots is open it follows the tattoo: its title at once, the notes once a size change settles
+let spotsFollowTimer = 0;
+function spotsFollow() {
+  if (!$('#spotPop') || $('#spotPop').hidden) return;
+  const t = sel(); $('#spotTitle').textContent = t ? `Try ${t.name} on` : 'Try it on';
+  // at most every quarter second, and never put off for good by a run of redraws;
+  // the notes take a moment to work out (about 50 ms), so not while a finger is still moving the tattoo
+  const later = () => { spotsFollowTimer = setTimeout(() => { spotsFollowTimer = 0; if ($('#spotPop').hidden) return; if (gest) { later(); return; } const k0 = spotNotesKey; renderSpots(); if (k0 && spotNotesKey && spotNotesKey !== k0) markTried('spotsFollow'); }, 250); };
+  if (!spotsFollowTimer) later();
 }
 // where a spot meets the skin on the standing body: { point, normal, aim }, or null
 function spotHit(spot, side) {
