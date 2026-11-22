@@ -264,9 +264,10 @@ function fullBody(theta) {
 }
 function focusTattoo(t) {
   if (followId) stopFollow();
-  const spot = viewSpot(t);
+  const spot = viewSpot(t), z = shownSize(t);
   // the tattoo fills about a third of the free space, with enough body round it to see where it sits
-  aimView(spot.pos, spot.normal, Math.max(t.width, t.width / t.aspect) * 2.2 + 0.12);
+  // (a bent tattoo by the box it is bent into)
+  aimView(spot.pos, spot.normal, Math.max(z.width, z.width / z.aspect) * 2.2 + 0.12);
 }
 // Turn and zoom the camera to look at pos along normal, with about ext of body in the free space.
 function aimView(pos, normal, ext) {
@@ -633,13 +634,14 @@ function decalLimb(tri) {
 const wrapCache = new Map();
 function wrapInfo(t) {
   if (!t) return null;
-  const k = [t.pos, t.normal, t.width, t.aspect, t.rot || 0, shapeKey].join('|'), c = wrapCache.get(t.id);
+  const k = [t.pos, t.normal, t.width, t.aspect, t.rot || 0, shapeKey, warpKey(warpOf(t))].join('|'), c = wrapCache.get(t.id);
   if (c && c.k === k) return c.v;
   let v = null;
   const tri = startTriangle(t), L = decalLimb(tri);
   if (L && L.keep[bodyGeo.index.array[tri * 3]] === 1) {
-    const ax = limbAxis(L.joints), at = limbPlace(ax, t.pos), f = frameOf(t), h = t.width / t.aspect;
-    const sr = shareRound(f.right.toArray(), f.up.toArray(), f.n.toArray(), t.width, h, at);
+    // a bent tattoo reaches round as far as the box it is bent into, not its flat file
+    const ax = limbAxis(L.joints), at = limbPlace(ax, t.pos), f = frameOf(t), z = shownSize(t), h = z.width / z.aspect;
+    const sr = shareRound(f.right.toArray(), f.up.toArray(), f.n.toArray(), z.width, h, at);
     v = { L, ax, at, tri, share: sr.share, reach: sr.reach };
     // the bone is seldom in the middle of the limb (the calf hangs behind the shin), so the real
     // loop of skin round it is the measure where it can be walked
@@ -670,9 +672,11 @@ function girthHere(t, w = wrapInfo(t)) {
 function wrapRound(t) {
   const w = wrapInfo(t); if (!w || !t || t.locked || cannotMove(t)) return false;
   const girth = girthHere(t, w) || 2 * Math.PI * w.at.r;
-  const f0 = frameOf({ ...t, rot: 0 }), rot = rotRound(f0.right.toArray(), f0.up.toArray(), w.at.dir, t.aspect);
+  // a bent tattoo is laid round by the box it is bent into, so the bent piece's ends meet
+  const z = shownSize(t), bw = z.width / t.width || 1; if (bw !== 1) markTried('wrapBent');
+  const f0 = frameOf({ ...t, rot: 0 }), rot = rotRound(f0.right.toArray(), f0.up.toArray(), w.at.dir, z.aspect);
   snapshot();
-  t.rot = rot; t.width = THREE.MathUtils.clamp(t.aspect >= 1 ? girth : girth * t.aspect, 0.012, 0.9);
+  t.rot = rot; t.width = THREE.MathUtils.clamp((z.aspect >= 1 ? girth : girth * z.aspect) / bw, 0.012, 0.9);
   markTried('wrapGrab'); commit(); return true;
 }
 // how each tattoo was laid last time (sleeve or stencil), so a drag across the bar keeps it one way
