@@ -729,6 +729,13 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-22 QA batch 12 (built on batch 11; not live)
+
+- Flat files read the way the tattoo sits on the body. The artist sheet's thumbnails drew the plain file, so a mirrored Copy to other side twin, a flipped piece or a bent one showed wrong for the artist; they now go through `asDrawn` and turn as on the skin. Print at real size flipped a mirrored piece but printed a top-to-bottom flipped one upright; it now flips both. Its label, and the stencils', say "mirrored", "flipped" or both (`flipNote`).
+- Real size on screen showed a bent tattoo's flat file at its flat size; it now shows the bent picture at the size of the box it fills on the skin.
+- The From a distance line measured a bent tattoo's unbent file (`finestOf`); it now measures it as drawn, as Ink check does.
+- Test: t161 (artist sheet, print, real size on screen, From a distance). New to try: flatFiles, realSizeBent.
+
 ## 2026-11-21 QA batch 11 (built on batch 10; not live)
 
 Audit of Bend and warp and batch 10 once live, at iPad, Split View and phone sizes, light and dark, posed, turned, and with Copy to other side: clean apart from the two below.

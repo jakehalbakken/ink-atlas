@@ -5,6 +5,9 @@ import assert from 'node:assert/strict';
 export default async function(p){
  const wait=(n=300)=>new Promise(r=>setTimeout(r,n));
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
+ // the handles follow the next drawn frame, which takes about a third of a second in the headless renderer,
+ // so wait for it (up to 3 s) rather than a fixed time shorter than one frame
+ const frames=(hidden)=>p.waitForFunction(h=>document.querySelector('#handles').hidden===h,{timeout:3000},hidden).catch(()=>{});
  const sun=await p.evaluate(()=>window.__ink.state().tattoos.find(t=>/Sunburst/.test(t.name)).id);
  assert.equal(await p.$eval('#handles',e=>e.hidden),true,'no handles with nothing selected');
  await p.click('#ldList .ld-tat');await wait(400);await p.click('#ldList .ld-tat');
@@ -38,13 +41,13 @@ export default async function(p){
  assert.ok(Math.abs(a.w-before.w)<1e-9,'turning keeps the size');
  await p.click('#undo');await wait(300);
  // locked: no handles
- await p.evaluate(id=>{window.__ink.state().tattoos.find(t=>t.id===id).locked=true;window.__ink.commitTest();},sun);await wait(400);
+ await p.evaluate(id=>{window.__ink.state().tattoos.find(t=>t.id===id).locked=true;window.__ink.commitTest();},sun);await frames(true);
  assert.equal(await p.$eval('#handles',e=>e.hidden),true,'locked shows none');
- await p.evaluate(id=>{window.__ink.state().tattoos.find(t=>t.id===id).locked=false;window.__ink.commitTest();},sun);await wait(400);
+ await p.evaluate(id=>{window.__ink.state().tattoos.find(t=>t.id===id).locked=false;window.__ink.commitTest();},sun);await frames(false);
  assert.equal(await p.$eval('#handles',e=>e.hidden),false,'back when unlocked');
  // while a finger turns the view, they go away; after, they come back
  const send=(list)=>p.evaluate(list=>{const cv=document.querySelector('#stage canvas');for(const [type,id,x,y] of list)cv.dispatchEvent(new PointerEvent(type,{pointerId:id,pointerType:'touch',clientX:x,clientY:y,bubbles:true,button:0,buttons:type==='pointerup'?0:1}));},list);
- await send([['pointerdown',50,60,500],['pointermove',50,90,500],['pointermove',50,130,500]]);await wait(100);
+ await send([['pointerdown',50,60,500],['pointermove',50,90,500],['pointermove',50,130,500]]);await frames(true);
  assert.equal(await p.$eval('#handles',e=>e.hidden),true,'hidden while the view turns');
  await send([['pointerup',50,130,500]]);await p.waitForFunction(()=>window.__ink.settled(),{timeout:25000});await wait(400);
  const vis=await p.$eval('#handles',e=>e.hidden);

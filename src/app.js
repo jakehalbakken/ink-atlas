@@ -522,6 +522,11 @@ function warpArt(t, max) {
 }
 // The artwork as it is drawn on the body, for flat files (stencil, prints, thumbnails, Ink check):
 // for a warped tattoo, the warped picture with the width and shape of the box it fills, upright.
+// how a flat file of the tattoo is turned to match the body, for its label
+function flipNote(t) {
+  const v = t.imageTopDown === false;
+  return t.flip && v ? ', mirrored and flipped as on the body' : t.flip ? ', mirrored as on the body' : v ? ', flipped as on the body' : '';
+}
 function asDrawn(t, max = 2048) {
   const a = warpArt(t, max); if (!a) return { t, im: imgEls[t.img] || null };
   return { t: { ...t, width: t.width * (a.box[2] - a.box[0]), aspect: a.aspect, imageTopDown: true, warp: undefined }, im: a.canvas };
@@ -1645,15 +1650,18 @@ function guessPpi() {
   if (/iPhone/.test(ua)) return 160;
   return 96;
 }
-let rsPpi = 0, rsId = null;
+let rsPpi = 0, rsId = null; const rsUrls = new WeakMap();
 function inchesOf(t) { const w = t.width * state.heightCm / 175 * 100 / 2.54; return { w, h: w / t.aspect }; }
 // The width and shape a tattoo fills on the skin: a warped one fills the box of its warped picture.
 function shownSize(t) { const w = warpOf(t); if (!w) return t; const b = warpBounds(w), bw = b[2] - b[0], bh = b[3] - b[1]; return { ...t, width: t.width * bw, aspect: t.aspect * bw / bh }; }
 function renderRealSize() {
   const t = state.tattoos.find((x) => x.id === rsId); if (!t) { $('#realSize').hidden = true; return; }
-  const { w, h } = inchesOf(t), box = $('#rsArt'), img = $('#rsImg');
+  // a bent tattoo shows its bent picture at the size of the box it fills on the skin
+  const d = asDrawn(t, 1024), dt = d.t, { w, h } = inchesOf(dt), box = $('#rsArt'), img = $('#rsImg');
   box.style.width = w * rsPpi + 'px'; box.style.height = h * rsPpi + 'px';
-  img.src = images[t.img]; img.style.transform = `scale(${t.flip ? -1 : 1},${t.imageTopDown ? 1 : -1})`;
+  let src = images[t.img]; if (d.im && d.im !== imgEls[t.img]) { markTried('realSizeBent'); src = rsUrls.get(d.im); if (!src) { src = d.im.toDataURL(); rsUrls.set(d.im, src); } }
+  if (img.getAttribute('src') !== src) img.src = src;
+  img.style.transform = `scale(${dt.flip ? -1 : 1},${dt.imageTopDown === false ? -1 : 1})`;
   $('#realSize').style.setProperty('--rs-skin', skinColor());
   const big = w * rsPpi > innerWidth || h * rsPpi > innerHeight;
   $('#rsText').textContent = `${t.name}: ${w.toFixed(1)} × ${h.toFixed(1)} in (${(w * 2.54).toFixed(0)} × ${(h * 2.54).toFixed(0)} cm) at real size.` + (big ? ' Bigger than the screen, so the middle shows.' : ' Hold the screen against your skin.');
@@ -1695,7 +1703,7 @@ async function planStencils() {
     const { t, im } = asDrawn(t0), size = P.pieceSize(t, state.heightCm); if (!im) continue;
     const { S, c, r } = stencilCanvas(im, t, size, st.detail); if (!r.linePixels) continue;
     const jpg = new Uint8Array(await (await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.95))).arrayBuffer());
-    const name = t.name || 'Tattoo', note = P.sizeNote(size) + ', stencil' + (t.flip ? ', mirrored as on the body' : '');
+    const name = t.name || 'Tattoo', note = P.sizeNote(size) + ', stencil' + flipNote(t);
     pieces.push({ id: t.id, w: size.w, h: size.h, labelW: (name.length + note.length + 2) * 4.6 });
     art[t.id] = { name, note, jpeg: { width: S.w, height: S.h, data: jpg } };
     await new Promise((res) => setTimeout(res, 0));
@@ -1734,7 +1742,7 @@ async function makeStencil() {
   const png = pngWithDpi(new Uint8Array(await (await blob('image/png')).arrayBuffer()), S.dpi);
   const jpg = new Uint8Array(await (await blob('image/jpeg', 0.95)).arrayBuffer());
   if (run !== st.run) return;
-  const name = t.name || 'Tattoo', note = P.sizeNote(size) + ', stencil' + (t.flip ? ', mirrored as on the body' : '');
+  const name = t.name || 'Tattoo', note = P.sizeNote(size) + ', stencil' + flipNote(t);
   const pdf = P.buildPrintPdf(P.layoutPrint([{ id: t.id, w: size.w, h: size.h, labelW: (name.length + note.length + 2) * 4.6 }]), { [t.id]: { name, note, jpeg: { width: S.w, height: S.h, data: jpg } } }, { title: name + ': stencil at real size' });
   st.png = new Blob([png], { type: 'image/png' }); st.pdf = new Blob([pdf], { type: 'application/pdf' });
   st.base = name.replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase() || 'tattoo';
@@ -2981,6 +2989,7 @@ const SHOW = {
   sleeve: () => { toggle('#share', true); return ['#cSleeve', 'Tap for each arm and leg’s skin laid flat with your tattoos on it, the way artists plan a sleeve.']; },
   mirror: () => { toggle('#share', true); return ['#cMirror', 'Tap for this view beside how it looks in a mirror, where lettering reads backwards.']; },
   bodyChange: () => { toggle('#share', true); return ['#cBodyChange', 'Tap for your tattoo on a slimmer, a heavier and a more muscular body, grown or shrunk with the skin under it.']; },
+  flatFiles: () => { toggle('#share', true); return ['#cSheet', 'The artist sheet and Print at real size now show each tattoo mirrored, flipped and bent the way it sits on you.']; },
   distance: () => { toggle('#share', true); return ['#cDistance', 'Tap for your tattoo close up, across a table, a room and a street, with the detail an eye can’t make out at each distance run together.']; },
   agingSheet: () => { toggle('#share', true); return ['#cAging', 'Tap for your tattoo fresh, healed, at 10 and 20 years, in one picture.']; },
   eyes: () => { toggle('#bodyPop', true); viewFace(); return ['#eyeCols', 'Tap a colour for the eyes. The view moves to the face.']; },
@@ -5411,8 +5420,10 @@ function agingSheet() {
 }
 let agingLast = null;
 // The finest lines and gaps of a tattoo's artwork at its real size, in mm (ink check's measure).
-async function finestOf(t) {
-  const im = imgEls[t.img] || await loadImg(t.img); if (!im) return null;
+async function finestOf(t0) {
+  // a bent tattoo is measured as it is drawn on the body, as Ink check does
+  const im0 = imgEls[t0.img] || await loadImg(t0.img); if (!im0) return null;
+  const { t, im } = asDrawn(t0);
   const k = state.heightCm / 175, wMm = t.width * 1000 * k, hMm = wMm / t.aspect;
   const pxMm = Math.max(wMm, hMm) / 900, w = Math.max(8, Math.round(wMm / pxMm)), h = Math.max(8, Math.round(hMm / pxMm));
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -5820,7 +5831,9 @@ async function artistSheet() {
   let y = 200; const list = state.tattoos.filter((t) => !t.hidden).slice(0, 7);
   for (const t of list) {
     g.fillStyle = '#fff'; g.strokeStyle = '#dcd9d2'; g.lineWidth = 2; g.fillRect(1080, y, 130, 130); g.strokeRect(1080, y, 130, 130);
-    const im = imgEls[t.img]; if (im) { const k = Math.min(114 / im.naturalWidth, 114 / im.naturalHeight); g.drawImage(im, 1145 - im.naturalWidth * k / 2, y + 65 - im.naturalHeight * k / 2, im.naturalWidth * k, im.naturalHeight * k); }
+    // the thumbnail reads as the tattoo does on the body: bent, mirrored and upside down as it is there
+    if (t.flip || t.imageTopDown === false || warpOf(t)) markTried('flatFiles');
+    const dr = asDrawn(t, 512), im = dr.im; if (im) { const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height, k = Math.min(114 / iw, 114 / ih), w = iw * k, h = ih * k; g.save(); g.translate(1145, y + 65); g.scale(dr.t.flip ? -1 : 1, dr.t.imageTopDown === false ? -1 : 1); g.drawImage(im, -w / 2, -h / 2, w, h); g.restore(); }
     g.fillStyle = '#17181d'; g.font = '600 28px Figtree, system-ui, sans-serif'; g.fillText(t.name.slice(0, 30), 1236, y + 50);
     g.fillStyle = '#5b6070'; g.font = '23px Figtree, system-ui, sans-serif'; g.fillText(sizeText(t).replace(/\s+/g, ' '), 1236, y + 90);
     const extra = t.status === 'existing' ? madeText(t.made) : (t.note || '').replace(/\s+/g, ' ');
@@ -6228,12 +6241,14 @@ async function printRealSize() {
     const pieces = [], art = {};
     for (const t0 of list) {
       const { t, im } = asDrawn(t0), size = pieceSize(t, state.heightCm);
-      const name = t.name || 'Tattoo', note = sizeNote(size) + (t.status === 'existing' ? ', already on me' : '') + (t.flip ? ', mirrored as on the body' : '');
+      if (t0.flip || t0.imageTopDown === false || warpOf(t0)) markTried('flatFiles');
+      const name = t.name || 'Tattoo', note = sizeNote(size) + (t.status === 'existing' ? ', already on me' : '') + flipNote(t);
       // about 200 dots per inch, capped so a big back piece stays a sensible file
       const scale = Math.min(1, 3000 / Math.max(size.w, size.h) / (200 / 72)), cw = Math.max(1, Math.round(size.w / 72 * 200 * scale)), ch = Math.max(1, Math.round(size.h / 72 * 200 * scale));
       const c = document.createElement('canvas'); c.width = cw; c.height = ch; const g = c.getContext('2d');
       g.fillStyle = '#fff'; g.fillRect(0, 0, cw, ch);
-      if (t.flip) { g.translate(cw, 0); g.scale(-1, 1); }
+      // as it sits on the body: mirrored and upside down when it is (a top-to-bottom flip is no turn of the paper)
+      g.translate(t.flip ? cw : 0, t.imageTopDown === false ? ch : 0); g.scale(t.flip ? -1 : 1, t.imageTopDown === false ? -1 : 1);
       g.drawImage(im, 0, 0, cw, ch);
       const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
       art[t.id] = { name, note, jpeg: { width: cw, height: ch, data: new Uint8Array(await blob.arrayBuffer()) } };
@@ -6675,7 +6690,7 @@ window.__ink = {
   gpu: () => ({ ...renderer.info.memory, programs: renderer.info.programs?.length || 0 }),
   self: () => ({ mode: selfV.mode, yaw: selfV.yaw, pitch: selfV.pitch, fov: camera.fov, near: camera.near, cam: camera.position.toArray(), look: new V3(0, 0, -1).applyQuaternion(camera.quaternion).toArray(), eye: selfV.mode ? selfFrame().eye : null, flip: canvas.style.transform, text: $('#selfText').textContent, best: selfV.best, base: selfV.bestBase, hand: selfV.mode === 'mirror' ? selfHand() : null, share: (id) => { const t = state.tattoos.find((x) => x.id === id); return t ? selfShare(t) : null; }, washOn: !!(selfV.mesh && selfV.mesh.visible), phone: !!(selfV.phone && selfV.phone.visible) }), selfDrag: (dx, dy) => selfDrag(dx, dy), selfPinch: (r) => selfPinch(r), selfTap: (x, y) => selfTap(x, y), selfiePicture: () => selfiePicture(),
   shownIds: () => state.tattoos.filter((t) => decals[t.id] && decals[t.id].mesh.visible).map((t) => t.id), kinds: () => ({ ...kindOff }), layersDock: () => layersDock,
-  wrap: () => wrapStudio, warpPanel: () => warpPanel, warpSpot: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpSpot(t, x, y) : null; }, warpJac: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpJac(t, x, y) : null; },   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
+  wrap: () => wrapStudio, finest: (id) => finestOf(state.tattoos.find((q) => q.id === id)), warpPanel: () => warpPanel, warpSpot: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpSpot(t, x, y) : null; }, warpJac: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpJac(t, x, y) : null; },   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
   sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, bodyChange: () => bodyChangeLast, mirror: () => mirrorLast, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
