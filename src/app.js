@@ -5352,8 +5352,10 @@ function labelsShot() {
       ray.set(eye, to.clone().normalize());
       const h = poseView.active ? poseView.withPosed(() => ray.intersectObject(body, false)[0]) : ray.intersectObject(body, false)[0];
       if (h && h.distance < dist - 0.02) continue; // behind another part of the body
-      const f = frameOf({ ...t, pos: s.pos, normal: s.normal }), hw = t.width / 2, hh = t.width / t.aspect / 2;
-      const pts = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([a, b]) => toPx(c.clone().addScaledVector(f.right, a * hw).addScaledVector(f.up, b * hh)));
+      // the dashed box goes round what is drawn on the skin: for a bent tattoo, the box the bent piece fills
+      const f = frameOf({ ...t, pos: s.pos, normal: s.normal }), tw = t.width, th = t.width / t.aspect, wb = warpBoxOf(t) || [0, 0, 1, 1];
+      const xs = [(wb[0] - 0.5) * tw, (wb[2] - 0.5) * tw], ys = [(0.5 - wb[3]) * th, (0.5 - wb[1]) * th];
+      const pts = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([a, b]) => toPx(c.clone().addScaledVector(f.right, xs[a]).addScaledVector(f.up, ys[b])));
       if (pts.some((q) => !q)) continue;
       const box = [Math.min(...pts.map((q) => q[0])), Math.min(...pts.map((q) => q[1])), Math.max(...pts.map((q) => q[0])), Math.max(...pts.map((q) => q[1]))];
       if (box[2] < 0 || box[0] > W || box[3] < 0 || box[1] > H) continue;
@@ -6736,6 +6738,7 @@ window.__ink = {
   spotNotes: () => spotNotesShown,
   spotFit: () => spotFitLast, history: () => historyList(undoStack, state), undoSteps, flashShown: () => flashShown, splitFlash: (id) => splitFlash(id), stretchShown: () => stretchShown,
   labels: () => labelsLast,
+  inkBox: (id) => { const t = state.tattoos.find((q) => q.id === id), pts = t && inkPoints(t); if (!pts || !pts.length) return null; camera.updateMatrixWorld(); const v = new V3(), W = canvas.width, H = canvas.height, b = [Infinity, Infinity, -Infinity, -Infinity]; for (let i = 0; i < pts.length; i += 3) { v.set(pts[i], pts[i + 1], pts[i + 2]).project(camera); const x = (v.x + 1) / 2 * W, y = (1 - v.y) / 2 * H; b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y); } return b.map(Math.round); },
   like: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: likeOf(t), line: $('#likeLine').hidden ? '' : $('#likeLine').textContent } : null; },
   sitWear: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { sleep: sleepLine(t.pos, t.normal), sleepLine: $('#sitSleep').hidden ? '' : $('#sitSleep').textContent, text: sitWearOf(t), shown: !$('#sitWear').hidden && !$('#sitBox').hidden, line: $('#sitWear').textContent } : null; },
   shows: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? { text: showsOf(t), shares: showsShares(t) } : null; },
