@@ -10,7 +10,7 @@ export default async function(p){
  const frames=(hidden)=>p.waitForFunction(h=>document.querySelector('#handles').hidden===h,{timeout:3000},hidden).catch(()=>{});
  const sun=await p.evaluate(()=>window.__ink.state().tattoos.find(t=>/Sunburst/.test(t.name)).id);
  assert.equal(await p.$eval('#handles',e=>e.hidden),true,'no handles with nothing selected');
- await p.click('#ldList .ld-tat');await wait(400);await p.click('#ldList .ld-tat');
+ await p.click('#ldList .ld-tat');await wait(400);await p.click('#ldList .ld-tat');await wait(300);await p.evaluate(()=>{const b=[...document.querySelectorAll('#ldList .ld-acts .btn')].find(b=>b.textContent==='Zoom to it');if(b)b.click();});
  await p.waitForFunction(()=>window.__ink.settled(),{timeout:25000});await wait(300);
  assert.equal(await p.evaluate(()=>window.__ink.selected()),sun);
  const box=async id=>p.$eval(id,e=>{const r=e.getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,w:r.width,h:r.height,hidden:e.hidden||e.parentElement.hidden};});

@@ -91,12 +91,12 @@ export default async function (p) {
   await swipe(copy.id, 140);
   picked = await p.evaluate(() => window.__ink.layersDock().picked()); assert.deepEqual(picked.sort(), [sun, copy.id].sort());
   assert.match(await p.$eval('#ldPickBar b', (e) => e.textContent), /2 picked/);
-  await all44('#ldPickBar .btn');
+  await all44('#ldPickBar .btn, #ldPickBar .ld-tiles button');
   await p.screenshot({ path: 'shots/t156-picked.png' });
   // swipe right again unpicks
   await swipe(copy.id, 140); assert.deepEqual(await p.evaluate(() => window.__ink.layersDock().picked()), [sun]); await swipe(copy.id, 140);
   const uM = await undoLen();
-  await p.evaluate(() => [...document.querySelectorAll('#ldPickBar .btn')].find((b) => b.textContent === 'Merge').click());
+  await p.evaluate(() => document.querySelector('#ldPickBar .ld-tiles button[aria-label^="Merge"]').click());
   await p.waitForFunction((n) => window.__ink.state().tattoos.length === n, { timeout: 15000 }, 2); await wait(800);
   st = await S(); const merged = st.tattoos.find((t) => t.id === copy.id);
   assert.ok(merged, 'the lower line is the one kept'); assert.ok(!st.tattoos.some((t) => t.id === sun), 'the other is merged in');
@@ -145,7 +145,7 @@ export default async function (p) {
   await p.evaluate(({ a }) => { const s = structuredClone(window.__ink.state()); s.tattoos.find((t) => t.id === a).status = 'existing'; window.__ink.loadState(s); window.__ink.select(null); }, { a: other }); await wait(600);
   const nBefore = (await S()).tattoos.length;
   await swipe(sun, 140); await swipe(other, 140);
-  await p.evaluate(() => [...document.querySelectorAll('#ldPickBar .btn')].find((b) => b.textContent === 'Merge').click()); await wait(800);
+  await p.evaluate(() => document.querySelector('#ldPickBar .ld-tiles button[aria-label^="Merge"]').click()); await wait(800);
   assert.equal((await S()).tattoos.length, nBefore, 'refused');
   assert.match(await p.evaluate(() => document.querySelector('#toast')?.textContent || ''), /one kind/);
 

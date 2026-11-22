@@ -12,8 +12,9 @@ export default async function (p) {
   const screen = (q) => p.evaluate((pos) => window.__ink.projectPoint(pos), q.pos);
   await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(800);
   await p.evaluate(() => document.activeElement && document.activeElement.blur()); await p.mouse.move(5, 5);
-  // tap the chip again to zoom to it, so a step shows as more than a pixel
+  // tap the line again for its options, then Zoom to it, so a step shows as more than a pixel
   await (await p.$$('#ldList .ld-tat'))[0].click(); await wait(400);
+  await p.evaluate(()=>{const b=[...document.querySelectorAll('#ldList .ld-acts .btn')].find(b=>b.textContent==='Zoom to it');if(b)b.click();});
   await p.evaluate(() => document.activeElement && document.activeElement.blur());
   await p.waitForFunction(() => window.__ink.settled(), { timeout: 10000 }).catch(() => {});
   const t0 = await get(), s0 = await screen(t0);

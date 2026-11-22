@@ -95,7 +95,8 @@ export default async function (p) {
   await p.click('#ldSelect'); await wait(300);
   await p.evaluate(() => [...document.querySelectorAll('#layersDock button')].find((x) => x.textContent === 'Pick all').click()); await wait(300);
   await p.click('#layersDock .ld-tiles button[aria-label^="More for"]'); await wait(400);
-  await p.click('#ink-layers [data-act="all"]'); await p.type('#il-group-name', 'Left arm'); await p.click('#ink-layers [data-act="group"]'); await wait(300);
+  assert.match(await p.$eval('#il-count', (e) => e.textContent), /2/, 'the sheet opens with the picked ones ticked');
+  await p.type('#il-group-name', 'Left arm'); await p.click('#ink-layers [data-act="group"]'); await wait(300);
   await p.click('#ink-layers [data-act="close"]'); await wait(300);
   if ((await p.$eval('#ldSelect', (e) => e.textContent)) === 'Done') { await p.click('#ldSelect'); await wait(300); }
   assert.equal(await p.$$eval('#ldList .ld-ghead', (x) => x.length), 1, 'the group is a folder');

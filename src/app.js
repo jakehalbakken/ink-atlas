@@ -1211,7 +1211,7 @@ canvas.addEventListener('pointermove', (e) => {
     const delta=(gest.intent||=twoFingerIntent()).step(raw);
     if (gest.mode === 'self') selfPinch(delta.zoomRatio);
     else if (gest.mode === 'ink' && sel()) {
-      const t = sel(); if (!gest.snap) { if (Math.abs(s.d - gest.d0) < 4 && Math.abs(s.ang - gest.a0) < 0.03) { gest.pd = s.d; gest.pa = s.ang; gest.pcx = s.cx; gest.pcy = s.cy; return; } snapshot(); gest.snap = true; }
+      const t = sel(); if (!gest.snap) { if (Math.abs(s.d - gest.d0) < 4 && Math.abs(s.ang - gest.a0) < 0.03) { gest.pd = s.d; gest.pa = s.ang; gest.pcx = s.cx; gest.pcy = s.cy; return; } snapshot(); gest.snap = true; fingerTaps.spoil(); }
       t.width = THREE.MathUtils.clamp(gest.w0 * (s.d / gest.d0), 0.012, 0.9);
       let da = s.ang - gest.a0; da = Math.atan2(Math.sin(da), Math.cos(da)); t.rot = gest.r0 - da; inkDirty = true;
     } else if (viewLocked) lockNote();
