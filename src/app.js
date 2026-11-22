@@ -264,10 +264,10 @@ function fullBody(theta) {
 }
 function focusTattoo(t) {
   if (followId) stopFollow();
-  const spot = viewSpot(t), z = shownSize(t);
+  const spot = shotSpot(t);
   // the tattoo fills about a third of the free space, with enough body round it to see where it sits
   // (a bent tattoo by the box it is bent into)
-  aimView(spot.pos, spot.normal, Math.max(z.width, z.width / z.aspect) * 2.2 + 0.12);
+  aimView(spot.pos, spot.normal, spot.ext * 2.2 + 0.12);
 }
 // Turn and zoom the camera to look at pos along normal, with about ext of body in the free space.
 function aimView(pos, normal, ext) {
@@ -1660,6 +1660,18 @@ function guessPpi() {
 let rsPpi = 0, rsId = null; const rsUrls = new WeakMap();
 function inchesOf(t) { const w = t.width * state.heightCm / 175 * 100 / 2.54; return { w, h: w / t.aspect }; }
 // The width and shape a tattoo fills on the skin: a warped one fills the box of its warped picture.
+// Where to aim a close picture of a tattoo, and how much of it to fit: a bent tattoo by the box it is
+// bent into, centred on that box rather than on the flat file it was cut from.
+function shotSpot(t) {
+  const s = viewSpot(t), z = shownSize(t), b = warpBoxOf(t);
+  let pos = s.pos;
+  if (b) {
+    const f = frameOf({ ...t, pos: s.pos, normal: s.normal }), w = t.width, h = t.width / t.aspect;
+    pos = new V3(...s.pos).addScaledVector(f.right, (b[0] + b[2] - 1) / 2 * w).addScaledVector(f.up, (1 - b[1] - b[3]) / 2 * h).toArray();
+    markTried('shotsBent');
+  }
+  return { pos, normal: s.normal, ext: Math.max(z.width, z.width / z.aspect) };
+}
 function shownSize(t) { const w = warpOf(t); if (!w) return t; const b = warpBounds(w), bw = b[2] - b[0], bh = b[3] - b[1]; return { ...t, width: t.width * bw, aspect: t.aspect * bw / bh }; }
 function renderRealSize() {
   const t = state.tattoos.find((x) => x.id === rsId); if (!t) { $('#realSize').hidden = true; return; }
@@ -3623,9 +3635,9 @@ function closeUpShot(t, size = 720) {
   const out = document.createElement('canvas'); out.width = out.height = size;
   try {
     curInset = 0; applyInset();
-    focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    focusTattoo(t); const spot = shotSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
-    goal.r = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 3 + 0.12) / (2 * tn * Math.min(1, camera.aspect)), 0.35, 3.4);
+    goal.r = THREE.MathUtils.clamp((spot.ext * 3 + 0.12) / (2 * tn * Math.min(1, camera.aspect)), 0.35, 3.4);
     Object.assign(cur, goal); glide = false; applyCam();
     exporting = true; syncDecals();
     poseView.withPosed(() => renderer.render(scene, camera), posedInk());
@@ -5422,9 +5434,9 @@ function agingSheet() {
   try {
     curInset = 0; applyInset();
     // straight at the tattoo, centred in the square, filling about half of it
-    focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    focusTattoo(t); const spot = shotSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
-    goal.r = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 2 + 0.06) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.2);
+    goal.r = THREE.MathUtils.clamp((spot.ext * 2 + 0.06) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.2);
     Object.assign(cur, goal); glide = false; applyCam();
     exporting = true;
     AGES.forEach((a, i) => {
@@ -5485,9 +5497,9 @@ async function distanceSheet() {
   try {
     curInset = 0; applyInset();
     // straight at the tattoo, a little wider than for aging so the limb round it shows
-    focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+    focusTattoo(t); const spot = shotSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
     goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
-    goal.r = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 2.6 + 0.08) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.2);
+    goal.r = THREE.MathUtils.clamp((spot.ext * 2.6 + 0.08) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.2);
     Object.assign(cur, goal); glide = false; applyCam();
     exporting = true; syncDecals();
     poseView.withPosed(() => renderer.render(scene, camera), posedInk());
@@ -5558,9 +5570,9 @@ async function bodyChangeSheet() {
       state.tattoos.forEach((x, j) => { x.width = saved[j].width * (x.id === t.id ? res.growth : skinGrowth(A, res.B, I, tris[x.id])); });
       syncDecals();
       // the same distance for every tile, so the size change shows; aimed straight at it each time
-      focusTattoo(t); const spot = viewSpot(t);
+      focusTattoo(t); const spot = shotSpot(t);
       goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
-      if (!r0) r0 = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 2.4 + 0.1) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.2);
+      if (!r0) r0 = THREE.MathUtils.clamp((spot.ext * 2.4 + 0.1) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.2);
       goal.r = r0; Object.assign(cur, goal); glide = false; applyCam();
       renderer.render(scene, camera);
       const x = pad + (i % 2) * (tile + pad), y = head + Math.floor(i / 2) * (tile + lab + pad);
@@ -5727,7 +5739,7 @@ function sizesSheet() {
   try {
     curInset = 0; applyInset();
     // the same view for all three, framed round the biggest
-    focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2)), big = fromIn(Math.max(...sizes));
+    focusTattoo(t); const spot = shotSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2)), big = fromIn(Math.max(...sizes));
     goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
     goal.r = THREE.MathUtils.clamp((Math.max(big, big / shownSize(t).aspect) * 1.6 + 0.08) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.4);
     Object.assign(cur, goal); glide = false; applyCam();
@@ -5803,9 +5815,9 @@ function posesSheet() {
     pick.keys.forEach((k, i) => {
       poseView.showNow(k);
       // straight at the tattoo where this pose puts it, with enough body round it to see the pose
-      focusTattoo(t); const spot = viewSpot(t);
+      focusTattoo(t); const spot = shotSpot(t);
       goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
-      goal.r = THREE.MathUtils.clamp((Math.max(t.width, t.width / t.aspect) * 4 + 0.36) / (2 * tn * Math.min(1, camera.aspect)), 0.7, 3.2);
+      goal.r = THREE.MathUtils.clamp((spot.ext * 4 + 0.36) / (2 * tn * Math.min(1, camera.aspect)), 0.7, 3.2);
       Object.assign(goal, clearView(spot, goal.r));
       Object.assign(cur, goal); glide = false; applyCam();
       poseView.withPosed(() => renderer.render(scene, camera), posedInk());
@@ -6782,7 +6794,7 @@ window.__ink = {
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, looksBlank: () => looksBlank(state), blankHold: () => ({ guardSave, holdBlank }), lostLook: (o) => findLostPictures(o), lostCount: () => state.tattoos.filter(isLost).length, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
-  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), closeUp: (id) => closeUpShot(state.tattoos.find((q) => q.id === id)), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)
   // where the ink itself lies on the skin, read from the decal and its own texture: the middle and the area
