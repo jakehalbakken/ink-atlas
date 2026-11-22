@@ -3891,7 +3891,8 @@ function painMesh() {
   return pain.mesh;
 }
 // one tattoo: the usual pain over its ink
-function painOfTattoo(t) {
+function painOfTattoo(t0) {
+  const t = shownSize(t0); // a bent tattoo covers the box it fills on the skin
   const d = painData(), r = painUnder({ pos: bodyGeo.attributes.position.array, count: PAIN_N, level: d.smooth, place: d.place, centre: t.pos, radius: Math.max(0.01, Math.min(t.width, t.width / t.aspect) / 2) });
   if (!r) return '';
   let line = `${t.name || 'This tattoo'} on the ${r.place.toLowerCase()}: ${painWords(r.level)}, about ${Math.round(r.level)} out of 10.`;
@@ -4161,7 +4162,7 @@ function roomData() {
   room.across = acrossAt(room.clear, room.cap);
   const t = room.fitId && state.tattoos.find((q) => q.id === room.fitId);
   room.need = t ? inkReach(t) + fromInches(ROOM_MARGIN_IN) : 0;
-  room.width = t ? Math.min(t.width, t.width / t.aspect) : 0;
+  const sh = t && shownSize(t); room.width = sh ? Math.min(sh.width, sh.width / sh.aspect) : 0;
   if (room.mesh) roomColours();
   return room;
 }
@@ -4365,7 +4366,7 @@ function sitWearOf(t) {
 // how it holds up here, from the place under most of the tattoo
 function wearOf(t) {
   if (!t || t.hidden) return null;
-  const d = painData(), r = painUnder({ pos: bodyGeo.attributes.position.array, count: PAIN_N, level: d.smooth, place: d.place, centre: t.pos, radius: Math.max(0.01, Math.min(t.width, t.width / t.aspect) / 2) });
+  const sh = shownSize(t), d = painData(), r = painUnder({ pos: bodyGeo.attributes.position.array, count: PAIN_N, level: d.smooth, place: d.place, centre: t.pos, radius: Math.max(0.01, Math.min(sh.width, sh.width / sh.aspect) / 2) });
   return r ? { ...wearAt(r.place), place: r.place } : null;
 }
 function showsOf(t) { return t && !t.hidden ? visibilityText(showsShares(t)) : ''; }
@@ -5554,7 +5555,7 @@ async function bodyChangeSheet() {
       renderer.render(scene, camera);
       const x = pad + (i % 2) * (tile + pad), y = head + Math.floor(i / 2) * (tile + lab + pad);
       g.drawImage(canvas, sx, sy, side, side, x, y, tile, tile);
-      const wcm = t.width * 100 * k, hcm = wcm / t.aspect;
+      const sh = shownSize(t); if (sh !== t) markTried('picsBent'); const wcm = sh.width * 100 * k, hcm = wcm / sh.aspect;
       res.size = [wcm, hcm];
       g.fillStyle = '#f2f2f5'; g.font = `600 ${Math.round(lab * 0.42)}px -apple-system, system-ui, sans-serif`;
       g.fillText(`${res.label}: ${wcm.toFixed(1)} × ${hcm.toFixed(1)} cm${res.key === 'now' ? '' : ', ' + growthWords(res.growth)}`, x + tile / 2, y + tile + lab / 2);
@@ -5670,8 +5671,8 @@ function sleeveMap() {
     g.textAlign = 'center'; g.fillText('Inside edges meet', x0 + W / 2, head + H + 26);
     // each tattoo's name and size under it, kept inside this limb's column
     for (const lb of mp.labels) {
-      const t = state.tattoos.find((x) => x.id === lb.id), wcm = t.width * 100 * k, hcm = wcm / t.aspect;
-      const text = `${lb.name}  ${wcm.toFixed(0)} × ${hcm.toFixed(0)} cm`;
+      const t0 = state.tattoos.find((x) => x.id === lb.id), t = shownSize(t0), wcm = t.width * 100 * k, hcm = wcm / t.aspect; if (t !== t0) markTried('picsBent');
+      const text = `${lb.name}  ${wcm.toFixed(0)} × ${hcm.toFixed(0)} cm`; (mp.texts || (mp.texts = [])).push(text);
       g.font = '600 20px -apple-system, system-ui, sans-serif'; const tw = g.measureText(text).width + 20;
       const cx = Math.min(x0 + W - tw / 2, Math.max(x0 + tw / 2, x0 + lb.x)), cy = Math.min(head + H - 18, head + lb.y + 24);
       g.fillStyle = 'rgba(22,23,28,0.82)'; g.beginPath(); g.roundRect(cx - tw / 2, cy - 16, tw, 32, 16); g.fill();
@@ -5683,7 +5684,7 @@ function sleeveMap() {
   g.fillText('Arms and legs, unrolled', out.width / 2, 56);
   g.fillStyle = '#9a9cab'; g.font = '22px -apple-system, system-ui, sans-serif';
   g.fillText('Each limb’s skin laid flat, cut along the inside, as seen from the outside. Grid squares are 5 cm (about 2 in).', out.width / 2, 104);
-  sleeveLast = { maps: maps.map((x) => ({ key: x.L.key, W: x.W, H: x.H, inked: x.inked, labels: x.labels.map((l) => l.name), lengthCm: x.length / unitsPerCm, roundCm: typicalRound(x.m) / unitsPerCm })), head, pad, gap, w: out.width, h: out.height };
+  sleeveLast = { maps: maps.map((x) => ({ key: x.L.key, W: x.W, H: x.H, inked: x.inked, labels: x.labels.map((l) => l.name), texts: x.texts || [], lengthCm: x.length / unitsPerCm, roundCm: typicalRound(x.m) / unitsPerCm })), head, pad, gap, w: out.width, h: out.height };
   return out.toDataURL('image/png');
 }
 function jointDown(L) {
