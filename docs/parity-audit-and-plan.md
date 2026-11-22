@@ -729,6 +729,17 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-22 QA batch 13 (built on batch 12; not live)
+
+Audit of every place that gives or sets a tattoo's size, once Bend and warp was live: the size under the name already gave the box a bent piece fills on the skin, but nine other places still read the flat file's width and shape.
+
+- Picture with sizes, Three sizes, the plan as a message, the page for approval, the everyday size (`likeOf`) and Time to tattoo (`hoursOf`) now give a bent tattoo's bent size (`shownSize`).
+- Width (inches) shows the bent width, and typing a width or tapping 1, 2, 3 or 4 in makes the bent piece that wide on the skin (`setWidthInches` divides by the bend's own width share). Three sizes steps from the bent width the same way and puts the tattoo back exactly.
+- Try other spots judges whether a bent piece fits a limb by its bent size (`spotNotes`), so a 15 cm piece bent to 7.5 cm no longer says it wraps a forearm.
+- Try on with camera showed the flat file at the flat size; it now shows the bent picture (`asDrawn`) at the bent size, flipped as on the body.
+- No storage change. Test: t162 (every place above; fails on batch 12). New to try: sizesBent, tryOnBent.
+- Full suite: 255 pass in the full run plus the account checks (t81, t83, t84, t139, t142, t154, RLS); t132, t155, t48, t49, t62, t70, t73 and t8 failed only under load and pass alone. Not checked on an iPad yet.
+
 ## 2026-11-22 QA batch 12 (built on batch 11; not live)
 
 - Flat files read the way the tattoo sits on the body. The artist sheet's thumbnails drew the plain file, so a mirrored Copy to other side twin, a flipped piece or a bent one showed wrong for the artist; they now go through `asDrawn` and turn as on the skin. Print at real size flipped a mirrored piece but printed a top-to-bottom flipped one upright; it now flips both. Its label, and the stencils', say "mirrored", "flipped" or both (`flipNote`).

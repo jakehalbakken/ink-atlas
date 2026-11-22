@@ -1017,7 +1017,7 @@ let skinOwnOpen = false, skinSlide = false; // the own-tone sliders: open, and m
 const sel = () => state.tattoos.find((t) => t.id === selectedId) || null;
 function select(id, focus) { if (id && selfV.mode === 'seen') { selfV.focus = id; selfText(); return; } if (id && selfV.mode) selfOff(); if (id && tape.on) tapeOff(); if (id && pain.on) painOff(); if (id && room.on) roomDone(); if(selectedId!==id)$('#editorAdvanced').open=false;if(tapPlaceId!==id)tapPlaceId=null; const was = selectedId; selectedId = id; const t = sel(); syncDecals(); renderUI(); if (t && was !== id && layersDock) layersDock.reveal(t.id); if (was !== id && account && account.nudge) account.nudge(); if (t && focus && !viewLocked) requestAnimationFrame(() => { if (sel() !== t || gest) return; if (inSight(t)) keepClearOfPanels(t, true); else focusTattoo(t); }); }
 // the size said as an everyday thing: about the size of a credit card
-function likeOf(t) { if (!t) return ''; const k = (state.heightCm || 175) / 175, w = t.width * 100 * k / 2.54; return sizeLikeText(w, w / t.aspect); }
+function likeOf(t0) { if (!t0) return ''; const t = shownSize(t0), k = (state.heightCm || 175) / 175, w = t.width * 100 * k / 2.54; return sizeLikeText(w, w / t.aspect); }
 function likeRender(t) { const lk = likeOf(t); $('#likeLine').textContent = lk; $('#likeLine').hidden = !lk; }
 function sizeText(t0) {
   const t = shownSize(t0), k = state.heightCm / 175; const w = t.width * 100 * k, h = w / t.aspect;
@@ -1484,7 +1484,7 @@ function renderSheet() {
   $('#size').textContent = sizeText(t); renderGap(); if ($('#editorAdvanced').open) renderInfo();
   const linkedCount=t.artworkId?state.tattoos.filter(x=>x.artworkId===t.artworkId).length:1;
   $('#bCleanupLinked').hidden=linkedCount<2; $('#bCleanupLinked').disabled=false; $('#bCleanupLinked').textContent=`Clean up ${linkedCount} linked copies`;
-  $('#exactWidth').value = (t.width * state.heightCm / 175 * 100 / 2.54).toFixed(2);
+  $('#exactWidth').value = (shownSize(t).width * state.heightCm / 175 * 100 / 2.54).toFixed(2); // a bent tattoo: the width it fills
   // Lock in place only stops fingers on the body moving it (2026-11-19, Jake: "tapping around doesn't
   // move it, you know, that's what lock in place should do"): everything in this panel still works
   for (const id of ['rSize','rTurn','rFade','rWrap','rBend','rTaper','bFlip','bFlipVertical','bDraft','bCleanup','bProcreate','exactWidth','resetTransform']) $('#'+id).toggleAttribute('disabled', false);
@@ -1837,7 +1837,8 @@ const tryOn = { id: null, stream: null, facing: 'environment', t: { x: 0, y: 0, 
 function toView() { return { w: innerWidth, h: innerHeight }; }
 function toRenderArt() {
   const t = state.tattoos.find((x) => x.id === tryOn.id); if (!t || !tryOn.img) return;
-  tryOn.art = curvedArt(tryOn.img, { flipX: !!t.flip, flipY: !t.imageTopDown, curve: tryOn.curve });
+  const dt = tryOn.dt || t; // a bent tattoo shows bent, as it is drawn on the body
+  tryOn.art = curvedArt(tryOn.img, { flipX: !!dt.flip, flipY: !dt.imageTopDown, curve: tryOn.curve });
   const c = $('#toArt'); c.width = tryOn.art.width; c.height = tryOn.art.height; c.getContext('2d').drawImage(tryOn.art, 0, 0);
   c.style.opacity = String(t.opacity ?? 0.92); toPlace();
 }
@@ -1859,10 +1860,11 @@ async function toStartCamera() {
   } catch (_) { toNoCamera(); }
 }
 function toNoCamera() { $('#toVideo').hidden = true; $('#toSnap').disabled = true; $('#toSwitch').disabled = true; $('#toText').textContent = 'The camera is not available here. Use a photo of your skin instead.'; }
-function toLabel() { const t = state.tattoos.find((x) => x.id === tryOn.id); if (!t) return ''; const { w, h } = inchesOf(t); return `${t.name}: ${w.toFixed(1)} × ${h.toFixed(1)} in on the body. Move it with one finger, size and turn it with two.`; }
+function toLabel() { const t0 = state.tattoos.find((x) => x.id === tryOn.id); if (!t0) return ''; const t = tryOn.dt || t0, { w, h } = inchesOf(t); return `${t.name}: ${w.toFixed(1)} × ${h.toFixed(1)} in on the body. Move it with one finger, size and turn it with two.`; }
 async function openTryOn() {
   const t = sel(); if (!t) return; markTried('try-on');
-  tryOn.id = t.id; tryOn.img = await loadImg(t.img); if (!tryOn.img) { toast('This artwork could not be opened.'); return; }
+  tryOn.id = t.id; tryOn.dt = null; tryOn.img = await loadImg(t.img); if (!tryOn.img) { toast('This artwork could not be opened.'); return; }
+  if (warpOf(t)) { const d = asDrawn(t, 1024); if (d.im) { tryOn.img = d.im; tryOn.dt = d.t; markTried('tryOnBent'); } }
   const v = toView(); tryOn.baseW = Math.min(v.w, v.h) * 0.42; tryOn.t = { x: v.w / 2, y: v.h * 0.45, s: 1, r: 0 };
   tryOn.curve = 0; $('#rToCurve').value = 0; tryOn.frozen = null; tryOn.pts.clear();
   $('#tryOn').hidden = false; $('#toPhoto').hidden = true; $('#toLive').hidden = false; $('#toDone').hidden = true; $('#toSnap').disabled = false; $('#toSwitch').disabled = false;
@@ -1926,7 +1928,9 @@ $('#bDelTop').addEventListener('click', () => $('#bDel').click());
 $('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
 function setWidthInches(value) {
  const t = sel(); if (!t || !Number.isFinite(value) || value <= 0) return;
- snapshot(); t.width = Math.max(.012, Math.min(.9, value * 2.54 / 100 * 175 / state.heightCm)); commit();
+ // a bent tattoo is sized so the box it fills on the skin is that wide, matching the size under its name
+ const bw = shownSize(t).width / t.width || 1; if (bw !== 1) markTried('sizesBent');
+ snapshot(); t.width = Math.max(.012, Math.min(.9, value / bw * 2.54 / 100 * 175 / state.heightCm)); commit();
 }
 $('#exactWidth').addEventListener('change', () => setWidthInches(+$('#exactWidth').value));
 document.querySelectorAll('[data-inch]').forEach(b => b.addEventListener('click',()=>setWidthInches(+b.dataset.inch)));
@@ -2457,7 +2461,8 @@ function spotFit(spot, side, h, t) {
 const spotFitLast = {};
 // compare spots: under each spot, how much it usually hurts there and what hides a piece this size
 let spotNotesKey = '', spotNotesShown = null;
-function spotNotes(t) {
+function spotNotes(t0) {
+  const t = t0 && shownSize(t0); // a bent tattoo is compared at the size it fills on the skin
   const off = !t || poseView.active, key = off ? '' : `${shapeKey}|${spotSide}|${t.width.toFixed(4)}|${t.aspect.toFixed(3)}`;
   if (key && key === spotNotesKey) return;
   spotNotesKey = key; spotNotesShown = off ? null : {};
@@ -2970,6 +2975,8 @@ const SHOW = {
   layout: () => ['#top .toolbar', 'Everything starts here: Body, Preview, Plan and Share, with Undo and Redo as the arrows. Select a tattoo for its own controls.'],
   history: () => { if (!$('#undo').disabled) openHistory(); return ['#undo', 'Press and hold Undo for a list of your last steps. Tap one to go back to just before it. Redo brings them back.']; },
   undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],
+  sizesBent: () => { toggle('#share', true); return ['#cLabels', 'Picture with sizes, Three sizes, the plan as a message, the page for approval, the time to tattoo and the everyday size now all read a bent tattoo at the size it fills on your skin.']; },
+  tryOnBent: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera now shows a bent tattoo bent, at the size it fills on your skin.']; },
   labels: () => { toggle('#share', true); return ['#cLabels', 'A picture of this view with each tattoo’s name and size written beside it, to send to your artist.']; },
   centre: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; $('#preciseBox').open = true; return ['#snapLabel', 'Drag a tattoo on your chest, stomach or back across the middle and a line shows down the centre of the body. Turn on snapping here and it sits right on it.']; },
   keys: () => { if (!needTattoo()) return null; return [null, 'With a keyboard: the arrows move the selected tattoo (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Undo puts any of it back.']; },
@@ -3636,7 +3643,7 @@ async function askApproval() {
   const shown = list.slice(0, 20), k = state.heightCm / 175;
   const ref = makeRef(), title = state.projectName || 'My tattoo plan';
   const items = shown.map((t, i) => {
-    const wIn = t.width * 100 * k / 2.54, hIn = wIn / t.aspect, f = (v) => (v < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toString());
+    const st = shownSize(t), wIn = st.width * 100 * k / 2.54, hIn = wIn / st.aspect, f = (v) => (v < 10 ? (Math.round(v * 10) / 10).toString() : Math.round(v).toString());
     return { n: i + 1, name: t.name || 'Tattoo', size: `${f(wIn)} x ${f(hIn)} in (${Math.round(wIn * 2.54 * 10) / 10} x ${Math.round(hIn * 2.54 * 10) / 10} cm)`, status: 'planned', closeUp: closeUpShot(t), art: artThumb(t) };
   });
   // each tattoo's reference pictures and open comments go with it on the page, so the artist sees the whole brief
@@ -4289,7 +4296,7 @@ function whereOf(t) {
 }
 function hoursOf(t) {
   const st = artStats(t); if (!st) return null;
-  const w = toInches(t.width), h = w / t.aspect;
+  const sh = shownSize(t), w = toInches(sh.width), h = w / sh.aspect;
   return sessionHours({ widthIn: w, heightIn: h, fill: st.fill, colour: st.colour });
 }
 // the whole plan, under a planned tattoo's own guess: every planned piece that shows
@@ -5353,7 +5360,7 @@ function labelsShot() {
   const items = found.map(({ t, box }) => {
     // the name, the size, then where it sits the way an artist measures it
     let at = ''; try { const wh = whereOf(t); at = wh && wh.line ? wh.line.slice(wh.line.indexOf(':') + 1).trim().replace(/\.$/, '') : ''; } catch { at = ''; }
-    const w = toInches(t.width), lines = [t.name || 'Tattoo', sizeLabel(w, w / t.aspect), ...(at ? at.split(/, /).map((l) => l.charAt(0).toUpperCase() + l.slice(1)) : [])];
+    const st = shownSize(t); if (st !== t) markTried('sizesBent'); const w = toInches(st.width), lines = [t.name || 'Tattoo', sizeLabel(w, w / st.aspect), ...(at ? at.split(/, /).map((l) => l.charAt(0).toUpperCase() + l.slice(1)) : [])];
     const widths = lines.map((l, k) => { g.font = k > 1 ? small : k ? plain : bold; return g.measureText(l).width; });
     return { t, box, lines, w: Math.ceil(Math.max(...widths) + pad * 2), h: lh * 2 + sh * (lines.length - 2) + pad * 2 };
   });
@@ -5687,7 +5694,9 @@ function sizesSheet() {
   const t = sel() && !sel().hidden ? sel() : state.tattoos.find((x) => !x.hidden);
   if (!t) return null;
   const k = state.heightCm / 175, toIn = (w) => w * 100 * k / 2.54, fromIn = (i) => i * 2.54 / 100 / k;
-  const nowIn = toIn(t.width), sizes = sizeSteps(nowIn), w0 = t.width;
+  // a bent tattoo reads the width it fills on the skin, and each step scales the tattoo to fill that width
+  const bw = shownSize(t).width / t.width || 1, nowIn = toIn(t.width) * bw, sizes = sizeSteps(nowIn), w0 = t.width;
+  if (bw !== 1) markTried('sizesBent');
   const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, inset = curInset;
   const W = canvas.width, H = canvas.height, side = Math.min(W, H), sx = Math.round((W - side) / 2), sy = Math.round((H - side) / 2);
   const tile = Math.min(side, 900), pad = Math.round(tile * 0.03), lab = Math.round(tile * 0.13), head = Math.round(tile * 0.15);
@@ -5699,11 +5708,11 @@ function sizesSheet() {
     // the same view for all three, framed round the biggest
     focusTattoo(t); const spot = viewSpot(t), tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2)), big = fromIn(Math.max(...sizes));
     goal.tx = spot.pos[0]; goal.ty = spot.pos[1]; goal.tz = spot.pos[2]; goal.roll = 0;
-    goal.r = THREE.MathUtils.clamp((Math.max(big, big / t.aspect) * 1.6 + 0.08) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.4);
+    goal.r = THREE.MathUtils.clamp((Math.max(big, big / shownSize(t).aspect) * 1.6 + 0.08) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 3.4);
     Object.assign(cur, goal); glide = false; applyCam();
     exporting = true;
     sizes.forEach((inch, i) => {
-      t.width = Math.abs(inch - nowIn) < 0.01 ? w0 : fromIn(inch); syncDecals();
+      t.width = Math.abs(inch - nowIn) < 0.01 ? w0 : fromIn(inch) / bw; syncDecals();
       poseView.withPosed(() => renderer.render(scene, camera), posedInk());
       const x = pad + i * (tile + pad), y = head, now = Math.abs(inch - nowIn) < 0.01;
       g.drawImage(canvas, sx, sy, side, side, x, y, tile, tile);
@@ -5864,7 +5873,7 @@ $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-
 $('#cPoses').addEventListener('click', () => { const url = posesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('poses-sheet'); showPreview(url, 'ink-atlas-poses.png', 'As you move'); });
 // the plan as a message: every planned tattoo in a few lines, for a text to the artist
 function planMessageText() {
-  const k = (state.heightCm || 175) / 175, size = (t) => { const w = t.width * 100 * k, h = w / t.aspect; return `${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in (${w.toFixed(0)} × ${h.toFixed(0)} cm)`; };
+  const k = (state.heightCm || 175) / 175, size = (t0) => { const t = shownSize(t0), w = t.width * 100 * k, h = w / t.aspect; return `${(w / 2.54).toFixed(1)} × ${(h / 2.54).toFixed(1)} in (${w.toFixed(0)} × ${h.toFixed(0)} cm)`; };
   const shown = state.tattoos.filter((t) => !t.hidden);
   const planned = shown.filter((t) => t.status !== 'existing').map((t) => {
     const w = whereOf(t), hrs = hoursOf(t), plan = t.sittings && t.sittings.start ? sitPlan(t) : null;
