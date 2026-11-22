@@ -729,7 +729,15 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-22 QA batch 15 (built on batch 14; not live)
+## 2026-11-22 QA batch 16 (built on batch 15; not live)
+
+- A bent tattoo on an arm or leg (Bend and warp): the line under its name saying how far round it goes, and Wrap it round, read the flat file, so a long piece bent to half its width still said it went most of the way round and Wrap it round left it half way round. Both now read the bent box (`shownSize`), and the wrap reading is recomputed when the warp changes. Test t168 (fails on the batch 15 build). New to try: Wrap it round fits a bent tattoo.
+- Close pictures of a bent tattoo (tapping its Layers line again, artist sheet close-up, How it ages, From a distance, If your body changes, Three sizes, As you move) aimed at the flat file's middle and size, so a piece bent off to one side sat off centre and small. They now aim at the bent box (`shotSpot`). Test t169 (fails on the batch 15 build). New to try: Close pictures aim at a bent tattoo.
+- Checked, no change needed: the size and turn handles on a bent tattoo already sit on the bent piece.
+- Two checks made steadier, with no app change: t49 waits for the size handle to follow on the next drawn frame, t9 finishes the save before reloading.
+- Full suite: all pass; t143, t155, t163, t166, t23, t25, t71, t8, t70 failed only under the full parallel load and pass alone.
+
+## 2026-11-22 QA batch 15 (built on batch 14; live Nov 22)
 
 - How covered each area is (Open skin) and Find room's room needed now count a bent tattoo at the area of the box it is bent into (`shownSize` in `inkShares` and `coverList`), and the covered picture redraws when a bend changes (`warpKey` in its key). Before, a piece bent to half its width still counted its whole flat area. Test: t165.
 - Picture with sizes draws the dashed box round where a bent tattoo actually sits (`warpBoxOf` in `labelsShot`), plain or mirrored, instead of round the flat square. Test: t166.
