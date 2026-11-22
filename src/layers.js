@@ -58,9 +58,9 @@ const CSS=`#ink-layers{position:fixed;inset:0;z-index:9000;display:grid;place-it
 // Optional onTransform({ids,scale}) provides true group transforms externally.
 // onSolo(ids|null) is a view-only filter: it must not mutate project state; omit to disable solo.
 // Solo is temporary and its view filter clears on closing or ending solo.
-export function openLayers({getState,change,select,getImages=()=>({}),onTransform,onSolo}) {
+export function openLayers({getState,change,select,getImages=()=>({}),onTransform,onSolo,ticked=[]}) {
   const old=document.querySelector('#ink-layers');if(old)return;
-  const previous=document.activeElement;const selected=new Set();let soloActive=false,closed=false,openMore=null,openGroup=null;
+  const previous=document.activeElement;const selected=new Set((ticked||[]).filter(id=>getState().tattoos.some(t=>t.id===id)));let soloActive=false,closed=false,openMore=null,openGroup=null;
   const host=document.createElement('div');host.id='ink-layers';
   host.innerHTML=`<style>${CSS}</style><section class="modal glass il-panel" role="dialog" aria-modal="true" aria-labelledby="il-title"><header><h2 id="il-title">Layers and groups</h2><button class="btn" type="button" data-act="close">Done</button></header>
 <p class="il-explain">Same order as the Layers panel. Tap a name to edit that tattoo, or tick several to change them together.</p>

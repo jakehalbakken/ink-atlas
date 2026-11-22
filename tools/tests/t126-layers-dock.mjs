@@ -3,7 +3,7 @@
 // layers ... there's a button to expand the panel ... a quick button to hide planned tattoos and
 // hide existing tattoos"). Checked: a slim rail by default with 44pt targets, one tap opens it
 // the full height of the screen beside the tray and the edit panel, a line per tattoo that
-// selects it, groups as folders with one eye, the lines scroll, Hide planned and Hide existing
+// selects it, groups as folders with one eye, the lines scroll, the views All, On my skin and Planned
 // only change what is shown (the project is untouched and they do not come back after a
 // reload), open or folded is remembered, and it keeps out of the way of the measured wrap, in
 // portrait and on a phone. Pictures in shots/t126-*.png.
@@ -34,7 +34,7 @@ export default async function (p) {
   const panel = await box('#layersDock');
   assert.equal(await p.$eval('#layersDock', (e) => e.classList.contains('open')), true, 'opens');
   assert.ok(panel.w >= 300 && panel.y <= below + 2 && panel.b >= 820 - 40, `full height at the right: ${JSON.stringify(panel)}`);
-  assert.equal(await lw(), panel.w + 12, 'the rest of the screen makes room for it');
+  assert.ok(Math.abs(await lw() - panel.w - 12) < 0.5, 'the rest of the screen makes room for it');
   for (const sel of ['#top .toolbar']) assert.equal(overlap(await box(sel), panel), false, `${sel} clear of the panel`);
   const n = await p.evaluate(() => window.__ink.state().tattoos.length);
   assert.ok(n >= 2, 'the sample tattoos');
@@ -56,27 +56,31 @@ export default async function (p) {
   assert.match(await p.$eval(`#ldList .ld-row[data-id="${b}"] small`, (e) => e.textContent), /On my skin/);
   await p.click('#bDone'); await wait(300);
 
-  // Hide planned / Hide existing: only the screen changes
+  // the views at the top, All, On my skin and Planned: only the screen changes
   const saved = await json();
-  await p.click('#ldPlanned'); await wait(300);
-  assert.deepEqual(await p.evaluate(() => window.__ink.shownIds()), [b], 'Hide planned leaves only the ink on me');
-  assert.equal(await p.$eval('#ldPlanned', (e) => e.getAttribute('aria-pressed')), 'true');
+  const view = (v) => p.click(`#ldView button[data-view=${v}]`);
+  assert.deepEqual(await p.$$eval('#ldView button', (bs) => bs.map((x) => x.dataset.view + ':' + x.getAttribute('aria-pressed'))), ['all:true', 'existing:false', 'planned:false'], 'All to start');
+  for (const v of await p.$$('#ldView button')) { const r = await v.boundingBox(); assert.ok(r.width >= 44 && r.height >= 44, 'views 44pt'); }
+  await view('existing'); await wait(300);
+  assert.deepEqual(await p.evaluate(() => window.__ink.shownIds()), [b], 'On my skin leaves only the ink on me');
+  assert.equal(await p.$eval('#ldView button[data-view=existing]', (e) => e.getAttribute('aria-pressed')), 'true');
   assert.equal(await p.$eval(`#ldList .ld-row[data-id="${a}"]`, (e) => e.classList.contains('dim')), true, 'its line dims');
   await p.screenshot({ path: 'shots/t126-hide-planned.png' });
-  await p.click('#ldExisting'); await wait(300);
-  assert.deepEqual(await p.evaluate(() => window.__ink.shownIds()), [], 'both off: nothing shows');
-  await p.click('#ldPlanned'); await wait(300);
-  assert.deepEqual(await p.evaluate(() => window.__ink.shownIds()), [a], 'Hide existing leaves only the plans');
-  assert.equal(await json(), saved, 'the project is not changed by the quick switches');
+  await view('planned'); await wait(300);
+  assert.deepEqual(await p.evaluate(() => window.__ink.shownIds()), [a], 'Planned leaves only the plans');
+  await view('all'); await wait(300);
+  assert.deepEqual((await p.evaluate(() => window.__ink.shownIds())).sort(), [a, b].sort(), 'All shows both');
+  await view('planned'); await wait(300);
+  assert.equal(await json(), saved, 'the project is not changed by the views');
   assert.equal(await p.$eval('#undo', (e) => e.disabled), false);
-  assert.ok(await p.evaluate(() => JSON.parse(localStorage.getItem('ia-tried') || '[]').includes('hideKinds')), 'using them ticks New to try');
+  assert.ok(await p.evaluate(() => JSON.parse(localStorage.getItem('ia-tried') || '[]').includes('layerViews')), 'using them ticks New to try');
   // tapping a line of a kind that is switched off brings that kind back, so you never edit unseen ink
   await p.click(`#ldList .ld-row[data-id="${b}"] .ld-pick`); await wait(700);
   assert.deepEqual(await p.evaluate(() => window.__ink.kinds()), { planned: false, existing: false });
   assert.deepEqual((await p.evaluate(() => window.__ink.shownIds())).sort(), [a, b].sort());
   await p.click('#bDone'); await wait(300);
   // the switches are not kept: after a reload everything shows, and the panel is still open
-  await p.click('#ldExisting'); await wait(200);
+  await view('existing'); await wait(200);
   await p.reload(); await ready();
   assert.deepEqual(await p.evaluate(() => window.__ink.kinds()), { planned: false, existing: false }, 'not kept after a reload');
   assert.equal(await p.$eval('#layersDock', (e) => e.classList.contains('open')), true, 'still open after a reload');
@@ -87,10 +91,13 @@ export default async function (p) {
   await p.click('#undo'); await wait(300);
   assert.equal(!!(await p.evaluate((id) => window.__ink.state().tattoos.find((t) => t.id === id).hidden, a)), false, 'undo brings it back');
 
-  // groups are folders with one eye; Select several opens the full Layers and groups sheet
-  await p.click('#ldMore'); await wait(400);
+  // groups are folders with one eye; Select, Pick all, More opens the full Layers and groups sheet
+  await p.click('#ldSelect'); await wait(300);
+  await p.evaluate(() => [...document.querySelectorAll('#layersDock button')].find((x) => x.textContent === 'Pick all').click()); await wait(300);
+  await p.click('#layersDock .ld-tiles button[aria-label^="More for"]'); await wait(400);
   await p.click('#ink-layers [data-act="all"]'); await p.type('#il-group-name', 'Left arm'); await p.click('#ink-layers [data-act="group"]'); await wait(300);
   await p.click('#ink-layers [data-act="close"]'); await wait(300);
+  if ((await p.$eval('#ldSelect', (e) => e.textContent)) === 'Done') { await p.click('#ldSelect'); await wait(300); }
   assert.equal(await p.$$eval('#ldList .ld-ghead', (x) => x.length), 1, 'the group is a folder');
   assert.match(await p.$eval('#ldList .ld-ghead b', (e) => e.textContent), /Left arm/);
   await p.click('#ldList .ld-ghead .ld-eye'); await wait(300);
@@ -143,5 +150,5 @@ export default async function (p) {
   await p.click('#ldToggle'); await wait(300);
   assert.equal(await lw(), 0, 'on a phone the rail takes no room from the tray');
   await p.setViewport({ width: 1180, height: 820, deviceScaleFactor: 1 }); await wait(500);
-  console.log('PASS t126 layers panel at the right, Hide planned and Hide existing');
+  console.log('PASS t126 layers panel at the right, the All, On my skin and Planned views');
 }

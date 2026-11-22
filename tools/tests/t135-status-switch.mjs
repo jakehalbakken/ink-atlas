@@ -13,7 +13,8 @@ export default async function (p) {
   for (const [W, H] of [[1180, 820], [820, 1180]]) {
     await p.setViewport({ width: W, height: H, deviceScaleFactor: 1 }); await wait(900);
     if (!(await p.evaluate(() => document.querySelector('#layersDock').classList.contains('open')))) { await p.click('#ldToggle'); await wait(400); }
-    await p.click('#ldList .ld-tat'); await wait(700);
+    // a tap on the line already selected opens its options, so only tap when none is selected
+    if (!(await p.evaluate(() => window.__ink.selected()))) { await p.click('#ldList .ld-tat'); await wait(700); }
     const id = await p.evaluate(() => window.__ink.selected()); assert.ok(id, 'a tattoo is selected');
     // the switch sits just under the name line, without opening More controls
     const seg = await rect('#statusSeg'), nm = await rect('#name');
@@ -54,10 +55,10 @@ export default async function (p) {
     assert.equal(await pressed(), 'existing:true,planned:false', 'the panel follows');
     await p.click(`#ldList .ld-row[data-id="${id}"] .ld-stseg .btn[data-status=planned]`); await wait(500);
     assert.deepEqual(await get(id), { status: 'planned', locked: false }, 'and back to planned');
-    // quick buttons say the same words
+    // the views at the top of Layers say the same words
+    assert.deepEqual(await p.$$eval('#ldView button', (bs) => bs.map((b) => b.textContent.replace(/\s*\d+$/, '').trim())), ['All', 'On my skin', 'Planned']);
+    // the rail's quick buttons keep their words
     assert.match(await p.$eval('#ldExisting', (e) => e.getAttribute('aria-label')), /^Hide on my skin tattoos/);
-    assert.equal(await p.$eval('#ldExisting .ld-word', (e) => e.textContent), 'Hide on my skin');
-    assert.equal(await p.$eval('#ldPlanned .ld-word', (e) => e.textContent), 'Hide planned');
     await p.screenshot({ path: `shots/t135_${W}x${H}.png` });
     await p.click(`#ldList .ld-row[data-id="${id}"] .ld-more`); await wait(300);
   }

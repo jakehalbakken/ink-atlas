@@ -27,6 +27,7 @@ import { emailCodes } from './cloud.js';
 import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
 import { createLayersDock, kindShown, WIDE as LD_WIDE } from './layers-dock.js';
+import { duplicateTattoo, mergePlan, applyMerge, affineFor, grow, inkFromDarkening, doubled, darkBox, moveLine } from './layer-ops.js';
 import { createInkLook } from './ink-look-panel.js';
 import { warpOf, warpKey, warpBounds, renderWarp, warpCanvasSize, identityWarp, hasWarp, describeWarp, reframeWarp } from './ink-warp.js';
 import { createWarpPanel } from './warp-panel.js';
@@ -85,6 +86,7 @@ import { scanRead, scanWrite, shapeOf } from './scan-store.js';
 import { mul3, turnY, scanHeightInches } from './scan-fit.js';
 import { limbAxis, limbPlace, limbPoint, LimbDrag, rotFor, rotRound, shareRound, wrapAngle as wrapA } from './wrap-drag.js';
 import { scanDevice } from './device-scan.js';
+import { createMultiTap } from './multi-tap.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
 const newSeen = readSeen();
 // Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
@@ -1176,7 +1178,8 @@ canvas.addEventListener('pointerdown', (e) => {
     // moved yet and the second one lands on the selected tattoo, it is a resize/turn of it.
     if (gest.mode === 'cam' && !gest.moved && performance.now() - gest.t0 < 350 && onSelectedInk(e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 10)) gest.mode = 'ink';
     gest.moved = true; gest.hadTwo = true; handsOn(true); gest.intent = null; gest.pd = s.d; gest.pa = s.ang; gest.pcx = s.cx; gest.pcy = s.cy;
-    const t = sel(); if (gest.mode === 'ink' && t) { gest.w0 = t.width; gest.r0 = t.rot; gest.d0 = s.d; gest.a0 = s.ang; if (!gest.snap) { snapshot(); gest.snap = true; } }
+    // the undo step waits for the fingers to move, so a two-finger tap (undo) leaves nothing behind
+    const t = sel(); if (gest.mode === 'ink' && t) { gest.w0 = t.width; gest.r0 = t.rot; gest.d0 = s.d; gest.a0 = s.ang; }
   }
 });
 canvas.addEventListener('pointermove', (e) => {
@@ -1208,7 +1211,8 @@ canvas.addEventListener('pointermove', (e) => {
     const delta=(gest.intent||=twoFingerIntent()).step(raw);
     if (gest.mode === 'self') selfPinch(delta.zoomRatio);
     else if (gest.mode === 'ink' && sel()) {
-      const t = sel(); t.width = THREE.MathUtils.clamp(gest.w0 * (s.d / gest.d0), 0.012, 0.9);
+      const t = sel(); if (!gest.snap) { if (Math.abs(s.d - gest.d0) < 4 && Math.abs(s.ang - gest.a0) < 0.03) { gest.pd = s.d; gest.pa = s.ang; gest.pcx = s.cx; gest.pcy = s.cy; return; } snapshot(); gest.snap = true; }
+      t.width = THREE.MathUtils.clamp(gest.w0 * (s.d / gest.d0), 0.012, 0.9);
       let da = s.ang - gest.a0; da = Math.atan2(Math.sin(da), Math.cos(da)); t.rot = gest.r0 - da; inkDirty = true;
     } else if (viewLocked) lockNote();
     else {
@@ -1247,6 +1251,16 @@ function endPointer(e) {
   if (!g.moved && performance.now() - g.t0 < 450 && e.type === 'pointerup') tap(e.clientX, e.clientY);
 }
 canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
+// Procreate's quick undo: two fingers tapped together undo, three redo, two held still keep undoing.
+// It reads the same touches as the gestures above without changing them; a pinch or pan never counts.
+const fingerTaps = createMultiTap({
+  onUndo: (held) => { if (held) cancelGesture(); if (!undoStack.length) { if (!held) toast('Nothing to undo.'); return; } undo(); markTried('tapUndo'); },
+  onRedo: () => { if (!redoStack.length) { toast('Nothing to redo.'); return; } redo(); markTried('tapUndo'); },
+});
+canvas.addEventListener('pointerdown', (e) => fingerTaps.down(e));
+canvas.addEventListener('pointermove', (e) => fingerTaps.move(e));
+canvas.addEventListener('pointerup', (e) => fingerTaps.up(e));
+canvas.addEventListener('pointercancel', (e) => fingerTaps.up(e, true));
 canvas.addEventListener('lostpointercapture', (e) => { if (pts.has(e.pointerId)) cancelGesture(); });
 window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
@@ -2103,6 +2117,125 @@ async function trimSelectedToInk() {
   toast(`Trimmed to the ink: ${s.w.toFixed(1)} × ${s.h.toFixed(1)} in. Original kept.${revision.skippedIds.length ? ' Locked copies unchanged.' : ''}`, 'Undo', undo);
 }
 $('#bTrimInk').addEventListener('click', () => trimSelectedToInk().catch((e) => toast('Could not trim the picture: ' + e.message)));
+/* ---------- Layers like Procreate's: duplicate, delete and merge from the Layers panel (src/layer-ops.js) ---------- */
+// Duplicate one tattoo or several picked ones: exact copies in the same places, one undo step
+function duplicateLayer(id) {
+  const ids = (Array.isArray(id) ? id : [id]).filter((x) => state.tattoos.some((t) => t.id === x)); if (!ids.length || commentOnly) return null;
+  const first = state.tattoos.find((x) => x.id === ids[0]);
+  snapshot(); let c = null; const made = [];
+  for (const x of ids) { const d = duplicateTattoo(state, x, uid()); if (!d) continue; made.push(d); if (decalWasSleeve.has(x)) decalWasSleeve.set(d.id, decalWasSleeve.get(x)); }
+  c = made[0]; if (made.length === 1) selectedId = c.id; commit(); markTried(ids.length > 1 ? 'layerSelect' : 'layerSwipe');
+  toast(made.length === 1 ? `Duplicated ${first.name || 'the tattoo'} in the same place.` : `Duplicated ${made.length} tattoos in the same places.`, 'Undo', undo); return c;
+}
+function removeLayers(ids) {
+  if (commentOnly) return; const gone = new Set(ids), list = state.tattoos.filter((t) => gone.has(t.id)); if (!list.length) return;
+  snapshot(); state.tattoos = state.tattoos.filter((t) => !gone.has(t.id)); if (gone.has(selectedId)) selectedId = null; commit();
+  toast(list.length === 1 ? `Removed ${list[0].name || 'the tattoo'}` : `Removed ${list.length} tattoos`, 'Undo', undo);
+}
+// Merge: every picked tattoo is flattened into one picture laid on the skin where the lowest of them is,
+// exactly as they look now (bends, warps, blend modes, colour changes, strength, mirror), one undo step.
+let merging = false;
+async function mergeLayers(ids) {
+  if (commentOnly || merging) return false;
+  const plan = mergePlan(state, ids); if (!plan.ok) { toast(plan.why); return false; }
+  const list = plan.ids.map((id) => state.tattoos.find((t) => t.id === id));
+  for (const t of list) if (!imgEls[t.img] && !await loadImg(t.img)) { toast(`The picture for ${t.name || 'a tattoo'} is not on this device, so nothing was merged.`); return false; }
+  merging = true;
+  try {
+    const sig = () => JSON.stringify(plan.ids.map((id) => { const t = state.tattoos.find((x) => x.id === id); return t ? [t.img, t.pos, t.width, t.rot, t.warp || 0, t.blend || 0, t.adjust || 0] : 0; }));
+    const was = sig(), target = state.tattoos.find((t) => t.id === plan.target);
+    const out = flattenOnSkin(plan.ids.map((id) => state.tattoos.find((t) => t.id === id)), target);
+    if (!out) { toast('There is no ink in those tattoos to merge.'); return false; }
+    if (out.missed) { toast('Those tattoos are too far apart on the body to become one piece. Nothing was merged.'); return false; }
+    const key = uid(); images[key] = out.url;
+    if (!await loadImg(key)) { delete images[key]; toast('The merged picture could not be made. Nothing changed.'); return false; }
+    if (sig() !== was) { delete images[key]; toast('Something changed while merging. Nothing was merged, try again.'); return false; }
+    snapshot();
+    const t0 = state.tattoos.find((t) => t.id === plan.target), r = structuredClone(t0);
+    Object.assign(r, { img: key, aspect: out.aspect, imageTopDown: true, flip: false, opacity: 1, pos: out.pos, normal: out.normal, rot: out.rot, width: out.width });
+    for (const k of ['blend', 'adjust', 'warp', 'bend', 'taper', 'wrap', 'fromLayer', 'review']) delete r[k];
+    r.hidden = list.every((t) => t.hidden);
+    if (plan.existing) { r.status = 'existing'; r.locked = true; }
+    state.artworks ||= {}; r.artworkId = uid(); state.artworks[r.artworkId] = { source: key, output: key, name: r.name || 'Tattoo' };
+    keepVersion(t0, r); applyMerge(state, plan.ids, plan.target, r); decalWasSleeve.delete(r.id);
+    selectedId = r.id; commit(); markTried('layerMerge');
+    toast(`Merged ${list.length} tattoos into ${r.name || 'one'}.`, 'Undo', undo); return true;
+  } catch (e) { toast('Could not merge them: ' + e.message); return false; } finally { merging = false; }
+}
+// The picked tattoos drawn onto one new picture on the skin, through each body triangle they cover:
+// a first small pass finds where the ink is, a second lays a picture just round it at the sources' detail.
+function flattenOnSkin(list, target) {
+  const saveAge = agingYears, savePeek = peek, own = []; agingYears = 0; peek = null;
+  const m = UV_MARGIN, span = 1 - 2 * m;
+  try {
+    syncDecals();
+    const srcs = list.map((t) => {
+      const tex = inkTexture(t); own.push(tex); const d = decals[t.id], geo = d && d.mesh.geometry.attributes.position ? d.mesh.geometry : decalGeometry(t); if (geo !== (d && d.mesh.geometry)) own.push(geo);
+      let cv = tex.image; if (tex.userData.lift) { const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height; const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(cv, 0, 0); const px = g.getImageData(0, 0, c.width, c.height); doubled(px.data); g.putImageData(px, 0, 0); cv = c; }
+      const sw = 96, sh = Math.max(8, Math.round(sw * cv.height / cv.width)), sc = document.createElement('canvas'); sc.width = sw; sc.height = sh; const sg = sc.getContext('2d', { willReadFrequently: true }); sg.drawImage(cv, 0, 0, sw, sh);
+      const sp = sg.getImageData(0, 0, sw, sh).data, flipY = tex.flipY;
+      const inkAt = (u, v) => { const x = Math.min(sw - 1, Math.max(0, Math.floor(u * sw))), y = Math.min(sh - 1, Math.max(0, Math.floor((flipY ? 1 - v : v) * sh))), o = (y * sw + x) * 4; return 255 - Math.min(sp[o], sp[o + 1], sp[o + 2]) > 12; };
+      return { t, tex, geo, canvas: cv, inkAt, ppu: cv.width * span / Math.max(1e-4, t.width) };
+    });
+    let R = 0; const O = target.pos;
+    for (const s of srcs) { const P = s.geo.attributes.position.array, U = s.geo.attributes.uv.array; for (let i = 0; i < P.length / 3; i++) { const u = U[i * 2], v = U[i * 2 + 1]; if (u < m || u > 1 - m || v < m || v > 1 - m) continue; R = Math.max(R, Math.hypot(P[i * 3] - O[0], P[i * 3 + 1] - O[1], P[i * 3 + 2] - O[2])); } }
+    const rot = target.rot || 0, probe = { pos: target.pos, normal: target.normal, rot, width: Math.min(0.9, 2.3 * R + 0.02), aspect: 1 };
+    let res = rasterInto(srcs, probe, 384, 384), box = darkBox(res.px, 384, 384); if (!box) return null;
+    const flatAt = (c, px, py, W, H) => [((px / W - m) / span - 0.5) * c.width, (0.5 - (py / H - m) / span) * c.width / c.aspect];
+    const [x0, y0] = flatAt(probe, box.x, box.y, 384, 384), [x1, y1] = flatAt(probe, box.x + box.w, box.y + box.h, 384, 384);
+    const mid = { pos: target.pos, normal: target.normal, rot }; slideOnSkin(mid, (x0 + x1) / 2, (y0 + y1) / 2);
+    let wC = Math.abs(x1 - x0) * 1.12 + 0.008, hC = Math.abs(y0 - y1) * 1.12 + 0.008, c = null, W = 0, H = 0;
+    const ppu = Math.max(...srcs.map((s) => s.ppu));
+    for (let tries = 0; tries < 3; tries++) {
+      c = { pos: mid.pos, normal: mid.normal, rot, width: Math.min(0.9, wC), aspect: wC / hC };
+      let aw = c.width * ppu, ah = aw / c.aspect; const k = Math.min(1, 1600 / Math.max(aw, ah)); aw *= k; ah *= k;
+      W = Math.max(64, Math.round(aw / span)); H = Math.max(64, Math.round(ah / span));
+      res = rasterInto(srcs, c, W, H); box = darkBox(res.px, W, H); if (!box) return null;
+      const mx = m * W + 2, my = m * H + 2, edge = box.x <= mx || box.y <= my || box.x + box.w >= W - mx || box.y + box.h >= H - my;
+      if ((!edge && !res.missed) || tries === 2 || c.width >= 0.9) break;
+      wC *= 1.35; hC *= 1.35;
+    }
+    // the art is the part of the picture inside the margin, turned back from darkening into ink
+    const ix = Math.round(m * W), iy = Math.round(m * H), iw = W - 2 * ix, ih = H - 2 * iy;
+    const art = document.createElement('canvas'); art.width = iw; art.height = ih; const ag = art.getContext('2d', { willReadFrequently: true });
+    ag.drawImage(res.canvas, ix, iy, iw, ih, 0, 0, iw, ih); const px = ag.getImageData(0, 0, iw, ih); inkFromDarkening(px.data); ag.putImageData(px, 0, 0);
+    const b = inkBounds(px.data, iw, ih); if (!b) return null;
+    const out = document.createElement('canvas'); out.width = b.w; out.height = b.h; out.getContext('2d').drawImage(art, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+    const before = { ...c, aspect: iw / ih, flip: false, imageTopDown: true }, q = { ...before, aspect: b.w / b.h };
+    keepInkInPlace(q, before, { widthScale: b.w / iw, shift: { x: (b.x + b.w / 2 - iw / 2) / iw, y: (b.y + b.h / 2 - ih / 2) / ih } });
+    const url = out.toDataURL('image/png'); res.canvas.width = res.canvas.height = art.width = art.height = out.width = out.height = 0;
+    return { url, aspect: b.w / b.h, pos: q.pos, normal: q.normal, rot: q.rot, width: q.width, missed: res.missed };
+  } finally { agingYears = saveAge; peek = savePeek; for (const x of own) x.dispose(); syncDecals(); }
+}
+// Every source triangle copied, through the body triangle it sits on, into a new decal's picture:
+// each source on white by itself, then multiplied on, the way the body itself darkens the skin.
+function rasterInto(srcs, c, W, H) {
+  const geo = decalGeometry({ id: null, pos: c.pos, normal: c.normal, rot: c.rot, width: c.width, aspect: c.aspect });
+  const CU = geo.attributes.uv.array, CS = geo.userData.supports, CT = geo.userData.tris, at = new Map();
+  for (let k = 0; k < CT.length; k++) { const a = at.get(CT[k]); if (a) a.push(k); else at.set(CT[k], [k]); }
+  const acc = document.createElement('canvas'); acc.width = W; acc.height = H; const g = acc.getContext('2d', { willReadFrequently: true }); g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H; const tg = tmp.getContext('2d');
+  let missed = 0;
+  for (const s of srcs) {
+    tg.setTransform(1, 0, 0, 1, 0, 0); tg.fillStyle = '#fff'; tg.fillRect(0, 0, W, H);
+    const SU = s.geo.attributes.uv.array, SS = s.geo.userData.supports, ST = s.geo.userData.tris, img = s.canvas, iw = img.width, ih = img.height, fy = s.tex.flipY;
+    for (let k = 0; k < ST.length; k++) {
+      const mine = at.get(ST[k]), uvs = [0, 1, 2].map((i) => [SU[k * 6 + i * 2], SU[k * 6 + i * 2 + 1]]);
+      if (!mine) { if (uvs.some(([u, v]) => u > UV_MARGIN && u < 1 - UV_MARGIN && v > UV_MARGIN && v < 1 - UV_MARGIN && s.inkAt(u, v))) missed++; continue; }
+      const sp = uvs.map(([u, v]) => [u * iw, (fy ? 1 - v : v) * ih]);
+      for (const j of mine) {
+        const dp = [0, 1, 2].map((i) => { const vi = SS[k * 3 + i]; let r = i; for (let q = 0; q < 3; q++) if (CS[j * 3 + q] === vi) r = q; return [CU[j * 6 + r * 2] * W, CU[j * 6 + r * 2 + 1] * H]; });
+        if (Math.max(...dp.map((p) => p[0])) < 0 || Math.min(...dp.map((p) => p[0])) > W || Math.max(...dp.map((p) => p[1])) < 0 || Math.min(...dp.map((p) => p[1])) > H) continue;
+        const A = affineFor(sp, dp); if (!A) continue; const gp = grow(dp, 0.75);
+        tg.save(); tg.beginPath(); tg.moveTo(gp[0][0], gp[0][1]); tg.lineTo(gp[1][0], gp[1][1]); tg.lineTo(gp[2][0], gp[2][1]); tg.closePath(); tg.clip();
+        tg.setTransform(A[0], A[1], A[2], A[3], A[4], A[5]); tg.drawImage(img, 0, 0); tg.restore();
+      }
+    }
+    g.globalCompositeOperation = 'multiply'; g.drawImage(tmp, 0, 0); g.globalCompositeOperation = 'source-over';
+  }
+  geo.dispose(); tmp.width = tmp.height = 0;
+  return { canvas: acc, px: g.getImageData(0, 0, W, H).data, missed };
+}
 /* ---------- edit in Procreate and bring it back to the same tattoo ---------- */
 function editInProcreate() {
   markTried('edit-procreate');
@@ -2953,7 +3086,13 @@ const SHOW = {
   trimInk: () => { const t = needTattoo(); if (!t) return null; return !$('#trimRow').hidden ? ['#bTrimInk', 'This picture has empty space round its ink, so its size reads bigger than the tattoo. Trim to the ink cuts the picture to the ink and keeps the ink where it is.'] : ['#bCleanup', 'Clean up trims the empty space round the ink when you tap Done, so the size you see is the size of the ink.']; },
   layersReveal: () => { layersDock.setOpen(true, true); return ['#ldList', 'Tap a tattoo on the body and Layers opens at its line, with its group unfolded.']; },
   layersDock: () => { layersDock.setOpen(true, true); return ['#layersDock', 'This is the Layers panel. Tap a line to work on that tattoo, the eye to hide it, and the arrow at the top to fold the panel to a slim rail.']; },
-  hideKinds: () => { layersDock.setOpen(true, true); return ['#ldKinds', 'Tap Hide planned to see only the ink already on you, or Hide on my skin to see only your plans. Tap again to bring them back. Nothing in the project changes.']; },
+  layerSwipe: () => { layersDock.setOpen(true, true); return ['#ldList', 'Swipe a line left for Lock, Duplicate and Delete. Swipe it right to pick it, and pick more to merge or group them. Tap the selected line for its options.']; },
+  layerMerge: () => { layersDock.setOpen(true, true); return ['#ldList', state.tattoos.length < 2 ? 'Add a second tattoo first. Then pinch two lines together here to merge them into one.' : 'Put two fingers on two lines and pinch them together to merge them into one tattoo.']; },
+  layerReorder: () => { layersDock.setOpen(true, true); return ['#ldList', 'Press and hold a line until it lifts, then drag it to a new place.']; },
+  hideKinds: () => { layersDock.setOpen(true, true); return ['#ldView', 'Tap On my skin to see only the ink already on you, Planned to see only your plans, or All for everything. Nothing in the project changes.']; },
+  layerViews: () => { layersDock.setOpen(true, true); return ['#ldView', 'All shows every tattoo, On my skin only the ink already on you, Planned only your plans. Only this screen changes.']; },
+  layerSelect: () => { layersDock.setOpen(true, true); return ['#ldSelect', 'Tap Select, then tap lines to pick them. The bar at the top hides, duplicates, groups, locks, merges or deletes them all at once.']; },
+  tapUndo: () => ['#undo', 'Tap the body with two fingers to undo, or three fingers to redo. Hold two fingers still to keep undoing.'],
   layersSheet: () => { toggle('#planMenu', true); return ['#openLayers', 'Tap Layers and groups. Each tattoo is one line with an eye to hide it and dots to move or lock it; tick several and the actions for them show below.']; },
   layouts: () => { toggle('#planMenu', true); return ['#openPlanning', 'Tap Layouts and views. Name the layout on the body and tap Save; each saved one has Open, and the dots beside it hold Rename, What’s different and Archive.']; },
   measuredWrap: () => { toggle('#planMenu', true); return ['#openWrap', 'Tap Measured wrap. Your ankle numbers are filled in to start; change any of them there.']; },
@@ -5202,7 +5341,7 @@ $('#openPlacement').addEventListener('click',oneAtATime(async()=>{
   snapshot();for(const t of plan.updates)Object.assign(state.tattoos.find(x=>x.id===t.id),t);state.tattoos.push(...plan.additions);commit();toast('Placement applied.','Undo',undo);
  }});}catch(e){toast('Placement tools: '+e.message);}
 }));
-function openLayersSheet(){toggle('#planMenu',false);markTried('layersSheet');openLayers({getState:()=>state,onTransform:transformSelection,getImages:()=>images,onSolo:ids=>{soloIds=ids?new Set(ids):null;syncDecals();},select:id=>select(id,true),change:fn=>{snapshot();fn(state);commit();}});}
+function openLayersSheet(ticked){toggle('#planMenu',false);markTried('layersSheet');openLayers({ticked:Array.isArray(ticked)?ticked:[],getState:()=>state,onTransform:transformSelection,getImages:()=>images,onSolo:ids=>{soloIds=ids?new Set(ids):null;syncDecals();},select:id=>select(id,true),change:fn=>{snapshot();fn(state);commit();}});}
 $('#openLayers').addEventListener('click',openLayersSheet);
 // The Layers panel at the right: folded to a slim rail or open the full height of the screen
 layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:()=>selectedId,kinds:kindOff,
@@ -5210,6 +5349,12 @@ layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:
   adds:[$('#add'),$('#drawNew')],badges:t=>tatBadges(t),sheetShown:()=>!$('#sheet').hidden,
   change:fn=>{snapshot();fn(state);commit();},openSheet:openLayersSheet,onPaint:()=>openPaintPop(),openLook:id=>openInkLook(id),
   onStatus:()=>markTried('statusSwitch'),
+  duplicate:id=>duplicateLayer(id),remove:ids=>removeLayers(ids),merge:ids=>mergeLayers(ids),
+  rename:(id,name)=>{const t=state.tattoos.find(x=>x.id===id);if(!t||commentOnly)return;snapshot();t.name=name.slice(0,60);commit();},
+  move:(id,where)=>{if(commentOnly)return;const probe={groups:state.groups,tattoos:state.tattoos.map(t=>({id:t.id,group:t.group}))};if(!moveLine(structuredClone(probe),id,where))return;snapshot();moveLine(state,id,where);commit();markTried('layerReorder');},
+  zoom:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id!==selectedId)select(t.id,true);else if(!viewLocked)focusTattoo(t);},
+  onSwipe:()=>markTried('layerSwipe'),onPick:(n,mode)=>{if(mode)markTried('layerSelect');else if(n)markTried('layerSwipe');},onGroup:on=>{markTried('layerSelect');toast(on===false?'Taken out of the group.':'Grouped. The group shows as a folder at the top of Layers.');},
+  onView:v=>{markTried('layerViews');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}},
   onKinds:kind=>{markTried('hideKinds');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}const n=state.tattoos.filter(x=>(x.status==='existing'?'existing':'planned')===kind).length;if(n)toast(kindOff[kind]?`${kind==='existing'?'Existing':'Planned'} tattoos hidden on this screen. Tap again to bring them back.`:`${kind==='existing'?'Existing':'Planned'} tattoos showing again.`,null,null,3200);},
   onOpen:open=>{if(open)markTried('layersDock');},
   onLayout:()=>{placeChrome();needsRender=true;}});

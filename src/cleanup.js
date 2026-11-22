@@ -1,5 +1,6 @@
 // Local-only artwork editor. The caller retains the untouched source artwork.
 import { dabCoverage, strokeCoverage, compositeBrush, blurRGBA, wandMask, growSimilar, selectSimilar, refineMask, borderColor, removeBackground, brightnessContrast, levels, curveLut, threshold, sharpen, blur, applyMasked, histogram, autoLevels } from './cleanup-tools.js';
+import { createMultiTap } from './multi-tap.js';
 import { rectMask, lassoMask, pieceMask, combineMasks, invertMask, isEmptyMask, maskBounds, inkBounds, identityFor, pieceToLocal, growPads, snapStraight, snapTurn, twoFingerTransform, moveWords } from './cleanup-select.js';
 // No image leaves the device. All edits remain a draft until Apply.
 export function removeLightPixels(data, threshold = 235) {
@@ -973,6 +974,12 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     };
     stage.addEventListener('pointerup', e => endPointer(e, false));
     stage.addEventListener('pointercancel', e => endPointer(e, true));
+    // Procreate's quick undo here too: two fingers tapped undo, three redo, two held keep undoing
+    const fingerTaps = createMultiTap({ onUndo: (held) => { if (held) takeBackStroke(); if (history.length) act('undo'); }, onRedo: () => { if (future.length) act('redo'); } });
+    stage.addEventListener('pointerdown', e => { if (!e.target.closest('.ic-view') && !cutting && !settled) fingerTaps.down(e); });
+    stage.addEventListener('pointermove', e => fingerTaps.move(e));
+    stage.addEventListener('pointerup', e => fingerTaps.up(e));
+    stage.addEventListener('pointercancel', e => fingerTaps.up(e, true));
     stage.addEventListener('lostpointercapture', e => { if (stroke && e.pointerId === stroke.id && !pts.has(e.pointerId) && stroke.kind !== 'xform2') cancelStroke(); });
     stage.addEventListener('pointerleave', e => { if (!stroke) showRing(e, false); });
     stage.addEventListener('wheel', e => {
