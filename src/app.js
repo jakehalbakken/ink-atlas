@@ -1697,7 +1697,7 @@ $('#bOtherSide').addEventListener('click', () => {
   delete c.fromLayer; delete c.review;
   if (c.status === 'existing') { c.status = 'planned'; delete c.made; markTried('otherSidePlan'); }
   if (!/\((left|right)\)$/i.test(t.name)) t.name = `${base} (${sideName(t.pos[0])})`.slice(0, 40);
-  state.tattoos.push(c); selectedId = c.id; commit();
+  underIt(t, c); selectedId = c.id; commit();
   toast('Copied to the other side.', 'Undo', undo);
 });
 // Real size on screen: the artwork at its true size, to hold the iPad against your skin. The
@@ -1998,6 +1998,9 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && try
 // Where Duplicate puts the copy: beside the original on the same skin, to its right, then left,
 // above or below, nearer if need be. A straight ray from just past the side of an arm or leg used to
 // miss the limb, so the copy landed exactly on top of the original and nothing seemed to happen.
+// A copy goes into the list right under the tattoo it came from, as Layers' own Duplicate does,
+// not to the bottom of the list where it is hard to find among many layers.
+function underIt(t, c) { const i = state.tattoos.indexOf(t); state.tattoos.splice(i < 0 ? state.tattoos.length : i + 1, 0, c); markTried('copyUnder'); }
 function besideOnSkin(t) {
   const f = frameOf(t), o = new V3(...t.pos), w = t.width, hgt = t.width / (t.aspect || 1);
   for (const k of [0.6, 0.4, 0.25]) for (const [d, size] of [[f.right, w], [f.right.clone().negate(), w], [f.up, hgt], [f.up.clone().negate(), hgt]]) {
@@ -2010,7 +2013,7 @@ $('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; sn
   // a new piece beside the original: its own approval and its own layer for Procreate's bring back
   // (so a changed layer never takes it away), and a copy of ink already on you is a plan you can move
   delete c.review; delete c.fromLayer; if (c.status === 'existing') { c.status = 'planned'; delete c.made; markTried('dupPlan'); }
-  state.tattoos.push(c); selectedId = c.id; commit(); });
+  underIt(t, c); selectedId = c.id; commit(); });
 // Remove always works, locked or already on me too: it is one undo step, and nothing on the body should be stuck
 $('#bDelTop').addEventListener('click', () => $('#bDel').click());
 $('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
