@@ -27,7 +27,7 @@ import { emailCodes } from './cloud.js';
 import { openPlanning } from './planning.js';
 import { openLayers } from './layers.js';
 import { createLayersDock, kindShown, WIDE as LD_WIDE } from './layers-dock.js';
-import { duplicateTattoo, mergePlan, applyMerge, affineFor, grow, inkFromDarkening, doubled, darkBox, moveLine } from './layer-ops.js';
+import { duplicateTattoo, copyName, mergePlan, applyMerge, affineFor, grow, inkFromDarkening, doubled, darkBox, moveLine } from './layer-ops.js';
 import { createInkLook } from './ink-look-panel.js';
 import { warpOf, warpKey, warpBounds, renderWarp, warpCanvasSize, identityWarp, hasWarp, describeWarp, reframeWarp } from './ink-warp.js';
 import { createWarpPanel } from './warp-panel.js';
@@ -1995,7 +1995,22 @@ $('#rToCurve').addEventListener('input', () => { tryOn.curve = +$('#rToCurve').v
 }
 addEventListener('resize', () => { if (!$('#tryOn').hidden) toPlace(); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && tryOn.stream) toStopCamera(); else if (!document.hidden && !$('#tryOn').hidden && !tryOn.frozen) toStartCamera(); });
-$('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); const f = frameOf(t); const p = new V3(...t.pos).addScaledVector(f.right, t.width * 0.6).addScaledVector(f.n, 0.2); const h = surfaceAt(p, f.n.clone().negate()); const c = { ...t, id: uid(), name: t.name + ' copy', locked: false, pos: h ? h.pos : t.pos, normal: h ? h.normal : t.normal }; state.tattoos.push(c); selectedId = c.id; commit(); });
+// Where Duplicate puts the copy: beside the original on the same skin, to its right, then left,
+// above or below, nearer if need be. A straight ray from just past the side of an arm or leg used to
+// miss the limb, so the copy landed exactly on top of the original and nothing seemed to happen.
+function besideOnSkin(t) {
+  const f = frameOf(t), o = new V3(...t.pos), w = t.width, hgt = t.width / (t.aspect || 1);
+  for (const k of [0.6, 0.4, 0.25]) for (const [d, size] of [[f.right, w], [f.right.clone().negate(), w], [f.up, hgt], [f.up.clone().negate(), hgt]]) {
+    const target = o.clone().addScaledVector(d, size * k), hit = surfaceAt(target.clone().addScaledVector(f.n, 0.05), f.n.clone().negate());
+    if (hit && new V3(...hit.normal).dot(f.n) > 0.5 && new V3(...hit.pos).distanceTo(target) < size * k * 0.5 + 0.01 && new V3(...hit.pos).distanceTo(o) > size * k * 0.5) return hit;
+  }
+  return null;
+}
+$('#bDup').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); const h = besideOnSkin(t); const c = { ...structuredClone(t), id: uid(), name: copyName(state, t.name || 'Tattoo'), locked: false, pos: h ? h.pos : [...t.pos], normal: h ? h.normal : [...t.normal] };
+  // a new piece beside the original: its own approval and its own layer for Procreate's bring back
+  // (so a changed layer never takes it away), and a copy of ink already on you is a plan you can move
+  delete c.review; delete c.fromLayer; if (c.status === 'existing') { c.status = 'planned'; delete c.made; markTried('dupPlan'); }
+  state.tattoos.push(c); selectedId = c.id; commit(); });
 // Remove always works, locked or already on me too: it is one undo step, and nothing on the body should be stuck
 $('#bDelTop').addEventListener('click', () => $('#bDel').click());
 $('#bDel').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); state.tattoos = state.tattoos.filter((x) => x.id !== t.id); selectedId = null; commit(); toast(`Removed ${t.name}`, 'Undo', undo); });
@@ -3245,6 +3260,7 @@ const SHOW = {
   layers3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dLayers', 'Send the 3D body with each tattoo separate. In Procreate, open Layers: Skin and each tattoo are their own groups to paint on.']; },
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
+  duplicate: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bDup', 'Duplicate puts a copy beside it to move and size.']; },
   spotCompare: () => { const t = needTattoo(); if (!t) return null; if ($('#spotPop').hidden) $('#bSpots').click(); return ['#spotChoices [data-spot="forearm-front"]', 'Each spot says how much it usually hurts, the lightest clothes that hide this tattoo there, and on an arm or leg whether it fits at this size. Tap one to move it.']; },
   spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
