@@ -729,11 +729,11 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-23 QA batch 17 (built on the Procreate-style Layers; not live)
+## 2026-11-23 QA batch 17 (live 2026-11-23)
 
 Re-tested the new Layers (swipe, merge pinch, pick several, views, two and three finger undo and redo) by real touch at both iPad orientations. Its own checks (t156, t157, t126, layer-ops-unit, multi-tap-unit) pass. Three fixes:
 
-- A two-finger tap (undo) with one finger on the selected tattoo's size or turn handle undid nothing and dropped the selection: the handle kept that finger, so the body saw a one-finger tap. The handles now feed the tap tracker, and the body takes no one-finger tap while another finger is down (`many()` in `multi-tap.js`). t170, multi-tap-unit. New to try: Two-finger undo works next to the handles.
+- A two-finger tap (undo) with one finger on the selected tattoo's size or turn handle undid nothing and dropped the selection: the handle kept that finger, so the body saw a one-finger tap. The handles now feed the tap tracker, and the body takes no one-finger tap while another finger is down (`many()` in `multi-tap.js`). t173, multi-tap-unit. New to try: Two-finger undo works next to the handles.
 - Tapping a Layers line that was swiped open, to close it, pressed whatever had slid under the finger (the eye hid the tattoo, the menu opened). A tap anywhere on the open line now only slides it back, by finger or mouse. t171 at both orientations. New to try: Tap a swiped line to close it.
 - A picture added while the view was On my skin was selected, with its handles and sheet, but drew nothing on the body; the same for picking a dimmed line or switching a tattoo between On my skin and Planned. The selected tattoo's kind now comes back into view with a message (`keepSelectedInView`), and choosing a view still lets a tattoo outside it go. t172. New to try: A new tattoo shows even in On my skin.
 

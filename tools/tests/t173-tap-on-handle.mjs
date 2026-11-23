@@ -1,4 +1,4 @@
-// t170 a two-finger tap (undo) where one finger lands on the selected tattoo's size or turn handle.
+// t173 a two-finger tap (undo) where one finger lands on the selected tattoo's size or turn handle.
 // The handle kept that finger to itself, so the body saw a one-finger tap from the other finger:
 // nothing was undone and the tap dropped the selection (or picked something else). Fingers are
 // put down and lifted a few hundredths of a second apart, as real ones are.
@@ -45,5 +45,5 @@ export default async function (p) {
   await touch('touchStart', [[b[0], b[1], 42]]); await wait(60); await touch('touchEnd', []); await wait(500);
   assert.equal(await p.evaluate(() => window.__ink.selected()), sun, 'a tap on the handle keeps it selected');
   assert.ok(JSON.parse(await p.evaluate(() => localStorage.getItem('ia-tried') || '[]')).includes('tapOnHandle'), 'ticked in New to try');
-  console.log('PASS t170 a two-finger tap with a finger on a handle undoes and keeps the tattoo');
+  console.log('PASS t173 a two-finger tap with a finger on a handle undoes and keeps the tattoo');
 }
