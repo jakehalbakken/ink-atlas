@@ -5438,7 +5438,7 @@ warpPanel=createWarpPanel({get:()=>sel(),spot:warpSpot,jac:warpJac,vp:viewportBo
   begin:()=>snapshot(),end:()=>commit(),
   change:fn=>{const t=sel();if(!t)return;fn(t);inkDirty=true;needsRender=true;},
   draft:on=>{const t=sel();warpDraft=on&&t?t.id:null;if(!on)inkDirty=true;},
-  used:()=>markTried('warpInk'),
+  used:(m,held)=>{markTried('warpInk');if(held)markTried('warpHeld');},
   onClose:()=>{warpDraft=null;renderSheetWarp();syncDecals();}});
 function openWarp(mode){const t=sel();if(!t||cannotMove(t)||t.hidden)return false;closePanels();cancelGesture();if(tapPlaceId){tapPlaceId=null;renderSheet();}const ok=warpPanel.open(mode);renderSheetWarp();syncDecals();if(ok&&!viewLocked){const a=warpSpot(t,0,0),b=warpSpot(t,1,1);if(!a||!b||Math.hypot(a.x-b.x,a.y-b.y)<260||!inSight(t)){const sp=viewSpot(t),z=shownSize(t);aimView(sp.pos,sp.normal,Math.max(z.width,z.width/z.aspect)*1.5+0.04);}}return ok;}
 function renderSheetWarp(){const b=$('#bWarp'),t=sel();if(!b||!t)return;const w=warpOf(t);b.setAttribute('aria-pressed',String(!!(warpPanel&&warpPanel.isOpen())));b.classList.toggle('has-warp',!!w);b.disabled=!!t.hidden;b.title=w?describeWarp(w):'Bend and warp';}

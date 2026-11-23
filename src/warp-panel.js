@@ -25,7 +25,7 @@ export function createWarpPanel(api) {
 
   const curWarp = (t) => warpOf(t) || identityWarp(n);
   const setMode = (m) => {
-    mode = m; arcBase = null;
+    finishDrag(); mode = m; arcBase = null;
     for (const b of bar.querySelectorAll('[data-wmode]')) b.setAttribute('aria-pressed', String(b.dataset.wmode === m));
     $('#warpGridRow').hidden = m !== 'warp'; $('#warpArcRow').hidden = m !== 'arc';
     if (m === 'arc') $('#warpArc').value = 0;
@@ -89,9 +89,15 @@ export function createWarpPanel(api) {
   }
   function up(e) {
     const g = drag; if (!g || g.id !== e.pointerId) return;
+    finishDrag(false); place();
+  }
+  // a drag ends here whether the finger lifts or the dots are rebuilt under it (another finger taps
+  // Distort, Arc, a grid size, Reset or Done): the change is kept as its one undo step and saved
+  function finishDrag(held = true) {
+    const g = drag; if (!g) return;
     drag = null; g.el.classList.remove('on'); document.body.classList.remove('warp-dragging');
-    if (g.moved) { api.draft(false); api.end(); api.used(mode); sync(); }
-    place();
+    try { g.el.releasePointerCapture(g.id); } catch (_) { /* ignore */ }
+    if (g.moved) { api.draft(false); api.end(); api.used(mode, held); sync(); }
   }
   // draw the grid on the skin and put the dots where its points are on screen
   function place() {
@@ -131,8 +137,9 @@ export function createWarpPanel(api) {
   }
   function close() {
     if (!open) return;
+    open = false; finishDrag();
     if (arcSnap) { arcSnap = false; api.draft(false); api.end(); }
-    open = false; drag = null; bar.hidden = true; host.hidden = true; pts.textContent = ''; svg.innerHTML = ''; dots = [];
+    bar.hidden = true; host.hidden = true; pts.textContent = ''; svg.innerHTML = ''; dots = [];
     document.body.classList.remove('warping', 'warp-dragging');
     api.onClose();
   }
@@ -140,11 +147,12 @@ export function createWarpPanel(api) {
   for (const b of bar.querySelectorAll('[data-wmode]')) b.addEventListener('click', () => setMode(b.dataset.wmode));
   for (const b of bar.querySelectorAll('[data-wn]')) b.addEventListener('click', () => {
     const t = api.get(), m = +b.dataset.wn; if (!t || m === n || !api.canChange(t)) return;
-    n = m; const w = warpOf(t);
+    finishDrag(); n = m; const w = warpOf(t);
     if (w) { api.begin(); api.change((tt) => { put(tt, regrid(w, m)); }); api.end(); }
     sync(); build(); place();
   });
   $('#warpReset').addEventListener('click', () => {
+    finishDrag();
     const t = api.get(); if (!t || !warpOf(t) || !api.canChange(t)) return;
     api.begin(); api.change((tt) => { delete tt.warp; }); api.end();
     $('#warpArc').value = 0; arcBase = null; arcKey = ''; sync(); place();
