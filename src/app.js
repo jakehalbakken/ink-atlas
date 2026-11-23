@@ -3126,9 +3126,9 @@ const SHOW = {
   layerReorder: () => { layersDock.setOpen(true, true); return ['#ldList', 'Press and hold a line until it lifts, then drag it to a new place.']; },
   hideKinds: () => { layersDock.setOpen(true, true); return ['#ldView', 'Tap On my skin to see only the ink already on you, Planned to see only your plans, or All for everything. Nothing in the project changes.']; },
   layerViews: () => { layersDock.setOpen(true, true); return ['#ldView', 'All shows every tattoo, On my skin only the ink already on you, Planned only your plans. Only this screen changes.']; },
-  areaFolders: () => { layersDock.setOpen(true, true); const b = $('#ldAreas'); return b && !b.hidden ? ['#ldAreas', 'Tap Sort by area. Every tattoo goes into a folder for where it sits, like Left thigh or Chest, and the folders start folded. Undo puts them back.'] : ['#ldList', 'Add a second tattoo, then Sort by area at the foot of Layers puts each one in a folder for where it sits.']; },
+  areaFolders: () => { showLayersFoot(); const b = $('#ldAreas'); return b && !b.hidden ? ['#ldAreas', 'Tap Sort by area. Every tattoo goes into a folder for where it sits, like Left thigh or Chest, and the folders start folded. Undo puts them back.'] : ['#ldList', 'Add a second tattoo, then Sort by area at the foot of Layers puts each one in a folder for where it sits.']; },
   folderOpen: () => { layersDock.setOpen(true, true); return [$('#ldList .ld-gname') ? '#ldList .ld-gname' : '#ldList', 'Tap a folder\u2019s name to open it and turn the view to everything in it. The eye hides or shows the whole folder, and the dots give Show only this folder, its name and more.']; },
-  layerSelect: () => { layersDock.setOpen(true, true); return ['#ldSelect', 'Tap Select, then tap lines to pick them. The bar at the top hides, duplicates, groups, locks, merges or deletes them all at once.']; },
+  layerSelect: () => { showLayersFoot(); return ['#ldSelect', 'Tap Select, then tap lines to pick them. The bar at the top hides, duplicates, groups, locks, merges or deletes them all at once.']; },
   tapUndo: () => ['#undo', 'Tap the body with two fingers to undo, or three fingers to redo. Hold two fingers still to keep undoing.'],
   layersSheet: () => { toggle('#planMenu', true); return ['#openLayers', 'Tap Layers and groups. Each tattoo is one line with an eye to hide it and dots to move or lock it; tick several and the actions for them show below.']; },
   layouts: () => { toggle('#planMenu', true); return ['#openPlanning', 'Tap Layouts and views. Name the layout on the body and tap Save; each saved one has Open, and the dots beside it hold Rename, What’s different and Archive.']; },
@@ -3257,6 +3257,9 @@ const SHOW = {
   editProcreate: () => { if (!needTattoo()) return null; return ['#bProcreate', 'Sends this tattoo to Procreate. Copy All there, then tap Paste here.']; },
   pan: () => [null, 'Put two fingers on the screen away from a tattoo and slide them to move the view. Twist clearly to turn it.'],
 };
+// Sort by area, Fold all and Select sit at the foot of Layers, which steps aside while the edit
+// sheet is up: Show me lets the selected tattoo go so the button it rings is there to tap
+function showLayersFoot() { if (selectedId) select(null); layersDock.setOpen(true, true); }
 let coachTimer = 0, coachArmed = 0;
 function showMe(f) {
   closePanels();

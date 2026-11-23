@@ -88,6 +88,16 @@ export default async function (p) {
   await ink(() => [...document.querySelectorAll('#ldList button')].find((b) => /Show only this folder/.test(b.textContent)).click()); await wait(700);
   assert.equal(await ink(() => window.__ink.selected()), 'idFern', 'one in the folder stays selected');
 
+  // 6. Show me for the folder tools with a tattoo selected: the foot of Layers is hidden beside the
+  // edit sheet, so it lets the tattoo go and rings a button that is really there
+  for (const [id, target] of [['areaFolders', '#ldAreas'], ['layerSelect', '#ldSelect']]) {
+    await ink(() => window.__ink.select('idFern')); await wait(400);
+    await ink(() => { if (document.querySelector('#newPop').hidden) document.querySelector('#newBtn').click(); }); await wait(300);
+    await ink((id) => document.querySelector(`#newList .newrow[data-feature="${id}"] .btn:not(.tick)`).click(), id); await wait(1200);
+    const m = await ink((sel) => { const n = document.querySelector(sel), c = document.querySelector('#pointRing'), a = n.getBoundingClientRect(), b = c.getBoundingClientRect(); return { w: a.width, ring: !c.hidden, inside: a.left >= b.left && a.right <= b.right && a.top >= b.top && a.bottom <= b.bottom }; }, target);
+    assert.ok(m.w > 0 && m.ring && m.inside, id + ': Show me rings ' + target + ' on screen: ' + JSON.stringify(m));
+  }
+
   assert.ok(JSON.parse(await ink(() => localStorage.getItem('ia-tried') || '[]')).includes('areaFollows'), 'ticked in New to try');
   console.log('PASS t174 area folders follow a moved or copied tattoo, empty area folders go, solo lets go of a hidden selection');
 }

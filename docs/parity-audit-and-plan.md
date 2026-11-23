@@ -729,6 +729,20 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-23 QA batch 18 (not live)
+
+Re-tested body-area folders, the Procreate-style Layers and Bend and warp at iPad portrait, landscape and phone sizes. Four fixes:
+
+- Area folders keep up with the body. After Sort by area, Copy to other side filed the twin of a right forearm piece in Right forearm though it sat on the left; a tattoo moved with Try other spots, a drag or the keys stayed in its old area's folder; deleting or moving away an area's last tattoo left an Empty folder line. Now a tattoo filed by place follows into the folder for where it sits, in the same undo step as the move (`followAreas` in `body-areas.js`, `tidyAreas` before every commit, a folder made in head-to-foot order when needed), a tattoo put in a folder by hand stays there, and an emptied area folder goes (`dropEmptyAreas`); folders of your own stay even when empty. t174, body-areas-unit. New to try: Area folders keep up when a tattoo moves.
+- Show only this folder hid the selected tattoo but kept it selected, with its sheet and handles on ink that was not drawn. A selected tattoo it hides is now let go; one inside the folder stays selected. t174.
+- Bend and warp: holding a dot with one finger and tapping Distort, a grid size, Arc, Reset or Done with another rebuilt the dots under the finger, so the drag never ended. Every dot stopped answering until the bar was closed, the piece kept its small draft picture, and Done left the change unsaved. The drag now ends there as its own undo step, saved (`finishDrag` in `warp-panel.js`). t175 (fails on the batch 17 build). New to try: Bend and warp keeps a drag when you tap its bar.
+
+- New to try's Show me for Folders by body area and for picking several layers rang nothing when a tattoo was selected: Sort by area, Fold all and Select sit at the foot of Layers, which steps aside while the edit sheet is up. Show me now lets the tattoo go so the button is there (`showLayersFoot`). t174, t55.
+
+One check made steadier, with no app change: t156 swipes again once when a loaded machine turned the first swipe into a hold.
+
+Full suite: 268 pass. t104, t132, t157, t166, t23, t42, t73, t8, t9, t81 and t84 (comment only) failed only under the full parallel load and pass alone; t55 failed on a real bug, fixed above. Not checked on an iPad yet.
+
 ## 2026-11-23 QA batch 17 (live 2026-11-23)
 
 Re-tested the new Layers (swipe, merge pinch, pick several, views, two and three finger undo and redo) by real touch at both iPad orientations. Its own checks (t156, t157, t126, layer-ops-unit, multi-tap-unit) pass. Three fixes:
