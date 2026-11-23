@@ -729,6 +729,11 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-23 QA batch 21 (not live)
+
+- Duplicate in the edit sheet (and Cmd+D) now makes its own piece: the copy leaves the original's approval and Procreate layer mark behind, a copy of ink already on your skin is a planned, unlocked piece without who did it, it gets the next free "copy" name, and on an arm or leg it lands beside the original instead of exactly on top of it (the old single ray missed curved limbs). One undo step, as before. Test t178; New to try entry dupPlan with Show me.
+- Suite: 273 pass, every account check passes; t157, t166, t25 and t8 failed only under parallel load and pass alone.
+
 ## 2026-11-23 QA batch 20 (not live)
 
 Re-tested Copy to other side and Line up tattoos on ink already on the skin. Two fixes:
