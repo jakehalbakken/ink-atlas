@@ -768,7 +768,17 @@ function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { gap
 let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
 let agingYears = 0; // view only: how the ink looks after this many years
 function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0, lookKey(t), blendOf(t) !== DEFAULT_BLEND ? skinColor() : '', lookDraft === t.id || warpDraft === t.id ? 'draft' : '', warpKey(warpOf(t))].join('|'); }
+// A tattoo that is selected is always drawn: one added, duplicated, switched between On my skin and
+// Planned or picked in Layers while the view shows only the other kind brings that kind back into
+// view (2026-11-23: a picture added under On my skin was selected with its handles but drew nothing).
+function keepSelectedInView() {
+  const t = selectedId ? state.tattoos.find((q) => q.id === selectedId) : null; if (!t || kindShown(t, kindOff)) return;
+  const k = t.status === 'existing' ? 'existing' : 'planned'; kindOff[k] = false; markTried('viewFollows');
+  toast(kindOff.planned || kindOff.existing ? (k === 'existing' ? 'Showing the tattoos on your skin too, so you can see this one.' : 'Showing planned tattoos too, so you can see this one.') : 'Showing all tattoos, so you can see this one.');
+  if (layersDock) layersDock.render();
+}
 function syncDecals() {
+  keepSelectedInView();
   const ids = new Set(state.tattoos.map((t) => t.id));
   for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); d.tex.dispose(); d.outline.material.map.dispose(); delete decals[id]; }
   state.tattoos.forEach((t0, i) => {
