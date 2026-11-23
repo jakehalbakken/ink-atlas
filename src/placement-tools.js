@@ -21,6 +21,8 @@ export function planBodySymmetry(tattoos,id,projectToSurface,newId=globalThis.cr
  // retaining upright orientation with readable (unmirrored) artwork.
  const sourceFrame=frame(t),right=reflect(sourceFrame.r).map(x=>-x),base=frame({...t,normal:hit.normal},0),rot=Math.atan2(dot(right,base.u),dot(right,base.r));
  const copy={...structuredClone(t),id:newId,name:(t.name||'Tattoo')+' · opposite side',...hit,rot,locked:false,status:'planned'};
+ // a new piece: its own approval and its own layer for Procreate's bring back
+ delete copy.review;delete copy.fromLayer;
  return {operation:'bodySymmetry',updates:[],additions:[copy],sourceId:id};
 }
 export function openPlacementTools({getState,selectedId,projectToSurface,onPreview,onApply}){
