@@ -729,6 +729,15 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-23 QA batch 19 (not live)
+
+Re-tested folders, Layers and Undo together. Undo and Go back to said "Undid the change." for most folder and layer steps, so a step taken by mistake in Layers was hard to find in the list. Two fixes:
+
+- Folder steps have words. Sort by area reads "the folders", renaming a folder "renaming Chest", putting a tattoo in a folder or taking it out "putting Rose in Chest" or "taking Rose out of Chest" (`group` in the fields `undo-words.js` compares, with the folders' names either side). t176, undo-words-unit. New to try: Undo says what it did to folders and layers.
+- Several lines at once have words too. A merge reads "merging 2 tattoos into Moth", and Hide, Show, Lock, Unlock, Mirror, Move, Resize and Turn on several picked lines read "hiding 2 tattoos" and so on, in the toast and in Go back to. t176, undo-words-unit.
+
+Full suite: 260 pass. The test database stopped part way, so the six account checks failed to start; they pass on a rerun (t83 once more after one flaky run, on this build and on batch 18's). t132, t143, t153, t157, t161, t163, t166, t174, t22, t23, t25, t48, t66, t70, t73 and t8 failed only under the full parallel load and pass alone. Not checked on an iPad yet.
+
 ## 2026-11-23 QA batch 18 (not live)
 
 Re-tested body-area folders, the Procreate-style Layers and Bend and warp at iPad portrait, landscape and phone sizes. Four fixes:
