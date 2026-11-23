@@ -27,6 +27,22 @@ assert.equal(changeWords({ ...S(t()), skinHex: '#aa8866' }, S(t())), 'the skin t
 assert.equal(changeWords({ ...S(t()), heightCm: 180 }, S(t())), 'the height');
 assert.equal(changeWords(S(t()), S(t())), '');
 assert.equal(changeWords(null, S()), '');
+// folders (2026-11-23): putting a line in a folder, taking it out, Sort by area, a folder renamed or
+// made, said in words, not "the change to" or "the last change"
+{
+  const G = (...g) => g.map(([id, name, area]) => (area ? { id, name, area } : { id, name }));
+  const F = (tats, groups) => ({ ...S(...tats), groups });
+  const fw = (a, ga, b, gb) => changeWords(F(a, ga), F(b, gb));
+  const g1 = G(['f1', 'Left thigh', 'Left thigh']);
+  assert.equal(fw([t()], g1, [t({ group: 'f1' })], g1), 'putting Rose in Left thigh');
+  assert.equal(fw([t({ group: 'f1' })], g1, [t()], g1), 'taking Rose out of Left thigh');
+  assert.equal(fw([t(), t({ id: 'b', name: 'Moth' })], [], [t({ group: 'f1' }), t({ id: 'b', name: 'Moth', group: 'f1' })], g1), 'the folders', 'Sort by area');
+  assert.equal(fw([t({ group: 'f1' })], g1, [t({ group: 'f1' })], G(['f1', 'Leg piece', 'Left thigh'])), 'renaming Left thigh');
+  assert.equal(fw([t()], [], [t()], G(['f2', 'Flash ideas'])), 'the folders', 'a folder made');
+  assert.equal(fw([t({ group: 'f1' })], g1, [t({ group: 'f1', pos: [1, 1, 1] })], g1), 'moving Rose', 'a move says moving');
+  assert.equal(fw([t()], g1, [t({ pos: [1, 1, 1], group: 'f1' })], g1), 'moving Rose', 'a move that refiles it still says moving');
+  console.log('undo words: folders ok');
+}
 assert.equal(undoToast('moving Rose'), 'Undid moving Rose.');
 assert.equal(undoToast('moving Rose', true), 'Redid moving Rose.');
 assert.equal(undoToast(''), 'Undone.');

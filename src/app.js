@@ -1010,7 +1010,7 @@ function snapshot() { undoStack.push(JSON.stringify(state)); if (undoStack.lengt
 function restore(json) { const asks = state.asks; state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); if (wrapStudio) wrapStudio.refresh(); notePlaces(); }
 // each undo and redo says in a toast what it put back, so a tap never changes something unseen
 function stepWords(a, b) { try { return changeWords(a, b); } catch { return ''; } }
-function undo() { if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); }
+function undo() { if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); if (words === 'the folders' || /^(putting|taking) /.test(words)) markTried('undoFolders'); }
 function redo() { if (!redoStack.length) return; const now = JSON.stringify(state), next = redoStack.pop(), words = stepWords(state, JSON.parse(next)); undoStack.push(now); restore(next); refreshUndo(); toast(undoToast(words, true)); }
 // Go back several steps at once (the history list): every step passed goes onto Redo, in order.
 function undoSteps(n) {
