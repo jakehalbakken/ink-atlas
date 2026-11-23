@@ -35,6 +35,8 @@ export function changeWords(before, after) {
   const added = [...B.keys()].filter((id) => !A.has(id)), removed = [...A.keys()].filter((id) => !B.has(id));
   const changed = [...B.keys()].filter((id) => A.has(id) && !same(A.get(id), B.get(id)));
   if (added.length && !removed.length) return added.length === 1 ? `adding ${B.get(added[0]).name || 'a tattoo'}` : `adding ${added.length} tattoos`;
+  // Merge: the others go and the lowest keeps the flattened picture under its own name
+  if (removed.length && !added.length && changed.length === 1 && !same(A.get(changed[0]).img, B.get(changed[0]).img)) return `merging ${removed.length + 1} tattoos into ${B.get(changed[0]).name || 'one'}`;
   if (removed.length && !added.length) return removed.length === 1 ? `removing ${A.get(removed[0]).name || 'a tattoo'}` : `removing ${removed.length} tattoos`;
   if (added.length || removed.length) return 'the change to the tattoos';
   // a body change re-pins every tattoo to the same skin, so it moves them all; the body is the step
@@ -47,7 +49,7 @@ export function changeWords(before, after) {
     const kinds = new Set(changed.map((id) => oneTattoo(A.get(id), B.get(id)).split(' ')[0]));
     const k = kinds.size === 1 ? [...kinds][0] : '';
     if ([...kinds].every((x) => x === 'putting' || x === 'taking')) return 'the folders';
-    return k === 'moving' ? `moving ${changed.length} tattoos` : k === 'resizing' ? `resizing ${changed.length} tattoos` : `changes to ${changed.length} tattoos`;
+    return ['moving', 'resizing', 'turning', 'hiding', 'showing', 'locking', 'unlocking', 'mirroring'].includes(k) ? `${k} ${changed.length} tattoos` : `changes to ${changed.length} tattoos`;
   }
   if (!same([...A.keys()], [...B.keys()])) return 'reordering the tattoos';
   const diff = (k) => !same(before[k], after[k]);

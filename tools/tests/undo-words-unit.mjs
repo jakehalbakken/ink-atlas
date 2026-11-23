@@ -41,6 +41,15 @@ assert.equal(changeWords(null, S()), '');
   assert.equal(fw([t()], [], [t()], G(['f2', 'Flash ideas'])), 'the folders', 'a folder made');
   assert.equal(fw([t({ group: 'f1' })], g1, [t({ group: 'f1', pos: [1, 1, 1] })], g1), 'moving Rose', 'a move says moving');
   assert.equal(fw([t()], g1, [t({ pos: [1, 1, 1], group: 'f1' })], g1), 'moving Rose', 'a move that refiles it still says moving');
+  // a merge: the others go and the lowest takes the flattened picture
+  assert.equal(w([t(), t({ id: 'b', name: 'Moth' }), t({ id: 'c', name: 'Fern' })], [t({ img: 'merged' })]), 'merging 3 tattoos into Rose');
+  assert.equal(w([t(), t({ id: 'b', name: 'Moth' })], [t()]), 'removing Moth', 'a plain delete is still a delete');
+  // the pick bar's Hide, Show, Lock on several
+  const two = [t(), t({ id: 'b', name: 'Moth' })];
+  assert.equal(w(two, [t({ hidden: true }), t({ id: 'b', name: 'Moth', hidden: true })]), 'hiding 2 tattoos');
+  assert.equal(w([t({ hidden: true }), t({ id: 'b', name: 'Moth', hidden: true })], two), 'showing 2 tattoos');
+  assert.equal(w(two, [t({ locked: true }), t({ id: 'b', name: 'Moth', locked: true })]), 'locking 2 tattoos');
+  assert.equal(w(two, [t({ flip: true }), t({ id: 'b', name: 'Moth', flip: true })]), 'mirroring 2 tattoos');
   console.log('undo words: folders ok');
 }
 assert.equal(undoToast('moving Rose'), 'Undid moving Rose.');

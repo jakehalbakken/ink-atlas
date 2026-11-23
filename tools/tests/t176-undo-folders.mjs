@@ -2,6 +2,8 @@
 // tattoos.", undoing a tattoo taken out of a folder said "Undid the change to Rose." and a renamed
 // folder "Undid the last change.", so the words never said folders. Now: "Undid the folders.",
 // "Undid renaming Chest.", "Undid taking Rose out of Chest piece.", and Go back to the same words.
+// The pick bar's Hide said "changes to 2 tattoos" and a merge "removing Fern"; now "hiding 2
+// tattoos" and "merging 2 tattoos into Moth".
 import assert from 'node:assert/strict';
 export default async function (p) {
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
@@ -10,9 +12,9 @@ export default async function (p) {
   await p.waitForFunction(() => window.__ink && window.__ink.ready(), { timeout: 30000 }); await wait(1200);
   await ink(() => {
     const I = window.__ink, P = I.positions(), s = structuredClone(I.state()), base = s.tattoos[0];
-    const find = (re, left) => { const st = []; for (let v = 0; v < 13380; v++) { const pl = I.pain().at(v).place; if (pl && re.test(pl) && (P[v * 3] >= 0) === left) st.push(v); } return st[Math.floor(st.length / 2)]; };
+    const find = (re, left, k = 0.5) => { const st = []; for (let v = 0; v < 13380; v++) { const pl = I.pain().at(v).place; if (pl && re.test(pl) && (P[v * 3] >= 0) === left) st.push(v); } return st[Math.floor(st.length * k)]; };
     s.tattoos = []; s.groups = [];
-    for (const [name, re, left] of [['Rose', /^Chest$/i, true], ['Moth', /thigh/i, true], ['Wave', /forearm/i, false]]) { const v = find(re, left), t = structuredClone(base); t.id = 'id' + name; t.name = name; t.pos = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]; t.normal = [0, 0, 1]; delete t.group; s.tattoos.push(t); }
+    for (const [name, re, left, k] of [['Rose', /^Chest$/i, true], ['Moth', /thigh/i, true], ['Fern', /thigh/i, true, 0.53], ['Wave', /forearm/i, false]]) { const v = find(re, left, k), t = structuredClone(base); t.id = 'id' + name; t.name = name; t.pos = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]; t.normal = [0, 0, 1]; delete t.group; s.tattoos.push(t); }
     I.loadState(s);
   });
   await wait(1000);
@@ -47,6 +49,21 @@ export default async function (p) {
   await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await p.mouse.down(); await wait(700); await p.mouse.up(); await wait(300);
   const list = await p.$$eval('#historyList [data-steps]', (a) => a.map((e) => e.textContent.trim()));
   assert.ok(list.some((x) => /folders/i.test(x)), 'Go back to names the folders: ' + JSON.stringify(list.slice(0, 6)));
+  await p.keyboard.press('Escape'); await wait(300);
+  if (!(await ink(() => document.querySelector('#historyPop').hidden))) { await ink(() => { document.querySelector('#historyPop').hidden = true; }); }
+
+  // the pick bar's Hide and Merge on two lines, named as such
+  await ink(() => { const b = document.querySelector('#ldFoldAll'); if (b && b.textContent === 'Open all') b.click(); }); await wait(400);
+  await p.click('#ldSelect'); await wait(300);
+  await p.click('#ldList .ld-tat[data-id="idMoth"]'); await wait(250); await p.click('#ldList .ld-tat[data-id="idFern"]'); await wait(250);
+  await p.click('#ldPickBar .ld-tiles button[aria-label="Hide the 2"]'); await wait(400);
+  assert.equal(await undo(), 'Undid hiding 2 tattoos.');
+  await redo(); await p.click('#ldPickBar .ld-tiles button[aria-label="Show the 2"]'); await wait(400);
+  const merge = await p.$$eval('#ldPickBar .ld-tiles button', (a) => { const b = a.find((x) => /^Merge/.test(x.getAttribute('aria-label') || x.textContent)); if (b) b.click(); return !!b; });
+  assert.ok(merge, 'a Merge tile'); await wait(2500);
+  assert.equal((await ink(() => window.__ink.state().tattoos.length)), 3, 'merged into one');
+  const kept = await ink(() => window.__ink.state().tattoos.find((t) => t.id === 'idMoth' || t.id === 'idFern').name);
+  assert.equal(await undo(), `Undid merging 2 tattoos into ${kept}.`);
   assert.ok(JSON.parse(await ink(() => localStorage.getItem('ia-tried') || '[]')).includes('undoFolders'), 'ticked in New to try');
-  console.log('PASS t176 undo and redo name folder changes: Sort by area, in and out of a folder, a rename, and Go back to');
+  console.log('PASS t176 undo and redo name folder changes (Sort by area, out of a folder, a rename, Go back to), hiding several and a merge');
 }
