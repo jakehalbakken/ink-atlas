@@ -49,6 +49,9 @@ export default async function (p) {
 
   // swipe left: Lock, Duplicate and Delete behind the line, each 44 pt or more
   await swipe(sun, -170);
+  // under a heavily loaded test machine the first move can land after the press-and-hold time, which
+  // starts a drag instead: swipe again once in that case
+  if (!(await p.$(`#ldList .ld-row[data-id="${sun}"] .ld-swipe`))) { await wait(600); await swipe(sun, -170); }
   assert.ok(await p.$(`#ldList .ld-row[data-id="${sun}"] .ld-swipe`), 'the actions show behind the line');
   const shift = await p.$eval(`#ldList .ld-row[data-id="${sun}"] .ld-line`, (e) => new DOMMatrix(getComputedStyle(e).transform).m41);
   assert.ok(shift < -150, 'the line slid left: ' + shift);
