@@ -587,12 +587,21 @@ export function createLayersDock(o) {
     const state = o.getState(), t = state.tattoos.find((x) => x.id === id); if (!t) return;
     if (t.group && folded.has(t.group)) { folded.delete(t.group); keepFolded(); lastKey = ''; }
     if (!open && wide()) setOpen(true, true); else render();
-    requestAnimationFrame(() => {
-      const row = host.querySelector(`.ld-row[data-id="${String(id).replace(/["\\]/g, "\\$&")}"]`), list = $('#ldList'); if (!row || !list || !open) return;
-      const r = row.getBoundingClientRect(), l = list.getBoundingClientRect();
-      if (r.top < l.top + 4 || r.bottom > l.bottom - 4) list.scrollTop += (r.top + r.height / 2) - (l.top + l.height / 2);
-    });
+    revealing = { id, until: performance.now() + 800 };
+    requestAnimationFrame(() => bringIntoView(id));
   }
+  // The edit sheet under the list can change height a moment after a pick (its rows for the new
+  // tattoo), which shrinks the list again, so a line just brought into view is checked once more
+  // whenever the list changes size in the next moment.
+  let revealing = null;
+  function bringIntoView(id) {
+    const row = host.querySelector(`.ld-row[data-id="${String(id).replace(/["\\]/g, "\\$&")}"]`), list = $('#ldList'); if (!row || !list || !open) return;
+    const r = row.getBoundingClientRect(), l = list.getBoundingClientRect();
+    if (r.top < l.top + 4 || r.bottom > l.bottom - 4) list.scrollTop += (r.top + r.height / 2) - (l.top + l.height / 2);
+  }
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => {
+    if (revealing && performance.now() < revealing.until && o.selectedId() === revealing.id) bringIntoView(revealing.id); else revealing = null;
+  }).observe($('#ldList'));
   // a tattoo that moved into another folder stays in sight in the panel: its folder opens, and
   // nothing else changes (the panel is not opened)
   function unfoldFor(id) {

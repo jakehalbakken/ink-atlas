@@ -118,7 +118,7 @@ export default async function (p) {
   await p.click(`#ldList .ld-row[data-id="${a}"] .ld-pick`); await wait(600);
   for (let i = 0; i < 12; i++) { await p.evaluate(() => document.querySelector('#bDup').click()); await wait(120); }
   await wait(400);
-  const sc = await p.$eval('#ldList', (e) => { const before = e.scrollTop; e.scrollTop = 200; return { over: e.scrollHeight > e.clientHeight + 40, moved: e.scrollTop > before, guard: !!e.closest('[data-scroll]') }; });
+  const sc = await p.$eval('#ldList', (e) => { e.scrollTop = 0; const before = e.scrollTop; e.scrollTop = 200; return { over: e.scrollHeight > e.clientHeight + 40, moved: e.scrollTop > before, guard: !!e.closest('[data-scroll]') }; });
   assert.ok(sc.over && sc.moved && sc.guard, `the list scrolls: ${JSON.stringify(sc)}`);
   assert.ok((await box('#layersDock')).b <= 820, 'the panel stays on screen with many lines');
   await p.screenshot({ path: 'shots/t126-open.png' });

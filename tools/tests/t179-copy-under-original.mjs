@@ -51,4 +51,21 @@ export default async function (p) {
   assert.ok(await ink(() => (JSON.parse(localStorage.getItem('ia-tried') || '[]') || []).includes('copyUnder')), 'New to try ticks itself');
   await wait(300);
   L = await lines(); assert.equal(L.indexOf(twin), L.indexOf('idB') + 1, 'and is the line under it in Layers');
+
+  // A long list on an iPad held upright: the copy's line is brought into view, even when the
+  // original was the last line showing (it used to land out of sight below it).
+  await p.setViewport({ width: 820, height: 1180, hasTouch: true }); await wait(800);
+  await ink(() => { const I = window.__ink, s = structuredClone(I.state()), b = s.tattoos[0], P = I.positions();
+    s.tattoos = []; for (let k = 0; k < 24; k++) { const t = structuredClone(b), v = 200 + k * 431; t.id = 'id' + k; t.name = 'T' + k; t.pos = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]; t.status = 'planned'; t.locked = false; delete t.group; s.tattoos.push(t); }
+    s.groups = []; I.loadState(s); });
+  await wait(1200);
+  const lastShowing = () => ink(() => { const l = document.querySelector('#ldList').getBoundingClientRect(); return [...document.querySelectorAll('#ldList .ld-row')].filter((r) => { const b = r.getBoundingClientRect(); return b.top >= l.top && b.bottom <= l.bottom; }).at(-1).dataset.id; });
+  const inView = () => ink(() => { const id = window.__ink.selected(), row = document.querySelector(`#ldList .ld-row[data-id="${id}"]`), l = document.querySelector('#ldList').getBoundingClientRect(); if (!row) return false; const b = row.getBoundingClientRect(); return b.top >= l.top - 1 && b.bottom <= l.bottom + 1; });
+  for (const button of ['#bDup', '#bOtherSide']) {
+    const id = await lastShowing(); await ink((id) => window.__ink.select(id), id); await wait(700);
+    await ink((b) => { document.querySelector('#editorAdvanced').open = true; document.querySelector(b).click(); }, button); await wait(1000);
+    if (await ink(() => window.__ink.selected()) === id) continue; // no matching spot on the other side for this one
+    assert.ok(await inView(), `the copy's line from ${button} is in view in a long list`);
+    await ink(() => document.querySelector('#undo').click()); await wait(700);
+  }
 }
