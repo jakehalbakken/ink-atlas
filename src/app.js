@@ -75,7 +75,7 @@ import { coverByArt, coverText } from './cover.js';
 import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
 import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, roomByRegion, roomColour, roomSummary, inchWords, coveredArea, coveredByArea, coveredText } from './room.js';
 import { whereItSits } from './where.js';
-import { areaFor, frameFor } from './body-areas.js';
+import { areaFor, frameFor, followAreas, dropEmptyAreas } from './body-areas.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
 import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost, planCalendar, planCalendarText, planCalendarFile } from './sittings.js';
@@ -1007,7 +1007,7 @@ function whenText(at) {
 /* ---------- history ---------- */
 function snapshot() { undoStack.push(JSON.stringify(state)); if (undoStack.length > 40) undoStack.shift(); redoStack.length = 0; refreshUndo(); }
 // The record of approval pages sent is not undone, so replies still match.
-function restore(json) { const asks = state.asks; state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); if (wrapStudio) wrapStudio.refresh(); }
+function restore(json) { const asks = state.asks; state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); if (wrapStudio) wrapStudio.refresh(); notePlaces(); }
 // each undo and redo says in a toast what it put back, so a tap never changes something unseen
 function stepWords(a, b) { try { return changeWords(a, b); } catch { return ''; } }
 function undo() { if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); }
@@ -1028,7 +1028,29 @@ function renderHistory() {
 }
 function openHistory() { cancelGesture(); renderHistory(); toggle('#historyPop', true); markTried('history'); }
 function refreshUndo() { $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
-function commit() { if (spotPeek) peekSpot(false); syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); if (wrapStudio) wrapStudio.refresh(); }
+// Area folders keep up with the body: a tattoo filed by where it sits follows itself into the folder
+// for its new area when it moves (dragged, Try other spots, Copy to other side), and an area folder
+// left empty goes. Positions are noted at each commit of the same project and body shape; anything
+// else (a project opened, an undo, a shape change) just notes them again.
+let placeNote = null;
+function notePlaces() { placeNote = { st: state, key: shapeKey, m: new Map(state.tattoos.map((t) => [t.id, Array.isArray(t.pos) ? t.pos.slice() : null])) }; }
+function tidyAreas() {
+  if (!Array.isArray(state.groups) || !state.groups.some((g) => g && g.area)) { notePlaces(); return; }
+  if (placeNote && placeNote.st === state && placeNote.key === shapeKey) {
+    const byId = new Map(state.groups.filter((g) => g && g.id).map((g) => [g.id, g])), moves = [];
+    for (const t of state.tattoos) {
+      const g = t.group && byId.get(t.group); if (!g || !g.area || !Array.isArray(t.pos)) continue;
+      const old = placeNote.m.get(t.id);
+      if (old === undefined) moves.push({ id: t.id, was: g.area }); // a new copy carries its folder: file it by where it is
+      else if (old && old.some((v, i) => Math.abs(v - t.pos[i]) > 1e-6)) moves.push({ id: t.id, was: areaOfTattoo({ pos: old }) });
+    }
+    const moved = moves.length ? followAreas(state, moves, areaOfTattoo) : [];
+    if (moved.length) markTried('areaFollows');
+    if (moved.includes(selectedId) && layersDock) layersDock.unfoldFor(selectedId);
+  }
+  dropEmptyAreas(state); notePlaces();
+}
+function commit() { if (spotPeek) peekSpot(false); tidyAreas(); syncDecals(); renderUI(); if (!$('#clothesPop').hidden) renderClothes(); save(); if (wrapStudio) wrapStudio.refresh(); }
 
 /* ---------- tattoo ops ---------- */
 const skinColor = () => state.skinHex || SKINS[state.skin] || SKINS[1];
@@ -5390,7 +5412,7 @@ layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:
   zoom:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id!==selectedId)select(t.id,true);else if(!viewLocked)focusTattoo(t);},
   areaOf:t=>areaOfTattoo(t),frameFolder:gid=>frameFolder(gid),
   onSorted:r=>{if(!r||!r.moved){toast(r&&r.folders?'Every tattoo is already in the folder for where it sits.':'Nothing to sort yet.');return;}markTried('areaFolders');toast(`Sorted ${r.moved} ${r.moved===1?'tattoo':'tattoos'} into ${r.folders} ${r.folders===1?'folder':'folders'} by where ${r.moved===1?'it sits':'they sit'}. Tap a folder to see it on the body.`,'Undo',undo,5200);},
-  onFolder:opened=>{if(opened)markTried('folderOpen');},onFolderSolo:()=>{markTried('folderOpen');toast('Only this folder shows now. Show everything, or Undo, brings the rest back.','Undo',undo);},
+  onFolder:opened=>{if(opened)markTried('folderOpen');},onFolderSolo:()=>{markTried('folderOpen');{const t=sel();if(t&&t.hidden)select(null);}toast('Only this folder shows now. Show everything, or Undo, brings the rest back.','Undo',undo);},
   onSwipe:()=>markTried('layerSwipe'),onSwipeClosed:()=>markTried('swipeTapClose'),onPick:(n,mode)=>{if(mode)markTried('layerSelect');else if(n)markTried('layerSwipe');},onGroup:on=>{markTried('layerSelect');toast(on===false?'Taken out of the group.':'Grouped. The group shows as a folder at the top of Layers.');},
   onView:v=>{markTried('layerViews');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}},
   onKinds:kind=>{markTried('hideKinds');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}const n=state.tattoos.filter(x=>(x.status==='existing'?'existing':'planned')===kind).length;if(n)toast(kindOff[kind]?`${kind==='existing'?'Existing':'Planned'} tattoos hidden on this screen. Tap again to bring them back.`:`${kind==='existing'?'Existing':'Planned'} tattoos showing again.`,null,null,3200);},
@@ -6747,12 +6769,12 @@ async function readInkJson(proj, assets) {
 // saves sit on the first prototype's muscle / weight blend.
 function adoptState() {
   const old = !state.figure ? legacyPositions() : (state.v || 1) < 2 ? shapePositionsV1(state.figure, state.muscle, state.weight) : null;
-  if (!old) { state.fit = state.fit || {}; applyShape(); return; }
+  if (!old) { state.fit = state.fit || {}; applyShape(); notePlaces(); return; }
   setBodyPositions(old, false); const an = anchorsNow();
   if (!state.figure) { state.figure = 'male'; state.muscle = 0.6; state.weight = 0.5; }
   else { state.muscle = 0.5 + 0.5 * THREE.MathUtils.clamp(state.muscle || 0, 0, 1); state.weight = 0.5 + 0.5 * THREE.MathUtils.clamp(state.weight || 0, -1, 1); }
   state.fit = {}; state.genitals = true; state.v = 2;
-  applyShape(); applyAnchors(an);
+  applyShape(); applyAnchors(an); notePlaces();
 }
 /* ---------- loop ---------- */
 let last = performance.now();

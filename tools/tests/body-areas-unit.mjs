@@ -2,7 +2,7 @@
 // folders and the drawing order, reuses and renames, drops emptied area folders, and the helpers.
 // Run: node tools/tests/body-areas-unit.mjs
 import assert from 'node:assert/strict';
-import { areaFor, AREA_ORDER, sortPlan, sortIntoAreas, soloFolder, unfolder, renameFolder, frameFor } from '../../src/body-areas.js';
+import { areaFor, AREA_ORDER, sortPlan, sortIntoAreas, soloFolder, unfolder, renameFolder, frameFor, followAreas, dropEmptyAreas } from '../../src/body-areas.js';
 import { dockSections } from '../../src/layers-dock.js';
 
 // every place the pain map can name has an area, and every area is in the order list
@@ -86,3 +86,27 @@ console.log('body-areas-unit: ok');
   const c = cleanState(old, () => true).state; assert.equal(c.groups, undefined, 'an older save gets no folders by itself'); assert.equal(c.tattoos[0].group, undefined);
 }
 console.log('body-areas-unit: save ok');
+
+// a tattoo filed by place follows itself into the folder for its new area; one put elsewhere by hand stays
+{
+  const where = { a: 'Right forearm', b: 'Left forearm', c: 'Right thigh', d: 'Chest' };
+  const areaOf = (t) => where[t.id];
+  const state = { groups: [{ id: 'mine', name: 'Flash' }, { id: 'gc', name: 'Chest', area: 'Chest' }, { id: 'gf', name: 'My right arm', area: 'Right forearm' }, { id: 'gt', name: 'Right thigh', area: 'Right thigh' }],
+    tattoos: [{ id: 'a', group: 'gf' }, { id: 'b', group: 'gf' }, { id: 'c', group: 'gc' }, { id: 'd', group: 'mine' }] };
+  // b was a copy on the right forearm now on the left; c was put in Chest by hand while on the thigh; d is in an own folder
+  const moved = followAreas(state, [{ id: 'b', was: 'Right forearm' }, { id: 'c', was: 'Right thigh' }, { id: 'd', was: 'Chest' }, { id: 'a', was: 'Right forearm' }], areaOf);
+  assert.deepEqual(moved, ['b'], 'only the one filed by its old place moves');
+  const lf = state.groups.find((g) => g.area === 'Left forearm'); assert.ok(lf && lf.name === 'Left forearm', 'a folder is made for the new area');
+  assert.equal(state.tattoos[1].group, lf.id); assert.equal(state.tattoos[2].group, 'gc'); assert.equal(state.tattoos[3].group, 'mine');
+  assert.deepEqual(state.groups.map((g) => g.name), ['Flash', 'Chest', 'Left forearm', 'My right arm', 'Right thigh'], 'placed head to foot, left before right, among the area folders');
+  // moving back reuses the renamed folder
+  where.b = 'Right forearm'; assert.deepEqual(followAreas(state, [{ id: 'b', was: 'Left forearm' }], areaOf), ['b']); assert.equal(state.tattoos[1].group, 'gf');
+  // the emptied area folder goes, an empty folder of your own stays
+  state.groups.push({ id: 'empty', name: 'Ideas' }); assert.equal(dropEmptyAreas(state), 2, 'Left forearm and Right thigh are empty now');
+  assert.deepEqual(state.groups.map((g) => g.name), ['Flash', 'Chest', 'My right arm', 'Ideas']);
+  state.tattoos = state.tattoos.filter((t) => t.id !== 'c'); assert.equal(dropEmptyAreas(state), 1, 'the Chest folder goes once its last tattoo does');
+  assert.equal(dropEmptyAreas({ tattoos: [] }), 0, 'no groups list, nothing to do');
+  // an unknown area leaves the tattoo where it is
+  where.a = null; assert.deepEqual(followAreas(state, [{ id: 'a', was: 'Right forearm' }], areaOf), []);
+}
+console.log('body-areas-unit: follow ok');

@@ -593,7 +593,13 @@ export function createLayersDock(o) {
       if (r.top < l.top + 4 || r.bottom > l.bottom - 4) list.scrollTop += (r.top + r.height / 2) - (l.top + l.height / 2);
     });
   }
+  // a tattoo that moved into another folder stays in sight in the panel: its folder opens, and
+  // nothing else changes (the panel is not opened)
+  function unfoldFor(id) {
+    const t = o.getState().tattoos.find((x) => x.id === id);
+    if (t && t.group && folded.has(t.group)) { folded.delete(t.group); keepFolded(); lastKey = ''; render(); }
+  }
   addEventListener('resize', () => layout());
   render(); layout();
-  return { render, layout, setOpen, reveal, sortAreas, folded: () => [...folded], isOpen: () => open, el: host, wide, picked: () => [...picked], openOptions: (id) => { openMore = id; lastKey = ''; render(); } };
+  return { render, layout, setOpen, reveal, unfoldFor, sortAreas, folded: () => [...folded], isOpen: () => open, el: host, wide, picked: () => [...picked], openOptions: (id) => { openMore = id; lastKey = ''; render(); } };
 }

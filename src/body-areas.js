@@ -104,3 +104,35 @@ export function frameFor(spots) {
   let ext = 0; for (const x of s) ext = Math.max(ext, Math.hypot(x.pos[0] - c[0], x.pos[1] - c[1], x.pos[2] - c[2]) * 2 + (x.ext || 0));
   return { pos: c, normal: n.map((v) => v / L), ext };
 }
+
+// A tattoo filed by where it sits follows itself to the right folder when it moves to another area
+// (dragged, Try other spots, Copy to other side...). moves: [{ id, was }], `was` the area its old
+// place was in. Only a tattoo in an area folder for that old area moves, so one you put in another
+// folder by hand stays there. A missing area folder is made, placed head to foot among the area
+// folders. Returns the ids of the tattoos that changed folder.
+export function followAreas(state, moves, areaOf) {
+  const groups = validGroups(state), byId = new Map(groups.map((g) => [g.id, g])), out = [];
+  for (const { id, was } of moves) {
+    const t = state.tattoos.find((x) => x.id === id), g = t && t.group && byId.get(t.group);
+    if (!g || !g.area || g.area !== was) continue;
+    const now = areaOf(t); if (!now || now === g.area) continue;
+    let to = groups.find((x) => x.area === now);
+    if (!to) {
+      to = { id: newId(), name: now, area: now }; groups.push(to); byId.set(to.id, to);
+      const list = Array.isArray(state.groups) ? state.groups : (state.groups = []);
+      const at = list.findIndex((x) => x && x.area && rank(x.area) > rank(now));
+      list.splice(at < 0 ? list.length : at, 0, to);
+    }
+    t.group = to.id; out.push(id);
+  }
+  return out;
+}
+
+// Area folders are made by Sort by area, so one left empty (its last tattoo deleted, merged or moved
+// away) goes; a folder of your own stays even when empty. Returns how many went.
+export function dropEmptyAreas(state) {
+  if (!Array.isArray(state.groups)) return 0;
+  const used = new Set(state.tattoos.map((t) => t.group).filter(Boolean)), n = state.groups.length;
+  state.groups = state.groups.filter((g) => !(g && g.area && typeof g.id === 'string' && !used.has(g.id)));
+  return n - state.groups.length;
+}
