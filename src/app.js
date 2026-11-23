@@ -1691,6 +1691,11 @@ $('#bOtherSide').addEventListener('click', () => {
   const base = t.name.replace(/ \((left|right)\)$/i, '');
   const sideName = (x) => (x > 0 ? 'left' : 'right'); // the body's own left is +x
   const c = { ...structuredClone(t), id: uid(), name: `${base} (${sideName(m.pos[0])})`.slice(0, 40), locked: false, ...m };
+  // the twin is a new piece: a plan even when copied from ink already on you (so it can be moved,
+  // and who did the original is not its history), its own layer for Procreate's bring back (so a
+  // changed layer never takes it away), and it needs its own approval
+  delete c.fromLayer; delete c.review;
+  if (c.status === 'existing') { c.status = 'planned'; delete c.made; markTried('otherSidePlan'); }
   if (!/\((left|right)\)$/i.test(t.name)) t.name = `${base} (${sideName(t.pos[0])})`.slice(0, 40);
   state.tattoos.push(c); selectedId = c.id; commit();
   toast('Copied to the other side.', 'Undo', undo);
