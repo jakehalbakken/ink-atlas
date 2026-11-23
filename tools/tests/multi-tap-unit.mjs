@@ -30,4 +30,6 @@ fresh(); m.down(ev(1, 100, 100)); m.down(ev(2, 200, 100)); advance(TAP.hold + TA
 fresh(); m.down(ev(1, 100, 100)); m.down(ev(2, 200, 100)); m.up(ev(1), true); assert.equal(m.up(ev(2)), null);
 // a two-finger tap right after another works on its own
 fresh(); for (let k = 0; k < 2; k++) { m.down(ev(1, 100, 100)); m.down(ev(2, 200, 100)); advance(60); m.up(ev(1)); m.up(ev(2)); advance(40); } assert.deepEqual(log, ['u0', 'u0']);
+// many(): two fingers have been down in this touch, even a late one, until the last lifts
+fresh(); assert.equal(m.many(), false); m.down(ev(1, 100, 100)); assert.equal(m.many(), false); advance(TAP.quick + 40); m.down(ev(2, 200, 100)); assert.equal(m.many(), true); m.up(ev(1)); assert.equal(m.many(), true); m.up(ev(2)); assert.equal(m.many(), false);
 console.log('multi-tap-unit: all good');

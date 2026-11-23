@@ -1249,19 +1249,21 @@ function endPointer(e) {
   if (g.mode === 'ink' && g.moved && !taught.has('move')) { learnt('move'); renderSheet(); }
   if (g.limb && g.moved && !taught.has('wrapMove')) { learnt('wrapMove'); renderSheet(); }
   if (g.snap) { commit(); }
-  if (!g.moved && performance.now() - g.t0 < 450 && e.type === 'pointerup') tap(e.clientX, e.clientY);
+  if (!g.moved && performance.now() - g.t0 < 450 && e.type === 'pointerup' && !fingerTaps.many()) tap(e.clientX, e.clientY);
 }
 canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('pointercancel', endPointer);
 // Procreate's quick undo: two fingers tapped together undo, three redo, two held still keep undoing.
 // It reads the same touches as the gestures above without changing them; a pinch or pan never counts.
 const fingerTaps = createMultiTap({
-  onUndo: (held) => { if (held) cancelGesture(); if (!undoStack.length) { if (!held) toast('Nothing to undo.'); return; } undo(); markTried('tapUndo'); },
+  onUndo: (held) => { if (held) cancelGesture(); if (!undoStack.length) { if (!held) toast('Nothing to undo.'); return; } if (handleDrag) markTried('tapOnHandle'); undo(); markTried('tapUndo'); },
   onRedo: () => { if (!redoStack.length) { toast('Nothing to redo.'); return; } redo(); markTried('tapUndo'); },
 });
 canvas.addEventListener('pointerdown', (e) => fingerTaps.down(e));
 canvas.addEventListener('pointermove', (e) => fingerTaps.move(e));
 canvas.addEventListener('pointerup', (e) => fingerTaps.up(e));
 canvas.addEventListener('pointercancel', (e) => fingerTaps.up(e, true));
+// a finger that lands on a size or turn handle is one of the fingers of the tap too
+for (const b of [$('#hSize'), $('#hTurn')]) { b.addEventListener('pointerdown', (e) => fingerTaps.down(e)); b.addEventListener('pointermove', (e) => fingerTaps.move(e)); b.addEventListener('pointerup', (e) => fingerTaps.up(e)); b.addEventListener('pointercancel', (e) => fingerTaps.up(e, true)); }
 canvas.addEventListener('lostpointercapture', (e) => { if (pts.has(e.pointerId)) cancelGesture(); });
 window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });

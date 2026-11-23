@@ -41,6 +41,9 @@ export function createMultiTap({ onUndo, onRedo, now = () => performance.now(), 
     },
     // whether the fingers now on the glass may still be a tap (so other handlers can hold back)
     pending: () => !!(g && g.down.size >= 2 && !g.moved),
+    // whether two or more fingers have been down in this touch, wherever each landed (so a finger on a
+    // handle plus one on the body is never read as a one-finger tap on the body)
+    many: () => !!(g && g.most >= 2),
     // the caller saw the fingers do something (turned or sized a tattoo), so this is not a tap
     spoil,
     reset() { stopHold(); g = null; },
