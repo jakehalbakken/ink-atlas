@@ -14,9 +14,11 @@
 // selected line for its options (name, Duplicate, Merge down, Lock, Blend and colour, Zoom to it...).
 import { reorderTattoo, changeSelected, assignGroup } from './layers.js';
 import { SWIPE, swipeKind, pinchMerges, rangeBetween, displayOrder, lineBelow } from './layer-ops.js';
+import { sortPlan, sortIntoAreas, soloFolder, unfolder, renameFolder } from './body-areas.js';
 import { blendOf, blendLetter, blendName, hasLook, describeLook, DEFAULT_BLEND } from './ink-look.js';
 
 export const DOCK_KEY = 'ia-layers-dock';
+export const FOLDED_KEY = 'ia-ld-folded'; // folders folded shut, per device (never in the project)
 export const kindOf = (t) => (t && t.status === 'existing' ? 'existing' : 'planned');
 // what the quick switches leave on screen (pure, for tests)
 export function kindShown(t, off) { return !off || !off[kindOf(t)]; }
@@ -89,8 +91,10 @@ const CSS = `#layersDock{position:fixed;z-index:2;right:calc(12px + env(safe-are
 #layersDock .ld-kind .ld-n{color:var(--muted);font-weight:500}
 #layersDock .ld-list{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y;padding:6px 8px}
 #layersDock .ld-sec+.ld-sec{margin-top:6px}
-#layersDock .ld-ghead{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;gap:4px;min-height:52px;padding:0 2px;border-radius:12px}
+#layersDock .ld-ghead{display:grid;grid-template-columns:44px minmax(0,1fr) 44px 44px;align-items:center;gap:4px;min-height:52px;padding:0 2px;border-radius:12px}
 #layersDock .ld-ghead b{display:block;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}#layersDock .ld-ghead small{display:block;color:var(--muted);font-size:12.5px}
+#layersDock .ld-gname{min-height:52px;min-width:0;padding:0;border:0;background:none;text-align:left;cursor:pointer}#layersDock .ld-ghead.area .ld-gname b::before{content:'';display:inline-block;width:8px;height:8px;border-radius:4px;background:var(--stencil);margin-right:7px;vertical-align:1px}
+#layersDock .ld-gacts{display:flex;flex-wrap:wrap;gap:6px;padding:0 8px 10px 48px}#layersDock .ld-gacts .btn{min-height:44px;font-size:14px;padding:0 12px}#layersDock .ld-gacts .ld-name{flex:1 1 100%;min-height:44px;font:500 16px/1.2 var(--body);color:var(--text);background:var(--fill);border:1px solid var(--line);border-radius:var(--r-md,14px);padding:0 12px}
 #layersDock .ld-ghead .ld-fold svg{transition:transform .2s ease}#layersDock .ld-ghead .ld-fold[aria-expanded=true] svg{transform:rotate(90deg)}
 #layersDock .ld-rest{margin:8px 8px 2px;color:var(--muted);font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase}
 #layersDock .ld-row{border-radius:12px}#layersDock .ld-in .ld-row{margin-left:14px}
@@ -104,8 +108,8 @@ const CSS = `#layersDock{position:fixed;z-index:2;right:calc(12px + env(safe-are
 #layersDock .ld-eye.off{color:var(--faint,var(--muted));opacity:.7}
 #layersDock .ld-acts{display:flex;flex-wrap:wrap;gap:6px;padding:0 8px 10px 62px}#layersDock .ld-acts .btn{min-height:44px;font-size:14px;padding:0 12px}
 #layersDock .ld-empty{margin:12px 8px;color:var(--muted);font-size:14px}
-#layersDock .ld-foot{padding:8px 12px 12px;border-top:1px solid var(--line);display:flex}#layersDock .ld-foot .btn{flex:1}
-body.comment-only #layersDock .ld-eye,body.comment-only #layersDock .ld-mode,body.comment-only #layersDock .ld-more,body.comment-only #layersDock .ld-foot{display:none!important}
+#layersDock .ld-foot{padding:8px 12px 12px;border-top:1px solid var(--line);display:flex;gap:6px}#layersDock .ld-foot .btn{flex:1;min-width:0;padding:0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.comment-only #layersDock .ld-eye,body.comment-only #layersDock .ld-mode,body.comment-only #layersDock .ld-more,body.comment-only #layersDock .ld-gmore,body.comment-only #layersDock .ld-foot{display:none!important}
 body.hands-on #layersDock{opacity:.08;transition:opacity .12s ease}
 body.painting #layersDock,body:has(#wrapStudio:not([hidden])) #layersDock{display:none!important}
 @media (max-width:699px){#layersDock.open{left:12px;width:auto;z-index:7}}
@@ -166,13 +170,16 @@ export function createLayersDock(o) {
   let open = innerWidth >= WIDE; try { const v = localStorage.getItem(DOCK_KEY); if (v === 'open' || v === 'rail') open = v === 'open'; } catch { /* private mode */ }
   let openMore = null, lastKey = '', openSwipe = null, selecting = false, askDelete = false;
   const picked = new Set(); // lines picked with a swipe right, on this screen only (never saved)
-  const folded = new Set(); // groups folded shut on this screen only
+  // folders folded shut, kept on this device so a long list stays short after a reload
+  const folded = new Set(); try { const v = JSON.parse(localStorage.getItem(FOLDED_KEY) || '[]'); if (Array.isArray(v)) for (const id of v) if (typeof id === 'string') folded.add(id); } catch { /* private mode */ }
+  const keepFolded = () => { try { const ids = new Set((o.getState().groups || []).map((g) => g && g.id)); localStorage.setItem(FOLDED_KEY, JSON.stringify([...folded].filter((id) => ids.has(id)).slice(0, 200))); } catch { /* private mode */ } };
+  let openGroupMore = null;
   const host = document.createElement('aside'); host.id = 'layersDock'; host.className = 'glass holds-scroll'; host.setAttribute('aria-label', 'Layers');
   host.innerHTML = `<div class="ld-head"><div class="ld-title"><h2>Layers</h2><small id="ldCount"></small></div><div class="ld-adds" id="ldAdds" role="group" aria-label="Add"></div><button class="ld-ib ld-toggle" id="ldToggle" type="button"></button></div>
 <div class="ld-kinds" id="ldKinds" role="group" aria-label="Quick hide"><button class="ld-kind" id="ldPlanned" type="button" data-kind="planned" aria-pressed="false"></button><button class="ld-kind" id="ldExisting" type="button" data-kind="existing" aria-pressed="false"></button></div>
 <div class="ld-view" id="ldView" role="group" aria-label="Show"></div>
 <div class="ld-list" id="ldList" data-scroll></div>
-<div class="ld-foot"><button class="btn" id="ldSelect" type="button" aria-pressed="false">Select</button></div>`;
+<div class="ld-foot"><button class="btn" id="ldAreas" type="button">Sort by area</button><button class="btn" id="ldFoldAll" type="button">Fold all</button><button class="btn" id="ldSelect" type="button" aria-pressed="false">Select</button></div>`;
   (document.querySelector('#viewport') || document.body).append(host);
   const $ = (s) => host.querySelector(s);
   for (const b of o.adds || []) if (b) { b.title = b.textContent.trim(); if (!b.getAttribute('aria-label')) b.setAttribute('aria-label', b.title); $('#ldAdds').append(b); }
@@ -275,7 +282,7 @@ export function createLayersDock(o) {
     const state = o.getState(), images = o.getImages() || {}, selId = o.selectedId(), k = o.kinds;
     for (const id of [...picked]) if (!state.tattoos.some((t) => t.id === id)) picked.delete(id);
     if (openSwipe && !state.tattoos.some((t) => t.id === openSwipe)) openSwipe = null;
-    const key = JSON.stringify([open, selId, k, openMore, openSwipe, selecting, askDelete, [...picked], [...folded], state.groups || [], state.paint ? !!state.paint.hidden : null,
+    const key = JSON.stringify([open, selId, k, openMore, openGroupMore, openSwipe, selecting, askDelete, [...picked], [...folded], state.groups || [], state.paint ? !!state.paint.hidden : null,
       state.tattoos.map((t) => [t.id, t.name, t.hidden, t.status, t.locked, t.group, t.img, !!images[t.img], t.blend || '', t.adjust || null, o.badges?.(t) || null])]);
     if (key === lastKey) return; lastKey = key;
     const all = state.tattoos, planned = all.filter((t) => kindOf(t) === 'planned').length, existing = all.length - planned;
@@ -296,15 +303,22 @@ export function createLayersDock(o) {
     for (const sec of sections) {
       const box = el('div', 'ld-sec' + (sec.group ? ' ld-in' : '')); box.dataset.group = sec.group ? sec.group.id : '';
       if (sec.group) {
-        const g = sec.group, shut = folded.has(g.id), head = el('div', 'ld-ghead'); head.dataset.group = g.id;
-        const fold = ib(CHEV, `${shut ? 'Open' : 'Fold'} ${g.name}`, () => { if (folded.has(g.id)) folded.delete(g.id); else folded.add(g.id); lastKey = ''; render(); }, 'ld-fold'); fold.setAttribute('aria-expanded', String(!shut));
-        const name = el('span'); name.append(el('b', '', g.name), el('small', '', sec.items.length ? `Group, ${sec.items.length} ${sec.items.length === 1 ? 'tattoo' : 'tattoos'}` : 'Empty group'));
+        const g = sec.group, shut = folded.has(g.id), head = el('div', 'ld-ghead' + (g.area ? ' area' : '')); head.dataset.group = g.id;
+        const toggleFold = () => { const opening = folded.has(g.id); if (opening) folded.delete(g.id); else folded.add(g.id); keepFolded(); lastKey = ''; render(); if (opening) o.frameFolder?.(g.id); o.onFolder?.(opening); };
+        const fold = ib(CHEV, `${shut ? 'Open' : 'Fold'} ${g.name}`, toggleFold, 'ld-fold'); fold.setAttribute('aria-expanded', String(!shut));
+        // the folder's name: a tap opens it and turns the view to everything in it (or folds it again)
+        const n = sec.items.length, inView = sec.items.filter((t) => kindShown(t, o.kinds)).length, hid = sec.items.filter((t) => t.hidden).length;
+        const words = !n ? 'Empty folder' : `${n} ${n === 1 ? 'tattoo' : 'tattoos'}` + (inView < n ? `, ${inView} in this view` : '') + (hid ? `, ${hid} hidden` : '');
+        const name = el('button', 'ld-gname'); name.type = 'button'; name.append(el('b', '', g.name), el('small', '', words));
+        name.setAttribute('aria-label', `${g.name}, ${words}. ${shut ? 'Open it and show it on the body' : 'Fold it'}`); name.setAttribute('aria-expanded', String(!shut)); name.addEventListener('click', toggleFold);
         const anyShown = sec.items.some((t) => !t.hidden);
-        const eye = ib(anyShown ? EYE : EYE_OFF, `${anyShown ? 'Hide' : 'Show'} the ${g.name} group`, () => o.change((s) => groupEye(s, g.id)), 'ld-eye' + (anyShown ? '' : ' off')); eye.disabled = !sec.items.length;
-        head.prepend(fold); head.append(name, eye); box.append(head);
+        const eye = ib(anyShown ? EYE : EYE_OFF, `${anyShown ? 'Hide' : 'Show'} everything in ${g.name}`, () => o.change((s) => groupEye(s, g.id)), 'ld-eye' + (anyShown ? '' : ' off')); eye.disabled = !n;
+        const more = ib(DOTS, `More for the ${g.name} folder`, () => { openGroupMore = openGroupMore === g.id ? null : g.id; lastKey = ''; render(); }, 'ld-gmore'); more.setAttribute('aria-expanded', String(openGroupMore === g.id));
+        head.append(fold, name, eye, more); box.append(head);
+        if (openGroupMore === g.id && !commentOnly()) box.append(folderActs(g, sec.items, state));
         if (!shut) for (const t of sec.items) box.append(rowFor(t, state, images, selId, index.get(t.id)));
       } else {
-        if (sections.length > 1 && sec.items.length) box.append(el('p', 'ld-rest', 'Not in a group'));
+        if (sections.length > 1 && sec.items.length) box.append(el('p', 'ld-rest', 'Not in a folder'));
         for (const t of sec.items) box.append(rowFor(t, state, images, selId, index.get(t.id)));
       }
       list.append(box);
@@ -320,10 +334,51 @@ export function createLayersDock(o) {
     list.scrollTop = keep;
     $('#ldSelect').hidden = !all.length && !selecting; const picking = selecting || picked.size > 0; $('#ldSelect').textContent = picking ? 'Done' : 'Select'; $('#ldSelect').setAttribute('aria-pressed', String(picking)); $('#ldSelect').classList.toggle('primary', picking);
     host.classList.toggle('selecting', selecting);
+    // the foot: Sort into areas with two or more tattoos, Fold all with two or more folders
+    const nFolders = sections.filter((x) => x.group).length, allShut = nFolders > 0 && sections.every((x) => !x.group || folded.has(x.group.id));
+    $('#ldAreas').hidden = !o.areaOf || all.length < 2 || picking || commentOnly();
+    $('#ldFoldAll').hidden = nFolders < 2 || picking; $('#ldFoldAll').textContent = allShut ? 'Open all' : 'Fold all';
+    $('#ldFoldAll').setAttribute('aria-label', allShut ? 'Open every folder' : 'Fold every folder shut');
     const vNow = viewNow(), counts = { all: all.length, existing, planned }, vb = $('#ldView');
     vb.replaceChildren(...VIEWS.map(([v, word]) => { const b = el('button'); b.type = 'button'; b.dataset.view = v; b.setAttribute('aria-pressed', String(vNow === v)); b.append(word, el('span', 'ld-n', String(counts[v]))); b.setAttribute('aria-label', `Show ${v === 'all' ? 'all tattoos' : v === 'existing' ? 'only the tattoos on my skin' : 'only the planned tattoos'}, ${counts[v]}`); b.addEventListener('click', () => setView(v)); return b; }));
     vb.hidden = !all.length;
   }
+  // A folder's ⋯: its name typed in place, Show only this folder, Show everything, Zoom to them,
+  // Pick them (for the bar's actions) and Take them out of the folder. Each change is one undo step.
+  function folderActs(g, items, state) {
+    const acts = el('div', 'ld-gacts'); acts.dataset.group = g.id;
+    const nm = el('input', 'ld-name'); nm.type = 'text'; nm.value = g.name; nm.maxLength = 60; nm.setAttribute('aria-label', 'Folder name'); nm.autocomplete = 'off'; nm.spellcheck = false;
+    nm.addEventListener('change', () => { const v = nm.value.trim(); if (v && v !== g.name) o.change((s) => renameFolder(s, g.id, v)); else nm.value = g.name; });
+    nm.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') nm.blur(); });
+    acts.append(nm);
+    const ids = items.map((t) => t.id), others = state.tattoos.filter((t) => t.group !== g.id);
+    const solo = items.length && items.every((t) => !t.hidden) && others.length && others.every((t) => t.hidden);
+    const only = btn('Show only this folder', () => { o.change((s) => soloFolder(s, g.id)); o.onFolderSolo?.(g.id); }); only.disabled = !items.length || solo;
+    const every = btn('Show everything', () => o.change((s) => changeSelected(s, s.tattoos.map((t) => t.id), { hidden: false }))); every.disabled = !state.tattoos.some((t) => t.hidden);
+    const zoom = btn('Zoom to them', () => { openGroupMore = null; if (folded.has(g.id)) { folded.delete(g.id); keepFolded(); } lastKey = ''; render(); o.frameFolder?.(g.id); }); zoom.disabled = !items.length;
+    const pickThem = btn('Pick them', () => { openGroupMore = null; selecting = true; picked.clear(); for (const id of ids) picked.add(id); if (folded.has(g.id)) { folded.delete(g.id); keepFolded(); } lastKey = ''; render(); o.onPick?.(picked.size, true); }); pickThem.disabled = !items.length;
+    const out = btn('Take them out of the folder', () => { openGroupMore = null; folded.delete(g.id); keepFolded(); o.change((s) => unfolder(s, g.id)); o.onGroup?.(false); });
+    acts.append(only, every, zoom, pickThem, out);
+    return acts;
+  }
+  // Sort into areas: every tattoo not in a folder of your own goes into a folder for where it sits
+  // on the body, one undo step; the folders start folded, except the one holding the selected tattoo
+  function sortAreas() {
+    if (!o.areaOf || commentOnly()) return;
+    const state = o.getState(), plan = sortPlan(state, o.areaOf);
+    if (!plan.move) { o.onSorted?.({ moved: 0, folders: plan.folders }); return; }
+    let r = null; o.change((s) => { r = sortIntoAreas(s, o.areaOf); });
+    const after = o.getState(), sel = after.tattoos.find((t) => t.id === o.selectedId());
+    if (r) for (const id of r.ids) if (!sel || sel.group !== id) folded.add(id); else folded.delete(id);
+    keepFolded(); openGroupMore = null; lastKey = ''; render(); o.onSorted?.(r);
+  }
+  $('#ldAreas').addEventListener('click', sortAreas);
+  // Fold all, or Open all when every folder is folded
+  $('#ldFoldAll').addEventListener('click', () => {
+    const ids = dockSections(o.getState()).filter((x) => x.group).map((x) => x.group.id), allShut = ids.length && ids.every((id) => folded.has(id));
+    for (const id of ids) if (allShut) folded.delete(id); else folded.add(id);
+    keepFolded(); lastKey = ''; render(); o.onFolder?.(allShut);
+  });
   // The bar over the list while lines are picked (a swipe right picks one, as in Procreate, or Select
   // and tap): what to do with all of them at once. Each change is one undo step.
   function pickBar(state) {
@@ -524,7 +579,7 @@ export function createLayersDock(o) {
   // bring its line into view. On a phone the panel would cover the body, so it only marks the line.
   function reveal(id) {
     const state = o.getState(), t = state.tattoos.find((x) => x.id === id); if (!t) return;
-    if (t.group && folded.has(t.group)) { folded.delete(t.group); lastKey = ''; }
+    if (t.group && folded.has(t.group)) { folded.delete(t.group); keepFolded(); lastKey = ''; }
     if (!open && wide()) setOpen(true, true); else render();
     requestAnimationFrame(() => {
       const row = host.querySelector(`.ld-row[data-id="${String(id).replace(/["\\]/g, "\\$&")}"]`), list = $('#ldList'); if (!row || !list || !open) return;
@@ -534,5 +589,5 @@ export function createLayersDock(o) {
   }
   addEventListener('resize', () => layout());
   render(); layout();
-  return { render, layout, setOpen, reveal, isOpen: () => open, el: host, wide, picked: () => [...picked], openOptions: (id) => { openMore = id; lastKey = ''; render(); } };
+  return { render, layout, setOpen, reveal, sortAreas, folded: () => [...folded], isOpen: () => open, el: host, wide, picked: () => [...picked], openOptions: (id) => { openMore = id; lastKey = ''; render(); } };
 }

@@ -75,6 +75,7 @@ import { coverByArt, coverText } from './cover.js';
 import { painMap, painFor, smoothLevels, painColour, painWords, painLine, vertexNeighbours, painUnder } from './pain.js';
 import { OFF_LIMITS, clearance, inkSeeds, vertexAreas, halfGirth, acrossAt, roomByRegion, roomColour, roomSummary, inchWords, coveredArea, coveredByArea, coveredText } from './room.js';
 import { whereItSits } from './where.js';
+import { areaFor, frameFor } from './body-areas.js';
 import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
 import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost, planCalendar, planCalendarText, planCalendarFile } from './sittings.js';
@@ -3091,6 +3092,8 @@ const SHOW = {
   layerReorder: () => { layersDock.setOpen(true, true); return ['#ldList', 'Press and hold a line until it lifts, then drag it to a new place.']; },
   hideKinds: () => { layersDock.setOpen(true, true); return ['#ldView', 'Tap On my skin to see only the ink already on you, Planned to see only your plans, or All for everything. Nothing in the project changes.']; },
   layerViews: () => { layersDock.setOpen(true, true); return ['#ldView', 'All shows every tattoo, On my skin only the ink already on you, Planned only your plans. Only this screen changes.']; },
+  areaFolders: () => { layersDock.setOpen(true, true); const b = $('#ldAreas'); return b && !b.hidden ? ['#ldAreas', 'Tap Sort by area. Every tattoo goes into a folder for where it sits, like Left thigh or Chest, and the folders start folded. Undo puts them back.'] : ['#ldList', 'Add a second tattoo, then Sort by area at the foot of Layers puts each one in a folder for where it sits.']; },
+  folderOpen: () => { layersDock.setOpen(true, true); return [$('#ldList .ld-gname') ? '#ldList .ld-gname' : '#ldList', 'Tap a folder\u2019s name to open it and turn the view to everything in it. The eye hides or shows the whole folder, and the dots give Show only this folder, its name and more.']; },
   layerSelect: () => { layersDock.setOpen(true, true); return ['#ldSelect', 'Tap Select, then tap lines to pick them. The bar at the top hides, duplicates, groups, locks, merges or deletes them all at once.']; },
   tapUndo: () => ['#undo', 'Tap the body with two fingers to undo, or three fingers to redo. Hold two fingers still to keep undoing.'],
   layersSheet: () => { toggle('#planMenu', true); return ['#openLayers', 'Tap Layers and groups. Each tattoo is one line with an eye to hide it and dots to move or lock it; tick several and the actions for them show below.']; },
@@ -4464,6 +4467,26 @@ function whereOf(t) {
   const j = { shoulder: at('upperarm01' + S), elbow: at('lowerarm01' + S), wrist: at('wrist' + S), hip: at('upperleg01' + S), knee: at('lowerleg01' + S), ankle: at('foot' + S), neck: at('neck01'), navel: [P[MARKS.navel * 3], P[MARKS.navel * 3 + 1], P[MARKS.navel * 3 + 2]] };
   return whereItSits({ p: t.pos, place: d.place[nv], side, j, toCm: cmPerUnit() });
 }
+// The body area a tattoo sits in, for Sort into areas in Layers ("Left thigh", "Chest"...), from the
+// pain map's place under its middle on the standing body; cached by where it sits and the shape
+const areaCache = new Map();
+function areaOfTattoo(t) {
+  if (!t || !Array.isArray(t.pos)) return null;
+  const k = `${shapeKey}|${t.pos.map((x) => x.toFixed(4)).join(',')}`; if (areaCache.has(k)) return areaCache.get(k);
+  const d = painData(), P = bodyGeo.attributes.position.array;
+  let nv = -1, nd = Infinity;
+  for (let v = 0; v < PAIN_N; v++) { if (!d.place[v]) continue; const o = v * 3, dd = (P[o] - t.pos[0]) ** 2 + (P[o + 1] - t.pos[1]) ** 2 + (P[o + 2] - t.pos[2]) ** 2; if (dd < nd) { nd = dd; nv = v; } }
+  const a = nv < 0 ? null : areaFor(d.place[nv], t.pos[0] >= 0 ? 'left' : 'right');
+  if (areaCache.size > 600) areaCache.clear(); areaCache.set(k, a); return a;
+}
+// Turn the view to everything in a folder at once (what shows in this view, or all of it), unless
+// the view is locked
+function frameFolder(gid) {
+  if (viewLocked) return;
+  const members = state.tattoos.filter((t) => t.group === gid); if (!members.length) return;
+  const seen = members.filter((t) => !t.hidden && viewShows(t)), f = frameFor((seen.length ? seen : members).map((t) => shotSpot(t)));
+  if (!f) return; cancelGesture(); aimView(f.pos, f.normal, f.ext * 1.25 + 0.12);
+}
 function hoursOf(t) {
   const st = artStats(t); if (!st) return null;
   const sh = shownSize(t), w = toInches(sh.width), h = w / sh.aspect;
@@ -5353,6 +5376,9 @@ layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:
   rename:(id,name)=>{const t=state.tattoos.find(x=>x.id===id);if(!t||commentOnly)return;snapshot();t.name=name.slice(0,60);commit();},
   move:(id,where)=>{if(commentOnly)return;const probe={groups:state.groups,tattoos:state.tattoos.map(t=>({id:t.id,group:t.group}))};if(!moveLine(structuredClone(probe),id,where))return;snapshot();moveLine(state,id,where);commit();markTried('layerReorder');},
   zoom:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id!==selectedId)select(t.id,true);else if(!viewLocked)focusTattoo(t);},
+  areaOf:t=>areaOfTattoo(t),frameFolder:gid=>frameFolder(gid),
+  onSorted:r=>{if(!r||!r.moved){toast(r&&r.folders?'Every tattoo is already in the folder for where it sits.':'Nothing to sort yet.');return;}markTried('areaFolders');toast(`Sorted ${r.moved} ${r.moved===1?'tattoo':'tattoos'} into ${r.folders} ${r.folders===1?'folder':'folders'} by where ${r.moved===1?'it sits':'they sit'}. Tap a folder to see it on the body.`,'Undo',undo,5200);},
+  onFolder:opened=>{if(opened)markTried('folderOpen');},onFolderSolo:()=>{markTried('folderOpen');toast('Only this folder shows now. Show everything, or Undo, brings the rest back.','Undo',undo);},
   onSwipe:()=>markTried('layerSwipe'),onPick:(n,mode)=>{if(mode)markTried('layerSelect');else if(n)markTried('layerSwipe');},onGroup:on=>{markTried('layerSelect');toast(on===false?'Taken out of the group.':'Grouped. The group shows as a folder at the top of Layers.');},
   onView:v=>{markTried('layerViews');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}},
   onKinds:kind=>{markTried('hideKinds');const t=sel();if(t&&!viewShows(t))select(null);else{syncDecals();renderUI();}const n=state.tattoos.filter(x=>(x.status==='existing'?'existing':'planned')===kind).length;if(n)toast(kindOff[kind]?`${kind==='existing'?'Existing':'Planned'} tattoos hidden on this screen. Tap again to bring them back.`:`${kind==='existing'?'Existing':'Planned'} tattoos showing again.`,null,null,3200);},
@@ -6887,6 +6913,7 @@ window.__ink = {
   covered: () => ({ text: $('#roomCover').hidden ? '' : $('#roomCover').textContent, list: room.on ? coverList() : null }),
   room: () => ({ on: room.on, fitId: room.fitId, text: $('#roomText').textContent, shown: !!(room.mesh && room.mesh.visible), need: room.need ? toInches(room.need * 2) : 0, at: (v) => { roomData(); return { across: toInches(room.across[v]), clear: toInches(room.clear[v]), cap: toInches(room.cap[v]), off: roomOff(v), fits: room.fitId ? roomFits(v) : null, place: painData().place[v] }; }, shares: () => inkShares(), summary: () => roomSummaryText(), regions: () => roomByRegion(roomData().across, painData().place, (v) => !roomOff(v)).map((r) => ({ region: r.region, across: toInches(r.across) })), fitsCount: () => { roomData(); let n = 0; for (let v = 0; v < PAIN_N; v++) if (room.fitId && roomFits(v)) n++; return n; }, pick: (id) => roomPick(state.tattoos.find((t) => t.id === id)), under: (x, y) => { const h = hitBody(x, y); if (!h || !h.face) return null; roomData(); const P = bodyGeo.attributes.position.array, vs = [h.face.a, h.face.b, h.face.c]; let v = vs[0], bd = Infinity; for (const u of vs) { const d = (P[u * 3] - h.point.x) ** 2 + (P[u * 3 + 1] - h.point.y) ** 2 + (P[u * 3 + 2] - h.point.z) ** 2; if (d < bd) { bd = d; v = u; } } return { v, off: roomOff(v), fits: room.fitId ? roomFits(v) : null, across: toInches(room.across[v]), place: painData().place[v], point: h.point.toArray() }; }, drawnAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null, colourAt: (v) => room.mesh ? Array.from(room.mesh.geometry.attributes.color.array.slice(v * 3, v * 3 + 3)) : null }),
   where: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? whereOf(t) : null; },
+  area: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? areaOfTattoo(t) : null; },
   estimate: (id) => { const t = state.tattoos.find((q) => q.id === id); const h = t && hoursOf(t); return h ? { ...h, text: sessionText(h, readRate()), stats: artStats(t) } : null; },
   cleanCheck: (f) => { const t = cleanState({ tattoos: [{ id: 'x', img: 'k', pos: [0, 1, 0.1], normal: [0, 0, 1], ...f }] }, () => true).state.tattoos[0]; const o = {}; if ('note' in t) o.note = t.note; if ('made' in t) o.made = t.made; if ('sittings' in t) o.sittings = t.sittings; return o; },
   madeText: (id) => { const t = state.tattoos.find((q) => q.id === id); return t ? madeText(t.made) : ''; },
