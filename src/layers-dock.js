@@ -443,7 +443,13 @@ export function createLayersDock(o) {
   const now = () => performance.now();
   const quiet = () => { quietUntil = now() + 320; };
   // a tap that ends a gesture must not also pick the line under it
-  listEl.addEventListener('click', (e) => { if (now() < quietUntil) { e.preventDefault(); e.stopPropagation(); } }, true);
+  listEl.addEventListener('click', (e) => {
+    if (now() < quietUntil) { e.preventDefault(); e.stopPropagation(); return; }
+    // a tap on a line swiped open only closes it, as on the iPad, and never presses the eye or the
+    // other buttons that slid along with it (2026-11-23: tapping it to close it hid the tattoo)
+    const r = openSwipe && e.target.closest ? e.target.closest('.ld-row[data-id]') : null;
+    if (r && r.dataset.id === openSwipe && !e.target.closest('.ld-swipe')) { e.preventDefault(); e.stopPropagation(); closeSwipe(); o.onSwipeClosed?.(); }
+  }, true);
   const setHint = (text) => { if (!text) { if (hint) { hint.remove(); hint = null; } return; } if (!hint) { hint = el('div', 'ld-hint'); hint.setAttribute('role', 'status'); host.append(hint); } hint.textContent = text; };
   const touchRow = (tt) => { const e = document.elementFromPoint(tt.clientX, tt.clientY) || tt.target; return e && e.closest && !e.closest('.ld-acts,.ld-swipe,.ld-pickbar,input') ? e.closest('.ld-row[data-id]') : null; };
   function reset() {
