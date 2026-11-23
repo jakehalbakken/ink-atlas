@@ -729,6 +729,15 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-23 QA batch 20 (not live)
+
+Re-tested Copy to other side and Line up tattoos on ink already on the skin. Two fixes:
+
+- Copy to other side of a tattoo that is on your skin made a twin also marked On my skin: locked in place with no handles, carrying who did the original, its approval and its Procreate layer mark, so a changed layer brought back from Procreate took the twin away with the original. The twin is now a planned piece you can move and size, with no `made`, no `review` and no `fromLayer`, and the original stays exactly as it was, all one undo step. A twin of a planned piece also drops the approval and layer mark. t177. New to try: Copy to other side of ink you have makes a plan.
+- Line up tattoos' Copy to the other side (`planBodySymmetry` in `placement-tools.js`) already made the copy planned and unlocked, but kept the original's approval and Procreate layer mark. It drops both now. placement-tools-unit.
+
+Full suite: 268 pass, all seven account checks pass. t131, t132, t157, t166, t174, t25, t8 and t9 failed only under the full parallel load and pass alone. Not checked on an iPad yet.
+
 ## 2026-11-23 QA batch 19 (not live)
 
 Re-tested folders, Layers and Undo together. Undo and Go back to said "Undid the change." for most folder and layer steps, so a step taken by mistake in Layers was hard to find in the list. Two fixes:
