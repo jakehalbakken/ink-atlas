@@ -729,6 +729,12 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-23 QA batch 22 (not live)
+
+- A copy made with Duplicate, Cmd+D or Copy to other side goes into the list right under the tattoo it came from, as Layers' own Duplicate already did, instead of to the bottom of the list. Test t179; New to try entry copyUnder with Show me.
+- In Layers on an iPad held upright, with a long list, the line of a new copy or of a tattoo picked on the body could end up just below the visible part of the list, because the edit sheet under it changes height a moment after the pick and shrinks the list again. The line is now checked once more when the list changes size just after it was brought into view (t179). t126's scroll check now starts from the top, since the list scrolls to each new copy.
+- Suite: 273 pass, every account check passes; t105, t132, t155, t166 and t25 failed only under parallel load and pass alone.
+
 ## 2026-11-23 QA batch 21 (not live)
 
 - Duplicate in the edit sheet (and Cmd+D) now makes its own piece: the copy leaves the original's approval and Procreate layer mark behind, a copy of ink already on your skin is a planned, unlocked piece without who did it, it gets the next free "copy" name, and on an arm or leg it lands beside the original instead of exactly on top of it (the old single ray missed curved limbs). One undo step, as before. Test t178; New to try entry dupPlan with Show me.
