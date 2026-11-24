@@ -731,17 +731,29 @@ function inkPoints(t) {
   const out = new Float32Array(keep); inkPointCache.set(geo, { key, pts: out }); return out;
 }
 // The nearest other tattoo to t, by the gap between their ink: { name, inches } or null.
+// The box round a set of ink points, kept with the points (a Float32Array from inkPoints).
+const inkPtsBoxCache = new WeakMap(); let gapPairs = 0;
+function inkPtsBox(pts) { let b = inkPtsBoxCache.get(pts); if (b) return b; b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]; for (let i = 0; i < pts.length; i += 3) for (let k = 0; k < 3; k++) { const v = pts[i + k]; if (v < b[k]) b[k] = v; if (v > b[k + 3]) b[k + 3] = v; } inkPtsBoxCache.set(pts, b); return b; }
+function boxGap2(a, b) { let s = 0; for (let k = 0; k < 3; k++) { const d = Math.max(0, a[k] - b[k + 3], b[k] - a[k + 3]); s += d * d; } return s; }
+// The nearest other tattoo to t, by the gap between their ink: { name, inches } or null.
+// The others are tried nearest box first, and one whose box is already further than the best gap
+// so far is skipped, so a big project no longer compares every point with every point after each
+// drag or pick (2026-11-24: about a second's pause on lifting a finger with 60 tattoos).
 function nearestGap(t) {
   const a = inkPoints(t); if (!a || !a.length) return null;
-  let best = null;
+  const ab = inkPtsBox(a), cands = [];
   for (const o of state.tattoos) {
     if (o.id === t.id || o.hidden) continue;
     const b = inkPoints(o); if (!b || !b.length) continue;
-    // quick reject: far apart boxes can't beat the best so far
-    let m = Infinity;
-    for (let i = 0; i < a.length; i += 3) for (let j = 0; j < b.length; j += 3) { const dx = a[i] - b[j], dy = a[i + 1] - b[j + 1], dz = a[i + 2] - b[j + 2], dd = dx * dx + dy * dy + dz * dz; if (dd < m) m = dd; }
-    const inches = Math.sqrt(m) * 100 * (state.heightCm / 175) / 2.54;
-    if (!best || inches < best.inches) best = { name: o.name || 'another tattoo', inches };
+    cands.push({ o, b, g: boxGap2(ab, inkPtsBox(b)) });
+  }
+  cands.sort((x, y) => x.g - y.g);
+  let best = null, bestM = Infinity;
+  for (const { o, b, g } of cands) {
+    if (g >= bestM) break; // every box from here on is further than the best gap found
+    let m = Infinity; gapPairs += (a.length / 3) * (b.length / 3);
+    for (let i = 0; i < a.length; i += 3) { const ax = a[i], ay = a[i + 1], az = a[i + 2]; for (let j = 0; j < b.length; j += 3) { const dx = ax - b[j], dy = ay - b[j + 1], dz = az - b[j + 2], dd = dx * dx + dy * dy + dz * dz; if (dd < m) m = dd; } }
+    if (m < bestM) { bestM = m; best = { name: o.name || 'another tattoo', inches: Math.sqrt(m) * 100 * (state.heightCm / 175) / 2.54 }; }
   }
   return best;
 }
@@ -767,7 +779,7 @@ function gapText(t) {
   return `${g.inches < 10 ? g.inches.toFixed(1) : Math.round(g.inches)} in from ${g.name}`;
 }
 let gapTimer = 0, gapReads = 0;
-function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { gapReads++; const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; }, 120); }
+function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { gapReads++; const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; if (txt && state.tattoos.length >= 20) markTried('gapQuick'); }, 120); }
 let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
 let agingYears = 0; // view only: how the ink looks after this many years
 function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0, lookKey(t), blendOf(t) !== DEFAULT_BLEND ? skinColor() : '', lookDraft === t.id || warpDraft === t.id ? 'draft' : '', warpKey(warpOf(t))].join('|'); }
@@ -7027,7 +7039,7 @@ window.__ink = {
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y, p.z]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
-  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads }), pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
+  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs }), inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
