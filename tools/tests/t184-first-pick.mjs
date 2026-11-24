@@ -13,8 +13,9 @@ export default async function (p) {
     const X = I.bodyIndex(); s.tattoos = []; for (let k = 0; k < 60; k++) { const t = structuredClone(b), f = 40 + k * 433, a = X[f * 3] * 3, c = X[f * 3 + 1] * 3, d = X[f * 3 + 2] * 3, e1 = [0, 1, 2].map((j) => P[c + j] - P[a + j]), e2 = [0, 1, 2].map((j) => P[d + j] - P[a + j]), n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], nl = Math.hypot(...n); t.id = 'id' + k; t.name = 'T' + k; t.pos = [0, 1, 2].map((j) => (P[a + j] + P[c + j] + P[d + j]) / 3); t.normal = n.map((x) => x / nl); t.status = k % 3 ? 'planned' : 'existing'; t.locked = false; delete t.group; s.tattoos.push(t); }
     s.groups = []; I.loadState(s); });
   const reads = () => ink(() => window.__ink.inkReads());
+  const still = async () => { let last = -1; for (let k = 0; k < 40; k++) { const r = await reads(); if (r.warmed === last && r.pts === last2) return; last = r.warmed; last2 = r.pts; await wait(700); } }; let last2 = -1;
   // all 60 get worked out on their own, in slices
-  await p.waitForFunction(() => window.__ink.inkReads().warmed >= 60, { timeout: 60000 });
+  await p.waitForFunction(() => window.__ink.inkReads().warmed >= 60, { timeout: 60000 }); await still();
   const r0 = await reads();
   // the first pick then reads no artwork and does no new point work
   const lines = await p.$$('#ldList .ld-tat');
@@ -33,7 +34,7 @@ export default async function (p) {
   await p.waitForFunction((w) => window.__ink.inkReads().warmed >= w + 60, { timeout: 60000 }, w0);
   await ink(() => document.querySelector('#undo').click()); await wait(300);
   await p.keyboard.press('Escape'); await wait(300);
-  await p.waitForFunction((w) => window.__ink.inkReads().warmed >= w + 120, { timeout: 60000 }, w0);
+  await p.waitForFunction((w) => window.__ink.inkReads().warmed >= w + 120, { timeout: 60000 }, w0); await still();
   const a0 = (await reads()).pts;
   await (await p.$$('#ldList .ld-tat'))[33].tap(); await wait(900);
   assert.equal((await reads()).pts, a0, 'after the slider and its undo the first pick still works out no ink points');

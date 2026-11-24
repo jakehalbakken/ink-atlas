@@ -761,6 +761,10 @@ function inkPoints(t) {
 // The box round a set of ink points, kept with the points (a Float32Array from inkPoints).
 const inkPtsBoxCache = new WeakMap(); let gapPairs = 0;
 function inkPtsBox(pts) { let b = inkPtsBoxCache.get(pts); if (b) return b; b = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]; for (let i = 0; i < pts.length; i += 3) for (let k = 0; k < 3; k++) { const v = pts[i + k]; if (v < b[k]) b[k] = v; if (v > b[k + 3]) b[k + 3] = v; } inkPtsBoxCache.set(pts, b); return b; }
+// The same points sorted across the body (by x), kept with the points, for the gap search.
+const inkPtsXCache = new WeakMap();
+function inkPtsByX(pts) { let r = inkPtsXCache.get(pts); if (r) return r; const n = pts.length / 3, ord = Array.from({ length: n }, (_, i) => i).sort((i, j) => pts[i * 3] - pts[j * 3]);
+  const xs = new Float32Array(n), q = new Float32Array(n * 3); ord.forEach((i, k) => { xs[k] = pts[i * 3]; q[k * 3] = pts[i * 3]; q[k * 3 + 1] = pts[i * 3 + 1]; q[k * 3 + 2] = pts[i * 3 + 2]; }); r = { xs, pts: q }; inkPtsXCache.set(pts, r); return r; }
 function boxGap2(a, b) { let s = 0; for (let k = 0; k < 3; k++) { const d = Math.max(0, a[k] - b[k + 3], b[k] - a[k + 3]); s += d * d; } return s; }
 // The nearest other tattoo to t, by the gap between their ink: { name, inches } or null.
 // The others are tried nearest box first, and one whose box is already further than the best gap
@@ -775,15 +779,27 @@ function nearestGap(t) {
     cands.push({ o, b, g: boxGap2(ab, inkPtsBox(b)) });
   }
   cands.sort((x, y) => x.g - y.g);
+  // Closer than this reads as touching, so once a pair is found that close nothing else can change
+  // the line: the search stops there (2026-11-24: many overlapping pieces each compared in full).
+  const touch = (TOUCH_IN * 2.54 / 100 * 175 / (state.heightCm || 175)) ** 2;
   let best = null, bestM = Infinity;
   for (const { o, b, g } of cands) {
     if (g >= bestM) break; // every box from here on is further than the best gap found
-    let m = Infinity; gapPairs += (a.length / 3) * (b.length / 3);
-    for (let i = 0; i < a.length; i += 3) { const ax = a[i], ay = a[i + 1], az = a[i + 2]; for (let j = 0; j < b.length; j += 3) { const dx = ax - b[j], dy = ay - b[j + 1], dz = az - b[j + 2], dd = dx * dx + dy * dy + dz * dz; if (dd < m) m = dd; } }
+    let m = bestM; gapPairs += (a.length / 3) * (b.length / 3);
+    const bb = inkPtsBox(b), sb = inkPtsByX(b), xs = sb.xs, q = sb.pts, nb = xs.length;
+    // a point of this tattoo further from the other's box than the best gap so far can't do better,
+    // and of the other's points, sorted across, only those closer across than that gap are tried
+    outer: for (const st of [48, 3]) for (let i = 0; i < a.length; i += st) { const ax = a[i], ay = a[i + 1], az = a[i + 2];
+      const ex = Math.max(0, bb[0] - ax, ax - bb[3]), ey = Math.max(0, bb[1] - ay, ay - bb[4]), ez = Math.max(0, bb[2] - az, az - bb[5]); if (ex * ex + ey * ey + ez * ez >= m) continue;
+      let lo = 0, hi = nb; while (lo < hi) { const mid = (lo + hi) >> 1; if (xs[mid] < ax) lo = mid + 1; else hi = mid; }
+      for (let j = lo; j < nb; j++) { const dx = xs[j] - ax; if (dx * dx >= m) break; const dy = ay - q[j * 3 + 1], dz = az - q[j * 3 + 2], dd = dx * dx + dy * dy + dz * dz; if (dd < m) { m = dd; if (m < touch) break outer; } }
+      for (let j = lo - 1; j >= 0; j--) { const dx = ax - xs[j]; if (dx * dx >= m) break; const dy = ay - q[j * 3 + 1], dz = az - q[j * 3 + 2], dd = dx * dx + dy * dy + dz * dz; if (dd < m) { m = dd; if (m < touch) break outer; } } }
     if (m < bestM) { bestM = m; best = { name: o.name || 'another tattoo', inches: Math.sqrt(m) * 100 * (state.heightCm / 175) / 2.54 }; }
+    if (bestM < touch) break;
   }
   return best;
 }
+const TOUCH_IN = 0.15;
 // A planned tattoo over ones already on you: how much of the old ink its own ink lays over.
 function coverOf(t) {
   if (t.status === 'existing') return null;
@@ -798,11 +814,23 @@ function coverOf(t) {
   }
   return best;
 }
+// The line is kept for what it was worked out from: this tattoo's ink and kind, and each other
+// tattoo's ink, kind, name and whether it shows. Hiding, showing or picking it again no longer
+// works it all out again (2026-11-24: up to a fifth of a second a tap in a big project).
+const ptsIds = new WeakMap(); let ptsSeq = 0, gapMemo = null, gapRuns = 0;
+function ptsId(x) { if (!x) return 0; let i = ptsIds.get(x); if (!i) { i = ++ptsSeq; ptsIds.set(x, i); } return i; }
 function gapText(t) {
+  const d = decals[t.id], geo = d && d.mesh.geometry;
+  let key = t.id + '|' + (t.status === 'existing' ? 'e' : 'p') + '|' + (state.heightCm || 175) + '|' + ptsId(inkPoints(t)) + '|' + (d ? d.texKey + ':' + (geo.attributes.position ? geo.attributes.position.version : '') : '');
+  for (const o of state.tattoos) if (o.id !== t.id) key += ';' + (o.hidden ? 'h' : ptsId(inkPoints(o)) + (o.status === 'existing' ? 'e' : 'p') + (o.name || ''));
+  if (gapMemo && gapMemo.key === key) { if (gapMemo.txt && state.tattoos.length >= 20 && gapMemo.id === t.id) markTried('hideQuick'); return gapMemo.txt; }
+  gapRuns++; const txt = gapWorkOut(t); gapMemo = { key, txt, id: t.id }; return txt;
+}
+function gapWorkOut(t) {
   const cv = coverOf(t), ct = cv ? coverText(cv.share, cv.name) : '';
   if (ct) { if (cv.share >= 0.02) markTried('cover'); return ct; }
   const g = nearestGap(t); if (!g) return '';
-  if (g.inches < 0.15) return `Touches ${g.name}`;
+  if (g.inches < TOUCH_IN) return `Touches ${g.name}`;
   return `${g.inches < 10 ? g.inches.toFixed(1) : Math.round(g.inches)} in from ${g.name}`;
 }
 let gapTimer = 0, gapReads = 0, geoBuilds = 0;
@@ -859,7 +887,7 @@ function warmInkSoon() {
     for (const t of state.tattoos) {
       const d = decals[t.id]; if (!d || !d.tex || !d.tex.image) continue;
       const hit = inkPointCache.get(d.mesh.geometry); if (hit && hit.key === d.texKey + ':' + d.mesh.geometry.attributes.position.version) continue;
-      inkPoints(t); inkWarmDone++;
+      const pts = inkPoints(t); if (pts && pts.length) inkPtsByX(pts); inkWarmDone++;
       if (performance.now() - t0 > 8) { inkWarmTimer = setTimeout(slice, 40); return; }
     }
   }, 700);
@@ -7100,12 +7128,12 @@ window.__ink = {
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y, p.z]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
   glInfo: () => { const v = renderer.getSize(new THREE.Vector2()); return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, lines: renderer.info.render.lines, geos: renderer.info.memory.geometries, tex: renderer.info.memory.textures, pr: renderer.getPixelRatio(), w: v.x, h: v.y, objs: (() => { let n = 0; scene.traverse((o) => { if (o.visible && (o.isMesh || o.isLine || o.isPoints)) n++; }); return n; })() }; },
-  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs, geo: geoBuilds, rays: startTriRays, limbs: limbPrepStats.builds, warmed: inkWarmDone, pts: inkPtBuilds, measures: measureAllRuns }), decalGeo: (id) => { const d = decals[id], g = d && d.mesh.geometry; return g ? { p: Array.from(g.attributes.position.array), uv: Array.from(g.attributes.uv.array) } : null; }, rebuildFresh: (w = 3) => { if (w & 1) startTriCache.clear(); if (w & 2) limbPrepReset(); shapeKey++; syncDecals(); }, inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
+  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs, geo: geoBuilds, rays: startTriRays, limbs: limbPrepStats.builds, warmed: inkWarmDone, pts: inkPtBuilds, gaps: gapRuns, measures: measureAllRuns }), decalGeo: (id) => { const d = decals[id], g = d && d.mesh.geometry; return g ? { p: Array.from(g.attributes.position.array), uv: Array.from(g.attributes.uv.array) } : null; }, rebuildFresh: (w = 3) => { if (w & 1) startTriCache.clear(); if (w & 2) limbPrepReset(); shapeKey++; syncDecals(); }, inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, bodyIndex: () => bodyGeo.index.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, looksBlank: () => looksBlank(state), blankHold: () => ({ guardSave, holdBlank }), lostLook: (o) => findLostPictures(o), lostCount: () => state.tattoos.filter(isLost).length, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
-  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), closeUp: (id) => closeUpShot(state.tattoos.find((q) => q.id === id)), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), gapNow: (id) => { const t0 = performance.now(), g = nearestGap(state.tattoos.find((q) => q.id === id)); return { g, ms: performance.now() - t0 }; }, addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), closeUp: (id) => closeUpShot(state.tattoos.find((q) => q.id === id)), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)
   // where the ink itself lies on the skin, read from the decal and its own texture: the middle and the area
