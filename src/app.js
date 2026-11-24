@@ -550,7 +550,7 @@ function asDrawn(t, max = 2048) {
 function inkTexture(t, enc = 'screen') {
   const wa = imgEls[t.img] ? warpArt(t) : null, im = wa ? wa.canvas : imgEls[t.img], aspect = wa ? wa.aspect : t.aspect, topDown = wa ? true : t.imageTopDown; const c = document.createElement('canvas');
   const W = Math.min(lookDraft === t.id || warpDraft === t.id ? 384 : 1024, Math.max(64, im ? (im.naturalWidth || im.width) : 256)); c.width = W; c.height = Math.max(8, Math.round(W / aspect));
-  let g = c.getContext('2d', { willReadFrequently: hasLook(t) }); const mode = blendOf(t), strength = t.opacity ?? 0.92, mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height;
+  let g = c.getContext('2d', { willReadFrequently: true }); const mode = blendOf(t), strength = t.opacity ?? 0.92, mx = UV_MARGIN * c.width, my = UV_MARGIN * c.height;
   const drawArt = (alpha) => { g.save(); g.globalAlpha = alpha; if (t.flip) { g.translate(c.width, 0); g.scale(-1, 1); } g.drawImage(im, mx, my, c.width - 2 * mx, c.height - 2 * my); g.restore(); };
   const ratio = !!im && mode !== DEFAULT_BLEND && enc !== 'raw' && enc !== 'alpha';
   if (enc === 'alpha') { // the changed artwork itself, see-through where it is, for a file layer in any mode
@@ -698,11 +698,19 @@ function decalGeometry(t) {
 }
 // Whether a decal's artwork has ink at (u, v): a 256-wide copy, dark enough to show.
 // Kept per picture, so moving or resizing a tattoo reads its pixels once, not on every step.
-const artInkCache = new WeakMap(); let artInkReads = 0;
+// Also kept by what the picture is (its texKey), so a duplicate, an undo that brings a tattoo back,
+// or two tattoos with the same artwork share one reading instead of reading a fresh texture again
+// (2026-11-24: reading a duplicate's brand-new texture could stall for seconds).
+const artInkCache = new WeakMap(), artInkByKey = new Map(); let artInkReads = 0;
 function artInk(d, W = 256) {
   const src = d.tex.image, hit = artInkCache.get(src), flip = d.tex.flipY ? 1 : 0;
   if (hit && hit.W === W && hit.flip === flip && hit.w === src.width && hit.h === src.height) return hit.fn;
-  const fn = readArtInk(d, src, W); artInkCache.set(src, { W, flip, w: src.width, h: src.height, fn }); return fn;
+  const key = d.texKey && !/\|draft\|/.test(d.texKey) ? d.texKey + '#' + W + ':' + flip + ':' + src.width + 'x' + src.height : null;
+  const byKey = key && artInkByKey.get(key);
+  if (byKey) { artInkCache.set(src, { W, flip, w: src.width, h: src.height, fn: byKey }); return byKey; }
+  const fn = readArtInk(d, src, W); artInkCache.set(src, { W, flip, w: src.width, h: src.height, fn });
+  if (key) { artInkByKey.set(key, fn); if (artInkByKey.size > 300) artInkByKey.delete(artInkByKey.keys().next().value); }
+  return fn;
 }
 function readArtInk(d, src, W) {
   artInkReads++;
@@ -778,7 +786,7 @@ function gapText(t) {
   if (g.inches < 0.15) return `Touches ${g.name}`;
   return `${g.inches < 10 ? g.inches.toFixed(1) : Math.round(g.inches)} in from ${g.name}`;
 }
-let gapTimer = 0, gapReads = 0;
+let gapTimer = 0, gapReads = 0, geoBuilds = 0;
 function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { gapReads++; const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; if (txt && state.tattoos.length >= 20) markTried('gapQuick'); }, 120); }
 let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
 let agingYears = 0; // view only: how the ink looks after this many years
@@ -808,7 +816,7 @@ function syncDecals() {
     const tk = texKeyOf(t);
     if (d.texKey !== tk && imgEls[t.img]) { if (d.tex) d.tex.dispose(); d.tex = inkTexture(t); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t)), shapeKey].join('|');
-    if (d.geoKey !== gk) { d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
+    if (d.geoKey !== gk) { geoBuilds++; d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
     d.mesh.visible = !t.hidden && !!d.tex && viewShows(t); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting && !(warpPanel && warpPanel.isOpen()); // the warp grid is the outline then
   });
@@ -1022,7 +1030,9 @@ function whenText(at) {
 /* ---------- history ---------- */
 function snapshot() { undoStack.push(JSON.stringify(state)); if (undoStack.length > 40) undoStack.shift(); redoStack.length = 0; refreshUndo(); }
 // The record of approval pages sent is not undone, so replies still match.
-function restore(json) { const asks = state.asks; state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); applyShape(); syncDecals(); renderUI(); save(); if (wrapStudio) wrapStudio.refresh(); notePlaces(); }
+// What the body's shape depends on: an undo that leaves these alone (a name, a folder, a move) skips the shape refresh, which would rebuild every tattoo's ink.
+const shapeSig = (s) => JSON.stringify([s.figure || 'male', +(s.muscle ?? 0.5), +(s.weight ?? 0.5), s.fit || {}, s.figure === 'male' && s.genitals !== false]);
+function restore(json) { const asks = state.asks, was = shapeSig(state); state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); if (shapeSig(state) !== was) applyShape(); else if (state.tattoos.length >= 20) markTried('undoQuick'); syncDecals(); renderUI(); save(); if (wrapStudio) wrapStudio.refresh(); notePlaces(); }
 // each undo and redo says in a toast what it put back, so a tap never changes something unseen
 function stepWords(a, b) { try { return changeWords(a, b); } catch { return ''; } }
 function undo() { if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); if (words === 'the folders' || /^(putting|taking) /.test(words)) markTried('undoFolders'); }
@@ -2017,7 +2027,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden && try
 // not to the bottom of the list where it is hard to find among many layers.
 // and its line is brought into view when Layers is open (it is not opened for this)
 function showCopyLine(c) { if (layersDock && layersDock.isOpen()) layersDock.reveal(c.id); }
-function underIt(t, c) { const i = state.tattoos.indexOf(t); state.tattoos.splice(i < 0 ? state.tattoos.length : i + 1, 0, c); markTried('copyUnder'); }
+function underIt(t, c) { const i = state.tattoos.indexOf(t); state.tattoos.splice(i < 0 ? state.tattoos.length : i + 1, 0, c); markTried('copyUnder'); if (state.tattoos.length >= 20) markTried('dupQuick'); }
 function besideOnSkin(t) {
   const f = frameOf(t), o = new V3(...t.pos), w = t.width, hgt = t.width / (t.aspect || 1);
   for (const k of [0.6, 0.4, 0.25]) for (const [d, size] of [[f.right, w], [f.right.clone().negate(), w], [f.up, hgt], [f.up.clone().negate(), hgt]]) {
@@ -7039,7 +7049,7 @@ window.__ink = {
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y, p.z]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
-  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs }), inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
+  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs, geo: geoBuilds }), inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,

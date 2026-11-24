@@ -729,7 +729,15 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-24 QA batch 23 (not live)
+## 2026-11-24 QA batch 24 (not live)
+
+Speed in a big project (60 tattoos, profiled in headless Chrome):
+- The line under a tattoo's size ("1.2 in from Rose") compared every ink point with every ink point of every other tattoo after each pick and drag, about a second's pause on lifting a finger. `nearestGap` now visits tattoos nearest box first and stops once no box can be closer, reading exactly the same line (checked against the full comparison) with under a quarter of the point pairs. Test t181; New to try entry gapQuick.
+- Duplicate hung for about 5 seconds: every tattoo's ink picture canvas was a GPU canvas read back with getImageData, and the copy read its picture's ink again. Ink canvases are now made for reading (`willReadFrequently`), and the ink reading of a picture is kept by its artwork key, so a copy shares its original's. Duplicate is about a third of a second, a pick a quarter. Test t181 (a copy reads no picture again); New to try entry dupQuick.
+- Every Undo and Redo reshaped the body, which rebuilds every tattoo's ink (60 rebuilds, a quarter second or more, per step). `restore` now reshapes only when the figure, muscle, weight, fine-tune sliders or genitals setting changed. Undo of a body slider still reshapes and moves the ink with it. Test t182; New to try entry undoQuick.
+- A sweep of every panel at six iPad sizes found nothing a finger needs off screen or covered.
+
+## 2026-11-24 QA batch 23 (live 2026-11-24)
 
 - With a tattoo selected on an 11 inch iPad on its side (1180 x 820), the edit panel took the right column and Layers showed under two lines. The panel now caps itself so Layers keeps at least three lines above it (`body.ld-open #sheet` max-height), and it scrolls inside for the rest; the name, the On my skin or Planned switch and the quick tiles stay in view. Unchanged in portrait and on a 13 inch iPad.
 - The save line beside Ink Atlas grows a moment after start. After a window size change during start-up (Chrome on the iPad, a Stage Manager window) that pushed the toolbar past the right edge with Share cut off, and nothing checked the fit again. `placeChrome` now also watches the brand and the view switcher, and the once-a-second check also re-runs it when the toolbar is past either edge.

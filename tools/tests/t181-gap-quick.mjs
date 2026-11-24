@@ -34,6 +34,15 @@ export default async function (p) {
   assert.ok(checked >= 4, 'enough tattoos checked');
   assert.ok(await ink(() => JSON.parse(localStorage.getItem('ia-tried') || '[]').includes('gapQuick')), 'New to try ticks itself in a big project');
   assert.ok(total < all * 0.25, `far tattoos are skipped (${Math.round(total)} of ${Math.round(all)} point pairs compared)`);
+  // a duplicate has the same picture as its original, so its ink is not read again
+  await ink(() => window.__ink.select('id7')); await wait(900);
+  const art0 = await ink(() => window.__ink.inkReads().art);
+  await ink(() => { document.querySelector('#editorAdvanced').open = true; document.querySelector('#bDup').click(); }); await wait(1500);
+  const dupId = await ink(() => window.__ink.selected());
+  assert.notEqual(dupId, 'id7', 'a copy was made');
+  assert.equal(await ink(() => window.__ink.inkReads().art), art0, 'the copy shares its original\'s reading of the picture');
+  assert.equal(await ink(() => document.querySelector('#gap').textContent), await brute(dupId), 'and its line reads right');
+  await ink(() => document.querySelector('#undo').click()); await wait(900);
   // two tattoos touching
   await ink(() => { const I = window.__ink, s = structuredClone(I.state()); s.tattoos[1].pos = s.tattoos[2].pos.slice(); s.tattoos[1].normal = s.tattoos[2].normal.slice(); I.loadState(s); }); await wait(1500);
   await ink(() => window.__ink.select('id1')); await wait(900);
