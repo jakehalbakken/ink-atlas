@@ -1645,7 +1645,7 @@ function renderSheet() {
   $('#rWrap').value = Math.round((t.wrap || 0) * 100); $('#rBend').value = Math.round((t.bend || 0) * 100); $('#rTaper').value = Math.round((t.taper || 0) * 100);
   const shaped = (t.bend || 0) || (t.taper || 0); $('#wrapMark').textContent = shaped ? 'on' : ''; if (!shaped && !$('#wrapBox').open) { /* leave closed */ }
   $('#bLock').textContent = t.locked ? 'Unlock' : 'Lock in place'; $('#bLock').setAttribute('aria-pressed', t.locked ? 'true' : 'false');
-  $('#bHide').textContent = t.hidden ? 'Show' : 'Hide';
+  $('#bHide').textContent = t.hidden ? 'Show' : 'Hide'; $('#bHide').setAttribute('aria-pressed', t.hidden ? 'true' : 'false');
   for (const b of document.querySelectorAll('#statusSeg .btn')) b.setAttribute('aria-pressed', String((t.status === 'existing' ? 'existing' : 'planned') === b.dataset.status));
   $('#bFlip').setAttribute('aria-pressed', t.flip ? 'true' : 'false');
   // a piece on an arm or leg that is long or reaches far round it: how far round, and one tap to
@@ -3359,7 +3359,8 @@ const SHOW = {
   layers3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dLayers', 'Send the 3D body with each tattoo separate. In Procreate, open Layers: Skin and each tattoo are their own groups to paint on.']; },
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
-  duplicate: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bDup', 'Duplicate puts a copy beside it to move and size.']; },
+  duplicate: () => { if (!needTattoo()) return null; return ['#bDup', 'Duplicate puts a copy beside it to move and size.']; },
+  quickArrange: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = false; return ['#sheet .editor-arrange', 'Mirror, Flip vertical, Duplicate and Hide are right here under the quick actions, one tap each.']; },
   spotCompare: () => { const t = needTattoo(); if (!t) return null; if ($('#spotPop').hidden) $('#bSpots').click(); return ['#spotChoices [data-spot="forearm-front"]', 'Each spot says how much it usually hurts, the lightest clothes that hide this tattoo there, and on an arm or leg whether it fits at this size. Tap one to move it.']; },
   spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },

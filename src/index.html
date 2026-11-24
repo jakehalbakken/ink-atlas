@@ -418,6 +418,12 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
 #sheet .editor-quick .btn::before{width:22px;height:22px}
 #sheet .editor-quick .btn[aria-pressed=true]{background:var(--stencil-soft);color:var(--text)}
 #sheet .editor-quick .btn[aria-pressed=true]::before{color:var(--stencil)}
+.i-flipv::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%2012h18%22%2F%3E%3Cpath%20d%3D%22M7%208.5%2012%204l5%204.5M7%2015.5l5%204.5%205-4.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%2012h18%22%2F%3E%3Cpath%20d%3D%22M7%208.5%2012%204l5%204.5M7%2015.5l5%204.5%205-4.5%22%2F%3E%3C%2Fsvg%3E")}
+/* Mirror, Flip vertical, Duplicate and Hide (2026-11-24, Jake: "Those are really important controls to have
+   easily accessible"): a second row of tiles right under the quick actions, a little shorter */
+#sheet .editor-arrange{grid-template-columns:repeat(4,minmax(0,1fr))}
+#sheet .editor-arrange .btn{min-height:56px;gap:4px;padding:6px 4px}
+#sheet .editor-arrange .btn::before{width:20px;height:20px}
 #refRow .btn{flex:1;justify-content:flex-start;gap:10px;border-color:transparent}
 #refRow .btn::before{color:var(--muted)}
 #refRow{flex-wrap:wrap}#refRow .btn{min-width:min(100%,180px)}
@@ -723,6 +729,12 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
       <button class="btn i-lock" id="bLock" type="button">Lock in place</button>
       <button class="btn i-pencil" id="bProcreate" type="button">Edit in Procreate</button>
     </div>
+    <div class="row editor-quick editor-arrange" role="group" aria-label="Mirror, flip, copy and hide">
+      <button class="btn i-mirror" id="bFlip" type="button" aria-pressed="false">Mirror</button>
+      <button class="btn i-flipv" id="bFlipVertical" type="button">Flip vertical</button>
+      <button class="btn i-stack" id="bDup" type="button">Duplicate</button>
+      <button class="btn i-eye" id="bHide" type="button" aria-pressed="false">Hide</button>
+    </div>
     <div class="row" id="wrapRow" hidden><span id="wrapText"></span><button class="btn" id="wrapFit" type="button">Wrap it round</button></div>
     <div class="row" id="trimRow" hidden><span id="trimText"></span><button class="btn" id="bTrimInk" type="button">Trim to the ink</button></div>
     <div class="row" id="refRow"><button class="btn i-palette" id="bLook" type="button" aria-expanded="false"><span>Blend and colour<small id="bLookMode"></small></span></button><button class="btn i-photo" id="bRefs" type="button">Add reference pictures</button><button class="btn i-chat" id="bPinsFor" type="button" hidden>Comments</button></div>
@@ -776,16 +788,12 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
     <div id="madeBox" hidden><span>Who did it and when</span><div class="row"><input id="madeArtist" type="text" maxlength="60" autocomplete="off" placeholder="Artist" aria-label="Artist"><input id="madeStudio" type="text" maxlength="60" autocomplete="off" placeholder="Studio" aria-label="Studio"><input id="madeWhen" type="month" aria-label="Month it was done"></div></div>
     </section>
     <section class="sec"><h5>Copy and arrange</h5><div class="grid">
-      <button class="btn" id="bFlip" type="button">Mirror</button>
-      <button class="btn" id="bFlipVertical" type="button">Flip vertical</button>
-      <button class="btn" id="bDup" type="button">Duplicate</button>
       <button class="btn" id="bOtherSide" type="button">Copy to other side</button>
       <button class="btn" id="bSplit" type="button" hidden>Split into designs</button>
       <button class="btn" id="bCleanupLinked" type="button" hidden>Clean up linked copies</button>
       <button class="btn" id="bStencil" type="button">Stencil for your artist</button>
     </div></section>
     <section class="sec"><h5>This tattoo</h5><div class="grid">
-      <button class="btn" id="bHide" type="button">Hide</button>
       <button class="btn danger" id="bDel" type="button">Remove</button>
     </div></section>
     </div></details>

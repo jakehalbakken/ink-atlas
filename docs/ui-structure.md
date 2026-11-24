@@ -29,7 +29,7 @@ Nothing else floats on the left any more. Panels open from the button that owns 
 
 ## The edit sheet
 
-Always shown: name, size, Done; the review row on shared projects; one row of quick actions (Tap to place, Clean up artwork, Lock, Edit in Procreate, Reference pictures, Comments).
+Always shown: name, size, Done; the review row on shared projects; one row of quick actions (Tap to place, Clean up artwork, Lock, Edit in Procreate, Reference pictures, Comments). Under it, a second shorter row of tiles: Mirror, Flip vertical, Duplicate and Hide (2026-11-24, Jake: "Those are really important controls to have easily accessible"); they are no longer in More controls.
 
 More controls opens sections, each with a small heading:
 
@@ -37,8 +37,8 @@ More controls opens sections, each with a small heading:
 2. **About this spot:** size as an everyday thing, where it sits, what it shows in, how it holds up, how it stretches, straighten, who it reads for, even placement.
 3. **Check it:** Ink check, Try other spots, Find room for it, Real size on screen, Try on with camera.
 4. **Plan it:** time to tattoo and rate, every sitting in the plan, sittings, versions, note for your artist, who did it. Each is its own inset box (2026-11-17).
-5. **Copy and arrange:** Mirror, Flip vertical, Duplicate, Copy to other side, Split into designs, Clean up linked copies, Stencil for your artist.
-6. **This tattoo:** Planned or already on me, Hide, Remove.
+5. **Copy and arrange:** Copy to other side, Split into designs, Clean up linked copies, Stencil for your artist.
+6. **This tattoo:** Remove (Hide is in the second row above).
 
 ## The cleanup workspace
 
