@@ -729,18 +729,24 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-23 QA batch 22 (not live)
+## 2026-11-24 QA batch 23 (not live)
+
+- With a tattoo selected on an 11 inch iPad on its side (1180 x 820), the edit panel took the right column and Layers showed under two lines. The panel now caps itself so Layers keeps at least three lines above it (`body.ld-open #sheet` max-height), and it scrolls inside for the rest; the name, the On my skin or Planned switch and the quick tiles stay in view. Unchanged in portrait and on a 13 inch iPad.
+- The save line beside Ink Atlas grows a moment after start. After a window size change during start-up (Chrome on the iPad, a Stage Manager window) that pushed the toolbar past the right edge with Share cut off, and nothing checked the fit again. `placeChrome` now also watches the brand and the view switcher, and the once-a-second check also re-runs it when the toolbar is past either edge.
+- Test t180 (both, failing on the live build, passing now); New to try entries layersRoom and barAlwaysFits with Show me.
+
+## 2026-11-23 QA batch 22 (live 2026-11-23)
 
 - A copy made with Duplicate, Cmd+D or Copy to other side goes into the list right under the tattoo it came from, as Layers' own Duplicate already did, instead of to the bottom of the list. Test t179; New to try entry copyUnder with Show me.
 - In Layers on an iPad held upright, with a long list, the line of a new copy or of a tattoo picked on the body could end up just below the visible part of the list, because the edit sheet under it changes height a moment after the pick and shrinks the list again. The line is now checked once more when the list changes size just after it was brought into view (t179). t126's scroll check now starts from the top, since the list scrolls to each new copy.
 - Suite: 273 pass, every account check passes; t105, t132, t155, t166 and t25 failed only under parallel load and pass alone.
 
-## 2026-11-23 QA batch 21 (not live)
+## 2026-11-23 QA batch 21 (live 2026-11-23)
 
 - Duplicate in the edit sheet (and Cmd+D) now makes its own piece: the copy leaves the original's approval and Procreate layer mark behind, a copy of ink already on your skin is a planned, unlocked piece without who did it, it gets the next free "copy" name, and on an arm or leg it lands beside the original instead of exactly on top of it (the old single ray missed curved limbs). One undo step, as before. Test t178; New to try entry dupPlan with Show me.
 - Suite: 273 pass, every account check passes; t157, t166, t25 and t8 failed only under parallel load and pass alone.
 
-## 2026-11-23 QA batch 20 (not live)
+## 2026-11-23 QA batch 20 (live 2026-11-23)
 
 Re-tested Copy to other side and Line up tattoos on ink already on the skin. Two fixes:
 
@@ -749,7 +755,7 @@ Re-tested Copy to other side and Line up tattoos on ink already on the skin. Two
 
 Full suite: 268 pass, all seven account checks pass. t131, t132, t157, t166, t174, t25, t8 and t9 failed only under the full parallel load and pass alone. Not checked on an iPad yet.
 
-## 2026-11-23 QA batch 19 (not live)
+## 2026-11-23 QA batch 19 (live 2026-11-23)
 
 Re-tested folders, Layers and Undo together. Undo and Go back to said "Undid the change." for most folder and layer steps, so a step taken by mistake in Layers was hard to find in the list. Two fixes:
 
@@ -758,7 +764,7 @@ Re-tested folders, Layers and Undo together. Undo and Go back to said "Undid the
 
 Full suite: 260 pass. The test database stopped part way, so the six account checks failed to start; they pass on a rerun (t83 once more after one flaky run, on this build and on batch 18's). t132, t143, t153, t157, t161, t163, t166, t174, t22, t23, t25, t48, t66, t70, t73 and t8 failed only under the full parallel load and pass alone. Not checked on an iPad yet.
 
-## 2026-11-23 QA batch 18 (not live)
+## 2026-11-23 QA batch 18 (live 2026-11-23)
 
 Re-tested body-area folders, the Procreate-style Layers and Bend and warp at iPad portrait, landscape and phone sizes. Four fixes:
 
