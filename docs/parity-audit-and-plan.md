@@ -729,7 +729,12 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-24 QA batch 24 (not live)
+## 2026-11-24 QA batch 25 (not live)
+
+Speed in a big project (60 tattoos, profiled in headless Chrome):
+- Body sliders lagged: each step of Weight took over half a second, the worst over a second, because every step rebuilt every tattoo's ink and each rebuild sent a ray through the whole body to find the tattoo's triangle and measured its whole arm or leg again. Each tattoo now remembers its triangle while its point still lies on it (`startTriangle`, checked against the triangle's plane and corners, so a reshape that moves it off sends a ray as before), and the per-limb tables of `limbFlat` are built once per limb per shape (`limbPrep` in `decal.js`, keyed by limb, shape and its skeleton). Five Weight steps went from about 4.3 s busy (1.1 s worst) to about 1.3 to 1.9 s (under half a second worst); Undo of a slide from 0.7 s to 0.35 s. The ink after a slide and after its undo is the same as a rebuild with nothing remembered, to a millionth. Test t183; New to try entry sliderQuick.
+
+## 2026-11-24 QA batch 24 (live 2026-11-24)
 
 Speed in a big project (60 tattoos, profiled in headless Chrome):
 - The line under a tattoo's size ("1.2 in from Rose") compared every ink point with every ink point of every other tattoo after each pick and drag, about a second's pause on lifting a finger. `nearestGap` now visits tattoos nearest box first and stops once no box can be closer, reading exactly the same line (checked against the full comparison) with under a quarter of the point pairs. Test t181; New to try entry gapQuick.

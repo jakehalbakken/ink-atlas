@@ -44,9 +44,18 @@ export function buildAdjacency(index) {
 // limb: { joints: [[x,y,z], ...] down the limb in the standing body, keep: Uint8Array per vertex
 // (the limb's own skin, for its radius), rest: the standing positions }. Returns null when the
 // piece is small enough for the stencil unfold below, which follows bumps more closely.
-function limbFlat(geo, t, frame, startTri, limb, box) {
-  const P = geo.attributes.position.array, Q = limb.rest, I = geo.index.array, verts = (P.length / 3) | 0;
-  const J = limb.joints, segs = [];
+// Everything about a limb that does not depend on the tattoo: each vertex's place along the limb's
+// line and round it, and the table of length round each ring. With many tattoos on the arms and legs
+// this was redone for every piece on every rebuild, most of a body slider step (2026-11-24), so it is
+// kept per limb until the shape (limb.ver) or the skeleton changes.
+const limbPrepCache = new Map();
+export const limbPrepStats = { builds: 0 };
+export function limbPrepReset() { limbPrepCache.clear(); }
+function limbPrep(geo, limb) {
+  const P = geo.attributes.position.array, verts = (P.length / 3) | 0, J = limb.joints;
+  const key = limb.ver != null ? [limb.key, limb.ver, verts, limb.keep.length, J.map((j) => j.join(',')).join(';')].join('|') : null;
+  if (key) { const c = limbPrepCache.get(limb.key); if (c && c.key === key && c.rest === limb.rest) return c.prep; }
+  const Q = limb.rest, segs = []; limbPrepStats.builds++;
   let total = 0;
   for (let i = 0; i < J.length - 1; i++) {
     const d = [J[i + 1][0] - J[i][0], J[i + 1][1] - J[i][1], J[i + 1][2] - J[i][2]], len = Math.hypot(...d) || 1e-9;
@@ -117,6 +126,13 @@ function limbFlat(geo, t, frame, startTri, limb, box) {
   // length round the ring at this height from angle a0 by turn (-PI..PI, plus whole turns)
   const alongRow = (b, a0, turn) => { const a1 = a0 + turn; let L = cum(b, Math.atan2(Math.sin(a1), Math.cos(a1))) - cum(b, a0); const k = Math.round((a1 - Math.atan2(Math.sin(a1), Math.cos(a1))) / (2 * Math.PI)); return L + k * perim(b); };
   const along = (s, a0, turn) => { const f = Math.max(0, Math.min(nb - 1, s / bin)), i = Math.min(nb - 2, Math.floor(f)), r = f - i; return alongRow(i, a0, turn) * (1 - r) + alongRow(i + 1, a0, turn) * r; };
+  const prep = { segs, place, S, Wo, Ws, bin, nb, sb, mo, ms, lerpRow, ang, Rv, perim, along };
+  if (key) limbPrepCache.set(limb.key, { key, rest: limb.rest, prep });
+  return prep;
+}
+function limbFlat(geo, t, frame, startTri, limb, box) {
+  const P = geo.attributes.position.array, Q = limb.rest, I = geo.index.array;
+  const { segs, place, S, bin, nb, sb, mo, ms, lerpRow, ang, Rv, perim, along } = limbPrep(geo, limb);
   // the anchor in the standing body, through its triangle's barycentric weights
   const ia = I[startTri * 3], ib = I[startTri * 3 + 1], ic = I[startTri * 3 + 2];
   const vec = (A, i, j) => [A[j * 3] - A[i * 3], A[j * 3 + 1] - A[i * 3 + 1], A[j * 3 + 2] - A[i * 3 + 2]];

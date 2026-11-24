@@ -13,7 +13,7 @@ import { buildStrands, buildBeard, skullMove } from './hair-strands.js';
 import { FACE_MAP } from './face-map.js';
 import { landmarks3D, faceMorph } from './face-fit.js';
 import { FACE_DEPTH } from './face-depth.js';
-import { buildAdjacency, buildDecal, UV_MARGIN } from './decal.js';
+import { buildAdjacency, buildDecal, UV_MARGIN, limbPrepStats, limbPrepReset } from './decal.js';
 import './slider.js';
 import {twoPointerDelta,twoFingerIntent,wrapAngle,planTapPlacement} from './view-gestures.js';
 import {findLiveAlignment,findCentreLine} from './live-alignment.js';
@@ -611,10 +611,29 @@ function outlineTexture(aspect) {
 // Adjacency is rebuilt only when the index buffer changes (genitals shown/hidden).
 let adjCache = { key: '', adj: null };
 function bodyAdjacency() { const key = bodyGeo.index === idxAll ? 'all' : 'body'; if (adjCache.key !== key) adjCache = { key, adj: buildAdjacency(bodyGeo.index.array) }; return adjCache.adj; }
+// The triangle the last ray found for each tattoo. While the tattoo's point still lies on it (a body
+// slider carries the point along with its triangle), it is the answer again without a ray through
+// every triangle of the body, which with many tattoos was most of each slider step (2026-11-24).
+const startTriCache = new Map();
+function onTriangle(tri, p, nrm) {
+  const I = bodyGeo.index.array; if (!(tri * 3 + 2 < I.length)) return false;
+  const P = bodyGeo.attributes.position.array, a = I[tri * 3] * 3, b = I[tri * 3 + 1] * 3, c = I[tri * 3 + 2] * 3;
+  const e1 = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]], e2 = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]], q = [p[0] - P[a], p[1] - P[a + 1], p[2] - P[a + 2]];
+  const N = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]], nl = Math.hypot(N[0], N[1], N[2]); if (!(nl > 1e-12)) return false;
+  if (N[0] * nrm[0] + N[1] * nrm[1] + N[2] * nrm[2] <= 0) return false;
+  if (Math.abs(q[0] * N[0] + q[1] * N[1] + q[2] * N[2]) / nl > 2e-4) return false;
+  const d00 = e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2], d01 = e1[0] * e2[0] + e1[1] * e2[1] + e1[2] * e2[2], d11 = e2[0] * e2[0] + e2[1] * e2[1] + e2[2] * e2[2];
+  const d20 = q[0] * e1[0] + q[1] * e1[1] + q[2] * e1[2], d21 = q[0] * e2[0] + q[1] * e2[1] + q[2] * e2[2], den = d00 * d11 - d01 * d01; if (!(Math.abs(den) > 1e-20)) return false;
+  const v = (d11 * d20 - d01 * d21) / den, w = (d00 * d21 - d01 * d20) / den, e = -1e-5;
+  return v >= e && w >= e && 1 - v - w >= e;
+}
+let startTriRays = 0;
 function startTriangle(t) {
+  const key = t.id != null ? t.id : null, hit = key != null && startTriCache.get(key);
+  if (hit && hit.idx === bodyGeo.index && onTriangle(hit.tri, t.pos, t.normal)) return hit.tri;
   const n = new V3(...t.normal).normalize(); ray.set(new V3(...t.pos).addScaledVector(n, 0.06), n.clone().negate()); ray.far = 0.3;
-  const h = ray.intersectObject(body, false)[0]; ray.far = Infinity;
-  if (h && h.faceIndex != null) return h.faceIndex;
+  const h = ray.intersectObject(body, false)[0]; ray.far = Infinity; startTriRays++;
+  if (h && h.faceIndex != null) { if (key != null) { startTriCache.set(key, { tri: h.faceIndex, idx: bodyGeo.index }); if (startTriCache.size > 2000) startTriCache.delete(startTriCache.keys().next().value); } return h.faceIndex; }
   const I = bodyGeo.index.array, P = bodyGeo.attributes.position.array; let best = 0, bd = Infinity;
   for (let tri = 0; tri < I.length / 3; tri++) { const a = I[tri * 3] * 3, b = I[tri * 3 + 1] * 3, c = I[tri * 3 + 2] * 3; const cx = (P[a] + P[b] + P[c]) / 3 - t.pos[0], cy = (P[a + 1] + P[b + 1] + P[c + 1]) / 3 - t.pos[1], cz = (P[a + 2] + P[b + 2] + P[c + 2]) / 3 - t.pos[2]; const d = cx * cx + cy * cy + cz * cz; if (d < bd) { bd = d; best = tri; } }
   return best;
@@ -633,7 +652,7 @@ function decalLimb(tri) {
   }
   const J = poseView.restRig().joints;
   const at = (n) => { const b = POSE_BONES.find((x) => x.name === `${n}.${L.side}`); return [0, 1, 2].map((i) => J[b.head * 3 + i]); };
-  return { key: L.key, label: L.label, joints: L.bones.map(at), keep: limbKeep.get(L.key), rest: (bodyGeo.attributes.rest || bodyGeo.attributes.position).array };
+  return { key: L.key, label: L.label, joints: L.bones.map(at), keep: limbKeep.get(L.key), rest: (bodyGeo.attributes.rest || bodyGeo.attributes.position).array, ver: shapeKey };
 }
 // A piece on an arm or leg, with the limb's line and how far round it reaches (cached per placement
 // and shape). share is of about 2 pi r at its middle: rough, for deciding how to move it.
@@ -4944,7 +4963,7 @@ document.querySelectorAll('[data-fig]').forEach((b) => b.addEventListener('click
 // starts, reshape live, and record one undo step when the finger lifts.
 let shapeSlide = null;
 function bindShape(r, set) {
-  r.addEventListener('input', () => { if (!shapeSlide) { snapshot(); shapeSlide = anchorsNow(); } set(+r.value / 100); applyShape(); applyAnchors(shapeSlide); syncDecals(); });
+  r.addEventListener('input', () => { if (!shapeSlide) { snapshot(); shapeSlide = anchorsNow(); } set(+r.value / 100); applyShape(); applyAnchors(shapeSlide); syncDecals(); if (state.tattoos.length >= 20) markTried('sliderQuick'); });
   r.addEventListener('change', () => { shapeSlide = null; commit(); });
 }
 bindShape($('#rMuscle'), (v) => { state.muscle = v; markTried('definition'); if (poseView.active) markTried('posedShape'); refreshMeasures(); });
@@ -7049,10 +7068,10 @@ window.__ink = {
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y, p.z]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
-  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs, geo: geoBuilds }), inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
+  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs, geo: geoBuilds, rays: startTriRays, limbs: limbPrepStats.builds }), decalGeo: (id) => { const d = decals[id], g = d && d.mesh.geometry; return g ? { p: Array.from(g.attributes.position.array), uv: Array.from(g.attributes.uv.array) } : null; }, rebuildFresh: (w = 3) => { if (w & 1) startTriCache.clear(); if (w & 2) limbPrepReset(); shapeKey++; syncDecals(); }, inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
-  positions: () => bodyGeo.attributes.position.array, v1Positions: shapePositionsV1,
+  positions: () => bodyGeo.attributes.position.array, bodyIndex: () => bodyGeo.index.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, looksBlank: () => looksBlank(state), blankHold: () => ({ guardSave, holdBlank }), lostLook: (o) => findLostPictures(o), lostCount: () => state.tattoos.filter(isLost).length, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
   surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), closeUp: (id) => closeUpShot(state.tattoos.find((q) => q.id === id)), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
