@@ -740,12 +740,12 @@ function readArtInk(d, src, W) {
 }
 // Where a tattoo actually has ink, as points on the body: each decal triangle is sampled on a
 // small grid and kept where its artwork is dark. Cached per geometry and artwork.
-const inkPointCache = new WeakMap();
+const inkPointCache = new WeakMap(); let inkPtBuilds = 0;
 function inkPoints(t) {
   const d = decals[t.id]; if (!d || !d.tex || !d.tex.image || !d.mesh.geometry.attributes.position) return null;
   const geo = d.mesh.geometry, key = d.texKey + ':' + geo.attributes.position.version, hit = inkPointCache.get(geo);
   if (hit && hit.key === key) return hit.pts;
-  const ink = artInk(d);
+  inkPtBuilds++; const ink = artInk(d);
   const P = geo.attributes.position.array, U = geo.attributes.uv.array, pts = [], N = Math.max(4, Math.min(12, Math.round(40000 / Math.max(1, P.length / 9))));
   for (let tri = 0; tri < P.length / 9; tri++) for (let i = 0; i <= N; i++) for (let j = 0; i + j <= N; j++) {
     const a = i / N, b = j / N, c0 = 1 - a - b, u = c0 * U[tri * 6] + a * U[tri * 6 + 2] + b * U[tri * 6 + 4], v = c0 * U[tri * 6 + 1] + a * U[tri * 6 + 3] + b * U[tri * 6 + 5];
@@ -806,7 +806,7 @@ function gapText(t) {
   return `${g.inches < 10 ? g.inches.toFixed(1) : Math.round(g.inches)} in from ${g.name}`;
 }
 let gapTimer = 0, gapReads = 0, geoBuilds = 0;
-function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { gapReads++; const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; if (txt && state.tattoos.length >= 20) markTried('gapQuick'); }, 120); }
+function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { gapReads++; const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; if (txt && state.tattoos.length >= 20) { markTried('gapQuick'); if (inkWarmDone) markTried('pickQuick'); } }, 120); }
 let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
 let agingYears = 0; // view only: how the ink looks after this many years
 function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0, lookKey(t), blendOf(t) !== DEFAULT_BLEND ? skinColor() : '', lookDraft === t.id || warpDraft === t.id ? 'draft' : '', warpKey(warpOf(t))].join('|'); }
@@ -841,6 +841,28 @@ function syncDecals() {
   });
   syncPaint();
   needsRender = true;
+  warmInkSoon();
+}
+// The first pick in a big project used to work out every tattoo's ink points at once (for the gap to
+// the nearest one), about a third of a second with 60 tattoos (2026-11-24). Once the ink stops
+// changing for a moment, they are worked out a few at a time in short slices, so the first pick is as
+// quick as the next. A rebuild starts it again; nothing is worked out twice (inkPoints caches).
+// It waits while a finger or the Pencil is on the screen, since a drag can pause between moves.
+let inkWarmTimer = 0, inkWarmDone = 0; const pointersOn = new Set();
+for (const [ev, on] of [['pointerdown', true], ['pointerup', false], ['pointercancel', false]]) document.addEventListener(ev, (e) => { if (on) pointersOn.add(e.pointerId); else pointersOn.delete(e.pointerId); }, { capture: true, passive: true });
+window.addEventListener('blur', () => pointersOn.clear());
+function warmInkSoon() {
+  clearTimeout(inkWarmTimer);
+  inkWarmTimer = setTimeout(function slice() {
+    if (document.hidden || exporting || pointersOn.size) { inkWarmTimer = setTimeout(slice, pointersOn.size ? 700 : 1000); return; }
+    const t0 = performance.now();
+    for (const t of state.tattoos) {
+      const d = decals[t.id]; if (!d || !d.tex || !d.tex.image) continue;
+      const hit = inkPointCache.get(d.mesh.geometry); if (hit && hit.key === d.texKey + ':' + d.mesh.geometry.attributes.position.version) continue;
+      inkPoints(t); inkWarmDone++;
+      if (performance.now() - t0 > 8) { inkWarmTimer = setTimeout(slice, 40); return; }
+    }
+  }, 700);
 }
 /* ---------- paint on the body (from Procreate's 3D painting, src/paint-layer.js) ---------- */
 let paintSkin = null, paintSkinLoading = null;
@@ -4944,7 +4966,7 @@ $('#file').addEventListener('change', async (e) => {
   } else commit();
 });
 function toggle(id, show) { const n = $(id); n.hidden = show == null ? !n.hidden : !show; if (id === '#agePop' && typeof renderAging === 'function') renderAging(); if (id === '#lightPop' && typeof renderLight === 'function') renderLight(); if (id === '#newPop' && typeof renderNew === 'function') renderNew(); if (id === '#bodyPop') { updateInset(); if (!n.hidden && typeof refreshMeasures === 'function') refreshMeasures(true); if (n.hidden && typeof closePad === 'function') closePad(); } if (id === '#posePop') renderPose(); if (id === '#clothesPop' && typeof renderClothes === 'function') renderClothes(); }
-$('#bodyBtn').addEventListener('click', () => { showLook(false); toggle('#bodyPop'); });
+$('#bodyBtn').addEventListener('click', () => { const kept = measuredFor && measuredFor.key === shapeSig(state) + '|' + (state.heightCm || 175) && measuredFor.so === scanOffsets(state); showLook(false); toggle('#bodyPop'); if (kept && !$('#bodyPop').hidden) markTried('bodyQuick'); });
 // Height sets the real-world size of everything. Tattoos keep their real size (a 3 in piece stays
 // 3 in), so they take up a little less of a taller body. One undo step a drag.
 let heightSlide = null;
@@ -5046,9 +5068,18 @@ function showMeasures() {
   }
   const again = $('#measureAgain'); if (again) { again.hidden = !off || measureBusy; again.textContent = off === 1 ? 'Match my measurement again' : `Match my ${off} measurements again`; }
 }
+// Every tape on the body, kept for the shape it was measured on: opening Body measured them all again
+// each time, about a tenth of a second (2026-11-24), though the body had not changed. A change of
+// shape, height or a scan measures again. A copy is handed out, since a live slider writes into it.
+let measuredFor = null; let measureAllRuns = 0;
+function measureAll() {
+  const so = scanOffsets(state), key = shapeSig(state) + '|' + (state.heightCm || 175);
+  if (!measuredFor || measuredFor.key !== key || measuredFor.so !== so) { measureAllRuns++; measuredFor = { key, so, val: measureNow(null) }; }
+  return { ...measuredFor.val };
+}
 function refreshMeasures(now) {
   clearTimeout(measureTimer);
-  const run = () => { if ($('#bodyPop').hidden) return; try { measured = measureNow(null); } catch (_) { measured = {}; } showMeasures(); };
+  const run = () => { if ($('#bodyPop').hidden) return; try { measured = measureAll(); } catch (_) { measured = {}; } showMeasures(); };
   if (now) run(); else measureTimer = setTimeout(run, 140);
 }
 function liveMeasure(key) {
@@ -7068,7 +7099,8 @@ window.__ink = {
   aging: () => agingYears, setAging: (y) => setAging(y),
   clothes: () => ({ ...clothes.choice, report: clothesReport(), meshes: clothes.meshes().map((m) => ({ visible: m.visible, tris: m.geometry.index ? m.geometry.index.count / 3 : 0 })) }), setClothes: (next) => setClothes(next), clothesBounds: () => { clothes.sync(shapeKey, poseView.version); const [top, bottom, hair] = clothes.meshes().map((m) => { const g = m.geometry; if (!g.index) return null; const P = g.attributes.position.array, I = g.index.array, min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]; for (const v of I) for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k], P[v * 3 + k]); max[k] = Math.max(max[k], P[v * 3 + k]); } return { min, max }; }); return { top, bottom, hair }; },
   pose: () => ({ active: poseView.active, key: poseView.key, settled: poseView.settled(), ...poseView.motion }), setPose: (k) => { poseView.choose(k); renderPose(); }, setPoseRotations: (r) => { poseView.setCustom(r, { animate: false }); renderPose(); }, scrubMotion: (kind, phase) => { poseView.scrub(phase, kind); renderPose(); }, viewSpot: (id) => viewSpot(state.tattoos.find((t) => t.id === id)), hitBody: (x, y) => { const h = hitBody(x, y); return h && { point: h.point.toArray(), normal: h.normal.toArray(), faceIndex: h.faceIndex, bary: h.barycoord ? h.barycoord.toArray() : null }; }, findFace: async (url) => { const { findFace } = await import('./face.js'); const img = new Image(); img.src = url; await img.decode(); const lm = await findFace(img); return lm && lm.map((p) => [p.x, p.y, p.z]); }, posedGeometry: () => poseView.geometry, setBeforeAfterSplit: (v) => beforeAfter.setSplit(v),
-  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs, geo: geoBuilds, rays: startTriRays, limbs: limbPrepStats.builds }), decalGeo: (id) => { const d = decals[id], g = d && d.mesh.geometry; return g ? { p: Array.from(g.attributes.position.array), uv: Array.from(g.attributes.uv.array) } : null; }, rebuildFresh: (w = 3) => { if (w & 1) startTriCache.clear(); if (w & 2) limbPrepReset(); shapeKey++; syncDecals(); }, inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
+  glInfo: () => { const v = renderer.getSize(new THREE.Vector2()); return { calls: renderer.info.render.calls, tris: renderer.info.render.triangles, lines: renderer.info.render.lines, geos: renderer.info.memory.geometries, tex: renderer.info.memory.textures, pr: renderer.getPixelRatio(), w: v.x, h: v.y, objs: (() => { let n = 0; scene.traverse((o) => { if (o.visible && (o.isMesh || o.isLine || o.isPoints)) n++; }); return n; })() }; },
+  freeArea: () => freeArea(), inkReads: () => ({ gap: gapReads, art: artInkReads, pairs: gapPairs, geo: geoBuilds, rays: startTriRays, limbs: limbPrepStats.builds, warmed: inkWarmDone, pts: inkPtBuilds, measures: measureAllRuns }), decalGeo: (id) => { const d = decals[id], g = d && d.mesh.geometry; return g ? { p: Array.from(g.attributes.position.array), uv: Array.from(g.attributes.uv.array) } : null; }, rebuildFresh: (w = 3) => { if (w & 1) startTriCache.clear(); if (w & 2) limbPrepReset(); shapeKey++; syncDecals(); }, inkPts: (id) => { const t = state.tattoos.find((q) => q.id === id), a = t && inkPoints(t); return a ? [...a] : null; }, pixelAt: (x, y) => { drawFrame(); const gl = renderer.getContext(), r = renderer.getPixelRatio(), out = new Uint8Array(4); gl.readPixels(Math.round(x * r), Math.round(canvas.height - y * r - 1), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, out); return [...out]; }, updateReady: onUpdateReady, updatePending: () => updateReady, settled: () => booted && !camMoving && Math.abs(goalInset - curInset) <= 0.5 && ['phi','r','tx','ty','tz'].every((k) => Math.abs(goal[k] - cur[k]) < 1e-3) && Math.abs(wrapAngle(goal.theta - cur.theta)) < 1e-3 && Math.abs(wrapAngle((goal.roll || 0) - (cur.roll || 0))) < 1e-3, inkIdsAt, selected:()=>selectedId, cur, goal, importBackup, importPainted, tapPlace:()=>tapPlaceId, liveGuides:()=>liveGuidePlan?{...structuredClone(liveGuidePlan),snapped:guideSnapApplied}:null, cameraUp:()=>camera.up.toArray(), cameraQuaternion:()=>camera.quaternion.toArray(), projectPoint:p=>screenOf(new V3(...p)),surfaceHit:(o,d)=>surfaceAt(new V3(...o),new V3(...d)),painting:()=>paint?paint.tris.size:0,
   setShape: (patch) => { reshape(() => { Object.assign(state, patch); }); commit(); },
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, bodyIndex: () => bodyGeo.index.array, v1Positions: shapePositionsV1,

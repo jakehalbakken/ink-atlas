@@ -729,6 +729,12 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-24 QA batch 26 (not live, on top of batch 25)
+
+- The first pick in a big project worked out every tattoo's ink points at once (for the gap line under the size), about a third of a second with 60 tattoos. Once the ink has settled for a moment they are now worked out a few at a time in slices of under 10 ms (`warmInkSoon`), never while a slider or a drag keeps rebuilding ink, and never while a finger or the Pencil is on the screen (a drag can pause between moves; the warp check t159 caught it). The first tap on a Layers line went from about 370 ms busy to about 110 to 130 ms. Test t184; New to try entry pickQuick.
+- Opening Body measured every tape on the body again each time, about a tenth of a second, though nothing had changed. The inches are kept for the shape, height and scan they were measured on (`measureAll`). Test t185; New to try entry bodyQuick.
+- The long hair check (t70) failed on the live build too: close up, 15,000 strands are about 474,000 thin see-through triangles, which the software renderer the checks run on draws at a few seconds a frame, so the camera never reached its spot in 30 s. Not an app fault; the check now starts the view on its spot and waits up to two minutes. The nape picture shows the hair moved aside over the tattoo as meant.
+
 ## 2026-11-24 QA batch 25 (not live)
 
 Speed in a big project (60 tattoos, profiled in headless Chrome):
