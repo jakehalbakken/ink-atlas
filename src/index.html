@@ -355,7 +355,9 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
 @media (min-width:700px){
   #dock{left:auto;right:calc(12px + var(--rail-w,0px) + env(safe-area-inset-right,0px));top:var(--below);width:340px;justify-content:flex-end;align-items:stretch;padding:0 0 calc(16px + env(safe-area-inset-bottom,0px))}
   #sheet{width:100%;max-height:none;flex:0 1 auto;min-height:0}
-  body.ld-open #sheet{max-height:calc(100% - 236px)}
+  /* Layers keeps at least three lines above the edit panel (2026-11-24: on an 11 inch iPad on its side
+     the list was under two lines with a tattoo selected); the panel scrolls inside for the rest */
+  body.ld-open #sheet{max-height:max(260px,calc(100% - 320px))}
   #sheet #size{flex-basis:100%;order:3}
   #sheet .row:first-child{flex-wrap:wrap}
   .editor-quick{flex-wrap:wrap}.editor-quick .btn{flex:1 1 40%;min-width:0;padding:0 8px;font-size:14px}

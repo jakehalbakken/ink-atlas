@@ -321,13 +321,16 @@ function placeChrome() {
   document.documentElement.style.setProperty('--tray-gap', '16px');
 }
 addEventListener('resize', () => { placeChrome(); requestAnimationFrame(placeChrome); setTimeout(placeChrome, 300); });
-{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); ro.observe($('#top .toolbar')); ro.observe($('#top')); }
+// the brand and the view switcher too: the save line beside Ink Atlas grows a moment after start
+// ("Saved on this device"), which pushed the toolbar past the right edge on an 11 inch iPad on its
+// side with Share cut off, and neither the toolbar's nor the top row's own size changed (2026-11-24)
+{ const ro = new ResizeObserver(() => requestAnimationFrame(placeChrome)); for (const s of ['#top .toolbar', '#top', '#top .brand', '#views']) ro.observe($(s)); }
 // the edit panel's height, so Layers can stand above it in the same column
 { const ro = new ResizeObserver(() => { const sh = $('#sheet'); document.documentElement.style.setProperty('--sheet-h', (sh.hidden ? 0 : Math.round(sh.getBoundingClientRect().height)) + 'px'); }); ro.observe($('#sheet')); }
 if (document.fonts) document.fonts.ready.then(placeChrome);
 placeChrome();
 // and a quiet check now and then, for a browser bar or keyboard that came and went without a resize
-setInterval(() => { if (document.hidden) return; const vp = viewportBox(), want = Math.round(($('#top').getBoundingClientRect().bottom - vp.top) / vp.k), now = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--below')) || 0; if (!document.body.classList.contains('views-low') ? Math.abs(want - now) > 1 : want > now) placeChrome(); }, 1000);
+setInterval(() => { if (document.hidden) return; const vp = viewportBox(), want = Math.round(($('#top').getBoundingClientRect().bottom - vp.top) / vp.k), now = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--below')) || 0; const r = $('#top .toolbar').getBoundingClientRect(), off = r.right > innerWidth - 4 || r.left < 0; if (off || (!document.body.classList.contains('views-low') ? Math.abs(want - now) > 1 : want > now)) placeChrome(); }, 1000);
 addEventListener('focusout', () => setTimeout(placeChrome, 350));
 function freeArea() {
   const b = canvas.getBoundingClientRect();
@@ -4868,7 +4871,7 @@ function fitLookLabel() {
   if (over()) cl.add('tb-icons');
   if (!low) cl.remove('views-low');
 }
-$('#shareBtn').addEventListener('click', () => { const cl = document.body.classList; if (cl.contains('tb-short') || cl.contains('tb-icons') || ($('#lookBtn').textContent === 'Preview' && lookLabel !== 'Preview')) markTried('barFits'); });
+$('#shareBtn').addEventListener('click', () => { const cl = document.body.classList; markTried('barAlwaysFits'); if (cl.contains('tb-short') || cl.contains('tb-icons') || ($('#lookBtn').textContent === 'Preview' && lookLabel !== 'Preview')) markTried('barFits'); });
 $('#lookBtn').addEventListener('click', () => { cancelGesture(); toggle('#newPop', false); toggle('#posePop', false); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); showLook(); });
 // picking one of them closes the little menu: its own panel (or the wipe) takes over
 for (const id of ['#baBtn', '#poseBtn', '#clothesBtn', '#ageBtn', '#lightBtn', '#tapeBtn', '#pinsBtn']) $(id).addEventListener('click', () => showLook(false));
@@ -5431,7 +5434,7 @@ function openLayersSheet(ticked){toggle('#planMenu',false);markTried('layersShee
 $('#openLayers').addEventListener('click',openLayersSheet);
 // The Layers panel at the right: folded to a slim rail or open the full height of the screen
 layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:()=>selectedId,kinds:kindOff,
-  pick:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(t.id===selectedId){if(!viewLocked)focusTattoo(t);}else select(t.id,true);},
+  pick:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(innerWidth>=700)markTried('layersRoom');if(t.id===selectedId){if(!viewLocked)focusTattoo(t);}else select(t.id,true);},
   adds:[$('#add'),$('#drawNew')],badges:t=>tatBadges(t),sheetShown:()=>!$('#sheet').hidden,
   change:fn=>{snapshot();fn(state);commit();},openSheet:openLayersSheet,onPaint:()=>openPaintPop(),openLook:id=>openInkLook(id),
   onStatus:()=>markTried('statusSwitch'),
