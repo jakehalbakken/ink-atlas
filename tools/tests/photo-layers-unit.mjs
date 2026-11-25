@@ -1,6 +1,6 @@
 // photo-layers.js: one layer per tattoo on a photo. Run: node tools/tests/photo-layers-unit.mjs
 import assert from 'node:assert/strict';
-import { inkBox, cropBox, still, moved, layerMatrix, toLayer, corners, touches, pick, groupCentre, moveOne, moveAll, twoFinger, centreOf, MAX_S } from '../../src/photo-layers.js';
+import { inkBox, cropBox, fillTri, growOwners, splitInk, still, moved, layerMatrix, toLayer, corners, touches, pick, groupCentre, moveOne, moveAll, twoFinger, centreOf, MAX_S } from '../../src/photo-layers.js';
 
 const near = (a, b, e = 1e-6, m = '') => assert.ok(Math.abs(a - b) <= e, `${m} ${a} vs ${b}`);
 
@@ -71,4 +71,27 @@ const t = twoFinger({ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 5, y: 5 }, { x: 5, y: 
 near(t.dx, 0); near(t.dy, 15); near(t.dr, Math.PI / 2); near(t.ds, 2);
 near(twoFinger({ x: 0, y: 0 }, { x: -10, y: 0.001 }, { x: 0, y: 0 }, { x: -10, y: -0.001 }).dr, 0, 1e-3, 'across the back is a small turn');
 
-console.log('PASS photo-layers: ink boxes, cuts, matrix and inverse, picking by ink then box, one and all moves, size held, two fingers');
+// splitting one shared picture into layers: each layer is the shared pixels it owns, white elsewhere,
+// so multiplying every layer back together gives the shared picture exactly
+{
+  const W2 = 60, H2 = 40, top = new Uint8ClampedArray(W2 * H2 * 4).fill(255);
+  const paint = (x0, y0, x1, y1, v) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * W2 + x) * 4; top[i] = Math.min(top[i], v); top[i + 1] = Math.min(top[i + 1], v); top[i + 2] = Math.min(top[i + 2], v); } };
+  paint(5, 5, 25, 25, 40); paint(20, 10, 45, 30, 90); paint(50, 34, 53, 37, 120); // A, B overlapping A, a stray soft edge
+  const ids = new Int16Array(W2 * H2).fill(-1), depth = new Float32Array(W2 * H2).fill(Infinity);
+  const quad = (x0, y0, x1, y1, z, k) => { fillTri(x0, y0, z, x1, y0, z, x1, y1, z, k, ids, depth, W2, H2); fillTri(x0, y0, z, x1, y1, z, x0, y1, z, k, ids, depth, W2, H2); };
+  quad(5, 5, 25, 25, 0.5, 0); quad(20, 10, 45, 30, 0.2, 1);  // B nearer, so it owns the overlap
+  quad(30, 33, 49, 38, 0.6, 0);                                // A again, a little short of the stray ink
+  assert.equal(ids[15 * W2 + 22], 1, 'the nearer tattoo owns the overlap');
+  assert.equal(ids[15 * W2 + 10], 0);
+  growOwners(ids, top, W2, H2);
+  for (let i = 0; i < W2 * H2; i++) if (top[i * 4] < 250) assert.ok(ids[i] >= 0, 'every ink pixel has an owner');
+  const back = new Float32Array(W2 * H2 * 3).fill(1);
+  for (const k of [0, 1]) {
+    const L = splitInk(top, ids, k, W2, H2); assert.ok(L, 'a layer per owner');
+    for (let y = 0; y < L.h; y++) for (let x = 0; x < L.w; x++) for (let c = 0; c < 3; c++) back[((L.y + y) * W2 + L.x + x) * 3 + c] *= L.px[(y * L.w + x) * 4 + c] / 255;
+  }
+  for (let i = 0; i < W2 * H2; i++) for (let c = 0; c < 3; c++) near(back[i * 3 + c] * 255, top[i * 4 + c], 1e-3, 'layers multiply back to the shared picture');
+  assert.equal(splitInk(top, ids, 5, W2, H2), null, 'no ink owned, no layer');
+}
+
+console.log('PASS photo-layers: split by owner multiplies back exactly, ink boxes, cuts, matrix and inverse, picking by ink then box, one and all moves, size held, two fingers');

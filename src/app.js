@@ -60,7 +60,7 @@ import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered, readSeen, writeSeen, unseenCount } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
 import { createOnPhoto } from './on-photo.js';
-import { inkBox as photoInkBox, cropBox } from './photo-layers.js';
+import { inkBox as photoInkBox, cropBox, fillTri, growOwners, splitInk } from './photo-layers.js';
 import { SPOTS, spotAim, turnAlong, spotNote, edgeTris, girthAt, fitNote } from './spots.js';
 import { POSE_BONES, vertexBones, skinPose } from './pose.js';
 import { stretchUnder, stretchText } from './stretch.js';
@@ -4537,9 +4537,32 @@ function photoHead() {
   const [earL, earR] = Math.sign(a[0]) === left ? [a, c] : [c, a];
   return { nose: lm[1], earL, earR };
 }
-// One layer per tattoo: each is drawn alone (over plain white skin, so the body still hides what is
-// behind it), cut to the box round its own ink, and handed back with its name and kind; the body's
-// outline comes once. Returns { layers: [{ id, name, status, x, y, w, h, px }], body } or null.
+// Which tattoo owns each pixel of a photo render: each tattoo's own (posed) triangles projected
+// by the camera and filled with a depth test, so the nearer ink wins where two overlap, then grown
+// a few pixels so the soft edge of the ink goes with it. Int16 per pixel, -1 for none.
+function inkOwners(list, cam, W, H, mirror, top) {
+  const ids = new Int16Array(W * H).fill(-1), depth = new Float32Array(W * H).fill(Infinity), v = new V3();
+  list.forEach((L, k) => {
+    const g = L.mesh.geometry, P = g.attributes.position; if (!P) return;
+    L.mesh.updateMatrixWorld(true);
+    const n = P.count, sx = new Float32Array(n), sy = new Float32Array(n), sz = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      v.fromBufferAttribute(P, i).applyMatrix4(L.mesh.matrixWorld).project(cam);
+      const x = (v.x + 1) / 2 * W; sx[i] = mirror ? W - x : x; sy[i] = (1 - v.y) / 2 * H; sz[i] = v.z;
+    }
+    const I = g.index ? g.index.array : null, tris = I ? I.length / 3 : n / 3;
+    for (let t = 0; t < tris; t++) {
+      const a = I ? I[t * 3] : t * 3, b = I ? I[t * 3 + 1] : t * 3 + 1, c = I ? I[t * 3 + 2] : t * 3 + 2;
+      if (sz[a] > 1 || sz[b] > 1 || sz[c] > 1 || sz[a] < -1 || sz[b] < -1 || sz[c] < -1) continue;
+      fillTri(sx[a], sy[a], sz[a], sx[b], sy[b], sz[b], sx[c], sy[c], sz[c], k, ids, depth, W, H);
+    }
+  });
+  growOwners(ids, top, W, H);
+  return ids;
+}
+// One layer per tattoo: every tattoo is drawn in one picture over plain white skin (the same picture
+// the single-layer version drew, so nothing lands anywhere new), then split by which tattoo's own
+// triangles cover each pixel, each cut to the box round its own ink; the body's outline comes once. Returns { layers: [{ id, name, status, x, y, w, h, px }], body } or null.
 function photoInk(fit, W, H, mirror) {
   const snap = poseView.snapshot(), was = { bg: scene.background, fog: scene.fog }, hidden = [];
   const target = new THREE.WebGLRenderTarget(W, H, { colorSpace: THREE.SRGBColorSpace, samples: 4 });
@@ -4572,28 +4595,37 @@ function photoInk(fit, W, H, mirror) {
     const list = [];
     for (const t of state.tattoos) {
       const d = decals[t.id]; if (!d) continue;
-      shown.push([d.mesh, d.mesh.visible], [d.outline, d.outline.visible]); d.mesh.visible = false; d.outline.visible = false;
-      if (!t.hidden && d.tex) list.push({ id: t.id, name: t.name || 'Tattoo', status: t.status === 'existing' ? 'existing' : 'planned', mesh: d.mesh });
+      const want = !t.hidden && !!d.tex;
+      shown.push([d.mesh, d.mesh.visible], [d.outline, d.outline.visible]); d.mesh.visible = want; d.outline.visible = false;
+      if (want) list.push({ id: t.id, name: t.name || 'Tattoo', status: t.status === 'existing' ? 'existing' : 'planned', mesh: d.mesh });
     }
-    if (paintOn) list.push({ id: 'paint', name: 'Paint on skin', status: 'existing', mesh: paintMesh });
     scene.background = null; scene.fog = null;
     renderer.setScissorTest(false); renderer.setRenderTarget(target);
+    let ids = null, paintPx = null;
     poseView.withPosed(() => {
       const m = body.material; body.material = opWhite;
       try {
-        for (const L of list) {
-          L.mesh.visible = true;
-          renderer.setClearColor(0xffffff, 1); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, raw);
-          L.mesh.visible = false;
-          flip(raw, top, false);
-          const box = photoInkBox(top, W, H, 2); if (!box) continue; // out of sight in this photo
-          layers.push({ id: L.id, name: L.name, status: L.status, ...box, px: cropBox(top, W, box) });
-        }
+        // every tattoo in one picture, exactly as the single-picture version drew it
+        renderer.setClearColor(0xffffff, 1); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, raw);
+        flip(raw, top, false);
+        // which tattoo each pixel belongs to: their own triangles, as the camera sees them
+        ids = inkOwners(list, cam, W, H, mirror, top);
         decalGroup.visible = false;
+        if (paintOn) {
+          paintMesh.visible = true;
+          renderer.setClearColor(0xffffff, 1); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, raw);
+          paintPx = new Uint8ClampedArray(W * H * 4); flip(raw, paintPx, false); paintMesh.visible = false;
+        }
         renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, raw);
         flip(raw, a, true);
       } finally { body.material = m; decalGroup.visible = true; }
     }, posedInk());
+    // each tattoo's layer is the shared picture's ink where that tattoo lies, white everywhere else
+    list.forEach((L, k) => {
+      const px = splitInk(top, ids, k, W, H); if (!px) return; // out of sight in this photo
+      layers.push({ id: L.id, name: L.name, status: L.status, ...px });
+    });
+    if (paintPx) { const box = photoInkBox(paintPx, W, H, 2); if (box) layers.push({ id: 'paint', name: 'Paint on skin', status: 'existing', ...box, px: cropBox(paintPx, W, box) }); }
   } catch (e) { console.warn('On my photo could not draw the ink', e); return null; }
   finally {
     for (const [m, v] of shown) m.visible = v;

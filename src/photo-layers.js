@@ -27,6 +27,63 @@ export function cropBox(rgba, W, box) {
   return out;
 }
 
+
+// One triangle in screen pixels filled into an owner map with a depth test (nearer z wins), so where
+// two tattoos overlap the one in front owns the pixel.
+export function fillTri(x0, y0, z0, x1, y1, z1, x2, y2, z2, k, ids, depth, W, H) {
+  const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0); if (Math.abs(area) < 1e-9) return;
+  const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2))), maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
+  const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2))), maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+  if (minX > maxX || minY > maxY) return;
+  const e = 1e-6;
+  for (let y = minY; y <= maxY; y++) {
+    const py = y + 0.5;
+    for (let x = minX; x <= maxX; x++) {
+      const px = x + 0.5;
+      const w0 = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) / area, w1 = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) / area, w2 = 1 - w0 - w1;
+      if (w0 < -e || w1 < -e || w2 < -e) continue;
+      const z = w0 * z0 + w1 * z1 + w2 * z2, i = y * W + x;
+      if (z < depth[i]) { depth[i] = z; ids[i] = k; }
+    }
+  }
+}
+// One tattoo's layer out of the shared picture: the box round the ink it owns, with the shared
+// picture's pixels where it owns them and white elsewhere. null when it owns no ink here.
+export function splitInk(top, ids, k, W, H) {
+  let x0 = W, y0 = H, x1 = -1, y1 = -1;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x; if (ids[i] !== k) continue;
+    const p = i * 4; if (top[p] >= 250 && top[p + 1] >= 250 && top[p + 2] >= 250) continue;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  if (x1 < 0) return null;
+  x0 = Math.max(0, x0 - 2); y0 = Math.max(0, y0 - 2); x1 = Math.min(W - 1, x1 + 2); y1 = Math.min(H - 1, y1 + 2);
+  const w = x1 - x0 + 1, h = y1 - y0 + 1, px = new Uint8ClampedArray(w * h * 4).fill(255);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y0 + y) * W + x0 + x; if (ids[i] !== k) continue;
+    const s = i * 4, o = (y * w + x) * 4; px[o] = top[s]; px[o + 1] = top[s + 1]; px[o + 2] = top[s + 2];
+  }
+  return { x: x0, y: y0, w, h, px };
+}
+
+// The owner map grown into unowned pixels next to each owner: three steps everywhere (the soft edge
+// of the ink), then on through any ink still unowned, so no ink in the shared picture is left out of
+// every layer. ids: Int16Array, -1 for none, changed in place. top: the shared RGBA picture over white.
+export function growOwners(ids, top, W, H, level = 250) {
+  const inkAt = (i) => top[i * 4] < level || top[i * 4 + 1] < level || top[i * 4 + 2] < level;
+  for (let step = 0; step < 40; step++) {
+    const prev = ids.slice(); let grew = false, left = false;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x; if (prev[i] >= 0) continue;
+      if (step >= 3 && !inkAt(i)) continue;
+      const o = (x > 0 && prev[i - 1] >= 0) ? prev[i - 1] : (x < W - 1 && prev[i + 1] >= 0) ? prev[i + 1] : (y > 0 && prev[i - W] >= 0) ? prev[i - W] : (y < H - 1 && prev[i + W] >= 0) ? prev[i + W] : -1;
+      if (o >= 0) { ids[i] = o; grew = true; } else if (inkAt(i)) left = true;
+    }
+    if (step >= 2 && (!grew || !left)) break;
+  }
+  return ids;
+}
+
 export const still = () => ({ x: 0, y: 0, r: 0, s: 1 });
 export const moved = (n) => !!n && (Math.abs(n.x) > 0.01 || Math.abs(n.y) > 0.01 || Math.abs(n.r) > 1e-4 || Math.abs(n.s - 1) > 1e-4);
 export const MIN_S = 0.25, MAX_S = 4;
