@@ -48,5 +48,5 @@ export default async function (p) {
   const tried = await p.evaluate(() => JSON.parse(localStorage.getItem('ia-tried') || '{}'));
   assert.ok(tried.fileNames || (Array.isArray(tried) && tried.includes('fileNames')), 'New to try ticks itself once a file is saved');
   assert.deepEqual(errors, [], 'no page errors');
-  console.log('PASS t193 file names: View 1, 2, 3 (one cancelled), Sizes 1, View 4 after a reload');
+  console.log('PASS t194 file names: View 1, 2, 3 (one cancelled), Sizes 1, View 4 after a reload');
 }
