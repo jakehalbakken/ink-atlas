@@ -1,0 +1,123 @@
+// On a photo of me (Jake, 2026-11-25: "if I uploaded a photo of myself, it would apply the
+// tattoos that we've already been working on onto the photo of myself"). Photos of the 3D body,
+// with the lens written in the file the way a phone does, are read back: the body's pose and the
+// camera are found from the picture alone, and the planned ink lands where the body's own render
+// shows it, straight on and turned with the arms up. Two photos at once give Previous and Next;
+// On my skin shows nothing for a planned piece; the project, the pose and the view are untouched;
+// every button is 44 pt; Escape closes and the photos are dropped.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+
+// a JPEG with its 35 mm focal length in EXIF, the way a phone camera writes it
+function withLens(jpeg, f35) {
+  const le = true, t = new DataView(new ArrayBuffer(44));
+  t.setUint16(0, 0x4949); t.setUint16(2, 42, le); t.setUint32(4, 8, le);
+  t.setUint16(8, 1, le); t.setUint16(10, 0x8769, le); t.setUint16(12, 4, le); t.setUint32(14, 1, le); t.setUint32(18, 26, le); t.setUint32(22, 0, le);
+  t.setUint16(26, 1, le); t.setUint16(28, 0xa405, le); t.setUint16(30, 3, le); t.setUint32(32, 1, le); t.setUint16(36, f35, le); t.setUint32(40, 0, le);
+  const tiff = new Uint8Array(t.buffer), seg = Buffer.alloc(4 + 6 + tiff.length);
+  seg.writeUInt16BE(0xffe1, 0); seg.writeUInt16BE(2 + 6 + tiff.length, 2); Buffer.from('Exif\0\0', 'binary').copy(seg, 4); Buffer.from(tiff).copy(seg, 10);
+  return Buffer.concat([jpeg.subarray(0, 2), seg, jpeg.subarray(2)]);
+}
+
+export default async function (p) {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(800);
+  // the app's camera is 30 degrees top to bottom: as a 35 mm focal length on this screen
+  const f35 = await p.evaluate(() => { const w = innerWidth, h = innerHeight, f = (h / 2) / Math.tan(15 * Math.PI / 180); return Math.round(f * 43.27 / Math.hypot(w, h)); });
+  const hide = 'body *{visibility:hidden!important} canvas{visibility:visible!important} #onPhoto canvas{visibility:hidden!important}';
+  const snap = async (name) => { const st = await p.addStyleTag({ content: hide }); await wait(1400); const b = await p.screenshot({ type: 'jpeg', quality: 95 }); await st.evaluate((s) => s.remove()); fs.writeFileSync(`shots/t191-${name}.jpg`, withLens(Buffer.from(b), f35)); };
+  const aim = (g) => p.evaluate((g) => { Object.assign(window.__ink.goal, g); Object.assign(window.__ink.cur, g); }, g);
+  await p.evaluate(() => { const I = window.__ink, s = I.state(); s.tattoos = []; I.setShape({ figure: 'male', muscle: 0.5, weight: 0.5, fit: {} }); I.commitTest(); });
+  await wait(300);
+  const shots = [
+    { name: 'front', pose: null, view: { theta: 0, phi: 1.52, roll: 0, tx: 0, ty: 0.9, tz: 0, r: 4.6 } },
+    { name: 'turned', pose: 'raisedBoth', view: { theta: 0.6, phi: 1.45, roll: 0, tx: 0, ty: 1.0, tz: 0, r: 5.2 } },
+  ];
+  // the plain body first, then the same with the ink, for where the ink truly is
+  for (const s of shots) { await p.evaluate((k) => (k ? window.__ink.setPose(k) : window.__ink.setPose('neutral')), s.pose); await aim(s.view); await snap(s.name + '-plain'); }
+  await p.evaluate(async () => {
+    const I = window.__ink, c = document.createElement('canvas'); c.width = 240; c.height = 240; const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, 240, 240); g.fillStyle = '#000'; g.fillRect(20, 20, 200, 200); g.fillStyle = '#fff'; g.fillRect(80, 80, 80, 80);
+    const url = c.toDataURL();
+    for (const [o, d, w, n] of [[[0.1, 1.3, 2], [0, 0, -1], 0.13, 'Chest'], [[0.12, 0.72, 2], [0, 0, -1], 0.1, 'Thigh']]) { const h = I.surfaceAt(o, d); if (h) await I.addArt(url, n, { pos: h.pos, normal: h.normal, width: w }); }
+    I.commitTest();
+  });
+  await wait(500);
+  assert.equal(await p.evaluate(() => window.__ink.state().tattoos.length), 2, 'two planned tattoos placed');
+  for (const s of shots) { await p.evaluate((k) => window.__ink.setPose(k || 'neutral'), s.pose); await aim(s.view); await snap(s.name + '-ink'); }
+  await p.evaluate(() => window.__ink.setPose('neutral')); await aim(shots[0].view); await wait(400);
+  const before = await p.evaluate(() => ({ t: JSON.stringify(window.__ink.state().tattoos), pose: window.__ink.pose().key, cam: window.__ink.cam(), undo: window.__ink.undoLen() }));
+
+  // it opens from Preview
+  await p.click('#lookBtn'); await wait(250);
+  assert.ok(await p.$eval('#onPhotoBtn', (e) => e.getBoundingClientRect().height >= 44), 'Preview line big enough');
+  const [chooser] = await Promise.all([p.waitForFileChooser({ timeout: 5000 }).catch(() => null), p.click('#onPhotoBtn')]);
+  if (chooser) await chooser.cancel();
+  assert.equal(await p.$eval('#onPhoto', (e) => e.hidden), false, 'the photo screen opens');
+  await (await p.$('#opFile')).uploadFile('shots/t191-front-plain.jpg', 'shots/t191-turned-plain.jpg');
+  await p.waitForFunction(() => { const s = window.__ink.onPhoto(); return s.photos.length === 2 && s.photos.every((x) => x.fit || x.error) && document.querySelector('#opBusy').hidden; }, { timeout: 120000 });
+  const st = await p.evaluate(() => window.__ink.onPhoto());
+  for (const [i, s] of st.photos.entries()) { assert.ok(s.fit, `${shots[i].name}: read (${s.error || ''})`); console.log(shots[i].name, 'fit error', s.fit.error.toFixed(1), 'px', s.fit.view, 'fov', s.fit.camera.fov.toFixed(1)); }
+  assert.match(st.text, /2 planned tattoos on your photo/);
+  assert.ok(await p.$eval('#opNext', (e) => !e.hidden && !e.disabled), 'Next shows for two photos');
+  assert.ok((await p.$$eval('#onPhoto button', (a) => a.filter((b) => b.getClientRects().length).map((b) => [b.id || b.textContent, b.getBoundingClientRect().height, b.getBoundingClientRect().width]))).every(([, h, w]) => h >= 44 && w >= 44), 'every button 44 pt');
+
+  // where the ink lands, against where the body's own render shows it
+  const measure = async (name, over) => {
+    if (over !== (await p.$eval('#opClothes', (e) => e.getAttribute('aria-pressed') === 'true'))) { await p.click('#opClothes'); await wait(200); }
+    const plain = fs.readFileSync(`shots/t191-${name}-plain.jpg`).toString('base64'), inked = fs.readFileSync(`shots/t191-${name}-ink.jpg`).toString('base64');
+    return p.evaluate(async (a, b) => {
+      const read = async (u) => { const im = new Image(); im.src = 'data:image/jpeg;base64,' + u; await im.decode(); const c = document.createElement('canvas'); c.width = im.width; c.height = im.height; const g = c.getContext('2d'); g.drawImage(im, 0, 0); return g.getImageData(0, 0, c.width, c.height); };
+      const A = await read(a), B = await read(b), L = window.__ink.onPhotoLayer(), w = L.w, h = L.h;
+      if (A.width !== w || A.height !== h) return { size: [A.width, A.height, w, h] };
+      const lum = (d, i) => 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
+      const truth = new Uint8Array(w * h), pred = new Uint8Array(w * h);
+      for (let i = 0; i < w * h; i++) { truth[i] = lum(A.data, i * 4) - lum(B.data, i * 4) > 40 ? 1 : 0; pred[i] = lum(L.data, i * 4) < 150 ? 1 : 0; }
+      const grow = (m, r) => { const o = new Uint8Array(w * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (m[y * w + x]) for (let dy = -r; dy <= r; dy += 2) for (let dx = -r; dx <= r; dx += 2) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < w && yy < h) o[yy * w + xx] = 1; } return o; };
+      const r = Math.round(Math.hypot(w, h) * 0.012), T = grow(truth, r), P = grow(pred, r);
+      let nt = 0, np = 0, pin = 0, tin = 0, cx = [0, 0], px = [0, 0];
+      for (let i = 0; i < w * h; i++) { if (truth[i]) { nt++; tin += P[i]; cx[0] += i % w; cx[1] += (i / w) | 0; } if (pred[i]) { np++; pin += T[i]; px[0] += i % w; px[1] += (i / w) | 0; } }
+      return { nt, np, precision: np ? pin / np : 0, recall: nt ? tin / nt : 0, shift: np && nt ? Math.hypot(cx[0] / nt - px[0] / np, cx[1] / nt - px[1] / np) / Math.hypot(w, h) : 1 };
+    }, plain, inked);
+  };
+  for (const [i, s] of shots.entries()) {
+    if (i) { await p.click('#opNext'); await wait(500); }
+    const m = await measure(s.name, true);
+    console.log(s.name, 'ink pixels', m.nt, 'drawn', m.np, 'on target', m.precision?.toFixed(2), 'covered', m.recall?.toFixed(2), 'centre off', (m.shift * 100).toFixed(1) + '%');
+    assert.ok(!m.size, 'the layer is the photo\'s size');
+    assert.ok(m.nt > 500, `${s.name}: the ink shows in the photo`);
+    assert.ok(m.precision > 0.6, `${s.name}: drawn ink lands on the real ink (${m.precision.toFixed(2)})`);
+    assert.ok(m.recall > 0.6, `${s.name}: the real ink is covered (${m.recall.toFixed(2)})`);
+    assert.ok(m.shift < 0.02, `${s.name}: the ink's middle is within 2% of the photo (${(m.shift * 100).toFixed(1)}%)`);
+    const skin = await measure(s.name, false);
+    console.log(s.name, 'bare skin only: drawn', skin.np, 'on target', skin.precision?.toFixed(2));
+    await p.screenshot({ path: `shots/t191-${s.name}-screen.png` });
+  }
+  // On my skin: nothing, as both are planned; All brings them back
+  await p.click('#opWhich [data-which="existing"]'); await wait(300);
+  assert.match(await p.$eval('#opText', (e) => e.textContent), /No tattoos marked On my skin/);
+  await p.click('#opWhich [data-which="all"]'); await wait(300);
+  assert.match(await p.$eval('#opText', (e) => e.textContent), /2 tattoos on your photo/);
+  // a one-finger drag nudges, Line them up again resets
+  const box = await p.$eval('#opStage', (e) => { const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+  await p.mouse.move(box[0], box[1]); await p.mouse.down(); await p.mouse.move(box[0] + 30, box[1] + 10, { steps: 5 }); await p.mouse.up(); await wait(200);
+  assert.ok((await p.evaluate(() => window.__ink.onPhoto().photos[1].nudge.x)) > 10, 'a drag nudges the ink');
+  assert.equal(await p.$eval('#opReset', (e) => e.hidden), false);
+  await p.click('#opReset'); await wait(200);
+  assert.equal(await p.evaluate(() => window.__ink.onPhoto().photos[1].nudge.x), 0, 'reset');
+  // a picture with no one in it says so in plain words
+  await (await p.$('#opFile')).uploadFile('public/pwa-512.png');
+  await p.waitForFunction(() => { const s = window.__ink.onPhoto(); return s.photos.length === 3 && (s.photos[2].fit || s.photos[2].error) && document.querySelector('#opBusy').hidden; }, { timeout: 60000 });
+  assert.match(await p.$eval('#opText', (e) => e.textContent), /could not find you|shoulders and hips/i);
+  // Escape closes, the photos go, and nothing in the project, the pose or the view changed
+  await p.keyboard.press('Escape'); await wait(400);
+  assert.equal(await p.$eval('#onPhoto', (e) => e.hidden), true, 'Escape closes');
+  assert.deepEqual(await p.$$eval('#onPhoto canvas', (a) => a.map((c) => c.width)), [1, 1, 1], 'the photos are dropped');
+  assert.equal(await p.evaluate(() => window.__ink.onPhoto().photos.length), 0);
+  const after = await p.evaluate(() => ({ t: JSON.stringify(window.__ink.state().tattoos), pose: window.__ink.pose().key, cam: window.__ink.cam(), undo: window.__ink.undoLen() }));
+  assert.equal(after.t, before.t, 'tattoos untouched');
+  assert.equal(after.pose, before.pose, 'pose put back');
+  assert.equal(after.undo, before.undo, 'no undo step');
+  assert.ok(after.cam.every((v, i) => Math.abs(v - before.cam[i]) < 1e-3), 'view put back');
+  console.log('PASS t191 on a photo of me: pose and camera read from the photo, ink lands on the real ink straight on and turned, two photos, kinds, nudge, no person, Escape, nothing changed');
+}

@@ -9,7 +9,9 @@ import { measurePhoto, measureBody, fitBody, relativeTo, searchFor, KEYS } from 
 // joints, and the outline of a photo is a little wider than the 3D mesh. These factors were
 // measured by photographing the 3D body itself at several shapes and reading it back
 // (tools/tests/t58-body-photo.mjs prints them), so a photo of the 3D body fits back to itself.
-export const CALIBRATION = { shoulders: 1.075, chest: 1.0, waist: 1.02, hips: 1.01, thigh: 1.01, torso: 0.98, legs: 1.08 };
+export const CALIBRATION = { shoulders: 1.075, chest: 1.0, waist: 1.02, hips: 1.01, thigh: 1.01, torso: 0.98, legs: 1.08, chestD: 1.005, waistD: 0.99, hipsD: 0.95 };
+// The depths (a photo side on) were measured the same way from the 3D body's own side outline
+// (tools/tests/side-photo-unit.mjs prints them).
 
 let ready = null;
 const base = () => (import.meta.env && import.meta.env.BASE_URL) || '/';

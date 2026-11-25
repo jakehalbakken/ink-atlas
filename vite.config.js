@@ -5,7 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 // MediaPipe's runtime (automatic cutout) is served from this site, never a CDN.
 // It is copied out of node_modules at build time and served from there in dev.
-// The models, public/vision/magic_touch.tflite, pose_landmarker_full.task, face_landmarker.task and hair_segmenter.tflite, are checked in (Apache-2.0).
+// The models, public/vision/magic_touch.tflite, pose_landmarker_full.task, face_landmarker.task, hair_segmenter.tflite and selfie_multiclass_256x256.tflite (bare skin for On a photo of me), are checked in (Apache-2.0).
 const VISION_WASM = resolve(import.meta.dirname, 'node_modules/@mediapipe/tasks-vision/wasm');
 function visionRuntime() {
   return {

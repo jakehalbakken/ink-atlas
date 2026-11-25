@@ -59,6 +59,7 @@ import { toneColour, nearestTone, sampleSkin, skinCheck, hexToRgb } from './skin
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered, readSeen, writeSeen, unseenCount } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
+import { createOnPhoto } from './on-photo.js';
 import { SPOTS, spotAim, turnAlong, spotNote, edgeTris, girthAt, fitNote } from './spots.js';
 import { POSE_BONES, vertexBones, skinPose } from './pose.js';
 import { stretchUnder, stretchText } from './stretch.js';
@@ -2853,7 +2854,7 @@ $('#bSpots').addEventListener('click', () => { cancelGesture(); toggle('#newPop'
 /* ---------- Match a photo of me: fit the body sliders to a full-length photo ---------- */
 // The photo is read on this device and dropped when the panel closes; only the body settings
 // it leads to are kept, and only when Keep this body is tapped. Undo puts the old body back.
-const bm = { before: null, busy: false, token: 0, result: null, ink: null };
+const bm = { before: null, busy: false, token: 0, batch: 0, result: null, ink: null, files: [], faceFile: null, faceSize: 0 };
 function bmShape() { return { figure: state.figure, muscle: state.muscle ?? 0.5, weight: state.weight ?? 0.5, fit: { ...(state.fit || {}) } }; }
 function bmSetShape(p) {
   const a = anchorsNow();
@@ -2862,7 +2863,13 @@ function bmSetShape(p) {
   applyShape(); applyAnchors(a); syncDecals(); renderBody(); needsRender = true;
 }
 function bmText(msg) { $('#bmText').textContent = msg; }
-function bmButtons(fitted) { $('#bmKeep').hidden = !fitted; $('#bmBack').hidden = !fitted; }
+function bmButtons(fitted) {
+  $('#bmKeep').hidden = !fitted; $('#bmBack').hidden = !fitted;
+  // the same photos can show the tattoos on you, and a close one can give the body your face
+  $('#bmOnPhoto').hidden = !bm.files.length || !state.tattoos.some((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
+  $('#bmOnPhoto').textContent = bm.files.length > 1 ? 'See my tattoos on these photos' : 'See my tattoos on this photo';
+  $('#bmFace').hidden = !bm.faceFile || face.busy;
+}
 // move the body into the space beside the panel, seen from the front
 function bmFrame() {
   fullBody(0);
@@ -2964,7 +2971,11 @@ async function bmRun(file) {
     url = URL.createObjectURL(file);
     const img = new Image(); img.src = url; await img.decode();
     const res = await readBodyPhotoLazy(img); if (token !== bm.token) return;
-    try { await bmFindInk(res); } catch { bm.ink = null; } if (token !== bm.token) return;
+    if (!bm.files.includes(file)) bm.files.push(file);
+    // a face big enough in the photo to put on the body (straight on, both ears seen)
+    const eL = res.lm[7], eR = res.lm[8], fs = eL && eR && (eL.visibility ?? 1) > 0.5 && (eR.visibility ?? 1) > 0.5 && res.view === 'front' ? Math.abs(eL.x - eR.x) * res.w / Math.max(res.w, res.h) : 0;
+    if (fs > 0.06 && fs > bm.faceSize) { bm.faceFile = file; bm.faceSize = fs; }
+    if (res.view !== 'side') { try { await bmFindInk(res); } catch { bm.ink = null; } } if (token !== bm.token) return;
     bmDraw(res); bmInkRender();
     bm.ratios = res.ratios; bm.read = { ref: res.ref, parts: res.parts, view: res.view }; bm.lm = res.lm;
     if (res.problems.length) { bmText(res.problems.join(' ')); return; }
@@ -2973,7 +2984,7 @@ async function bmRun(file) {
     const { fitToPhoto } = await import('./body-match.js');
     // a second photo builds on the first: it starts from the body the first one made
     const fit = fitToPhoto(res, bm.result || bm.before); if (token !== bm.token) return;
-    bmSetShape(fit.params); bm.result = fit.params; bmButtons(true); markTried('body-photo');
+    bmSetShape(fit.params); bm.result = fit.params; bmButtons(true); markTried('body-photo'); if (res.view === 'side' || bm.files.length > 1) markTried('bodyPhotos');
     if (res.ref !== 'height') markTried('body-photo-part');
     bmText(bmSaid(res));
     // a bare back also shows the skin tone: offer it when it differs a lot from the body's
@@ -2988,13 +2999,14 @@ async function bmRun(file) {
     }
   } catch (e) {
     if (token === bm.token) bmText(e && e.message && !/^[A-Z][a-z]+Error/.test(e.message) && e.message.length < 140 ? e.message : 'That photo could not be read. Try another one.');
-  } finally { if (url) URL.revokeObjectURL(url); if (token === bm.token) { bm.busy = false; bmInkRender(); } }
+  } finally { if (url) URL.revokeObjectURL(url); if (token === bm.token) { bm.busy = false; bmInkRender(); bmButtons(!!bm.result); } }
 }
 // What a photo matched, in plain words: "Matched your shoulders, chest and waist from your back."
 function bmSaid(res) {
   const names = res.parts.map((k) => PART_NAMES[k]);
   const list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0];
-  const whole = res.ref === 'height';
+  const whole = res.ref === 'height' && res.view !== 'side';
+  if (res.view === 'side') return `Matched how deep your body is from the side: your ${list}.` + (res.notes.length ? ' ' + res.notes.join(' ') : '') + ' Keep it, or add a photo straight on for your widths.';
   let msg = whole ? `Matched your whole body${res.view === 'back' ? ', from the back' : ''}.` : `Matched your ${list}${res.view === 'back' ? ', from your back' : ''}. The rest is as it was.`;
   if (res.notes.length) msg += ' ' + res.notes.join(' ');
   return msg + (whole ? ' Keep it, or put the old one back.' : ' Add another photo to fill in more, or keep this.');
@@ -3002,26 +3014,38 @@ function bmSaid(res) {
 async function readBodyPhotoLazy(img) { const { readBodyPhoto } = await import('./body-match.js'); return readBodyPhoto(img); }
 function openBodyMatch(file) {
   cancelGesture(); closePanels(); toggle('#spotPop', false);
-  bm.before = bmShape(); bm.result = null;
+  bm.before = bmShape(); bm.result = null; bm.files = []; bm.faceFile = null; bm.faceSize = 0;
   toggle('#bodyMatch', true); bmFrame();
   const c = $('#bmPic'); c.width = 1; c.height = 1; bmButtons(false); bmText('');
-  bmRun(file);
+  return bmRun(file);
+}
+// several photos picked at once: each builds on the ones before it, front, side or back
+async function bmFiles(list) {
+  const files = [...list].filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || ''));
+  if (!files.length) return;
+  const batch = ++bm.batch;
+  if ($('#bodyMatch').hidden) await openBodyMatch(files[0]); else await bmRun(files[0]);
+  for (const f of files.slice(1)) { if ($('#bodyMatch').hidden || bm.batch !== batch) return; await bmRun(f); }
+  if (files.length > 1 && !$('#bodyMatch').hidden && bm.batch === batch && bm.result) bmText(`Read ${files.length} photos. ` + $('#bmText').textContent);
 }
 function closeBodyMatch(keep) {
   if ($('#bodyMatch').hidden) return;
   bm.token++;
   if (bm.result && !keep) bmSetShape(bm.before);
   if (bm.result && keep) { bmSetShape(bm.before); snapshot(); bmSetShape(bm.result); commit(); toast('Body matched to your photo. Undo puts the old one back.'); }
-  bm.result = null; bm.before = null;
+  bm.result = null; bm.before = null; bm.files = []; bm.faceFile = null; bm.faceSize = 0; bm.batch++;
   const c = $('#bmPic'); c.width = 1; c.height = 1; $('#bodyPhotoFile').value = ''; // drop the photo
   toggle('#bodyMatch', false); fullBody(0);
 }
 $('#bodyPhotoBtn').addEventListener('click', () => { const f = $('#bodyPhotoFile'); f.value = ''; f.click(); });
-$('#bodyPhotoFile').addEventListener('change', (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; if ($('#bodyMatch').hidden) openBodyMatch(f); else bmRun(f); });
+$('#bodyPhotoFile').addEventListener('change', (e) => { const f = e.target.files; if (f && f.length) bmFiles([...f]); });
 $('#bmAgain').addEventListener('click', () => { const f = $('#bodyPhotoFile'); f.value = ''; f.click(); }); // adds to what the earlier photos matched
 $('#bmKeep').addEventListener('click', () => closeBodyMatch(true));
 $('#bmBack').addEventListener('click', () => { if (bm.result) { bmSetShape(bm.before); bm.result = null; } bmButtons(false); bmText('Put back. Try another photo, or tap Done.'); });
 $('#bmClose').addEventListener('click', () => closeBodyMatch(true)); // Done keeps what is showing
+// keep the body these photos made, then show the tattoos on the same photos
+$('#bmOnPhoto').addEventListener('click', () => { if (bm.busy) return; const files = bm.files.slice(); closeBodyMatch(true); if (files.length) onPhoto.openWith(files); });
+$('#bmFace').addEventListener('click', () => { const f = bm.faceFile; if (!f || bm.busy) return; bm.faceFile = null; bmButtons(!!bm.result); faceFromFile(f); });
 $('#bmInkAdd').addEventListener('click', () => bmInkAdd());
 $('#bmMirror').addEventListener('click', () => { if (!bm.ink) return; bm.ink.mirror = !bm.ink.mirror; bmInkRender(); });
 // tap a found tattoo in the picture to leave it out or put it back
@@ -3265,6 +3289,8 @@ function needTattoo() {
 }
 var infoQuietUntil = 0, infoByShow = false; // More controls opened by a Show me: pointed at, not tried
 const SHOW = {
+  bodyPhotos: () => { toggle('#bodyPop', true); return ['#bodyPhotoBtn', 'Tap Match photos of me and pick a few photos of you at once: straight on, side on and your back.']; },
+  onPhoto: () => { showLook(true); return ['#onPhotoBtn', 'Tap On a photo of me and pick a photo of you where your shoulders and hips show. Your planned tattoos land on your skin in it.']; },
   wrapGrab: () => { const t = sel() || state.tattoos.find((x) => !x.hidden && isWrap(x)) || state.tattoos.find((x) => !x.hidden && wrapInfo(x)); if (!t) return [null, 'Put a long piece on an arm or leg, tap Wrap it round under its name, then drag it anywhere on it: sideways turns it round, up or down slides it along.']; if (sel() !== t) select(t.id, true); else revealTattoo(t); renderSheet(); return $('#wrapRow').hidden ? [null, 'Move the tattoo onto an arm or leg: Wrap it round shows under its name. Then drag it anywhere on it, even round the back.'] : [$('#wrapFit').hidden ? '#wrapRow' : '#wrapFit', $('#wrapFit').hidden ? 'It goes all the way round. Drag it anywhere on it: sideways turns it round the limb, up or down slides it along.' : 'Tap Wrap it round: the long side goes round the limb with the ends meeting at the back. Then drag it anywhere on it, sideways to turn it, up or down to slide it.']; },
   layersOnly: () => { layersDock.setOpen(true, true); return ['#ldAdds', 'Every tattoo is in Layers now, and the strip along the bottom is gone. The + adds a tattoo and the pencil opens Procreate. Fold the panel to its slim rail with the arrow and both stay at the top of it.']; },
   sheetColumn: () => { const t = needTattoo(); if (!t) return null; layersDock.setOpen(true, true); return ['#sheet', 'The panel for a selected tattoo now sits under Layers in the same column at the right, so the body keeps the rest of the screen. The arrow next to the bin folds it down to its name line.']; },
@@ -4478,6 +4504,83 @@ $('#selfModes').addEventListener('click', (e) => { const b = e.target.closest('[
 $('#selfHand').addEventListener('click', (e) => { const b = e.target.closest('[data-hand]'); if (!b || selfV.mode !== 'mirror') return; selfV.hand = b.dataset.hand; selfPose(); selfRender(); });
 $('#selfHigh').addEventListener('click', (e) => { const b = e.target.closest('[data-high]'); if (!b || selfV.mode !== 'mirror') return; selfV.high = b.dataset.high === '1'; selfPose(); selfRender(); });
 $('#selfBest').addEventListener('click', () => { const b = selfV.best; if (!b || !POSE_CATALOG[b.key]) return; poseView.choose(b.key); renderPose(); selfV.seenKey = ''; needsRender = true; setTimeout(() => { needsRender = true; }, 400); });
+/* ---------- On a photo of me: your tattoos on your own photo (on-photo.js, photo-pose.js) ---------- */
+// The 3D body takes up the pose read from the photo and is seen from where the camera stood; only
+// its ink is drawn (over plain white skin, so the ink is a layer to multiply onto the photo), then
+// the pose and the view go back. The photos stay in memory on this device until the panel closes.
+const opWhite = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+function photoHead() {
+  const P = bodyGeo.attributes.position.array, lm = landmarks3D(P, bodyGeo.index.array, FACE_MAP), rig = poseView.restRig();
+  const b = POSE_BONES.find((x) => x.name === 'upperarm01.L'), left = Math.sign(rig.joints[b.head * 3]) || 1;
+  const a = lm[454], c = lm[234]; if (!a || !c || !lm[1]) return null;
+  const [earL, earR] = Math.sign(a[0]) === left ? [a, c] : [c, a];
+  return { nose: lm[1], earL, earR };
+}
+function photoInk(fit, W, H, which, mirror) {
+  const snap = poseView.snapshot(), was = { bg: scene.background, fog: scene.fog }, hidden = [];
+  const target = new THREE.WebGLRenderTarget(W, H, { colorSpace: THREE.SRGBColorSpace, samples: 4 });
+  target.texture.colorSpace = THREE.SRGBColorSpace;
+  const prevTarget = renderer.getRenderTarget(), prevColor = new THREE.Color(), prevAlpha = renderer.getClearAlpha(), prevScissor = renderer.getScissorTest();
+  renderer.getClearColor(prevColor);
+  const ink = new Uint8Array(W * H * 4), sil = new Uint8Array(W * H * 4);
+  try {
+    poseView.setCustom(fit.rotations, { animate: false });
+    const drop = poseView.drop;
+    exporting = true; syncDecals();
+    body.updateMatrixWorld(true);
+    const cam = new THREE.PerspectiveCamera(fit.camera.fov, W / H, 0.02 * (body.scale.y || 1), 200);
+    cam.position.copy(body.localToWorld(new V3(fit.camera.position[0], fit.camera.position[1] + drop, fit.camera.position[2])));
+    cam.quaternion.copy(body.getWorldQuaternion(new THREE.Quaternion()).multiply(new THREE.Quaternion(...fit.camera.quaternion)));
+    cam.updateProjectionMatrix(); cam.updateMatrixWorld(true);
+    // only the body and its ink: no backdrop, floor, hair, clothes, outlines or tools
+    const keep = new Set([body, decalGroup]);
+    for (const o of scene.children) if (!keep.has(o) && o.visible) { hidden.push(o); o.visible = false; }
+    const paintMesh = paintSkin && paintSkin.mesh;
+    for (const o of body.children) if (o.visible && !(o === paintMesh && which !== 'existing')) { hidden.push(o); o.visible = false; }
+    const shown = [];
+    for (const t of state.tattoos) {
+      const d = decals[t.id]; if (!d) continue;
+      const want = !t.hidden && !!d.tex && (which === 'all' || (which === 'existing') === (t.status === 'existing'));
+      shown.push([d.mesh, d.mesh.visible], [d.outline, d.outline.visible]); d.mesh.visible = want; d.outline.visible = false;
+    }
+    scene.background = null; scene.fog = null;
+    renderer.setScissorTest(false); renderer.setRenderTarget(target);
+    poseView.withPosed(() => {
+      const m = body.material; body.material = opWhite;
+      try {
+        renderer.setClearColor(0xffffff, 1); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, ink);
+        decalGroup.visible = false; if (paintMesh) paintMesh.visible = false;
+        renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, sil);
+      } finally { body.material = m; decalGroup.visible = true; }
+    }, posedInk());
+    for (const [m, v] of shown) m.visible = v;
+  } catch (e) { console.warn('On my photo could not draw the ink', e); return null; }
+  finally {
+    renderer.setRenderTarget(prevTarget); renderer.setClearColor(prevColor, prevAlpha); renderer.setScissorTest(prevScissor); target.dispose();
+    for (const o of hidden) o.visible = true;
+    scene.background = was.bg; scene.fog = was.fog;
+    poseView.restore(snap); exporting = false; syncDecals(); needsRender = true;
+  }
+  // rows from the top, flipped left to right for a mirror selfie
+  const out = new Uint8ClampedArray(W * H * 4), a = new Uint8Array(W * H), row = W * 4;
+  for (let y = 0; y < H; y++) {
+    const src = (H - 1 - y) * row;
+    for (let x = 0; x < W; x++) { const sx = mirror ? W - 1 - x : x, i = src + sx * 4, o = y * row + x * 4; out[o] = ink[i]; out[o + 1] = ink[i + 1]; out[o + 2] = ink[i + 2]; out[o + 3] = 255; a[y * W + x] = sil[i + 3]; }
+  }
+  return { ink: out, body: a };
+}
+const onPhoto = createOnPhoto({
+  renderInk: photoInk,
+  rest: () => poseView.restRig(),
+  head: photoHead,
+  counts: () => { const v = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex); return { planned: v.filter((t) => t.status !== 'existing').length, existing: v.filter((t) => t.status === 'existing').length }; },
+  save: (name, blob) => saveFile(name, blob),
+  toast: (t) => toast(t),
+  tried: (k) => markTried(k),
+  closeOthers: () => { selfOff(); closePanels(); toggle('#share', false); toggle('#preview', false); tapPlaceId = null; },
+});
+$('#onPhotoBtn').addEventListener('click', () => { showLook(false); onPhoto.open(); });
+$('#cOnPhoto').addEventListener('click', () => { toggle('#share', false); onPhoto.open(); });
 $('#selfSave').addEventListener('click', () => { const url = selfiePicture(); if (url) showPreview(url, 'mirror-selfie.png', 'Mirror selfie'); });
 $('#painBtn').addEventListener('click', () => { showLook(false); if (pain.on) painOff(); else painOn(); });
 $('#painDone').addEventListener('click', painOff);
@@ -7142,6 +7245,7 @@ wrapStudio = initWrapStudio({
 $('#openWrap').addEventListener('click', () => { toggle('#planMenu', false); wrapStudio.open(); });
 
 window.__ink = {
+  onPhoto: () => onPhoto.state(), onPhotoLayer: () => { const im = onPhoto.layerPixels(); return im && { w: im.width, h: im.height, data: im.data }; },
   gpu: () => ({ ...renderer.info.memory, programs: renderer.info.programs?.length || 0 }),
   self: () => ({ mode: selfV.mode, yaw: selfV.yaw, pitch: selfV.pitch, fov: camera.fov, near: camera.near, cam: camera.position.toArray(), look: new V3(0, 0, -1).applyQuaternion(camera.quaternion).toArray(), eye: selfV.mode ? selfFrame().eye : null, flip: canvas.style.transform, text: $('#selfText').textContent, best: selfV.best, base: selfV.bestBase, hand: selfV.mode === 'mirror' ? selfHand() : null, share: (id) => { const t = state.tattoos.find((x) => x.id === id); return t ? selfShare(t) : null; }, washOn: !!(selfV.mesh && selfV.mesh.visible), phone: !!(selfV.phone && selfV.phone.visible) }), selfDrag: (dx, dy) => selfDrag(dx, dy), selfPinch: (r) => selfPinch(r), selfTap: (x, y) => selfTap(x, y), selfiePicture: () => selfiePicture(),
   shownIds: () => state.tattoos.filter((t) => decals[t.id] && decals[t.id].mesh.visible).map((t) => t.id), kinds: () => ({ ...kindOff }), layersDock: () => layersDock,

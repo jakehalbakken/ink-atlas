@@ -57,7 +57,14 @@ for (const i of [LM.shoulderL, LM.shoulderR]) lm[i] = { ...lm[i], visibility: 1 
 for (const i of [LM.shoulderL, LM.shoulderR, LM.hipL, LM.hipR]) lm[i] = { ...lm[i], visibility: 0.1 };
 assert.match(read().problems.join(' '), /shoulders or hips/);
 for (const i of [LM.shoulderL, LM.shoulderR, LM.hipL, LM.hipR]) lm[i] = { ...lm[i], visibility: 1 };
-put(LM.shoulderL, 205, 125); put(LM.shoulderR, 195, 125); assert.match(read().problems.join(' '), /Face the camera/);
+// side on: the depths of the chest, belly and seat in place of the widths, as shares of the height
+put(LM.shoulderL, 205, 125); put(LM.shoulderR, 195, 125); r = read();
+assert.deepEqual(r.problems, []); assert.equal(r.view, 'side'); assert.equal(r.ref, 'height');
+assert.deepEqual(r.parts, ['chestD', 'waistD', 'hipsD'], 'only the depths from the side');
+assert.ok(Math.abs(r.ratios.waistD - 100 / 678) < 1e-6, 'belly depth as a share of the height');
+assert.deepEqual(searchFor(r.parts, r.ref).map((s) => s.key), ['fit.depth', 'fit.belly', 'fit.butt'], 'a side photo moves only the depth sliders');
+// part way round: neither straight on nor side on
+put(LM.shoulderL, 235, 125); put(LM.shoulderR, 165, 125); assert.match(read().problems.join(' '), /Face the camera/);
 put(LM.shoulderL, 250, 125); put(LM.shoulderR, 150, 125);
 // arms against the sides: chest and waist are left out, with a note
 fill(110, 150, 120, 380); fill(250, 290, 120, 380); r = read();
@@ -66,7 +73,8 @@ assert.match(r.notes.join(' '), /arms touch your sides/);
 // the search finds a known body from its proportions
 const std = { figure: 'male', muscle: 0.5, weight: 0.5, fit: {} };
 const truth = { figure: 'male', muscle: 0.5, weight: 0.25, fit: { shoulders: 0.6, waist: -0.4, hips: 0.2, thighSize: -0.3, torsoLen: 0.3 } };
-const want = bodyMeasure(truth), fit = fitBody(want, std, bodyMeasure), got = bodyMeasure(fit.params);
+const front = (m) => { const o = { ...m }; for (const k of ['chestD', 'waistD', 'hipsD']) delete o[k]; return o; };
+const want = front(bodyMeasure(truth)), fit = fitBody(want, std, bodyMeasure), got = bodyMeasure(fit.params);
 for (const k of Object.keys(want)) assert.ok(Math.abs(got[k] / want[k] - 1) < 0.015, `${k} within 1.5%`);
 assert.ok(Math.abs(fit.params.weight - 0.25) < 0.1 && Math.abs(fit.params.fit.shoulders - 0.6) < 0.15, 'settings close to the truth');
 assert.equal(fit.params.muscle, 0.5, 'muscle left alone'); assert.equal(fit.params.figure, 'male');

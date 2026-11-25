@@ -20,9 +20,11 @@ export const LM = { nose: 0, earL: 7, earR: 8, shoulderL: 11, shoulderR: 12, elb
 // Where each width is taken: a share of the way from the shoulders (0) to the hips (1), or
 // from the hips (0) to the knees (1) for the thighs.
 export const LEVELS = { chest: 0.22, waist: 0.62, hips: 1.0, thigh: 0.3 };
-export const KEYS = ['shoulders', 'chest', 'waist', 'hips', 'thigh', 'torso', 'legs'];
+export const KEYS = ['shoulders', 'chest', 'waist', 'hips', 'thigh', 'torso', 'legs', 'chestD', 'waistD', 'hipsD'];
+// a photo from the side reads these instead of the widths: how deep the chest, belly and seat are
+export const SIDE_KEYS = ['chestD', 'waistD', 'hipsD'];
 // in plain words, for "Matched your ..."
-export const PART_NAMES = { shoulders: 'shoulders', chest: 'chest', waist: 'waist', hips: 'hips', thigh: 'thighs', torso: 'torso length', legs: 'leg length' };
+export const PART_NAMES = { shoulders: 'shoulders', chest: 'chest', waist: 'waist', hips: 'hips', thigh: 'thighs', torso: 'torso length', legs: 'leg length', chestD: 'chest depth', waistD: 'belly', hipsD: 'seat' };
 
 const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
 
@@ -41,7 +43,8 @@ export function rowRun(mask, w, h, y, cx) {
 // person mask at w x h. Returns { ratios, ref, parts, view, problems, notes }:
 // - ratios: each measurement as a share of ref ('height', 'shoulders' or 'hips'); NaN when the
 //   photo doesn't show it. ratios[ref] is NaN unless ref is 'height'.
-// - parts: the measurements read, in KEYS order. view: 'front' or 'back'.
+// - parts: the measurements read, in KEYS order. view: 'front', 'back' or 'side' (side on to
+//   the camera: the depth of the chest, belly and seat are read in place of the widths).
 // - problems: plain sentences when nothing usable could be read (the photo is refused).
 // - notes: plain sentences about parts left out of an otherwise usable photo.
 export function measurePhoto(lm, mask, w, h) {
@@ -63,8 +66,14 @@ export function measurePhoto(lm, mask, w, h) {
   const raw = {};
   // a width of the outline; a run that reaches the frame's edge is cut off, so it doesn't count
   const run = (y, x) => { const r = rowRun(mask, w, h, y, x); return r && r.a > 0 && r.b < w - 1 ? r.width : NaN; };
-  if (hasS) raw.shoulders = Math.abs(sL.x - sR.x);
-  if (hasS && hasH) {
+  // side on: the shoulders sit nearly over each other, so the outline's width is the body's depth
+  const side = hasS && hasH && Math.abs(sL.x - sR.x) < (Hm.y - S.y) * 0.22 && Hm.y - S.y > Math.abs(Hm.x - S.x) * 2;
+  if (side) {
+    const cx = (S.x + Hm.x) / 2, at = (t) => S.y + (Hm.y - S.y) * t;
+    raw.chestD = run(at(LEVELS.chest), cx); raw.waistD = run(at(LEVELS.waist), cx); raw.hipsD = run(at(LEVELS.hips), Hm.x);
+    raw.torso = Hm.y - S.y;
+  } else if (hasS) raw.shoulders = Math.abs(sL.x - sR.x);
+  if (side) { /* the widths can't be read side on */ } else if (hasS && hasH) {
     const cx = (S.x + Hm.x) / 2, at = (t) => S.y + (Hm.y - S.y) * t;
     raw.chest = run(at(LEVELS.chest), cx); raw.waist = run(at(LEVELS.waist), cx); raw.hips = run(at(LEVELS.hips), cx);
     raw.torso = Hm.y - S.y;
@@ -74,7 +83,7 @@ export function measurePhoto(lm, mask, w, h) {
     if (Number.isFinite(raw.chest) && raw.chest > raw.shoulders * 1.6) { raw.chest = NaN; raw.waist = NaN; notes.push('Your arms touch your sides, so I left your chest and waist out.'); }
   } else if (hasS && Math.abs(sL.x - sR.x) < Math.abs(sL.y - sR.y) * 2) problems.push('Face the camera straight on.');
   if (hasH && !hasS) raw.hips = run(Hm.y, Hm.x);
-  if (hasH && hasK) {
+  if (hasH && hasK && !side) {
     // a thigh on each side, from its own hip towards its own knee
     const thighs = [[hL, kL], [hR, kR]].map(([a, b]) => run(a.y + (b.y - a.y) * LEVELS.thigh, a.x + (b.x - a.x) * LEVELS.thigh)).filter(Number.isFinite);
     raw.thigh = thighs.length ? Math.min(...thighs) : NaN;
@@ -94,13 +103,16 @@ export function measurePhoto(lm, mask, w, h) {
     const headY = Math.min(...head.map((p) => p.y));
     if (top > 1 && top < headY && bottom < h - 2) height = bottom - top;
   }
-  const ref = Number.isFinite(height) && height > h * 0.35 ? 'height' : Number.isFinite(raw.shoulders) ? 'shoulders' : Number.isFinite(raw.hips) ? 'hips' : null;
+  const ref = Number.isFinite(height) && height > h * 0.35 ? 'height' : side ? 'torso' : Number.isFinite(raw.shoulders) ? 'shoulders' : Number.isFinite(raw.hips) ? 'hips' : null;
   const denom = ref === 'height' ? height : raw[ref];
   if (!ref || !(denom > w * 0.04)) problems.push('You look small in the photo. Come a little closer.');
   for (const k of KEYS) { const v = raw[k] / denom; ratios[k] = k !== ref && Number.isFinite(v) && v > 0 ? v : NaN; }
+  // from the side only the depths are used: the lengths come from a photo straight on
+  if (side) for (const k of KEYS) if (!SIDE_KEYS.includes(k)) ratios[k] = NaN;
+  if (side && Number.isFinite(raw.chestD) && Number.isFinite(raw.hipsD) && raw.chestD > raw.torso * 0.9) { ratios.chestD = NaN; ratios.waistD = NaN; notes.push('An arm stands out from your body, so I left your chest and belly out. Let your arms hang at your sides.'); }
   const parts = KEYS.filter((k) => Number.isFinite(ratios[k]));
   if (!parts.length && !problems.length) problems.push('I could not read your outline. Try a plain background.');
-  return { ratios, ref, parts, view, problems: [...new Set(problems)], notes };
+  return { ratios, ref, parts, view: side ? 'side' : view, problems: [...new Set(problems)], notes };
 }
 
 // The same proportions from the 3D body. positions: flat xyz (y up, front +z), joints: flat
@@ -125,7 +137,14 @@ export function measureBody(positions, joints, bones, parts, count) {
   const torso = (v) => parts.arm[v] < 0.5;
   const at = (t) => S.y + (Hm.y - S.y) * t;
   const thighY = hL.y + (kL.y - hL.y) * LEVELS.thigh;
+  // depth of the side outline in the same slice: front to back of the torso (arms left out)
+  const deep = (y) => {
+    let lo = Infinity, hi = -Infinity; const band = H * 0.006;
+    for (let v = 0; v < count; v++) { if (Math.abs(positions[v * 3 + 1] - y) > band || !torso(v)) continue; const pz = positions[v * 3 + 2]; if (pz < lo) lo = pz; if (pz > hi) hi = pz; }
+    return hi > lo ? (hi - lo) / H : NaN;
+  };
   return {
+    chestD: deep(at(LEVELS.chest)), waistD: deep(at(LEVELS.waist)), hipsD: deep(at(LEVELS.hips)),
     shoulders: Math.abs(sL.x - sR.x) / H,
     chest: slice(at(LEVELS.chest), torso) / H, waist: slice(at(LEVELS.waist), torso) / H, hips: slice(at(LEVELS.hips), torso) / H,
     thigh: slice(thighY, (v) => parts.legL[v] > 0.5) / H,
@@ -147,23 +166,28 @@ export const SEARCH = [
   { key: 'fit.shoulders' }, { key: 'fit.chest' }, { key: 'fit.waist' }, { key: 'fit.hips' },
   { key: 'fit.thighSize' }, { key: 'fit.torsoLen' }, { key: 'fit.legLen' },
 ];
+// the sliders a side photo moves: front to back, belly and seat
+export const SIDE_SEARCH = [{ key: 'fit.depth' }, { key: 'fit.belly' }, { key: 'fit.butt' }];
 // Which slider answers to which measurement.
 const SLIDER_FOR = { shoulders: 'fit.shoulders', chest: 'fit.chest', waist: 'fit.waist', hips: 'fit.hips', thigh: 'fit.thighSize', torso: 'fit.torsoLen', legs: 'fit.legLen' };
+// all three depths move together with Depth, front to back, so a side photo searches all three
+// sliders whenever it reads any depth
 // The sliders a photo may move: a head-to-toe photo moves them all (weight too); a partial photo
 // moves only the sliders of the parts it shows, so the rest of the body stays as it was.
 export function searchFor(parts, ref) {
+  if (parts.some((k) => SIDE_KEYS.includes(k))) return SIDE_SEARCH.filter((s) => s.key === 'fit.depth' || (s.key === 'fit.belly' ? parts.includes('waistD') : parts.includes('hipsD')));
   if (ref === 'height') return SEARCH;
   const keys = new Set(parts.map((k) => SLIDER_FOR[k]));
   return SEARCH.filter((s) => keys.has(s.key));
 }
-const WEIGHTS = { shoulders: 0.8, chest: 1, waist: 1.3, hips: 1.1, thigh: 0.8, torso: 1, legs: 1 };
+const WEIGHTS = { shoulders: 0.8, chest: 1, waist: 1.3, hips: 1.1, thigh: 0.8, torso: 1, legs: 1, chestD: 1, waistD: 1.2, hipsD: 1 };
 
 // How far the body's proportions are from the target: relative error, weighted, plus a small
 // pull towards standard so a slider only moves when the photo asks for it.
 export function mismatch(target, got, params) {
   let e = 0;
   for (const k of KEYS) { const t = target[k], g = got[k]; if (!Number.isFinite(t) || !Number.isFinite(g)) continue; const r = (g - t) / t; e += WEIGHTS[k] * r * r; }
-  for (const s of SEARCH) if (s.key.startsWith('fit.')) { const v = getParam(params, s.key); e += 0.0004 * v * v; }
+  for (const s of [...SEARCH, ...SIDE_SEARCH]) if (s.key.startsWith('fit.')) { const v = getParam(params, s.key); e += 0.0004 * v * v; }
   return e;
 }
 

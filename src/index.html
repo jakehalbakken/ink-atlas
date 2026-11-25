@@ -59,6 +59,7 @@ body{background:var(--bg);color:var(--text);accent-color:var(--stencil);font:500
 body.warping #dock,body.warping #layersDock,body.warping #handles{visibility:hidden!important;pointer-events:none!important}body.warp-dragging #warpBar{opacity:.35;transition:opacity .12s}body.hands-on:not(.warp-dragging) #warpGrid{opacity:.25}
 #warpBar{top:auto!important;bottom:calc(var(--kb,0px) + 16px + env(safe-area-inset-bottom,0px))}body:has(#warpBar:not([hidden])) #foot{visibility:hidden}
 #handles{position:fixed;inset:0;pointer-events:none}#handles[hidden]{display:none}.hnd{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;pointer-events:auto;touch-action:none;cursor:grab}.hnd[hidden]{display:none}.hnd::after{content:"";position:absolute;left:12px;top:12px;width:20px;height:20px;box-sizing:border-box;background:#fff;border:2.5px solid var(--stencil);box-shadow:0 1px 5px rgba(0,0,0,.4)}#hSize::after{border-radius:5px}#hTurn::after{border-radius:50%}.hnd.on::after{background:var(--stencil)}body.hands-on #handles{opacity:0}
+#onPhoto{position:fixed;inset:0;z-index:9;background:#0d0e12;overflow:hidden}#onPhoto[hidden],#onPhoto [hidden]{display:none!important}#opStage{position:absolute;inset:0;touch-action:none}#opStage canvas{position:absolute;transform-origin:50% 50%}#opInk{mix-blend-mode:multiply;pointer-events:none}#opFit{pointer-events:none}#opTop{position:absolute;top:calc(16px + env(safe-area-inset-top,0px));left:16px;right:16px;display:flex;align-items:center;gap:12px;padding:8px 8px 8px 16px;max-width:760px;margin:0 auto}#opText{flex:1;font-weight:600;line-height:1.35}#opBar{position:absolute;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));padding:10px 12px;display:flex;flex-direction:column;gap:8px;max-width:760px;margin:0 auto}#opBar .row{display:flex;gap:8px;flex-wrap:wrap}#opBar .row .btn{flex:1;min-width:110px}#opWhich{display:grid;grid-template-columns:repeat(3,1fr)}#opBar .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}#opBusy{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:12px 18px;font-weight:600}
 #tryOn{position:fixed;inset:0;z-index:9;background:#0d0e12;overflow:hidden;touch-action:none}#tryOn[hidden]{display:none}#toVideo,#toPhoto{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}#toVideo.mirror{transform:scaleX(-1)}#toPhoto[hidden],#toVideo[hidden]{display:none}#toArt{position:absolute;left:0;top:0;transform-origin:50% 50%;mix-blend-mode:multiply;pointer-events:none}#toTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#toBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#toBar .row{display:flex;gap:8px;flex-wrap:wrap}#toBar .row[hidden]{display:none}#toBar .row .btn{flex:1;min-width:120px}
 #realSize{position:fixed;inset:0;z-index:9;background:var(--rs-skin,#e0b394);overflow:hidden;touch-action:none}#realSize[hidden]{display:none}#rsArt{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}#rsImg{display:block;width:100%;height:100%;mix-blend-mode:multiply}#rsTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#rsCal{position:absolute;left:16px;right:16px;bottom:16px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}#rsCal p{margin:0}#rsCard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border:3px dashed #2b2f38;border-radius:12px;pointer-events:none}#rsCard[hidden]{display:none}#stencil{position:fixed;inset:0;z-index:9;background:#f4f4f2;overflow:hidden;touch-action:none}#stencil[hidden]{display:none}#stView{position:absolute;inset:76px 16px 168px;display:flex;align-items:center;justify-content:center}#stCanvas{max-width:100%;max-height:100%;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.18)}#stTop{position:absolute;top:16px;left:16px;right:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 8px 8px 16px}#stBar{position:absolute;left:16px;right:16px;bottom:16px;padding:10px 14px;display:flex;flex-direction:column;gap:6px;max-width:640px;margin:0 auto}#stBar .row{display:flex;gap:8px;flex-wrap:wrap}#stBar .row .btn{flex:1;min-width:140px}#stBar .row .btn[hidden]{display:none}
 #rsCheck{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);min-height:44px;background:rgba(20,22,28,.7)}
@@ -562,8 +563,8 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
   <button class="btn" id="measureMeBtn" type="button">Measure me with a tape</button>
   </section>
   <section class="sec"><h5>From your photos and scans</h5>
-  <button class="btn" id="bodyPhotoBtn" type="button">Match a photo of me</button>
-  <input type="file" id="bodyPhotoFile" accept="image/*" hidden>
+  <button class="btn" id="bodyPhotoBtn" type="button">Match photos of me</button>
+  <input type="file" id="bodyPhotoFile" accept="image/*" multiple hidden>
   <button class="btn" id="faceBtn" type="button">Add my face</button>
   <div class="pair" role="group" aria-label="Your face" id="faceRow" hidden>
     <button class="btn" id="faceShow" type="button">Hide my face</button>
@@ -626,6 +627,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
   <button class="btn i-age" id="ageBtn" type="button" aria-expanded="false">Aging</button>
   <button class="btn i-sun" id="lightBtn" type="button" aria-expanded="false">Light</button>
   <button class="btn i-person" id="selfBtn" type="button" aria-pressed="false">How I see it</button>
+  <button class="btn i-photo" id="onPhotoBtn" type="button">On a photo of me</button>
   <p class="menu-head">Check the body</p>
   <button class="btn i-tape" id="tapeBtn" type="button" aria-pressed="false">Tape measure</button>
   <button class="btn i-pain" id="painBtn" type="button" aria-pressed="false">Pain map</button><button class="btn i-room" id="roomBtn" type="button" aria-pressed="false">Open skin</button>
@@ -649,7 +651,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
   <p id="clothesShow" aria-live="polite"></p>
 </div>
 <div id="bodyMatch" class="pop glass" hidden>
-  <div class="pophead"><h3>Match a photo of me</h3><button class="btn" type="button" id="bmClose">Done</button></div>
+  <div class="pophead"><h3>Match photos of me</h3><button class="btn" type="button" id="bmClose">Done</button></div>
   <canvas id="bmPic" aria-label="Your photo with what was measured"></canvas>
   <p id="bmText" class="tip" aria-live="polite"></p>
   <div id="bmInk" hidden>
@@ -661,8 +663,10 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
     <button class="btn primary" id="bmKeep" type="button" hidden>Keep this body</button>
     <button class="btn" id="bmBack" type="button" hidden>Put back</button>
     <button class="btn" id="bmAgain" type="button">Add another photo</button>
+    <button class="btn" id="bmOnPhoto" type="button" hidden>See my tattoos on this photo</button>
+    <button class="btn" id="bmFace" type="button" hidden>Use it for my face</button>
   </div>
-  <p class="tip">Any photo of you works: head to toe, a mirror selfie of your upper body, or your back. I match the parts I can see and leave the rest, so each photo adds more. Arms a little out from your sides and fitted clothes help. Photos stay on this iPad and are not kept.</p>
+  <p class="tip">Pick a few photos at once: one straight on, one side on with your arms down at your sides, and your back. Straight on gives your widths and lengths, side on how deep you are front to back. A mirror selfie of your upper body works too. Fitted clothes help. Photos stay on this iPad and are not kept.</p>
 </div>
 <div id="spotPop" class="pop glass" hidden>
   <div class="pophead"><h3 id="spotTitle">Try it on</h3><button class="btn" type="button" data-close="spotPop">Done</button></div>
@@ -885,6 +889,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
     </div>
     <h3 class="shHead">Pictures</h3>
     <div class="cards">
+      <button class="card i-person" id="cOnPhoto" type="button"><b>On a photo of you</b><span>Your tattoos on your own photo, where they sit on your skin.</span></button>
       <button class="card i-photo" id="cView" type="button"><b>Picture of this view</b><span>Exactly what is on screen now.</span></button>
       <button class="card i-ba" id="cCompare" type="button"><b>Before and after</b><span>Now and with your planned tattoos, side by side.</span></button>
       <button class="card i-three" id="cSizes" type="button"><b>Three sizes</b><span>Smaller, as it is and bigger, side by side.</span></button>
@@ -937,6 +942,18 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
   <div id="spTop" class="glass"><p>Tap your skin where the light is even. Avoid shadows, shine and tattoos.</p></div>
   <div id="spRing" hidden></div>
   <div id="spBar" class="glass"><span id="spSwatch"></span><span id="spMsg">No spot picked yet.</span><button class="btn" type="button" id="spCancel">Cancel</button><button class="btn primary" type="button" id="spUse" disabled>Use this tone</button></div>
+</div>
+<div id="onPhoto" hidden role="dialog" aria-modal="true" aria-label="Your tattoos on a photo of you">
+  <div id="opStage"><canvas id="opPic"></canvas><canvas id="opInk"></canvas><canvas id="opFit"></canvas></div>
+  <div id="opTop" class="glass"><span id="opText"></span><button class="btn primary" type="button" id="opClose">Done</button></div>
+  <div id="opBusy" class="glass" hidden>Reading your photo…</div>
+  <div id="opBar" class="glass">
+    <div class="seg" id="opWhich" role="group" aria-label="Which tattoos"><button class="btn" type="button" data-which="planned" aria-pressed="true">Planned</button><button class="btn" type="button" data-which="existing" aria-pressed="false">On my skin</button><button class="btn" type="button" data-which="all" aria-pressed="false">All</button></div>
+    <div class="row"><button class="btn" type="button" id="opShowFit" aria-pressed="false">Show the fit</button><button class="btn" type="button" id="opTurn" aria-pressed="false">Turn it round</button><button class="btn" type="button" id="opMirror" aria-pressed="false">Mirror selfie</button><button class="btn" type="button" id="opClothes" aria-pressed="false">Over clothes too</button></div>
+    <div class="row"><button class="btn" type="button" id="opPrev">Previous photo</button><button class="btn" type="button" id="opNext">Next photo</button><button class="btn" type="button" id="opReset" hidden>Line them up again</button></div>
+    <div class="row"><button class="btn" type="button" id="opAdd">Add photos</button><button class="btn primary" type="button" id="opSave">Save or share</button></div>
+    <input type="file" id="opFile" accept="image/*" multiple hidden>
+  </div>
 </div>
 <div id="tryOn" hidden role="dialog" aria-label="Try it on with the camera">
   <video id="toVideo" playsinline muted autoplay></video>

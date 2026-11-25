@@ -25,7 +25,7 @@ export default async function (p) {
   assert.ok((await p.$$eval('#bodyMatch button', (a) => a.filter((b) => b.getClientRects().length).map((b) => b.getBoundingClientRect().height))).every((h) => h >= 44), 'buttons big enough');
   const fitted = await p.evaluate(() => { const s = window.__ink.state(); return { figure: s.figure, muscle: s.muscle, weight: s.weight, fit: { ...s.fit } }; });
   const want = bodyMeasure(truth), got = bodyMeasure(fitted), start = bodyMeasure(std);
-  for (const k of Object.keys(want)) {
+  for (const k of Object.keys(want).filter((k) => !k.endsWith('D'))) { // a photo straight on reads the widths and lengths
     const err = Math.abs(got[k] / want[k] - 1), was = Math.abs(start[k] / want[k] - 1);
     assert.ok(err < 0.07, `${k} matches the photo within 7% (${(err * 100).toFixed(1)}%)`);
     if (was > 0.04) assert.ok(err < was, `${k} moved towards the photo`);

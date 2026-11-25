@@ -45,7 +45,7 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
 
   let target = null;          // rotations being shown (after any blend), null = standing
   let key = 'neutral';         // catalog key of the chosen still, or 'motion' / 'custom'
-  let version = 0, built = -1, rig = null, rigFor = null;
+  let version = 0, built = -1, rig = null, rigFor = null, lastDrop = 0;
   let blend = null, blendTimer = 0;
   const motion = { kind: 'elbow', playing: false, speed: 1, phase: 0, timer: 0, last: 0 };
 
@@ -81,7 +81,7 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
     // Keep the lowest point on the floor, so a squat or a knee lift stands on a foot.
     let low = Infinity, restLow = Infinity;
     for (let i = 1; i < posed.length; i += 3) { if (posed[i] < low) low = posed[i]; if (r.positions[i] < restLow) restLow = r.positions[i]; }
-    const drop = restLow - low; if (drop) for (let i = 1; i < posed.length; i += 3) posed[i] += drop;
+    const drop = restLow - low; lastDrop = drop; if (drop) for (let i = 1; i < posed.length; i += 3) posed[i] += drop;
     geo.attributes.position.array.set(posed); geo.attributes.position.needsUpdate = true;
     geo.attributes.rest.array.set(r.positions); geo.attributes.rest.needsUpdate = true;
     if (geo.index !== bodyGeo.index) geo.setIndex(bodyGeo.index);
@@ -162,6 +162,8 @@ export function createPoseView({ THREE, bodyMesh, bodyGeo, skinMat, state, areol
     get key() { return key; },
     get motion() { return { kind: motion.kind, playing: motion.playing, speed: motion.speed, phase: motion.phase }; },
     get version() { return version; },
+    // how far the posed body was lifted to keep its lowest point on the floor
+    get drop() { if (!target) return 0; ensure(); return lastDrop; },
     set speed(v) { motion.speed = v; },
     invalidate() { if (target) changed(); else version++; },
     choose, play, pause, scrub,
