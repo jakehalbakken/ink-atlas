@@ -127,7 +127,7 @@ export function createOnPhoto(api) {
 
   function say(text) { $('#opText').textContent = text; }
   function layout() {
-    const p = cur(); if (!p) return;
+    const p = cur(); if (!p || !p.read) return;
     const box = root.getBoundingClientRect(), k = Math.min(box.width / p.read.w, box.height / p.read.h);
     const W = p.read.w * k, H = p.read.h * k, L = (box.width - W) / 2, T = (box.height - H) / 2;
     for (const c of [pic, over, fitC]) Object.assign(c.style, { width: W + 'px', height: H + 'px', left: L + 'px', top: T + 'px' });
@@ -135,7 +135,7 @@ export function createOnPhoto(api) {
     nudgeStyle();
   }
   function nudgeStyle() {
-    const p = cur(); if (!p || !S.view) return;
+    const p = cur(); if (!p || !p.read || !S.view) return;
     const n = p.nudge, k = S.view.k, t = `translate(${n.x * k}px, ${n.y * k}px) rotate(${n.r}rad) scale(${n.s})`;
     over.style.transform = S.live ? t : ''; fitC.style.transform = t;
   }
@@ -175,7 +175,7 @@ export function createOnPhoto(api) {
   }
   // the ink layer: the rendered ink moved by the nudge, weighted by the bare skin under it
   function compose() {
-    const p = cur(); if (!p) return;
+    const p = cur(); if (!p || !p.read) return;
     const { w, h } = p.read;
     over.width = w; over.height = h;
     const g = over.getContext('2d');
@@ -189,7 +189,7 @@ export function createOnPhoto(api) {
   }
   // the body's outline over the photo, to see how well it lines up
   function drawFit() {
-    const p = cur(); if (!p) return;
+    const p = cur(); if (!p || !p.read) return;
     const { w, h } = p.read; fitC.width = w; fitC.height = h;
     const g = fitC.getContext('2d'); g.clearRect(0, 0, w, h);
     if (!p.bodyPx) return;
@@ -205,6 +205,7 @@ export function createOnPhoto(api) {
     const p = cur(); if (!p) return;
     pic.width = p.read ? p.read.w : 1; pic.height = p.read ? p.read.h : 1;
     if (p.read) pic.getContext('2d').drawImage(p.read.canvas, 0, 0);
+    else for (const c of [over, fitC]) { c.width = 1; c.height = 1; } // nothing read: no photo to show
     layout();
     if (p.fit && !p.inkPx) renderInk(); else { drawFit(); compose(); }
     describe(); controls();

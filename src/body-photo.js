@@ -60,14 +60,28 @@ export function measurePhoto(lm, mask, w, h) {
   const view = Number.isFinite(nz) && Number.isFinite(ez) ? (nz > ez + 0.02 ? 'back' : 'front')
     : (lm[LM.nose]?.visibility ?? 1) < 0.5 && (lm[LM.earL]?.visibility ?? 1) < 0.6 && (lm[LM.earR]?.visibility ?? 1) < 0.6 ? 'back' : 'front';
   const ratios = Object.fromEntries(KEYS.map((k) => [k, NaN]));
-  if (!hasS && !hasH) return { ratios, ref: null, parts: [], view, problems: ['I could not find your shoulders or hips in this photo. Use a photo that shows at least your upper body.'], notes };
+  const inPic = (i) => lm[i] && lm[i].x >= 0.01 && lm[i].x <= 0.99 && lm[i].y >= 0.01 && lm[i].y <= 0.99;
+  const pair = (a, b) => inPic(a) && inPic(b) && Math.max(lm[a].visibility ?? 1, lm[b].visibility ?? 1) >= 0.5;
+  if (!hasS && !hasH && !(pair(LM.shoulderL, LM.shoulderR) && pair(LM.hipL, LM.hipR))) return { ratios, ref: null, parts: [], view, problems: ['I could not find your shoulders or hips in this photo. Use a photo that shows at least your upper body.'], notes };
   const sL = P(LM.shoulderL), sR = P(LM.shoulderR), hL = P(LM.hipL), hR = P(LM.hipR), kL = P(LM.kneeL), kR = P(LM.kneeR);
   const S = mid(sL, sR), Hm = mid(hL, hR);
   const raw = {};
   // a width of the outline; a run that reaches the frame's edge is cut off, so it doesn't count
   const run = (y, x) => { const r = rowRun(mask, w, h, y, x); return r && r.a > 0 && r.b < w - 1 ? r.width : NaN; };
-  // side on: the shoulders sit nearly over each other, so the outline's width is the body's depth
-  const side = hasS && hasH && Math.abs(sL.x - sR.x) < (Hm.y - S.y) * 0.22 && Hm.y - S.y > Math.abs(Hm.x - S.x) * 2;
+  // side on: the shoulders sit nearly over each other, so the outline's width is the body's depth.
+  // Side on, the far shoulder and hip are often only guessed (low visibility), so here a pair
+  // counts when both are in the picture and one is clearly seen; the landmarker's depth (z, in
+  // the same units as x) then shows the shoulders lie one behind the other.
+  const upright = Hm.y - S.y > Math.abs(Hm.x - S.x) * 2, dx = Math.abs(sL.x - sR.x), dxH = Math.abs(hL.x - hR.x);
+  const dz = Math.abs((lm[LM.shoulderL].z ?? NaN) - (lm[LM.shoulderR].z ?? NaN)) * w;
+  // a face in profile: the nose well out past both ears, the ears nearly over each other
+  const tl = Hm.y - S.y, nose = inPic(LM.nose) && inPic(LM.earL) && inPic(LM.earR) ? [P(LM.nose), P(LM.earL), P(LM.earR)] : null;
+  const profile = !!nose && Math.abs(nose[1].x - nose[2].x) < tl * 0.25
+    && Math.max(Math.min(nose[1].x, nose[2].x) - nose[0].x, nose[0].x - Math.max(nose[1].x, nose[2].x)) > tl * 0.12;
+  // the landmarker reads a turned body part way when side on, so a narrowish pair of shoulders
+  // counts too when the depth or the face says side on
+  const side = pair(LM.shoulderL, LM.shoulderR) && pair(LM.hipL, LM.hipR) && upright
+    && (dx < tl * 0.22 || (dx < tl * 0.45 && dxH < tl * 0.45 && ((Number.isFinite(dz) && dz > dx * 1.2) || profile)));
   if (side) {
     const cx = (S.x + Hm.x) / 2, at = (t) => S.y + (Hm.y - S.y) * t;
     raw.chestD = run(at(LEVELS.chest), cx); raw.waistD = run(at(LEVELS.waist), cx); raw.hipsD = run(at(LEVELS.hips), Hm.x);

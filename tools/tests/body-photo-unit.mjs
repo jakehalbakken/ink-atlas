@@ -65,6 +65,16 @@ assert.ok(Math.abs(r.ratios.waistD - 100 / 678) < 1e-6, 'belly depth as a share 
 assert.deepEqual(searchFor(r.parts, r.ref).map((s) => s.key), ['fit.depth', 'fit.belly', 'fit.butt'], 'a side photo moves only the depth sliders');
 // part way round: neither straight on nor side on
 put(LM.shoulderL, 235, 125); put(LM.shoulderR, 165, 125); assert.match(read().problems.join(' '), /Face the camera/);
+// the landmarker often reads a side-on body part way round: the depth of the shoulders, or a face
+// in profile, still says side on
+lm[LM.shoulderL].z = -0.2; lm[LM.shoulderR].z = 0.2; assert.equal(read().view, 'side', 'shoulders one behind the other');
+put(LM.shoulderL, 235, 125); put(LM.shoulderR, 165, 125);
+put(LM.nose, 240, 90); put(LM.earL, 200, 85); put(LM.earR, 196, 85); assert.equal(read().view, 'side', 'a face in profile');
+put(LM.nose, 200, 90); put(LM.earL, 210, 85); put(LM.earR, 190, 85);
+// side on, the far shoulder and hip are only guessed
+put(LM.shoulderL, 205, 125); put(LM.shoulderR, 195, 125, 0.3); put(LM.hipR, 175, 390, 0.3); r = read();
+assert.equal(r.view, 'side', 'far side only guessed'); assert.deepEqual(r.problems, []); assert.ok(r.parts.includes('waistD'));
+put(LM.hipR, 175, 390); put(LM.shoulderL, 235, 125); put(LM.shoulderR, 165, 125);
 put(LM.shoulderL, 250, 125); put(LM.shoulderR, 150, 125);
 // arms against the sides: chest and waist are left out, with a note
 fill(110, 150, 120, 380); fill(250, 290, 120, 380); r = read();
