@@ -2163,7 +2163,7 @@ function keyMove(t, dx, dy) {
 }
 const KEYS_HELP = 'Keys for the selected tattoo: arrows move it (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Cmd+Z undoes, Shift+Cmd+Z redoes.';
 document.addEventListener('keydown', (e) => {
-  if (e.altKey || e.defaultPrevented || document.querySelector('[aria-modal=true]')) return;
+  if (e.altKey || e.defaultPrevented || modalUp()) return;
   const tgt = e.target; if (tgt && tgt.closest && tgt.closest('input,textarea,select,[contenteditable],ink-slider')) return;
   // ? lists the keys
   if (e.key === '?' && !e.metaKey && !e.ctrlKey) { e.preventDefault(); toast(KEYS_HELP); markTried('keys'); return; }
@@ -5583,6 +5583,8 @@ window.addEventListener('pointerdown', () => { touchedSinceBoot = true; }, { cap
 document.addEventListener('click', (e) => { if (e.target instanceof Element && e.target.closest('input[type=file]')) pickingFileAt = Date.now(); }, true);
 for (const ev of ['change', 'cancel']) document.addEventListener(ev, (e) => { if (e.target instanceof Element && e.target.matches('input[type=file]')) pickingFileAt = 0; }, true);
 const shown = (n) => !!n && n.isConnected && !n.hidden && n.getClientRects().length > 0;
+// a dialog left in the page but hidden must not swallow the keys
+function modalUp() { return [...document.querySelectorAll('[aria-modal=true]')].some(shown); }
 function busyEditing() {
   if (gest || Date.now() - pickingFileAt < 3 * 60 * 1000) return true;
   if ([...document.querySelectorAll('[aria-modal=true]')].some(shown)) return true;
@@ -5820,7 +5822,7 @@ $('#openProjects').addEventListener('click', oneAtATime(async () => {
 }));
 $('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (document.querySelector('[aria-modal=true]')) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); closeBodyMatch(false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#pcMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (modalUp()) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); closeBodyMatch(false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#pcMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {

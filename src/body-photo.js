@@ -71,6 +71,16 @@ export function measurePhoto(lm, mask, w, h, opts = {}) {
   const raw = {};
   // a width of the outline; a run that reaches the frame's edge is cut off, so it doesn't count
   const run = (y, x) => { const r = rowRun(mask, w, h, y, x); return r && r.a > 0 && r.b < w - 1 ? r.width : NaN; };
+  // where each arm crosses a row (shoulder, elbow, wrist, then the hand), so a width the arm lies
+  // inside can be left out: arms hanging at the sides join the outline at the waist, hips and thighs
+  const armChain = [[LM.shoulderL, LM.elbowL, LM.wristL, 19], [LM.shoulderR, LM.elbowR, LM.wristR, 20]]
+    .map((c) => c.filter((i) => inPic(i) && (lm[i].visibility ?? 1) >= 0.3).map(P))
+    // a joint guessed far from the one before it (more than a torso away) is a wrong guess
+    .map((c) => c.filter((p, i) => !i || Math.hypot(p.x - c[i - 1].x, p.y - c[i - 1].y) < Math.abs(lm[LM.hipL].y - lm[LM.shoulderL].y) * h * 1.2));
+  const armIn = (y, x) => {
+    const r = rowRun(mask, w, h, y, x); if (!r) return false;
+    return armChain.some((c) => c.some((p, i) => { const q = c[i + 1]; if (!q || y < Math.min(p.y, q.y) || y > Math.max(p.y, q.y) || p.y === q.y) return false; const ax = p.x + (q.x - p.x) * (y - p.y) / (q.y - p.y); return ax > r.a && ax < r.b; }));
+  };
   // side on: the shoulders sit nearly over each other, so the outline's width is the body's depth.
   // Side on, the far shoulder and hip are often only guessed (low visibility), so here a pair
   // counts when both are in the picture and one is clearly seen; the landmarker's depth (z, in
@@ -110,12 +120,17 @@ export function measurePhoto(lm, mask, w, h, opts = {}) {
     // facing the camera (or straight away from it): side-on, the shoulders collapse
     if (Math.abs(sL.x - sR.x) < Math.abs(sL.y - sR.y) * 2 || raw.shoulders < raw.torso * 0.3) problems.push(view === 'back' ? 'Stand with your back straight to the camera.' : 'Face the camera straight on.');
     // arms touching the sides make the chest and waist read too wide: leave them out
-    if (Number.isFinite(raw.chest) && raw.chest > raw.shoulders * 1.6) { raw.chest = NaN; raw.waist = NaN; notes.push('Your arms touch your sides, so I left your chest and waist out.'); }
+    const touched = [];
+    if (Number.isFinite(raw.chest) && (raw.chest > raw.shoulders * 1.6 || armIn(at(LEVELS.chest), cx))) { raw.chest = NaN; touched.push('chest'); }
+    if (Number.isFinite(raw.waist) && (touched.length || armIn(at(LEVELS.waist), cx))) { raw.waist = NaN; touched.push('waist'); }
+    if (Number.isFinite(raw.hips) && armIn(at(LEVELS.hips), cx)) { raw.hips = NaN; touched.push('hips'); }
+    if (touched.length) notes.push(`Your arms touch your sides, so I left your ${touched.length > 1 ? touched.slice(0, -1).join(', ') + ' and ' + touched.at(-1) : touched[0]} out.`);
   } else if (hasS && Math.abs(sL.x - sR.x) < Math.abs(sL.y - sR.y) * 2) problems.push('Face the camera straight on.');
   if (hasH && !hasS) raw.hips = run(Hm.y, Hm.x);
   if (hasH && hasK && !side) {
     // a thigh on each side, from its own hip towards its own knee
-    const thighs = [[hL, kL], [hR, kR]].map(([a, b]) => run(a.y + (b.y - a.y) * LEVELS.thigh, a.x + (b.x - a.x) * LEVELS.thigh)).filter(Number.isFinite);
+    // (a hand resting on the thigh joins it: that one is left out)
+    const thighs = [[hL, kL], [hR, kR]].map(([a, b]) => { const y = a.y + (b.y - a.y) * LEVELS.thigh, x = a.x + (b.x - a.x) * LEVELS.thigh; return armIn(y, x) ? NaN : run(y, x); }).filter(Number.isFinite);
     raw.thigh = thighs.length ? Math.min(...thighs) : NaN;
     // thighs that touch read as one: leave the thighs out
     if (Number.isFinite(raw.hips) && raw.thigh > raw.hips * 0.8) raw.thigh = NaN;

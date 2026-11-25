@@ -95,6 +95,17 @@ put(LM.shoulderL, 250, 125); put(LM.shoulderR, 150, 125);
 fill(110, 150, 120, 380); fill(250, 290, 120, 380); r = read();
 assert.deepEqual(r.problems, []); assert.ok(Number.isNaN(r.ratios.chest) && Number.isNaN(r.ratios.waist) && Number.isFinite(r.ratios.hips), 'chest and waist left out');
 assert.match(r.notes.join(' '), /arms touch your sides/);
+{ // hands hanging down to the hips join the outline there too: the hips are left out, the arms seen by their joints
+  const m2 = new Float32Array(mask), l2 = lm.map((q) => ({ ...q })), at = (i, x, y) => { l2[i] = { x: x / W, y: y / H, visibility: 1 }; };
+  for (let y = 120; y < 420; y++) for (const [x0, x1] of [[110, 150], [250, 290]]) for (let x = x0; x < x1; x++) m2[y * W + x] = 1;
+  at(LM.elbowL, 270, 260); at(LM.wristL, 270, 410); at(LM.elbowR, 130, 260); at(LM.wristR, 130, 410);
+  const a2 = measurePhoto(l2, m2, W, H);
+  assert.ok(Number.isNaN(a2.ratios.hips), 'hips left out when the arms lie inside that row');
+  assert.match(a2.notes.join(' '), /chest, waist and hips out/);
+  // the same arms held clear of the body leave the hips alone
+  const m3 = new Float32Array(m2); for (let y = 120; y < 420; y++) for (const x of [146, 147, 148, 149, 250, 251, 252, 253]) m3[y * W + x] = 0;
+  const a3 = measurePhoto(l2.map((q) => ({ ...q })), m3, W, H); if (process.env.DBG) console.log(a3.ratios, a3.notes); assert.ok(Number.isFinite(a3.ratios.hips) && Number.isFinite(a3.ratios.waist), 'arms clear of the body leave the hips and waist alone');
+}
 // the search finds a known body from its proportions
 const std = { figure: 'male', muscle: 0.5, weight: 0.5, fit: {} };
 const truth = { figure: 'male', muscle: 0.5, weight: 0.25, fit: { shoulders: 0.6, waist: -0.4, hips: 0.2, thighSize: -0.3, torsoLen: 0.3 } };

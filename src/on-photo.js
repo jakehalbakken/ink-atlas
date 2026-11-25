@@ -248,14 +248,14 @@ export function createOnPhoto(api) {
 
   function start() {
     api.closeOthers();
-    root.hidden = false; S.photos = []; S.at = 0; say('Pick one or more photos of you. Your shoulders and hips need to show.'); controls();
+    root.hidden = false; root.setAttribute('aria-modal', 'true'); S.photos = []; S.at = 0; say('Pick one or more photos of you. Your shoulders and hips need to show.'); controls();
     for (const c of [pic, over, fitC]) { c.width = 1; c.height = 1; }
   }
   function open() { start(); $('#opFile').click(); }
   // straight onto photos already picked (from Match photos of me)
   function openWith(files) { start(); return addFiles(files); }
   function close() {
-    S.run++; root.hidden = true; S.photos = []; S.pts.clear(); S.live = false;
+    S.run++; root.hidden = true; root.removeAttribute('aria-modal'); S.photos = []; S.pts.clear(); S.live = false;
     for (const c of [pic, over, fitC]) { c.width = 1; c.height = 1; } // the photos go
     $('#opFile').value = '';
   }

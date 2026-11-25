@@ -12,7 +12,7 @@ export default async function (p) {
   const std = { figure: 'male', muscle: 0.5, weight: 0.5, fit: {} };
   const truth = { figure: 'male', muscle: 0.5, weight: 0.5, fit: { depth: 0.7, belly: 0.6 } };
   await p.evaluate(async (s) => {
-    const I = window.__ink; I.state().tattoos = []; I.setShape(s); I.setPose('relaxedSides');
+    const I = window.__ink; I.state().tattoos = []; I.setShape(s); I.setPose('neutral');
     const c = document.createElement('canvas'); c.width = 200; c.height = 200; const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 200, 200); g.fillStyle = '#000'; g.beginPath(); g.arc(100, 100, 80, 0, 7); g.fill();
     const h = I.surfaceAt([0.1, 1.3, 2], [0, 0, -1]); if (h) await I.addArt(c.toDataURL(), 'Chest', { pos: h.pos, normal: h.normal, width: 0.1 });
     I.commitTest();
@@ -23,7 +23,11 @@ export default async function (p) {
     // cur and goal set together leave the camera still, so nothing draws unless asked to
     const st = await p.addStyleTag({ content: hide }); await p.waitForFunction(() => window.__ink.settled() && window.__ink.pose().settled, { timeout: 10000 }); await p.evaluate(() => window.__ink.redraw()); await wait(600); await p.screenshot({ path: `shots/t192-${name}.png` }); await st.evaluate((s) => s.remove());
   };
-  await snap('front', 0); await snap('side', Math.PI / 2);
+  // straight on standing as usual (the pose a photo straight on is measured in); side on with the
+  // arms hanging, so they sit inside the outline and don't stand out in front or behind
+  await snap('front', 0);
+  await p.evaluate(() => window.__ink.setPose('relaxedSides'));
+  await snap('side', Math.PI / 2);
   { const a = fs.readFileSync('shots/t192-front.png'), b = fs.readFileSync('shots/t192-side.png'); assert.ok(!a.equals(b), 'the side photo is a different picture from the front one'); }
   await p.evaluate((s) => { window.__ink.setShape(s); window.__ink.setPose('neutral'); }, std); await wait(300);
   const undo0 = await p.evaluate(() => window.__ink.undoLen());
