@@ -60,6 +60,7 @@ import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
 import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered, readSeen, writeSeen, unseenCount } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
 import { createOnPhoto } from './on-photo.js';
+import { inkBox as photoInkBox, cropBox } from './photo-layers.js';
 import { SPOTS, spotAim, turnAlong, spotNote, edgeTris, girthAt, fitNote } from './spots.js';
 import { POSE_BONES, vertexBones, skinPose } from './pose.js';
 import { stretchUnder, stretchText } from './stretch.js';
@@ -4536,13 +4537,24 @@ function photoHead() {
   const [earL, earR] = Math.sign(a[0]) === left ? [a, c] : [c, a];
   return { nose: lm[1], earL, earR };
 }
-function photoInk(fit, W, H, which, mirror) {
+// One layer per tattoo: each is drawn alone (over plain white skin, so the body still hides what is
+// behind it), cut to the box round its own ink, and handed back with its name and kind; the body's
+// outline comes once. Returns { layers: [{ id, name, status, x, y, w, h, px }], body } or null.
+function photoInk(fit, W, H, mirror) {
   const snap = poseView.snapshot(), was = { bg: scene.background, fog: scene.fog }, hidden = [];
   const target = new THREE.WebGLRenderTarget(W, H, { colorSpace: THREE.SRGBColorSpace, samples: 4 });
   target.texture.colorSpace = THREE.SRGBColorSpace;
   const prevTarget = renderer.getRenderTarget(), prevColor = new THREE.Color(), prevAlpha = renderer.getClearAlpha(), prevScissor = renderer.getScissorTest();
   renderer.getClearColor(prevColor);
-  const ink = new Uint8Array(W * H * 4), sil = new Uint8Array(W * H * 4);
+  const raw = new Uint8Array(W * H * 4), top = new Uint8ClampedArray(W * H * 4), a = new Uint8Array(W * H), row = W * 4, layers = [];
+  // rows from the top, flipped left to right for a mirror selfie
+  const flip = (src, dst, alpha) => {
+    for (let y = 0; y < H; y++) {
+      const s0 = (H - 1 - y) * row;
+      for (let x = 0; x < W; x++) { const i = s0 + (mirror ? W - 1 - x : x) * 4; if (alpha) { dst[y * W + x] = src[i + 3]; continue; } const o = y * row + x * 4; dst[o] = src[i]; dst[o + 1] = src[i + 1]; dst[o + 2] = src[i + 2]; dst[o + 3] = 255; }
+    }
+  };
+  const shown = [];
   try {
     poseView.setCustom(fit.rotations, { animate: false });
     const drop = poseView.drop;
@@ -4555,39 +4567,42 @@ function photoInk(fit, W, H, which, mirror) {
     // only the body and its ink: no backdrop, floor, hair, clothes, outlines or tools
     const keep = new Set([body, decalGroup]);
     for (const o of scene.children) if (!keep.has(o) && o.visible) { hidden.push(o); o.visible = false; }
-    const paintMesh = paintSkin && paintSkin.mesh;
-    for (const o of body.children) if (o.visible && !(o === paintMesh && which !== 'existing')) { hidden.push(o); o.visible = false; }
-    const shown = [];
+    const paintMesh = paintSkin && paintSkin.mesh, paintOn = !!(paintMesh && paintMesh.visible && state.paint && !state.paint.hidden);
+    for (const o of body.children) if (o.visible) { hidden.push(o); o.visible = false; }
+    const list = [];
     for (const t of state.tattoos) {
       const d = decals[t.id]; if (!d) continue;
-      const want = !t.hidden && !!d.tex && (which === 'all' || (which === 'existing') === (t.status === 'existing'));
-      shown.push([d.mesh, d.mesh.visible], [d.outline, d.outline.visible]); d.mesh.visible = want; d.outline.visible = false;
+      shown.push([d.mesh, d.mesh.visible], [d.outline, d.outline.visible]); d.mesh.visible = false; d.outline.visible = false;
+      if (!t.hidden && d.tex) list.push({ id: t.id, name: t.name || 'Tattoo', status: t.status === 'existing' ? 'existing' : 'planned', mesh: d.mesh });
     }
+    if (paintOn) list.push({ id: 'paint', name: 'Paint on skin', status: 'existing', mesh: paintMesh });
     scene.background = null; scene.fog = null;
     renderer.setScissorTest(false); renderer.setRenderTarget(target);
     poseView.withPosed(() => {
       const m = body.material; body.material = opWhite;
       try {
-        renderer.setClearColor(0xffffff, 1); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, ink);
-        decalGroup.visible = false; if (paintMesh) paintMesh.visible = false;
-        renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, sil);
+        for (const L of list) {
+          L.mesh.visible = true;
+          renderer.setClearColor(0xffffff, 1); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, raw);
+          L.mesh.visible = false;
+          flip(raw, top, false);
+          const box = photoInkBox(top, W, H, 2); if (!box) continue; // out of sight in this photo
+          layers.push({ id: L.id, name: L.name, status: L.status, ...box, px: cropBox(top, W, box) });
+        }
+        decalGroup.visible = false;
+        renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.render(scene, cam); renderer.readRenderTargetPixels(target, 0, 0, W, H, raw);
+        flip(raw, a, true);
       } finally { body.material = m; decalGroup.visible = true; }
     }, posedInk());
-    for (const [m, v] of shown) m.visible = v;
   } catch (e) { console.warn('On my photo could not draw the ink', e); return null; }
   finally {
+    for (const [m, v] of shown) m.visible = v;
     renderer.setRenderTarget(prevTarget); renderer.setClearColor(prevColor, prevAlpha); renderer.setScissorTest(prevScissor); target.dispose();
     for (const o of hidden) o.visible = true;
     scene.background = was.bg; scene.fog = was.fog;
     poseView.restore(snap); exporting = false; syncDecals(); needsRender = true;
   }
-  // rows from the top, flipped left to right for a mirror selfie
-  const out = new Uint8ClampedArray(W * H * 4), a = new Uint8Array(W * H), row = W * 4;
-  for (let y = 0; y < H; y++) {
-    const src = (H - 1 - y) * row;
-    for (let x = 0; x < W; x++) { const sx = mirror ? W - 1 - x : x, i = src + sx * 4, o = y * row + x * 4; out[o] = ink[i]; out[o + 1] = ink[i + 1]; out[o + 2] = ink[i + 2]; out[o + 3] = 255; a[y * W + x] = sil[i + 3]; }
-  }
-  return { ink: out, body: a };
+  return { layers, body: a };
 }
 const onPhoto = createOnPhoto({
   renderInk: photoInk,

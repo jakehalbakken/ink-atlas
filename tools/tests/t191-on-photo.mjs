@@ -98,13 +98,52 @@ export default async function (p) {
   assert.match(await p.$eval('#opText', (e) => e.textContent), /No tattoos marked On my skin/);
   await p.click('#opWhich [data-which="all"]'); await wait(300);
   assert.match(await p.$eval('#opText', (e) => e.textContent), /2 tattoos on your photo/);
-  // a one-finger drag nudges, Line them up again resets
-  const box = await p.$eval('#opStage', (e) => { const r = e.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
-  await p.mouse.move(box[0], box[1]); await p.mouse.down(); await p.mouse.move(box[0] + 30, box[1] + 10, { steps: 5 }); await p.mouse.up(); await wait(200);
-  assert.ok((await p.evaluate(() => window.__ink.onPhoto().photos[1].nudge.x)) > 10, 'a drag nudges the ink');
+  // each tattoo is its own layer (Jake, 2026-11-25: "address each individual tattoo as a layer")
+  const ph = () => p.evaluate(() => { const s = window.__ink.onPhoto(); return { L: s.photos[s.at].layers, sel: s.sel, view: s.view, text: s.text }; });
+  let o = await ph();
+  assert.deepEqual(o.L.map((L) => L.name).sort(), ['Chest', 'Thigh'], 'one layer a tattoo');
+  assert.equal(await p.$$eval('#opLayersList .op-line', (a) => a.length), 2, 'a line a tattoo in the list');
+  const scr = (L, fx = 0.5, fy = 0.5) => [o.view.L + (L.x + L.w * fx) * o.view.k, o.view.T + (L.y + L.h * fy) * o.view.k];
+  const chest = () => o.L.find((L) => L.name === 'Chest'), thigh = () => o.L.find((L) => L.name === 'Thigh');
+  // a drag that starts on the chest piece's ink picks it and moves it alone
+  let [x, y] = scr(chest(), 0.2, 0.2);
+  await p.mouse.move(x, y); await p.mouse.down(); await p.mouse.move(x + 30, y + 12, { steps: 6 }); await p.mouse.up(); await wait(250);
+  o = await ph();
+  assert.equal(o.sel, chest().id, 'the touched tattoo is picked');
+  assert.ok(chest().nudge.x > 10 && Math.abs(thigh().nudge.x) < 1e-6, 'only the picked one moved');
+  assert.match(o.text, /Chest picked/);
+  assert.equal(await p.$eval('#opPicked', (e) => e.hidden), false, 'its own controls show');
+  assert.equal(await p.$eval(`#opLayersList [data-layer="${chest().id}"]`, (e) => e.getAttribute('aria-pressed')), 'true', 'its line is marked');
+  // keys size and turn the picked one only
+  await p.keyboard.press('='); await p.keyboard.press(']'); await wait(150); o = await ph();
+  assert.ok(chest().nudge.s > 1.04 && chest().nudge.r > 0.04 && thigh().nudge.s === 1, 'keys size and turn the picked one');
+  // the eye hides one tattoo and the drawn ink drops it
+  const dark = () => p.evaluate(() => { const L = window.__ink.onPhotoLayer(); let n = 0; for (let i = 0; i < L.w * L.h; i++) if (L.data[i * 4] < 150) n++; return n; });
+  const both = await dark();
+  await p.click(`#opLayersList [data-eye="${thigh().id}"]`); await wait(200); o = await ph();
+  assert.ok(thigh().hidden, 'hidden from the list');
+  assert.ok((await dark()) < both * 0.9, 'its ink is gone from the photo');
+  assert.match(o.text, /1 planned tattoo on your photo|1 tattoo on your photo/);
+  await p.click(`#opLayersList [data-eye="${thigh().id}"]`); await wait(200);
+  // a tap away from every tattoo puts them back together, and a drag there moves both alike
+  const ex = o.view.L + 8, ey = await p.evaluate(() => innerHeight / 2);
+  await p.mouse.click(ex, ey); await wait(200); o = await ph();
+  assert.equal(o.sel, null, 'a tap away unpicks');
+  const before2 = o.L.map((L) => [L.nudge.x, L.nudge.y]);
+  await p.mouse.move(ex, ey); await p.mouse.down(); await p.mouse.move(ex + 20, ey + 20, { steps: 5 }); await p.mouse.up(); await wait(200); o = await ph();
+  const dx = o.L.map((L, i) => L.nudge.x - before2[i][0]);
+  assert.ok(dx[0] > 5 && Math.abs(dx[0] - dx[1]) < 1e-6, 'with none picked, both move together');
+  // a line in the list picks it; Hide it and Move all
+  await p.click(`#opLayersList [data-layer="${thigh().id}"]`); await wait(150);
+  assert.equal((await ph()).sel, thigh().id, 'a line picks its tattoo');
+  assert.ok((await p.$$eval('#onPhoto button', (a) => a.filter((b) => b.getClientRects().length).map((b) => [b.id || b.className, b.getBoundingClientRect().height, b.getBoundingClientRect().width]))).every(([, h, w]) => h >= 44 && w >= 44), 'every button 44 pt with one picked');
+  await p.click('#opUnpick'); await wait(150);
+  assert.equal((await ph()).sel, null, 'Move all unpicks');
+  // Line them up again puts every layer back
   assert.equal(await p.$eval('#opReset', (e) => e.hidden), false);
-  await p.click('#opReset'); await wait(200);
-  assert.equal(await p.evaluate(() => window.__ink.onPhoto().photos[1].nudge.x), 0, 'reset');
+  await p.click('#opReset'); await wait(200); o = await ph();
+  assert.ok(o.L.every((L) => L.nudge.x === 0 && L.nudge.y === 0 && L.nudge.s === 1 && L.nudge.r === 0), 'reset');
+  await p.screenshot({ path: 'shots/t191-layers.png' });
   // a picture with no one in it says so in plain words
   await (await p.$('#opFile')).uploadFile('public/pwa-512.png');
   await p.waitForFunction(() => { const s = window.__ink.onPhoto(); return s.photos.length === 3 && (s.photos[2].fit || s.photos[2].error) && document.querySelector('#opBusy').hidden; }, { timeout: 60000 });
@@ -112,12 +151,12 @@ export default async function (p) {
   // Escape closes, the photos go, and nothing in the project, the pose or the view changed
   await p.keyboard.press('Escape'); await wait(400);
   assert.equal(await p.$eval('#onPhoto', (e) => e.hidden), true, 'Escape closes');
-  assert.deepEqual(await p.$$eval('#onPhoto canvas', (a) => a.map((c) => c.width)), [1, 1, 1], 'the photos are dropped');
+  assert.deepEqual(await p.$$eval('#onPhoto canvas', (a) => a.map((c) => c.width)), [1, 1, 1, 1], 'the photos are dropped');
   assert.equal(await p.evaluate(() => window.__ink.onPhoto().photos.length), 0);
   const after = await p.evaluate(() => ({ t: JSON.stringify(window.__ink.state().tattoos), pose: window.__ink.pose().key, cam: window.__ink.cam(), undo: window.__ink.undoLen() }));
   assert.equal(after.t, before.t, 'tattoos untouched');
   assert.equal(after.pose, before.pose, 'pose put back');
   assert.equal(after.undo, before.undo, 'no undo step');
   assert.ok(after.cam.every((v, i) => Math.abs(v - before.cam[i]) < 1e-3), 'view put back');
-  console.log('PASS t191 on a photo of me: pose and camera read from the photo, ink lands on the real ink straight on and turned, two photos, kinds, nudge, no person, Escape, nothing changed');
+  console.log('PASS t191 on a photo of me: pose and camera read from the photo, ink lands on the real ink straight on and turned, two photos, kinds, a layer a tattoo (pick, move alone, keys, hide, move all, list), no person, Escape, nothing changed');
 }

@@ -6,6 +6,7 @@
 // they go when the panel closes. Nothing in the project changes.
 import { loadPoseFinder } from './body-match.js';
 import { fitPhoto, mirrorPoints, turnPoints, exifFocal35 } from './photo-pose.js';
+import { still, moved, layerMatrix, corners, pick, groupCentre, moveOne, moveAll, twoFinger, MIN_S, MAX_S } from './photo-layers.js';
 
 const base = () => (import.meta.env && import.meta.env.BASE_URL) || '/';
 const MAX = 2048; // the longest side a photo is worked at
@@ -99,12 +100,20 @@ export function inkWeight(read, overClothes) {
 
 // The layer multiplied onto the photo: white where nothing changes, the ink's colour where it
 // lands on skin. ink: RGBA bytes at w x h (white where there is no ink), already moved by any
-// nudge; weight: inkWeight's result. Written into out (RGBA bytes).
+// nudge; weight: inkWeight's result. Written into out (RGBA bytes). The screen does the same on
+// the graphics chip with veilOf: white laid over the ink with the alpha 1 - weight.
 export function inkLayer(ink, weight, out) {
   for (let i = 0, p = 0; i < weight.length; i++, p += 4) {
     const a = weight[i];
     out[p] = 255 - (255 - ink[p]) * a; out[p + 1] = 255 - (255 - ink[p + 1]) * a; out[p + 2] = 255 - (255 - ink[p + 2]) * a; out[p + 3] = 255;
   }
+  return out;
+}
+
+// The skin weight as a white veil: alpha 1 - weight, so drawing it over the ink gives
+// white - (white - ink) * weight, the same as inkLayer.
+export function veilOf(weight, out) {
+  for (let i = 0, p = 0; i < weight.length; i++, p += 4) { out[p] = 255; out[p + 1] = 255; out[p + 2] = 255; out[p + 3] = Math.round(255 * (1 - weight[i])); }
   return out;
 }
 
@@ -116,76 +125,141 @@ export function fitWords(fit, w, h) {
   return 'poor';
 }
 
-// The panel. api: { renderInk(fit, w, h, which, mirror) -> { ink: RGBA bytes, body: alpha bytes }
-// or null, rest() -> rest rig, head() -> { nose, earL, earR } or null, counts() -> { planned,
-// existing }, save(name, blob), toast(text), tried(key), closeOthers() }.
+// The panel. api: { renderInk(fit, w, h, mirror) -> { layers: [{ id, name, status, x, y, w, h, px }],
+// body: alpha bytes } or null, rest() -> rest rig, head() -> { nose, earL, earR } or null, counts()
+// -> { planned, existing }, save(name, blob), toast(text), tried(key), closeOthers() }.
+// Each tattoo is its own layer on the photo (photo-layers.js): tap one to pick it, drag, pinch and
+// turn it on its own, hide it from the list; with none picked a drag moves them all together.
 export function createOnPhoto(api) {
   const $ = (s) => document.querySelector(s);
-  const root = $('#onPhoto'), pic = $('#opPic'), over = $('#opInk'), fitC = $('#opFit');
-  const S = { photos: [], at: 0, which: 'planned', overClothes: false, showFit: false, pts: new Map(), start: null, run: 0 };
+  const root = $('#onPhoto'), pic = $('#opPic'), over = $('#opInk'), fitC = $('#opFit'), selC = $('#opSel'), list = $('#opLayers');
+  const S = { photos: [], at: 0, which: 'planned', overClothes: false, showFit: false, pts: new Map(), g: null, run: 0, sel: null, fold: null, raf: 0 };
   const cur = () => S.photos[S.at];
+  const kindOk = (L) => S.which === 'all' || L.status === S.which;
+  const shown = (p) => (p && p.layers ? p.layers.filter((L) => kindOk(L) && !p.off.has(L.id)) : []);
+  const inKind = (p) => (p && p.layers ? p.layers.filter(kindOk) : []);
+  const selLayer = () => { const p = cur(); return p && S.sel ? shown(p).find((L) => L.id === S.sel) || null : null; };
+  const inkAt = (L, x, y) => { const i = (y * L.w + x) * 4, d = L.px; return d[i] < 235 || d[i + 1] < 235 || d[i + 2] < 235; };
 
   function say(text) { $('#opText').textContent = text; }
   function layout() {
     const p = cur(); if (!p || !p.read) return;
     const box = root.getBoundingClientRect(), k = Math.min(box.width / p.read.w, box.height / p.read.h);
     const W = p.read.w * k, H = p.read.h * k, L = (box.width - W) / 2, T = (box.height - H) / 2;
-    for (const c of [pic, over, fitC]) Object.assign(c.style, { width: W + 'px', height: H + 'px', left: L + 'px', top: T + 'px' });
-    S.view = { k, L, T, W, H };
-    nudgeStyle();
-  }
-  function nudgeStyle() {
-    const p = cur(); if (!p || !p.read || !S.view) return;
-    const n = p.nudge, k = S.view.k, t = `translate(${n.x * k}px, ${n.y * k}px) rotate(${n.r}rad) scale(${n.s})`;
-    over.style.transform = S.live ? t : ''; fitC.style.transform = t;
-  }
-  function counts() {
-    const c = api.counts();
-    return S.which === 'planned' ? c.planned : S.which === 'existing' ? c.existing : c.planned + c.existing;
+    for (const c of [pic, over, fitC, selC]) Object.assign(c.style, { width: W + 'px', height: H + 'px', left: L + 'px', top: T + 'px' });
+    S.view = { k, L, T, W, H, box };
   }
   function describe() {
     const p = cur(); if (!p) return;
     if (p.error) { say(p.error); return; }
     if (!p.fit) { say('Reading the photo…'); return; }
-    const n = counts(), many = n !== 1;
+    const L = selLayer();
+    if (L) { say(`${L.name} picked. Drag to move it, pinch to size and turn it. Tap the photo away from it to move them all.`); return; }
+    const n = shown(p).length, many = n !== 1;
+    const c = api.counts(), total = S.which === 'planned' ? c.planned : S.which === 'existing' ? c.existing : c.planned + c.existing, away = Math.max(0, total - inKind(p).length);
     const what = S.which === 'planned' ? (many ? 'planned tattoos' : 'planned tattoo') : S.which === 'existing' ? (many ? 'tattoos from your skin' : 'tattoo from your skin') : (many ? 'tattoos' : 'tattoo');
     const words = fitWords(p.fit, p.read.w, p.read.h);
-    const lead = n ? `${n} ${what} on your photo.` : S.which === 'existing' ? 'No tattoos marked On my skin to show.' : S.which === 'planned' ? 'No planned tattoos to show.' : 'No tattoos to show.';
-    const tail = words === 'good' ? ' Drag to nudge them if they sit a little off.' : words === 'rough' ? ' This photo was harder to read, so drag, pinch or turn them into place.' : ' I could not read how you stand very well here. Try Turn it round, or drag them into place.';
-    say(lead + tail + (S.photos.length > 1 ? ` Photo ${S.at + 1} of ${S.photos.length}.` : ''));
+    const lead = n ? `${n} ${what} on your photo.` : inKind(p).length ? 'Every tattoo here is hidden.' : S.which === 'existing' ? 'No tattoos marked On my skin to show.' : S.which === 'planned' ? 'No planned tattoos to show.' : 'No tattoos to show.';
+    const out = away ? ` ${away === 1 ? '1 is' : away + ' are'} out of sight from this angle.` : '';
+    const tail = !n ? '' : words === 'good' ? ' Tap one to move it on its own, or drag to move them all.' : words === 'rough' ? ' This photo was harder to read, so tap each one and drag, pinch or turn it into place.' : ' I could not read how you stand very well here. Try Turn it round, or tap each one and drag it into place.';
+    say(lead + out + tail + (S.photos.length > 1 ? ` Photo ${S.at + 1} of ${S.photos.length}.` : ''));
   }
   function controls() {
-    const p = cur();
+    const p = cur(), L = selLayer();
     document.querySelectorAll('#opWhich [data-which]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.which === S.which)));
     $('#opShowFit').setAttribute('aria-pressed', String(S.showFit)); $('#opClothes').setAttribute('aria-pressed', String(S.overClothes));
     $('#opMirror').setAttribute('aria-pressed', String(!!(p && p.mirror))); $('#opTurn').setAttribute('aria-pressed', String(!!(p && p.turn)));
     $('#opPrev').hidden = $('#opNext').hidden = S.photos.length < 2;
     $('#opPrev').disabled = S.at <= 0; $('#opNext').disabled = S.at >= S.photos.length - 1;
-    const n = p && p.nudge; $('#opReset').hidden = !(n && (n.x || n.y || n.r || n.s !== 1));
-    $('#opSave').disabled = !(p && p.fit && p.inkPx);
+    $('#opReset').hidden = !(p && p.layers && p.layers.some((x) => moved(x.nudge)));
+    $('#opSave').disabled = !(p && p.fit && p.layers);
     for (const id of ['#opShowFit', '#opClothes', '#opMirror', '#opTurn']) $(id).disabled = !(p && p.read);
     fitC.hidden = !S.showFit;
+    $('#opPicked').hidden = !L;
+    if (L) {
+      $('#opPickedName').textContent = L.name;
+      $('#opOne').hidden = !moved(L.nudge);
+      const sz = $('#rOpSize'), tu = $('#rOpTurn');
+      if (!S.g) { sz.value = Math.round(L.nudge.s * 100); tu.value = Math.round(((L.nudge.r * 180 / Math.PI) % 360 + 540) % 360 - 180); }
+    }
+    layersList();
+    root.style.setProperty('--opbar', $('#opBar').offsetHeight + 'px');
   }
-  // the ink for the current photo, drawn from the 3D body
+  // the list of layers: one line a tattoo, top of the list drawn on top, with an eye each
+  function layersList() {
+    const p = cur(), ls = inKind(p);
+    list.hidden = !(p && p.layers && ls.length);
+    if (list.hidden) return;
+    if (S.fold == null) S.fold = innerWidth < 700;
+    list.classList.toggle('folded', S.fold);
+    $('#opLayersFold').setAttribute('aria-expanded', String(!S.fold));
+    $('#opLayersCount').textContent = String(shown(p).length);
+    const box = $('#opLayersList'), key = S.at + '|' + S.which + '|' + ls.map((L) => L.id + (p.off.has(L.id) ? '-' : '+')).join(',') + '|' + S.sel;
+    if (box.dataset.key === key) return; box.dataset.key = key;
+    box.textContent = '';
+    const all = document.createElement('button'); all.type = 'button'; all.className = 'op-row op-all'; all.dataset.layer = '';
+    all.setAttribute('aria-pressed', String(!S.sel)); all.innerHTML = '<span class="op-thumb op-allmark" aria-hidden="true"></span><span class="op-name">All together</span>';
+    box.append(all);
+    for (const L of [...ls].reverse()) {
+      const line = document.createElement('div'); line.className = 'op-line' + (p.off.has(L.id) ? ' dim' : '');
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'op-row'; b.dataset.layer = L.id; b.setAttribute('aria-pressed', String(S.sel === L.id));
+      const th = document.createElement('canvas'); th.className = 'op-thumb'; th.width = 80; th.height = 80;
+      const g = th.getContext('2d'), k = Math.min(72 / L.w, 72 / L.h); g.fillStyle = '#f4f1ec'; g.fillRect(0, 0, 80, 80); g.drawImage(L.canvas, 40 - L.w * k / 2, 40 - L.h * k / 2, L.w * k, L.h * k);
+      const nm = document.createElement('span'); nm.className = 'op-name'; nm.textContent = L.name;
+      const kd = document.createElement('span'); kd.className = 'op-kind ' + L.status; kd.textContent = L.status === 'existing' ? 'On my skin' : 'Planned';
+      const tx = document.createElement('span'); tx.className = 'op-txt'; tx.append(nm, kd);
+      b.append(th, tx);
+      const eye = document.createElement('button'); eye.type = 'button'; eye.className = 'op-eye' + (p.off.has(L.id) ? ' off' : ''); eye.dataset.eye = L.id;
+      eye.setAttribute('aria-label', (p.off.has(L.id) ? 'Show ' : 'Hide ') + L.name); eye.setAttribute('aria-pressed', String(!p.off.has(L.id)));
+      eye.innerHTML = p.off.has(L.id) ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3.2 3.7M6.6 6.6A17 17 0 0 0 3 12s4 6 9 6a9 9 0 0 0 4.2-1"/></svg>' : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6z"/><circle cx="12" cy="12" r="3"/></svg>';
+      line.append(b, eye); box.append(line);
+    }
+  }
+  // each layer as its own little canvas, made once per photo
+  function takeLayers(p, r) {
+    p.layers = r ? r.layers.map((L) => {
+      const c = document.createElement('canvas'); c.width = L.w; c.height = L.h; c.getContext('2d').putImageData(new ImageData(L.px, L.w, L.h), 0, 0);
+      return { ...L, canvas: c, nudge: still() };
+    }) : null;
+    p.bodyPx = r ? r.body : null; p.off = new Set();
+  }
   function renderInk() {
     const p = cur(); if (!p || !p.fit) return;
-    const r = api.renderInk(p.fit, p.read.w, p.read.h, S.which, !!p.mirror);
-    p.inkPx = r ? r.ink : null; p.bodyPx = r ? r.body : null;
+    takeLayers(p, api.renderInk(p.fit, p.read.w, p.read.h, !!p.mirror));
+    if (S.sel && !p.layers?.some((L) => L.id === S.sel)) S.sel = null;
     drawFit(); compose();
   }
-  // the ink layer: the rendered ink moved by the nudge, weighted by the bare skin under it
+  // every shown layer multiplied onto white where it now sits, then the skin veil over it, all on
+  // the graphics chip, so it is cheap enough to do on every finger move
   function compose() {
     const p = cur(); if (!p || !p.read) return;
     const { w, h } = p.read;
-    over.width = w; over.height = h;
+    if (over.width !== w || over.height !== h) { over.width = w; over.height = h; }
     const g = over.getContext('2d');
-    if (!p.inkPx) { g.fillStyle = '#fff'; g.fillRect(0, 0, w, h); return; }
-    if (!p.weight || p.weightFor !== S.overClothes) { p.weight = inkWeight(p.read, S.overClothes); p.weightFor = S.overClothes; }
-    const src = document.createElement('canvas'); src.width = w; src.height = h;
-    src.getContext('2d').putImageData(new ImageData(p.inkPx, w, h), 0, 0);
-    g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
-    const n = p.nudge; g.save(); g.translate(w / 2 + n.x, h / 2 + n.y); g.rotate(n.r); g.scale(n.s, n.s); g.translate(-w / 2, -h / 2); g.drawImage(src, 0, 0); g.restore();
-    const im = g.getImageData(0, 0, w, h); inkLayer(im.data, p.weight, im.data); g.putImageData(im, 0, 0);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.fillStyle = '#fff'; g.fillRect(0, 0, w, h);
+    if (p.layers) {
+      g.globalCompositeOperation = 'multiply';
+      for (const L of shown(p)) { g.setTransform(...layerMatrix(L)); g.drawImage(L.canvas, 0, 0); }
+      g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over';
+      if (!p.veil || p.veilFor !== S.overClothes) {
+        const wt = inkWeight(p.read, S.overClothes), v = document.createElement('canvas'); v.width = w; v.height = h;
+        v.getContext('2d').putImageData(new ImageData(veilOf(wt, new Uint8ClampedArray(w * h * 4)), w, h), 0, 0);
+        p.veil = v; p.veilFor = S.overClothes;
+      }
+      g.drawImage(p.veil, 0, 0);
+    }
+    drawSel();
+  }
+  const soon = () => { if (!S.raf) S.raf = requestAnimationFrame(() => { S.raf = 0; compose(); }); };
+  // a dashed box round the picked layer
+  function drawSel() {
+    const p = cur(); if (!p || !p.read) return;
+    if (selC.width !== p.read.w || selC.height !== p.read.h) { selC.width = p.read.w; selC.height = p.read.h; }
+    const g = selC.getContext('2d'); g.clearRect(0, 0, selC.width, selC.height);
+    const L = selLayer(); if (!L || !S.view) return;
+    const q = corners(L), lw = 2 / S.view.k;
+    g.lineWidth = lw * 2; g.strokeStyle = 'rgba(0,0,0,0.45)'; g.setLineDash([]); g.beginPath(); q.forEach((c, i) => (i ? g.lineTo(c.x, c.y) : g.moveTo(c.x, c.y))); g.closePath(); g.stroke();
+    g.lineWidth = lw; g.strokeStyle = '#fff'; g.setLineDash([6 * lw, 4 * lw]); g.stroke();
   }
   // the body's outline over the photo, to see how well it lines up
   function drawFit() {
@@ -205,25 +279,27 @@ export function createOnPhoto(api) {
     const p = cur(); if (!p) return;
     pic.width = p.read ? p.read.w : 1; pic.height = p.read ? p.read.h : 1;
     if (p.read) pic.getContext('2d').drawImage(p.read.canvas, 0, 0);
-    else for (const c of [over, fitC]) { c.width = 1; c.height = 1; } // nothing read: no photo to show
+    else for (const c of [over, fitC, selC]) { c.width = 1; c.height = 1; } // nothing read: no photo to show
     layout();
-    if (p.fit && !p.inkPx) renderInk(); else { drawFit(); compose(); }
+    if (S.sel && !(p.layers || []).some((L) => L.id === S.sel)) S.sel = null;
+    if (p.fit && !p.layers) renderInk(); else { drawFit(); compose(); }
     describe(); controls();
   }
   function refit() {
     const p = cur(); if (!p || !p.read) return;
     try { p.fit = fitRead(p.read, api.rest(), api.head(), { mirror: p.mirror, turn: p.turn }); p.error = null; }
     catch (e) { p.fit = null; p.error = e.message || 'I could not read how you stand in this photo.'; }
-    p.inkPx = null; p.bodyPx = null;
+    p.layers = null; p.bodyPx = null; S.sel = null;
     show();
   }
+  function pickLayer(id) { S.sel = id || null; if (id) api.tried('photoLayers'); compose(); describe(); controls(); }
 
   async function addFiles(files) {
-    const list = [...files].filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || ''));
-    if (!list.length) return;
+    const items = [...files].filter((f) => /^image\//.test(f.type) || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || ''));
+    if (!items.length) return;
     const run = ++S.run, first = S.photos.length;
-    for (const f of list) S.photos.push({ file: f, nudge: { x: 0, y: 0, r: 0, s: 1 }, mirror: false, turn: false });
-    S.at = first; say(list.length > 1 ? `Reading ${list.length} photos…` : 'Reading the photo…'); controls();
+    for (const f of items) S.photos.push({ file: f, mirror: false, turn: false, layers: null, off: new Set() });
+    S.at = first; S.sel = null; say(items.length > 1 ? `Reading ${items.length} photos…` : 'Reading the photo…'); controls();
     $('#opBusy').hidden = false;
     try {
       for (let i = first; i < S.photos.length; i++) {
@@ -248,21 +324,24 @@ export function createOnPhoto(api) {
 
   function start() {
     api.closeOthers();
-    root.hidden = false; root.setAttribute('aria-modal', 'true'); S.photos = []; S.at = 0; say('Pick one or more photos of you. Your shoulders and hips need to show.'); controls();
-    for (const c of [pic, over, fitC]) { c.width = 1; c.height = 1; }
+    root.hidden = false; root.setAttribute('aria-modal', 'true'); S.photos = []; S.at = 0; S.sel = null; say('Pick one or more photos of you. Your shoulders and hips need to show.'); controls();
+    for (const c of [pic, over, fitC, selC]) { c.width = 1; c.height = 1; }
   }
   function open() { start(); $('#opFile').click(); }
   // straight onto photos already picked (from Match photos of me)
   function openWith(files) { start(); return addFiles(files); }
   function close() {
-    S.run++; root.hidden = true; root.removeAttribute('aria-modal'); S.photos = []; S.pts.clear(); S.live = false;
-    for (const c of [pic, over, fitC]) { c.width = 1; c.height = 1; } // the photos go
+    S.run++; root.hidden = true; root.removeAttribute('aria-modal'); S.photos = []; S.pts.clear(); S.g = null; S.sel = null;
+    for (const c of [pic, over, fitC, selC]) { c.width = 1; c.height = 1; } // the photos go
+    $('#opLayersList').textContent = ''; delete $('#opLayersList').dataset.key;
     $('#opFile').value = '';
   }
   async function save() {
     const p = cur(); if (!p || !p.read) return;
     const { w, h } = p.read, c = document.createElement('canvas'); c.width = w; c.height = h;
+    const sel = S.sel; S.sel = null; compose(); // no box round a picked one in the picture
     const g = c.getContext('2d'); g.drawImage(p.read.canvas, 0, 0); g.globalCompositeOperation = 'multiply'; g.drawImage(over, 0, 0);
+    S.sel = sel; drawSel();
     const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.92));
     if (!blob) { api.toast('The picture could not be made.'); return; }
     await api.save(`tattoos on my photo${S.photos.length > 1 ? ' ' + (S.at + 1) : ''}.jpg`, blob);
@@ -271,49 +350,87 @@ export function createOnPhoto(api) {
   $('#opClose').addEventListener('click', close);
   $('#opAdd').addEventListener('click', () => $('#opFile').click());
   $('#opFile').addEventListener('change', (e) => { const f = e.target.files; if (f && f.length) addFiles(f); e.target.value = ''; });
-  $('#opWhich').addEventListener('click', (e) => { const b = e.target.closest('[data-which]'); if (!b) return; S.which = b.dataset.which; for (const p of S.photos) p.inkPx = null; renderInk(); describe(); controls(); });
+  $('#opWhich').addEventListener('click', (e) => { const b = e.target.closest('[data-which]'); if (!b) return; S.which = b.dataset.which; if (S.sel && !selLayer()) S.sel = null; compose(); describe(); controls(); });
   $('#opShowFit').addEventListener('click', () => { S.showFit = !S.showFit; controls(); });
   $('#opClothes').addEventListener('click', () => { S.overClothes = !S.overClothes; compose(); controls(); });
   $('#opMirror').addEventListener('click', () => { const p = cur(); if (!p) return; p.mirror = !p.mirror; refit(); });
   $('#opTurn').addEventListener('click', () => { const p = cur(); if (!p) return; p.turn = !p.turn; refit(); });
-  $('#opReset').addEventListener('click', () => { const p = cur(); if (!p) return; p.nudge = { x: 0, y: 0, r: 0, s: 1 }; nudgeStyle(); compose(); controls(); });
-  $('#opPrev').addEventListener('click', () => { if (S.at > 0) { S.at--; show(); } });
-  $('#opNext').addEventListener('click', () => { if (S.at < S.photos.length - 1) { S.at++; show(); } });
+  $('#opReset').addEventListener('click', () => { const p = cur(); if (!p || !p.layers) return; for (const L of p.layers) L.nudge = still(); compose(); describe(); controls(); });
+  $('#opPrev').addEventListener('click', () => { if (S.at > 0) { S.at--; S.sel = null; show(); } });
+  $('#opNext').addEventListener('click', () => { if (S.at < S.photos.length - 1) { S.at++; S.sel = null; show(); } });
   $('#opSave').addEventListener('click', save);
-  addEventListener('resize', () => { if (!root.hidden) layout(); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !root.hidden) close(); });
+  $('#opLayersFold').addEventListener('click', () => { S.fold = !S.fold; layersList(); });
+  $('#opLayersList').addEventListener('click', (e) => {
+    const p = cur(); if (!p) return;
+    const eye = e.target.closest('[data-eye]');
+    if (eye) { const id = eye.dataset.eye; if (p.off.has(id)) p.off.delete(id); else { p.off.add(id); if (S.sel === id) S.sel = null; } compose(); describe(); controls(); return; }
+    const row = e.target.closest('[data-layer]'); if (!row) return;
+    const id = row.dataset.layer; if (id && p.off.has(id)) p.off.delete(id);
+    pickLayer(id || null);
+  });
+  $('#opHide').addEventListener('click', () => { const p = cur(), L = selLayer(); if (!p || !L) return; p.off.add(L.id); S.sel = null; compose(); describe(); controls(); });
+  $('#opOne').addEventListener('click', () => { const L = selLayer(); if (!L) return; L.nudge = still(); compose(); controls(); });
+  $('#opUnpick').addEventListener('click', () => pickLayer(null));
+  $('#rOpSize').addEventListener('input', () => { const L = selLayer(); if (!L) return; L.nudge = { ...L.nudge, s: Math.min(MAX_S, Math.max(MIN_S, +$('#rOpSize').value / 100)) }; soon(); $('#opOne').hidden = !moved(L.nudge); $('#opReset').hidden = false; });
+  $('#rOpTurn').addEventListener('input', () => { const L = selLayer(); if (!L) return; L.nudge = { ...L.nudge, r: +$('#rOpTurn').value * Math.PI / 180 }; soon(); $('#opOne').hidden = !moved(L.nudge); $('#opReset').hidden = false; });
+  addEventListener('resize', () => { if (!root.hidden) { layout(); drawSel(); } });
+  document.addEventListener('keydown', (e) => {
+    if (root.hidden) return;
+    if (e.key === 'Escape') { if (S.sel) pickLayer(null); else close(); e.preventDefault(); return; }
+    if (e.target && e.target.closest && e.target.closest('input, textarea, [contenteditable=true]')) return;
+    const L = selLayer(); if (!L || !S.view) return;
+    const step = (e.shiftKey ? 20 : 2) / S.view.k, d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+    if (d) L.nudge = moveOne(L.nudge, { dx: d[0], dy: d[1] });
+    else if (e.key === '[' || e.key === ']') L.nudge = moveOne(L.nudge, { dr: (e.key === ']' ? 1 : -1) * (e.shiftKey ? 15 : 3) * Math.PI / 180 });
+    else if (e.key === '-' || e.key === '=') L.nudge = moveOne(L.nudge, { ds: e.key === '=' ? 1.05 : 1 / 1.05 });
+    else return;
+    e.preventDefault(); compose(); controls();
+  });
 
-  // one finger moves the ink, two size and turn it (shown live as a moved layer, drawn in on lift)
+  // A touch that starts on a tattoo's ink picks that one and moves it alone; with one picked, a
+  // touch elsewhere still moves it; with none picked it moves them all. Two fingers size and turn
+  // whatever the first finger took. A tap away from every tattoo puts them back together.
   const stage = $('#opStage');
-  const pt = (e) => ({ x: e.clientX, y: e.clientY });
-  const begin = () => { const p = cur(); if (!p) return; const q = [...S.pts.values()]; S.start = { n: { ...p.nudge }, a: { ...q[0] }, b: q[1] ? { ...q[1] } : null }; };
+  const toPhoto = (e) => { const v = S.view; return { x: (e.clientX - v.box.left - v.L) / v.k, y: (e.clientY - v.box.top - v.T) / v.k }; };
+  const begin = () => {
+    const p = cur(), q = [...S.pts.values()], who = S.g.who;
+    const ls = who === 'all' ? shown(p) : shown(p).filter((L) => L.id === who);
+    S.g = { ...S.g, ls, starts: new Map(ls.map((L) => [L.id, { ...L.nudge }])), a: { ...q[0] }, b: q[1] ? { ...q[1] } : null };
+    if (who === 'all') S.g.pivot = groupCentre(ls);
+  };
   stage.addEventListener('pointerdown', (e) => {
-    const p = cur(); if (!p || !p.inkPx || S.pts.size >= 2) return;
-    S.pts.set(e.pointerId, pt(e)); try { stage.setPointerCapture(e.pointerId); } catch (_) { /* synthetic */ }
-    if (!S.live) { S.live = true; compose0(); }
+    const p = cur(); if (!p || !p.layers || !S.view || S.pts.size >= 2) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const at = toPhoto(e);
+    S.pts.set(e.pointerId, at); try { stage.setPointerCapture(e.pointerId); } catch (_) { /* synthetic */ }
+    if (S.pts.size === 1) {
+      const hit = pick(shown(p), at.x, at.y, 22 / S.view.k, inkAt);
+      if (hit && hit.id !== S.sel) { S.sel = hit.id; api.tried('photoLayers'); describe(); controls(); drawSel(); }
+      S.g = { who: hit ? hit.id : S.sel || 'all', onEmpty: !hit, moved: false, x0: e.clientX, y0: e.clientY };
+    }
     begin();
   });
-  // while a finger moves, the ink layer is shown without the skin weight so it can move freely
-  function compose0() {
-    const p = cur(); if (!p) return; const { w, h } = p.read; over.width = w; over.height = h;
-    const g = over.getContext('2d'); g.putImageData(new ImageData(p.inkPx, w, h), 0, 0); nudgeStyle();
-  }
   stage.addEventListener('pointermove', (e) => {
-    const p = cur(); if (!p || !S.pts.has(e.pointerId) || !S.start) return; S.pts.set(e.pointerId, pt(e));
-    const q = [...S.pts.values()], k = S.view.k, s0 = S.start;
-    if (q.length === 1 || !s0.b) { p.nudge = { ...s0.n, x: s0.n.x + (q[0].x - s0.a.x) / k, y: s0.n.y + (q[0].y - s0.a.y) / k }; }
-    else {
-      const d0 = Math.hypot(s0.b.x - s0.a.x, s0.b.y - s0.a.y) || 1, d1 = Math.hypot(q[1].x - q[0].x, q[1].y - q[0].y) || 1;
-      const a0 = Math.atan2(s0.b.y - s0.a.y, s0.b.x - s0.a.x), a1 = Math.atan2(q[1].y - q[0].y, q[1].x - q[0].x);
-      const m0 = { x: (s0.a.x + s0.b.x) / 2, y: (s0.a.y + s0.b.y) / 2 }, m1 = { x: (q[0].x + q[1].x) / 2, y: (q[0].y + q[1].y) / 2 };
-      p.nudge = { x: s0.n.x + (m1.x - m0.x) / k, y: s0.n.y + (m1.y - m0.y) / k, r: s0.n.r + a1 - a0, s: Math.min(1.6, Math.max(0.6, s0.n.s * d1 / d0)) };
-    }
-    nudgeStyle();
+    const p = cur(); if (!p || !S.pts.has(e.pointerId) || !S.g) return;
+    S.pts.set(e.pointerId, toPhoto(e));
+    if (!S.g.moved && Math.hypot(e.clientX - S.g.x0, e.clientY - S.g.y0) < 6 && S.pts.size < 2) return;
+    S.g.moved = true;
+    const q = [...S.pts.values()], g = S.g;
+    let m;
+    if (q.length === 1 || !g.b) m = { dx: q[0].x - g.a.x, dy: q[0].y - g.a.y };
+    else m = twoFinger(g.a, g.b, q[0], q[1]);
+    if (g.who === 'all') {
+      const next = moveAll(g.ls, g.starts, m.mid0 || g.pivot, m);
+      for (const L of g.ls) L.nudge = next.get(L.id);
+    } else for (const L of g.ls) L.nudge = moveOne(g.starts.get(L.id), m);
+    soon();
   });
   const end = (e) => {
     if (!S.pts.delete(e.pointerId)) return;
     if (S.pts.size) { begin(); return; }
-    S.start = null; S.live = false; nudgeStyle(); compose(); controls();
+    const g = S.g; S.g = null;
+    if (g && !g.moved && g.onEmpty && S.sel) { pickLayer(null); return; } // a tap away from every tattoo
+    compose(); describe(); controls();
   };
   stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
 
@@ -321,8 +438,13 @@ export function createOnPhoto(api) {
     open, openWith, close, addFiles,
     get isOpen() { return !root.hidden; },
     // for tests
-    state: () => ({ photos: S.photos.map((p) => ({ fit: p.fit && { error: p.fit.error, view: p.fit.view, camera: p.fit.camera, rotations: p.fit.rotations }, error: p.error, mirror: p.mirror, turn: p.turn, nudge: p.nudge, w: p.read && p.read.w, h: p.read && p.read.h })), at: S.at, which: S.which, text: $('#opText').textContent }),
+    state: () => ({
+      photos: S.photos.map((p) => ({ fit: p.fit && { error: p.fit.error, view: p.fit.view, camera: p.fit.camera, rotations: p.fit.rotations }, error: p.error, mirror: p.mirror, turn: p.turn,
+        layers: p.layers && p.layers.map((L) => ({ id: L.id, name: L.name, status: L.status, x: L.x, y: L.y, w: L.w, h: L.h, nudge: { ...L.nudge }, hidden: p.off.has(L.id) })),
+        w: p.read && p.read.w, h: p.read && p.read.h })),
+      at: S.at, which: S.which, sel: S.sel, text: $('#opText').textContent, view: S.view && { k: S.view.k, L: S.view.L + S.view.box.left, T: S.view.T + S.view.box.top },
+    }),
     layerPixels: () => { const p = cur(); if (!p || !p.read) return null; return over.getContext('2d').getImageData(0, 0, p.read.w, p.read.h); },
-    refresh: () => { const p = cur(); if (p) { p.inkPx = null; show(); } },
+    refresh: () => { const p = cur(); if (p) { p.layers = null; show(); } },
   };
 }
