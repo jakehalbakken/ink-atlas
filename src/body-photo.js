@@ -78,10 +78,14 @@ export function measurePhoto(lm, mask, w, h) {
   const tl = Hm.y - S.y, nose = inPic(LM.nose) && inPic(LM.earL) && inPic(LM.earR) ? [P(LM.nose), P(LM.earL), P(LM.earR)] : null;
   const profile = !!nose && Math.abs(nose[1].x - nose[2].x) < tl * 0.25
     && Math.max(Math.min(nose[1].x, nose[2].x) - nose[0].x, nose[0].x - Math.max(nose[1].x, nose[2].x)) > tl * 0.12;
+  // Side on, the landmarker can also guess the shoulders as if facing the camera. Facing it, the
+  // outline just under the shoulders always spans past both shoulder joints (the deltoids sit
+  // outside them); side on it is only the body's depth, so the guessed shoulders spill out of it.
+  const spill = dx > 0 && [0.08, 0.15].every((t) => { const r = run(S.y + tl * t, S.x); return Number.isFinite(r) && r < dx * 0.75; });
   // the landmarker reads a turned body part way when side on, so a narrowish pair of shoulders
   // counts too when the depth or the face says side on
   const side = pair(LM.shoulderL, LM.shoulderR) && pair(LM.hipL, LM.hipR) && upright
-    && (dx < tl * 0.22 || (dx < tl * 0.45 && dxH < tl * 0.45 && ((Number.isFinite(dz) && dz > dx * 1.2) || profile)));
+    && (dx < tl * 0.22 || spill || (dx < tl * 0.45 && dxH < tl * 0.45 && ((Number.isFinite(dz) && dz > dx * 1.2) || profile)));
   if (side) {
     const cx = (S.x + Hm.x) / 2, at = (t) => S.y + (Hm.y - S.y) * t;
     raw.chestD = run(at(LEVELS.chest), cx); raw.waistD = run(at(LEVELS.waist), cx); raw.hipsD = run(at(LEVELS.hips), Hm.x);

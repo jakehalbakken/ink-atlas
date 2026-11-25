@@ -75,6 +75,12 @@ put(LM.nose, 200, 90); put(LM.earL, 210, 85); put(LM.earR, 190, 85);
 put(LM.shoulderL, 205, 125); put(LM.shoulderR, 195, 125, 0.3); put(LM.hipR, 175, 390, 0.3); r = read();
 assert.equal(r.view, 'side', 'far side only guessed'); assert.deepEqual(r.problems, []); assert.ok(r.parts.includes('waistD'));
 put(LM.hipR, 175, 390); put(LM.shoulderL, 235, 125); put(LM.shoulderR, 165, 125);
+// or guessed as if facing the camera, wider apart than the outline under them (a side-on outline)
+fill(150, 250, 110, 400); for (let y = 110; y < 400; y++) for (let x = 150; x < 250; x++) if (x < 175 || x >= 245) mask[y * W + x] = 0;
+put(LM.shoulderL, 250, 125); put(LM.shoulderR, 150, 125); r = read(); assert.equal(r.view, 'side', 'shoulders spill out of a narrow outline');
+assert.ok(Math.abs(r.ratios.chestD - 70 / 678) < 1e-6, 'the depth is the outline, not the guessed shoulders');
+fill(150, 250, 110, 400); assert.equal(read().view, 'front', 'the wide outline again reads straight on');
+put(LM.shoulderL, 235, 125); put(LM.shoulderR, 165, 125);
 put(LM.shoulderL, 250, 125); put(LM.shoulderR, 150, 125);
 // arms against the sides: chest and waist are left out, with a note
 fill(110, 150, 120, 380); fill(250, 290, 120, 380); r = read();
