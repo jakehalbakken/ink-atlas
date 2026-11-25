@@ -1227,6 +1227,14 @@ const pts = new Map();
 let handsOnTimer = 0;
 function handsOn(on) { clearTimeout(handsOnTimer); if (on) document.body.classList.add('hands-on'); else handsOnTimer = setTimeout(() => { document.body.classList.remove("hands-on"); needsRender = true; }, 120); }
 let gest = null; let lastTap = { t: 0, x: 0, y: 0, empty: false };
+// Double-tap empty space for the full body (2026-11-25, Jake: "I want to be able to turn off the double tap to full screen
+// feature... I just get pissed every time I accidentally use it"): off unless turned on in Plan > On this device, kept per
+// device in localStorage ia-dbl-full, never in the project. Full body at the top always works.
+let dblFull = (() => { try { return localStorage.getItem('ia-dbl-full') === 'on'; } catch { return false; } })();
+function showDblFull() {
+  const b = $('#dblFull'); if (b) { b.setAttribute('aria-checked', String(dblFull)); $('#dblFullWord').textContent = dblFull ? 'On. Double-tap empty space to see the whole body again.' : 'Off. A double tap on empty space leaves the view alone. Full body at the top still works.'; }
+  const h = $('#hint'); if (h) h.textContent = dblFull ? 'Tap a tattoo to work on it. Double-tap empty space for the full body.' : 'Tap a tattoo to work on it.';
+}
 // joined a shared project with a comment-only invite (src/account.js): tattoos can be looked at,
 // answered, commented on and given reference pictures, but not moved, resized, added or removed
 let commentOnly = false, suggesting = null; // suggesting: { id, before, undoLen, redo } while someone who can only comment tries a new spot
@@ -1422,7 +1430,7 @@ function tap(x, y) {
   if (selectedId && onSelectedInk(x, y, 10)) { lastTap = { t: 0, x, y, empty: false }; return; }
   const dbl = lastTap.empty && now - lastTap.t < 380 && Math.hypot(x - lastTap.x, y - lastTap.y) < 40;
   lastTap = { t: now, x, y, empty: true };
-  if (dbl) { if (viewLocked) lockNote(); else fullBody(); lastTap.t = 0; }
+  if (dbl && dblFull) { if (viewLocked) lockNote(); else fullBody(); lastTap.t = 0; }
   if (selectedId) select(null);
 }
 let inkDirty = false;
@@ -3263,6 +3271,7 @@ const SHOW = {
   sheetMin: () => { const t = needTattoo(); if (!t) return null; return ['#bSheetMin', 'Tap this arrow to fold the panel down to its name line and see more of the body. Tap it again to open it.']; },
   statusSwitch: () => { const t = needTattoo(); if (!t) return null; return ['#statusSeg', 'The filled side is what this tattoo is: On my skin for ink you already have, Planned for one you are thinking about. Tap the other side to switch it.']; },
   lockEdit: () => { const t = needTattoo(); if (!t) return null; return ['#bLock', 'Lock in place stops taps and drags on the body from moving it. Size, turn, nudge, blend and colour here still work, so you can fine-tune it without knocking it.']; },
+  dblFull: () => { toggle('#planMenu', true); return ['#dblFull', dblFull ? 'Double-tap for the full body is on. Tap it here to turn it off, so a stray double tap never moves the view. Full body at the top always works.' : 'Double-tap for the full body is off, so a stray double tap never moves the view. Tap it here to turn it back on. Full body at the top always works.']; },
   viewLock: () => ['#viewLock', 'Tap the lock to keep this view. Dragging, pinching, double-tap and the view buttons leave the camera where it is until you tap the lock again. Taps still pick tattoos.'],
   trimInk: () => { const t = needTattoo(); if (!t) return null; return !$('#trimRow').hidden ? ['#bTrimInk', 'This picture has empty space round its ink, so its size reads bigger than the tattoo. Trim to the ink cuts the picture to the ink and keeps the ink where it is.'] : ['#bCleanup', 'Clean up trims the empty space round the ink when you tap Done, so the size you see is the size of the ink.']; },
   layersReveal: () => { layersDock.setOpen(true, true); return ['#ldList', 'Tap a tattoo on the body and Layers opens at its line, with its group unfolded.']; },
@@ -5502,6 +5511,8 @@ if ('serviceWorker' in navigator) {
   setInterval(checkForUpdate, 15 * 60 * 1000);
 }
 $('#projectsBtn').addEventListener('click', () => {cancelGesture();toggle('#planMenu',true);});
+$('#dblFull').addEventListener('click', () => { dblFull = !dblFull; try { localStorage.setItem('ia-dbl-full', dblFull ? 'on' : 'off'); } catch {} lastTap.t = 0; showDblFull(); markTried('dblFull'); toast(dblFull ? 'Double-tap empty space for the full body is on.' : 'Double-tap for the full body is off. Full body at the top still works.'); });
+showDblFull();
 function previewInput() {return {THREE,state:JSON.parse(JSON.stringify(state)),bodyGeometry:bodyGeo,bodyMaterial:skinMat,decals:state.tattoos.filter(t=>!t.hidden&&decals[t.id]&&decals[t.id].tex).map(t=>({geometry:decals[t.id].mesh.geometry,material:exportMaterial(t,'raw')}))};}
 $('#openBodyTools').addEventListener('click',oneAtATime(async()=>{
   cancelGesture();toggle('#planMenu',false);let originalNotes=JSON.stringify({notes:state.notes,drawings:state.drawings});
