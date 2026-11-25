@@ -18,6 +18,7 @@ import './slider.js';
 import {twoPointerDelta,twoFingerIntent,wrapAngle,planTapPlacement} from './view-gestures.js';
 import {findLiveAlignment,findCentreLine} from './live-alignment.js';
 import { editArtwork, edgeKind } from './cleanup.js';
+import { readDraft, clearDraft, draftFits } from './cleanup-draft.js';
 import { inkBounds } from './cleanup-select.js';
 import { applyArtworkRevision } from './cleanup-links.js';
 import { readPending, writePending, editFileName, artworkAsSeen, clipboardImage, normalisePicture } from './procreate-edit.js';
@@ -463,13 +464,16 @@ function insideTattoo(point, t, pad = 1.12) {
   const hw = Math.max((b[2] - b[0]) * w / 2 * pad, 0.028), hh = Math.max((b[3] - b[1]) * h / 2 * pad, 0.028);
   return Math.abs(d.dot(f.right) - cx) <= hw && Math.abs(d.dot(f.up) - cy) <= hh && Math.abs(d.dot(f.n)) < 0.09;
 }
-const inkPixels=new WeakMap();
+let inkPixels=new WeakMap();
+// what a tap reads to tell ink from bare paper: a small copy of the texture is plenty (a finger
+// covers far more than one texel) and keeps a full-size copy per tattoo out of memory
+function pickPixels(c){const k=Math.min(1,384/Math.max(c.width,c.height)),w=Math.max(1,Math.round(c.width*k)),h=Math.max(1,Math.round(c.height*k));if(k===1)return c.getContext('2d',{willReadFrequently:true}).getImageData(0,0,w,h);const m=document.createElement('canvas');m.width=w;m.height=h;const g=m.getContext('2d',{willReadFrequently:true});g.imageSmoothingQuality='high';g.drawImage(c,0,0,w,h);const d=g.getImageData(0,0,w,h);m.width=m.height=0;return d;}
 function inkIdsAt(x,y,bodyHit=hitBody(x,y)) {
  if(!bodyHit)return [];
  ray.setFromCamera(ndc(x,y),camera);
  const entries=state.tattoos.map((t,order)=>({t,order,d:decals[t.id]})).filter(e=>!e.t.hidden&&e.d?.mesh.visible&&e.d.tex);
  const hits=[];for(const e of entries)for(const h of poseView.withPosed(()=>ray.intersectObject(e.d.mesh,false),[e.d.mesh]))if(h.uv)hits.push({id:e.t.id,order:e.order,distance:h.distance,uv:h.uv,tex:e.d.tex});
- return rankedInkHits(hits,bodyHit.distance,h=>{try{let pixels=inkPixels.get(h.tex);if(!pixels){pixels=h.tex.image.getContext('2d',{willReadFrequently:true}).getImageData(0,0,h.tex.image.width,h.tex.image.height);inkPixels.set(h.tex,pixels);}return visibleInkAt(pixels,h.uv.x,h.uv.y,h.tex.flipY);}catch{return false;}});
+ return rankedInkHits(hits,bodyHit.distance,h=>{try{let pixels=inkPixels.get(h.tex);if(!pixels){pixels=pickPixels(h.tex.image);inkPixels.set(h.tex,pixels);}return visibleInkAt(pixels,h.uv.x,h.uv.y,h.tex.flipY);}catch{return false;}});
 }
 let lastInkTap=null;
 
@@ -508,7 +512,7 @@ function warpSource(key, im) {
   c.width = Math.max(1, Math.round((im.naturalWidth || im.width) * k)); c.height = Math.max(1, Math.round((im.naturalHeight || im.height) * k));
   const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(im, 0, 0, c.width, c.height);
   s = g.getImageData(0, 0, c.width, c.height); c.width = c.height = 0;
-  if (warpSrcCache.size > 6) warpSrcCache.delete(warpSrcCache.keys().next().value);
+  if (warpSrcCache.size > 2) warpSrcCache.delete(warpSrcCache.keys().next().value);
   warpSrcCache.set(key, s); return s;
 }
 // the box the warped picture fills, in the tattoo's frame (0..1 is the unwarped picture), as laid on
@@ -527,7 +531,7 @@ function warpArt(t, max) {
   const c = document.createElement('canvas'); c.width = size.width; c.height = size.height;
   c.getContext('2d').putImageData(new ImageData(px, size.width, size.height), 0, 0);
   a = { canvas: c, aspect: size.aspect, box };
-  if (warpArtCache.size > 12) { const old = warpArtCache.keys().next().value; const o = warpArtCache.get(old); warpArtCache.delete(old); if (o && o.canvas) o.canvas.width = o.canvas.height = 0; }
+  if (warpArtCache.size > 7) { const old = warpArtCache.keys().next().value; const o = warpArtCache.get(old); warpArtCache.delete(old); if (o && o.canvas) o.canvas.width = o.canvas.height = 0; }
   warpArtCache.set(key, a); return a;
 }
 // The artwork as it is drawn on the body, for flat files (stencil, prints, thumbnails, Ink check):
@@ -847,10 +851,17 @@ function keepSelectedInView() {
   toast(kindOff.planned || kindOff.existing ? (k === 'existing' ? 'Showing the tattoos on your skin too, so you can see this one.' : 'Showing planned tattoos too, so you can see this one.') : 'Showing all tattoos, so you can see this one.');
   if (layersDock) layersDock.render();
 }
+// A texture this app drew is given back at once, its picture too: WebKit (Safari, and Chrome on
+// the iPad) frees a canvas only when it gets round to it, and a slider that redraws a tattoo
+// many times a second can pile up hundreds of megabytes of them until the iPad closes the page.
+function freeTexture(tex) {
+  if (!tex) return; inkPixels.delete(tex); tex.dispose();
+  const c = tex.image; if (!exporting && c && typeof HTMLCanvasElement !== 'undefined' && c instanceof HTMLCanvasElement) c.width = c.height = 0; // a file being made may still read it
+}
 function syncDecals() {
   keepSelectedInView();
   const ids = new Set(state.tattoos.map((t) => t.id));
-  for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); d.tex.dispose(); d.outline.material.map.dispose(); delete decals[id]; }
+  for (const id of Object.keys(decals)) if (!ids.has(id)) { const d = decals[id]; decalGroup.remove(d.mesh, d.outline); d.mesh.geometry.dispose(); freeTexture(d.tex); d.mesh.material.dispose(); freeTexture(d.outline.material.map); d.outline.material.dispose(); delete decals[id]; }
   state.tattoos.forEach((t0, i) => {
     const t = peek && peek.id === t0.id && imgEls[peek.v.img] ? { ...t0, img: peek.v.img, aspect: peek.v.aspect, flip: peek.v.flip, imageTopDown: peek.v.top } : t0;
     let d = decals[t.id];
@@ -861,7 +872,7 @@ function syncDecals() {
       decalGroup.add(d.mesh, d.outline);
     }
     const tk = texKeyOf(t);
-    if (d.texKey !== tk && imgEls[t.img]) { if (d.tex) d.tex.dispose(); d.tex = inkTexture(t); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
+    if (d.texKey !== tk && imgEls[t.img]) { const was = d.tex; d.tex = inkTexture(t); freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t)), shapeKey].join('|');
     if (d.geoKey !== gk) { geoBuilds++; d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
@@ -2174,6 +2185,18 @@ function backgroundOf(t) {
 // Clean up workspaces one over the other).
 function runOnce(key, fn) { const m = runOnce.busy || (runOnce.busy = new Map()); if (m.has(key)) return m.get(key); const pr = Promise.resolve().then(fn).finally(() => m.delete(key)); m.set(key, pr); return pr; }
 function oneAtATime(fn) { return (...a) => runOnce(fn, () => fn(...a)); }
+// After the page was closed in the middle of a Clean up (the iPad does that to save memory), say the
+// edits are kept and open them again with one tap. Only for a tattoo whose picture is still the one
+// it was opened on; a draft whose tattoo has a newer picture is out of date and goes.
+async function offerKeptCleanup(tries = 0) {
+  if (!$('#toast').hidden && tries < 12) { setTimeout(() => offerKeptCleanup(tries + 1), 5000); return; } // after a note already showing, never over it
+  const d = await readDraft(); if (!d) return;
+  const t = state.tattoos.find((q) => q.id === d.tattooId);
+  if (!t) { if (Date.now() - d.at > 14 * 24 * 3600 * 1000) clearDraft(); return; } // perhaps in another project: kept for when that one opens
+  if (!draftFits(d, t)) { clearDraft(); return; }
+  const name = (t.name || '').trim();
+  toast(`Your Clean up of ${name || 'this tattoo'} was closed part way. Your edits are kept.`, 'Open it', () => { select(t.id, true); cleanupSelected(); }, 15000);
+}
 function cleanupSelected(linked = false) { return runOnce('cleanup', () => cleanupSelectedNow(linked)); }
 async function cleanupSelectedNow(linked=false) {
   const t = sel(); if (!t) return;
@@ -2183,7 +2206,10 @@ async function cleanupSelectedNow(linked=false) {
   const source = art?.source || prior;
   const linkedCount = t.artworkId ? state.tattoos.filter(x => x.artworkId === t.artworkId).length : 1;
   markTried('cleanupStudio');
-  const result = await editArtwork(images[source] || images[prior], images[prior], art?.cleanupSession, { linkedCount, linked, widthInches: inchesOf(t).w });
+  // a Clean up of this picture that the iPad closed part way comes back as it was (src/cleanup-draft.js)
+  const kept = await readDraft(), draft = draftFits(kept, t) ? kept : null;
+  if (draft) markTried('cleanupKept');
+  const result = await editArtwork(images[source] || images[prior], images[prior], art?.cleanupSession, { linkedCount, linked, widthInches: inchesOf(t).w, draft, keep: { tattooId: id, img: prior, name: t.name || '' } });
   if (!result) return;
   if (result.used?.includes('select')) markTried('cleanupSelect');
   if (result.used?.includes('move')) markTried('cleanupMove');
@@ -2191,7 +2217,7 @@ async function cleanupSelectedNow(linked=false) {
   for (const [use, id] of [['wand', 'cleanupWand'], ['refine', 'cleanupWand'], ['background', 'cleanupBackground'], ['adjust', 'cleanupAdjust'], ['clone', 'cleanupClone'], ['history', 'cleanupHistory'], ['erase', 'cleanupBrushes'], ['restore', 'cleanupBrushes'], ['image', 'cleanupImage']]) if (result.used?.includes(use)) markTried(id);
   if (typeof result.linked === 'boolean') linked = result.linked;
   const current = state.tattoos.find(x => x.id === id);
-  if (!current || current.img !== prior) { toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
+  if (!current || current.img !== prior) { clearDraft(); toast('The artwork changed while cleanup was open. Nothing was replaced.'); return; }
   const key = uid(); images[key] = result.dataUrl;
   if(!await loadImg(key)){delete images[key];toast('The cleaned image could not be opened. Nothing changed.');return;}
   snapshot();
@@ -2203,7 +2229,8 @@ async function cleanupSelectedNow(linked=false) {
     // keeps its real size and its place on the skin
     if(q)keepInkInPlace(q,was.get(cid),result);}
   if(revision.artworkId)state.artworks[revision.artworkId].cleanup=result.settings || {};
-  commit(); toast(`${revision.changedIds.length>1?`Artwork cleaned up on ${revision.changedIds.length} copies.`:'Artwork cleaned up.'} Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
+  commit(); flushSave().finally(() => { if (!dirty) clearDraft(); }); // the kept draft goes once the cleaned picture is safely saved
+  toast(`${revision.changedIds.length>1?`Artwork cleaned up on ${revision.changedIds.length} copies.`:'Artwork cleaned up.'} Original kept.${revision.skippedIds.length?' Locked copies unchanged.':''}`, 'Undo', undo);
 }
 // After a cleanup the picture may be bigger or smaller than before and its middle elsewhere (shares of the old
 // width and height, right and down in the picture). Resize the tattoo by the same share and slide it along
@@ -5414,19 +5441,55 @@ if (window.visualViewport) {
 // under Jake's hands: before he has touched anything it reloads straight away, after
 // that it waits until the app leaves the screen or he taps Reload, and it always
 // finishes writing the save first.
-let touchedSinceBoot = false, updateReady = false;
+// Nor while a workspace is open whose work is not in the project yet (Clean up keeps its edits
+// to itself until Done, and so do the other full-screen tools), while a finger is on the body,
+// or while the iPad's photo or file chooser is up: picking a picture sends the app to the
+// background, and a reload then would lose the picture and everything round it (2026-11-25,
+// Jake: "the whole entire web page will like suddenly reload ... in the cleanup mode").
+let touchedSinceBoot = false, updateReady = false, pickingFileAt = 0;
 window.addEventListener('pointerdown', () => { touchedSinceBoot = true; }, { capture: true, passive: true });
+document.addEventListener('click', (e) => { if (e.target instanceof Element && e.target.closest('input[type=file]')) pickingFileAt = Date.now(); }, true);
+for (const ev of ['change', 'cancel']) document.addEventListener(ev, (e) => { if (e.target instanceof Element && e.target.matches('input[type=file]')) pickingFileAt = 0; }, true);
+const shown = (n) => !!n && n.isConnected && !n.hidden && n.getClientRects().length > 0;
+function busyEditing() {
+  if (gest || Date.now() - pickingFileAt < 3 * 60 * 1000) return true;
+  if ([...document.querySelectorAll('[aria-modal=true]')].some(shown)) return true;
+  return ['#tryOn', '#wrapStudio', '#measurePad', '#inkLook'].some((s) => shown(document.querySelector(s)));
+}
+let updateWait = 0;
 async function reloadForUpdate() {
+  if (busyEditing()) { clearTimeout(updateWait); updateWait = setTimeout(() => { if (document.hidden) reloadForUpdate(); }, 60000); return; } // try again next time the app leaves the screen
   for (let i = 0; i < 100 && (saving || dirty); i++) { if (!saving) await flushSave(); else await new Promise((r) => setTimeout(r, 50)); }
   if (dirty || saving) return; // the save is failing: keep the page (and the work) rather than reload
+  if (busyEditing()) return;
   location.reload();
+}
+let updateToastShown = false;
+function offerUpdate() {
+  if (updateToastShown || !updateReady) return;
+  if (busyEditing()) { setTimeout(offerUpdate, 20000); return; } // ask once the workspace is closed
+  updateToastShown = true;
+  toast('A new version of Ink Atlas is ready.', 'Reload', reloadForUpdate, 15000); // long enough to read and reach; leaving the screen applies it anyway
 }
 function onUpdateReady() {
   if (updateReady) return; updateReady = true;
   if (document.hidden || (!touchedSinceBoot && !gest)) { reloadForUpdate(); return; }
-  toast('A new version of Ink Atlas is ready.', 'Reload', reloadForUpdate, 15000); // long enough to read and reach; leaving the screen applies it anyway
+  offerUpdate();
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden && updateReady) reloadForUpdate(); });
+// Behind Procreate or Photos the iPad closes the apps that hold the most memory first, so give
+// back what is only kept to be quick and is made again when needed.
+document.addEventListener('visibilitychange', () => { if (!document.hidden) return; warpSrcCache.clear(); inkPixels = new WeakMap(); });
+// The iPad can take the 3D view's graphics memory back when it runs short. Write the save at
+// once, and when the view comes back draw it again and say why it blinked.
+canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); flushSave(); });
+canvas.addEventListener('webglcontextrestored', () => { needsRender = true; toast('The iPad reset the 3D view to free memory. Nothing was lost.'); });
+// After a new version is in place, a part of the app that loads only when first used may be
+// gone from the server. Say so plainly instead of failing quietly, and reload only on a tap.
+addEventListener('vite:preloadError', (e) => {
+  e.preventDefault();
+  toast('Ink Atlas was updated while it was open. Reload to use this.', 'Reload', () => { updateReady = true; reloadForUpdate(); }, 12000);
+});
 if ('serviceWorker' in navigator) { const had = !!navigator.serviceWorker.controller; navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) onUpdateReady(); }); }
 try { $('#buildStamp').textContent = 'This copy is from ' + new Date(__BUILD_TIME__).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '. A newer one loads on its own.'; } catch {}
 // Look for a new version whenever the app comes back to the screen and every 15 minutes while
@@ -6963,6 +7026,7 @@ function tick(now) {
   booted = true;
   requestAnimationFrame(tick);
   startAccount();
+  offerKeptCleanup();
 })();
 /* ---------- your account (src/account.js, src/cloud.js) ---------- */
 // The project on screen stays on this device first; the account keeps a second copy in step.

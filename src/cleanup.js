@@ -2,6 +2,8 @@
 import { dabCoverage, strokeCoverage, compositeBrush, blurRGBA, wandMask, growSimilar, selectSimilar, refineMask, borderColor, removeBackground, brightnessContrast, levels, curveLut, threshold, sharpen, blur, applyMasked, histogram, autoLevels } from './cleanup-tools.js';
 import { createMultiTap } from './multi-tap.js';
 import { rectMask, lassoMask, pieceMask, combineMasks, invertMask, isEmptyMask, maskBounds, inkBounds, identityFor, pieceToLocal, growPads, snapStraight, snapTurn, twoFingerTransform, moveWords } from './cleanup-select.js';
+import { trimStack, reuseRead } from './cleanup-memory.js';
+import { writeDraft, clearDraft } from './cleanup-draft.js';
 // No image leaves the device. All edits remain a draft until Apply.
 export function removeLightPixels(data, threshold = 235) {
   const out = new Uint8ClampedArray(data);
@@ -67,6 +69,20 @@ export function validateCleanupSession(value){
 async function fingerprint(text){const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text));return Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,'0')).join('');}
 const picture = src => new Promise((resolve, reject) => { const image = new Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error('Could not open this picture')); image.src = src; });
 const canvasOf = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+// Counts every change to a canvas (anything drawn on it, or its size set, which clears it), so an undo
+// step can tell whether the picture it would copy is the same as the one the step before already holds.
+const changes = new WeakMap();
+const versionOf = (c) => changes.get(c) || 0;
+function trackChanges(c) {
+  const bump = () => changes.set(c, versionOf(c) + 1), g = c.getContext('2d');
+  for (const m of ['drawImage', 'putImageData', 'clearRect', 'fillRect', 'strokeRect', 'fill', 'stroke', 'fillText', 'strokeText', 'reset']) {
+    const f = g[m]; if (typeof f === 'function') g[m] = function (...a) { bump(); return f.apply(this, a); };
+  }
+  for (const k of ['width', 'height']) {
+    const d = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, k);
+    if (d && d.set) Object.defineProperty(c, k, { configurable: true, get() { return d.get.call(this); }, set(v) { bump(); d.set.call(this, v); } });
+  }
+}
 // What the outer edge of a picture looks like: 'paper' when most of it is opaque and pale (art on paper),
 // 'opaque' when most of it is opaque in another colour (a photo, a tattoo on skin), 'clear' otherwise.
 // Picks the tool the workspace opens on and whether an upload is offered a cleanup.
@@ -263,6 +279,11 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const a = canvasOf(c.w, c.h), b = canvasOf(c.w, c.h), ac = a.getContext('2d'), bc = b.getContext('2d'); ac.drawImage(fullImage, c.x, c.y, c.w, c.h, 0, 0, c.w, c.h); bc.drawImage(current, 0, 0); const x = ac.getImageData(0, 0, c.w, c.h).data, y = bc.getImageData(0, 0, c.w, c.h).data;
     if (x.some((v, i) => v !== y[i])) throw new Error('Cleanup working pixels do not match the edited image');
   }
+  // A Clean up that the iPad closed part way (options.draft, from src/cleanup-draft.js) comes back only
+  // onto the same original and the same picture it was opened on, so nothing else is ever overwritten.
+  const openHash = await fingerprint(currentDataUrl);
+  let draft = options.draft && options.draft.sourceHash === sourceHash && options.draft.openHash === openHash ? options.draft : null, draftImages = null;
+  if (draft) try { draftImages = await Promise.all([draft.full, draft.baseline].map(async (bytes) => { const u = URL.createObjectURL(new Blob([bytes], { type: 'image/png' })); try { return await picture(u); } finally { URL.revokeObjectURL(u); } })); if (draftImages[0].naturalWidth !== draft.fw || draftImages[0].naturalHeight !== draft.fh || draftImages[1].naturalWidth !== draft.fw || draftImages[1].naturalHeight !== draft.fh) throw new Error('size'); } catch (e) { draft = null; draftImages = null; }
   await import('./slider.js');
   const linkedCount = Math.max(0, Math.floor(+options.linkedCount || 0));
 
@@ -352,6 +373,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     // every undo step and every Restore stroke reads these back in full: kept in memory, so the iPad does not
     // copy them off the graphics chip each time, which made a stroke's end stutter on big pictures (2026-11-20)
     for (const c of [original, full, baseline]) c.getContext('2d', { willReadFrequently: true });
+    for (const c of [work, original, full, baseline]) trackChanges(c);
     let zoom = 1, panX = 0, panY = 0;
     let history = [], future = [], mode = 'erase', comparing = false, crop = null, settled = false;
     let live = null, livePending = 0, statusTimer = 0;
@@ -367,11 +389,17 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     const say = (text, hold = false) => { openingHint = false; status.textContent = text; status.classList.toggle('on', !!text); clearTimeout(statusTimer); if (text && !hold) statusTimer = setTimeout(() => status.classList.remove('on'), 4200); };
     const setImage = image => { const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight)); work.width = Math.max(1, Math.round(image.naturalWidth * scale)); work.height = Math.max(1, Math.round(image.naturalHeight * scale)); wctx.drawImage(image, 0, 0, work.width, work.height); original.width = work.width; original.height = work.height; original.getContext('2d').drawImage(work, 0, 0); full.width = baseline.width = work.width; full.height = baseline.height = work.height; full.getContext('2d').drawImage(work, 0, 0); baseline.getContext('2d').drawImage(work, 0, 0); rect = { x: 0, y: 0, w: work.width, h: work.height }; };
     const merge = () => { const ctx = full.getContext('2d'); ctx.clearRect(rect.x, rect.y, rect.w, rect.h); ctx.drawImage(work, rect.x, rect.y); };
-    const capture = () => ({ fw: full.width, fh: full.height, full: full.getContext('2d').getImageData(0, 0, full.width, full.height), baseline: baseline.getContext('2d').getImageData(0, 0, baseline.width, baseline.height), rect: { ...rect }, w: work.width, h: work.height, pixels: wctx.getImageData(0, 0, work.width, work.height), original: original.getContext('2d').getImageData(0, 0, original.width, original.height), sel, ref: { ...ref }, float: float ? { ...float, T: { ...float.T } } : null });
-    const trim = stack => { while (stack.length > 1 && stack.reduce((n, s) => n + (s.selOnly ? 0 : (s.w * s.h + s.fw * s.fh) * 8 + (s.float ? s.float.w * s.float.h * 8 : 0)) + (s.sel ? s.sel.length : 0), 0) > 48 * 1024 * 1024) stack.shift(); };
+    // Undo steps share every picture that did not change since the step before (most steps change one
+    // of the four), and all of them together stay under one budget: four full copies a step ran the iPad
+    // out of memory on big pictures and it closed the page (2026-11-25).
+    const reads = {}, readOf = (c, g, key) => reuseRead(reads, key, versionOf(c), c.width, c.height, () => g.getImageData(0, 0, c.width, c.height));
+    const capture = () => ({ fw: full.width, fh: full.height, full: readOf(full, full.getContext('2d'), 'full'), baseline: readOf(baseline, baseline.getContext('2d'), 'baseline'), rect: { ...rect }, w: work.width, h: work.height, pixels: readOf(work, wctx, 'work'), original: readOf(original, original.getContext('2d'), 'original'), sel, ref: { ...ref }, float: float ? { ...float, T: { ...float.T } } : null });
+    const trim = stack => trimStack(stack, [stack === history ? future : history]);
     let stepLabel = 'Edit';
     const snapshot = (label = stepLabel) => { history.push({ ...capture(), label }); trim(history); future = []; renderHistory(); };
-    const restore = state => { work.width = original.width = state.w; work.height = original.height = state.h; wctx.putImageData(state.pixels, 0, 0); original.getContext('2d').putImageData(state.original, 0, 0); full.width = baseline.width = state.fw; full.height = baseline.height = state.fh; full.getContext('2d').putImageData(state.full, 0, 0); baseline.getContext('2d').putImageData(state.baseline, 0, 0); rect = { ...state.rect }; crop = null; sel = state.sel || null; selVer++; ref = { ...state.ref }; float = state.float ? { ...state.float, T: { ...state.float.T } } : null; nudge = null; };
+    const restore = state => { work.width = original.width = state.w; work.height = original.height = state.h; wctx.putImageData(state.pixels, 0, 0); original.getContext('2d').putImageData(state.original, 0, 0); full.width = baseline.width = state.fw; full.height = baseline.height = state.fh; full.getContext('2d').putImageData(state.full, 0, 0); baseline.getContext('2d').putImageData(state.baseline, 0, 0);
+      for (const [c, key, d] of [[work, 'work', state.pixels], [original, 'original', state.original], [full, 'full', state.full], [baseline, 'baseline', state.baseline]]) reads[key] = { v: versionOf(c), d }; // what is on them now is exactly that step's pictures
+      rect = { ...state.rect }; crop = null; sel = state.sel || null; selVer++; ref = { ...state.ref }; float = state.float ? { ...state.float, T: { ...state.float.T } } : null; nudge = null; };
     // a selection change alone is a light undo step: only the selection is kept
     const snapshotSel = (label = 'Selection') => { history.push({ selOnly: true, sel, label }); trim(history); future = []; renderHistory(); };
     const restoreEntry = e => { if (e.selOnly) { sel = e.sel && e.sel.length === work.width * work.height ? e.sel : null; selVer++; } else restore(e); };
@@ -393,7 +421,8 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
       Object.assign(selOver.style, { width: w + 'px', height: h + 'px', marginLeft: -w / 2 + 'px', marginTop: -h / 2 + 'px', transform: view.style.transform });
       placeCropbox(); placeMoving();
     };
-    const dirty = () => history.some(e => !e.selOnly);
+    let resumed = false; // opened on a draft kept from before the page closed: there is work to lose before any new step
+    const dirty = () => resumed || history.some(e => !e.selOnly);
     const draw = () => {
       const scale = Math.min(1, 1600 / Math.max(source.naturalWidth, source.naturalHeight));
       view.width = comparing ? Math.max(1, Math.round(source.naturalWidth * scale)) : work.width; view.height = comparing ? Math.max(1, Math.round(source.naturalHeight * scale)) : work.height;
@@ -563,7 +592,7 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     };
     // Start over brings back the picture first uploaded. With a saved session it lines up with the uncropped
     // picture, so the tattoo stays put; otherwise it fills the tattoo's box as it did before.
-    const refAfterReset = () => opened && session && full.width === opened.fw && full.height === opened.fh ? { ...opened.ref } : { ...rect };
+    const refAfterReset = () => opened && (session || (draft && draft.hadSession)) && full.width === opened.fw && full.height === opened.fh ? { ...opened.ref } : { ...rect };
     // Keep the picture inside the 1600 px the cleanup works in: scale everything down together.
     const fitLimit = () => {
       const big = Math.max(full.width, full.height); if (big <= 1600) return;
@@ -852,7 +881,32 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     host.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { const hint = openingHint; setTool(b.dataset.mode); if (hint && openingHint) say(''); }));
 
     const hideConfirm = () => { confirmBox.hidden = true; };
-    const finish = result => { if (settled) return; settled = true; if (livePending) cancelAnimationFrame(livePending); document.removeEventListener('keydown', keyOutside, true); document.removeEventListener('paste', onPaste, true); window.removeEventListener('blur', cancelStroke); observer.disconnect(); host.remove(); previousFocus?.focus?.(); resolve(result); };
+    // Keep the work on the device as it goes (options.keep names the tattoo): a moment after the picture
+    // stops changing, and at once when the app leaves the screen, which is when the iPad may close it.
+    let draftMark = '', draftBusy = null, draftTimer = 0, lastSeen = '', ownDraft = !!draft; // ownDraft: the one kept is this Clean up's, so it is this Clean up's to throw away
+    const markNow = () => [versionOf(work), versionOf(full), versionOf(baseline), rect.x, rect.y, rect.w, rect.h, ref.x, ref.y, ref.w, ref.h, mode].join('|');
+    const pngOf = (c) => new Promise((res, rej) => c.toBlob((b) => b ? b.arrayBuffer().then(res, rej) : rej(new Error('Could not keep the picture')), 'image/png'));
+    const saveDraft = async () => {
+      if (!options.keep || settled || float || stroke || pts.size) return;
+      if (!dirty()) { if (draftMark) { draftMark = ''; ownDraft = false; clearDraft(); } return; }
+      const mark = markNow(); if (mark === draftMark) return;
+      if (draftBusy) { await draftBusy; return saveDraft(); }
+      draftBusy = (async () => {
+        const tmp = canvasOf(full.width, full.height), g = tmp.getContext('2d'); g.drawImage(full, 0, 0); g.clearRect(rect.x, rect.y, rect.w, rect.h); g.drawImage(work, rect.x, rect.y);
+        try {
+          const [f, b] = await Promise.all([pngOf(tmp), pngOf(baseline)]); if (settled) return;
+          await writeDraft({ v: 1, tattooId: String(options.keep.tattooId), img: String(options.keep.img), name: String(options.keep.name || ''), sourceHash, openHash, full: f, baseline: b, fw: tmp.width, fh: tmp.height, rect: { ...rect }, ref: { ...ref }, opened: opened ? { ref: { ...opened.ref }, fw: opened.fw, fh: opened.fh } : null, hadSession: !!(session || (draft && draft.hadSession)), tool: mode, steps: history.filter(e => !e.selOnly).length, at: Date.now() });
+          draftMark = mark; ownDraft = true;
+        } catch (e) { /* storage full or refused: the work stays on screen, and Done still saves it */ }
+        finally { tmp.width = tmp.height = 0; }
+      })();
+      try { await draftBusy; } finally { draftBusy = null; }
+    };
+    const draftTick = () => { const m = markNow(); if (m === lastSeen) saveDraft(); lastSeen = m; }; // waits for one quiet tick, so it never writes in the middle of a stroke
+    const onHide = () => { if (document.hidden) saveDraft(); };
+    if (options.keep) { draftTimer = setInterval(draftTick, 1500); document.addEventListener('visibilitychange', onHide); window.addEventListener('pagehide', onHide); }
+    const stopDrafting = (thrownAway) => { clearInterval(draftTimer); document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onHide); if (thrownAway && ownDraft) clearDraft(); };
+    const finish = result => { if (settled) return; settled = true; stopDrafting(result == null); if (livePending) cancelAnimationFrame(livePending); document.removeEventListener('keydown', keyOutside, true); document.removeEventListener('paste', onPaste, true); window.removeEventListener('blur', cancelStroke); observer.disconnect(); host.remove(); previousFocus?.focus?.(); resolve(result); };
     const askCancel = () => { if (!dirty()) return finish(null); confirmBox.hidden = false; button('keep').focus(); };
 
     // Pointers: one finger or the Pencil uses the tool, two fingers pinch and pan in every tool.
@@ -1132,11 +1186,16 @@ export async function editArtwork(sourceDataUrl, currentDataUrl = sourceDataUrl,
     setImage(current);
     if (session) { full.width = baseline.width = fullImage.naturalWidth; full.height = baseline.height = fullImage.naturalHeight; full.getContext('2d').drawImage(fullImage, 0, 0); baseline.getContext('2d').drawImage(restoreImage, 0, 0); rect = { ...session.crop }; work.width = original.width = rect.w; work.height = original.height = rect.h; wctx.drawImage(full, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); original.getContext('2d').drawImage(baseline, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h); }
     ref = { ...rect }; opened = { ref: { ...ref }, fw: full.width, fh: full.height };
+    if (draft) {
+      full.width = baseline.width = draft.fw; full.height = baseline.height = draft.fh; full.getContext('2d').drawImage(draftImages[0], 0, 0); baseline.getContext('2d').drawImage(draftImages[1], 0, 0);
+      rect = { ...draft.rect }; loadRect(); ref = { ...draft.ref }; if (draft.opened) opened = { ref: { ...draft.opened.ref }, fw: draft.opened.fw, fh: draft.opened.fh }; resumed = true;
+    }
     syncFields();
-    const edge = session ? 'clear' : edgeKind(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height), paper = edge === 'paper' || edge === 'white';
+    const edge = session || draft ? 'clear' : edgeKind(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height), paper = edge === 'paper' || edge === 'white';
     if (paper) { const level = paperLevel(wctx.getImageData(0, 0, work.width, work.height).data, work.width, work.height); if (level != null) $('#ic-threshold').value = Math.max(150, Math.min(235, level - 8)); }
-    setTool(options.tool && TOOLS.some(t => t[0] === options.tool) ? options.tool : paper ? 'color' : edge === 'opaque' ? 'cutout' : 'erase');
-    say(session ? 'Picked up where you left off.' : paper ? 'This picture is on paper. Remove white paper, or tap the background to take that colour away.' : edge === 'opaque' ? 'Tap the design to cut it out of the photo. The other tools are at the left.' : 'Drag to erase. The other tools are at the left.'); openingHint = true;
+    const wantTool = draft && draft.tool ? draft.tool : options.tool;
+    setTool(wantTool && TOOLS.some(t => t[0] === wantTool) ? wantTool : paper ? 'color' : edge === 'opaque' ? 'cutout' : 'erase');
+    say(draft ? 'Your edits from before are back, just as you left them.' : session ? 'Picked up where you left off.' : paper ? 'This picture is on paper. Remove white paper, or tap the background to take that colour away.' : edge === 'opaque' ? 'Tap the design to cut it out of the photo. The other tools are at the left.' : 'Drag to erase. The other tools are at the left.'); openingHint = true;
     button('cancel').focus({ preventScroll: true });
   });
 }

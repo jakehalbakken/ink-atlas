@@ -953,3 +953,13 @@ Audit of Bend and warp and batch 10 once live, at iPad, Split View and phone siz
 - New to try: Folders by body area, Tap a folder to see it on the body.
 - Not built: folders inside folders (one level only).
 - Tested headless: `body-areas-unit.mjs` (every place name, own folders kept, re-sort, rename, emptied folders, malformed groups, a save with folders and an older save without them open unchanged), t170 (six tattoos sorted into five areas by touch, one undo step, undo exact, a folder tap frames both thigh pieces, the view lock holds, eye, Show only, Show everything, rename, Pick them, Take them out, Fold all and Open all, folds and the project unchanged after a reload, 44 pt at both iPad orientations, comment-only), t55 for the two New to try items. Not checked on the iPad yet.
+
+## The page reloading in the middle of Clean up (2026-11-25, built, not live)
+
+Jake: "the whole entire web page will like suddenly reload or crash ... in the cleanup mode, or just anytime I'm ... changing settings ... sometimes it saves progress and sometimes it doesn't."
+
+- Cause 1, certain: a new version (deploys come many times a day) reloaded the page the moment the app left the screen, and offered Reload, without looking at what was open. Clean up keeps its edits to itself until Done, so they were lost; the project's own edits were saved, which is the "sometimes".
+- Cause 2, likely: the iPad closing the tab for memory. Clean up kept four full copies of the picture for every undo step (about 40 MB each at 1600 px), every ink strength, blend or warp slider step left a full-size texture canvas behind until WebKit got round to freeing it, and a tap kept a full copy of each tattoo's texture.
+- Fixed: no update reload or Reload offer while any full-screen workspace, Try on, Measured wrap, the number pad, a finger on the body or the photo chooser is up (`busyEditing` in `app.js`); undo steps share unchanged pictures and stay under 64 MB together (`cleanup-memory.js`); replaced and removed textures are given back at once (`freeTexture`); taps read a 384 px copy; warp caches smaller and cleared behind other apps; a lost graphics context saves and says so; a missing chunk after an update says Reload instead of failing quietly.
+- Clean up keeps a draft on the device (`cleanup-draft.js`, IndexedDB `ink-atlas-cleanup-draft`, never in the project or account) a moment after each change and when the app leaves the screen; after the page closes, a toast offers Open it and the edits come back; Done (once saved), Cancel and Throw away clear it.
+- Checks: `cleanup-memory-unit.mjs` (node), t188 (browser, needs the QA machine). Not yet on the iPad.
