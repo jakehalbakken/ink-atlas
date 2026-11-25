@@ -50,7 +50,7 @@ export default async function (p) {
   assert.equal(darkest(await sheet()), 'br', 'mirrored and flipped on the sheet, as on the body');
 
   // Print at real size: the one visible tattoo's picture, flipped top to bottom as it is on the body
-  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (blob) { if (blob.name) window.saved[blob.name] = blob.arrayBuffer(); return old.call(this, blob); }; });
+  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (blob) { if (blob.name) window.saved[blob.askedAs||blob.name] = blob.arrayBuffer(); return old.call(this, blob); }; });
   const print = async () => {
     await p.evaluate(() => { window.saved = {}; });
     await p.click('#shareBtn'); await wait(250); await p.click('#cPrint');

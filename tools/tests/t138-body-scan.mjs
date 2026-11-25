@@ -86,7 +86,7 @@ export default async function (p) {
   await p.evaluate(() => window.__ink.setPose('neutral')); await wait(800);
 
   // the 3D export carries the scan
-  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (b) { if (b.name) window.saved[b.name] = b.arrayBuffer(); return old.call(this, b); }; });
+  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (b) { if (b.name) window.saved[b.askedAs||b.name] = b.arrayBuffer(); return old.call(this, b); }; });
   await p.click('#drawNew'); await wait(300); await p.click('#pm3dSend');
   await p.waitForFunction(() => !!window.saved['ink-atlas-model.usdz'] || window.toasts.some((x) => x.includes('Could not make')), { timeout: 150000 });
   const usdOk = await p.evaluate(async () => { const b = new Uint8Array(await window.saved['ink-atlas-model.usdz']); const t = new TextDecoder().decode(b.subarray(0, Math.min(b.length, 4e6))); const m = /point3f\[\] points = \[([^\]]*)\]/.exec(t); if (!m) return null; const n = m[1].split('),').length; return n; });

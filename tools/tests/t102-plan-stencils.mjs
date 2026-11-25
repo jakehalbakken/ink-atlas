@@ -10,7 +10,7 @@ export default async function(p){
  const planned=all.filter(t=>t.status!=='existing'&&!t.hidden);
  assert.ok(planned.length>=2,'sample has two planned pieces: '+planned.length);
  await (await p.$$('#ldList .ld-tat'))[0].click();await wait(300);
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.askedAs||blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  await p.evaluate(()=>{document.querySelector('#editorAdvanced').open=true;});
  await p.$eval('#bStencil',e=>e.click());

@@ -8,7 +8,7 @@ export default async function(p){
  const wait=(n=300)=>new Promise(r=>setTimeout(r,n));
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
  const before=JSON.parse(await p.evaluate(()=>JSON.stringify(window.__ink.state())));
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.name]=blob.arrayBuffer();return old.call(this,blob);};window.toasts=[];new MutationObserver(()=>{const t=document.querySelector('#toast').textContent;if(t)window.toasts.push(t);}).observe(document.querySelector('#toast'),{childList:true,subtree:true,characterData:true});});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.askedAs||blob.name]=blob.arrayBuffer();return old.call(this,blob);};window.toasts=[];new MutationObserver(()=>{const t=document.querySelector('#toast').textContent;if(t)window.toasts.push(t);}).observe(document.querySelector('#toast'),{childList:true,subtree:true,characterData:true});});
  const exportUsdz=async()=>{await p.evaluate(()=>{delete window.saved['ink-atlas-model.usdz'];});await p.click('#shareBtn');await p.click('#cUsdz');await p.waitForFunction(()=>!!window.saved['ink-atlas-model.usdz']||window.toasts.some(x=>x.includes('Could not make')),{timeout:120000});assert.ok(await p.evaluate(()=>!!window.saved['ink-atlas-model.usdz']),'model exported');};
  await exportUsdz();
  // where to draw: the front of the left thigh, clear of the sample tattoos

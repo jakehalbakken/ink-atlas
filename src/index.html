@@ -315,6 +315,7 @@ body:has(#scanBar:not([hidden])) #foot{visibility:hidden}
 #rcList{display:flex;flex-direction:column;gap:8px}
 #pvImg{max-width:100%;max-height:56vh;border-radius:12px;align-self:center;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto;background:#fff}
 #pvNote{color:var(--muted);font-size:14px;margin:0}
+#pvName{color:var(--muted);font-size:13px;margin:0;overflow-wrap:anywhere}
 #coach{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,calc(100% - 32px));padding:28px 24px 20px;display:flex;flex-direction:column;gap:20px;background:var(--panel-solid);z-index:4;border-radius:var(--r-lg,22px)}
 #coach h2{margin:0;text-align:center;font:700 24px/1.15 var(--body);letter-spacing:-.015em}
 #coach ol{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:16px}
@@ -1024,6 +1025,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
     <header><h2 id="pvTitle">Picture</h2><button class="btn" type="button" data-close="preview">Done</button></header>
     <img id="pvImg" alt="Export preview">
     <p id="pvNote"></p>
+    <p id="pvName"></p>
     <button class="btn primary" id="pvSave" type="button">Save or share</button>
   </div>
 </div>

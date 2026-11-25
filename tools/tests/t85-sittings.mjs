@@ -8,7 +8,7 @@ export default async function (p) {
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
   const ready = async () => { await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200); };
   await ready();
-  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (b) { if (b.name) window.saved[b.name] = b; return old.call(this, b); }; });
+  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (b) { if (b.name) window.saved[b.askedAs||b.name] = b; return old.call(this, b); }; });
   const all = await p.evaluate(() => JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
   const t = all[0];
   const get = () => p.evaluate((id) => JSON.parse(JSON.stringify(window.__ink.state().tattoos.find((q) => q.id === id))), t.id);

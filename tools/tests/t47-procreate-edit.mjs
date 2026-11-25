@@ -9,7 +9,7 @@ export default async function(p){
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
  const all=await p.evaluate(()=>JSON.parse(JSON.stringify(window.__ink.state().tattoos)));
  const sun=all.find(t=>/Sunburst/.test(t.name)),other=all.find(t=>t.id!==sun.id);
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(b){if(b.name)window.saved[b.name]=b;return old.call(this,b);};});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(b){if(b.name)window.saved[b.askedAs||b.name]=b;return old.call(this,b);};});
  // mirror it first, so the picture that goes out must be mirrored too
  await p.evaluate(id=>{window.__ink.state().tattoos.find(t=>t.id===id).flip=true;window.__ink.commitTest();},sun.id);
  await p.click('#ldList .ld-tat');await wait(400);

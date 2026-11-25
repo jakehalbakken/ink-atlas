@@ -10,7 +10,7 @@ export default async function(p){
  await p.evaluate(()=>{const c=document.createElement('canvas');c.width=1280;c.height=720;const g=c.getContext('2d');
   const draw=()=>{g.fillStyle='#d9a888';g.fillRect(0,0,1280,720);g.fillStyle='#203060';g.fillRect(0,0,80,80);};draw();setInterval(draw,100);
   window.__camStops=0;navigator.mediaDevices.getUserMedia=async(o)=>{window.__camAsk=o;const s=c.captureStream(15);for(const t of s.getTracks()){const st=t.stop.bind(t);t.stop=()=>{window.__camStops++;st();};}return s;};
-  window.__shared=null;navigator.canShare=()=>true;navigator.share=async({files})=>{window.__shared={name:files[0].name,size:files[0].size,url:URL.createObjectURL(files[0])};};});
+  window.__shared=null;navigator.canShare=()=>true;navigator.share=async({files})=>{window.__shared={name:files[0].askedAs||files[0].name,size:files[0].size,url:URL.createObjectURL(files[0])};};});
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  await (await p.$$('#ldList .ld-tat'))[0].click();await wait(300);
  await p.evaluate(()=>{document.querySelector('#editorAdvanced').open=true;});

@@ -13,6 +13,7 @@ import * as R from './measured-region.js';
 import * as K from './wrap-register.js';
 import * as PP from './print-profiles.js';
 import * as P from './procreate-package.js';
+import { peekFileName as peekName } from './share.js';
 
 let C = null; // what the app gives the studio (see initWrapStudio)
 const ui = { printKind: 'stencil', printOut: null, cutDrag: null, ppi: 300, pkgFormat: 'psd', pkg: null, review: null, busy: '', step: 'quick', view: 'all', sub: 'photos', sel: null, mode: null, brush: 4, holdBefore: false, open: false, fitted: false, lmKey: null };
@@ -630,7 +631,7 @@ function procreatePanel(r) {
 // Make the file, then Send it (made ahead, so the share sheet opens straight from the tap)
 function makeRow(r, makeId, sendId) {
   if (ui.pkg && ui.pkg.calib === r.calib && ui.pkg.ppi === ui.ppi && ui.pkg.format === ui.pkgFormat && ui.pkg.sig === pkgSig(r)) {
-    return [h('div', { class: 'okbox', id: sendId + 'Ready', text: `Ready: ${ui.pkg.name}, ${sizeText(ui.pkg.blob.size)}.` }),
+    return [h('div', { class: 'okbox', id: sendId + 'Ready', text: `Ready: ${peekName(ui.pkg.name)}, ${sizeText(ui.pkg.blob.size)}.` }),
       h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: sendId, text: 'Send to Procreate', onclick: sendPackage }))];
   }
   return [h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: makeId, disabled: !!ui.busy, text: ui.busy === 'make' ? 'Making it…' : 'Make the Procreate file', onclick: () => makePackage().catch((err) => { ui.busy = ''; C.toast('That file could not be made: ' + (err && err.message || err)); renderSide(reg()); }) }))];
@@ -850,7 +851,7 @@ function printPanel(r) {
     h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', id: 'wsApprove', disabled: !pieces(r).some((p) => !p.hidden), text: ap.state === 'stale' ? 'Approve again' : 'Approve this design', onclick: () => { change(() => { const x = reg(); x.approved = { calib: x.calib, at: nowIso(), sig: artSig(x) }; }); ui.printOut = null; C.markTried && C.markTried('wrapPrint'); } })));
   // making and sharing are separate, so the share sheet opens straight from the tap
   const want = printKey(r);
-  if (ui.printOut && ui.printOut.key === want) out.push(h('div', { class: 'okbox', id: 'wsPrintReady', text: `Ready: ${ui.printOut.name}, ${ui.printOut.pages} page${ui.printOut.pages > 1 ? 's' : ''}, ${sizeText(ui.printOut.blob.size)}. In the print options choose 100% or Actual size.` }),
+  if (ui.printOut && ui.printOut.key === want) out.push(h('div', { class: 'okbox', id: 'wsPrintReady', text: `Ready: ${peekName(ui.printOut.name)}, ${ui.printOut.pages} page${ui.printOut.pages > 1 ? 's' : ''}, ${sizeText(ui.printOut.blob.size)}. In the print options choose 100% or Actual size.` }),
     h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: 'wsSendPrint', text: 'Print or share', onclick: sendPrint })));
   else out.push(h('div', { class: 'row' }, h('button', { class: 'btn primary', type: 'button', id: 'wsMakePrint', disabled: !L.ok || !!ui.busy, text: ui.busy === 'print' ? 'Making it…' : stencil ? 'Make the stencil PDF' : 'Make the placement guide PDF', onclick: () => makePrint().catch((err) => { ui.busy = ''; C.toast('That PDF could not be made: ' + (err && err.message || err)); renderSide(reg()); }) })));
   // the fitting check on the real leg
@@ -905,9 +906,9 @@ async function makePrint() {
 }
 async function sendPrint() {
   if (!ui.printOut) return;
-  const { shareOrDownload } = await import('./share.js');
+  const { shareOrDownload, lastFileName } = await import('./share.js');
   const how = await shareOrDownload(ui.printOut.name, ui.printOut.blob);
-  if (how === 'downloaded') C.toast(`Saved ${ui.printOut.name}. Print it at 100% / Actual size.`);
+  if (how === 'downloaded') C.toast(`Saved ${lastFileName() || ui.printOut.name}. Print it at 100% / Actual size.`);
 }
 // the joins between pages on the flat view, while the Print step is open
 function drawJoins(g, M, r) {
@@ -1052,9 +1053,9 @@ async function makePackage() {
 }
 async function sendPackage() {
   if (!ui.pkg) return;
-  const { shareOrDownload } = await import('./share.js');
+  const { shareOrDownload, lastFileName } = await import('./share.js');
   const how = await shareOrDownload(ui.pkg.name, ui.pkg.blob);
-  if (how === 'downloaded') C.toast(`Saved ${ui.pkg.name}. Open it in Procreate.`);
+  if (how === 'downloaded') C.toast(`Saved ${lastFileName() || ui.pkg.name}. Open it in Procreate.`);
 }
 
 // Reads what came back, checks it against the trip it belongs to, and shows it for review.

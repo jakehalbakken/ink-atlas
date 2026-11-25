@@ -13,7 +13,7 @@ export default async function (p) {
   await p.evaluate(() => {
     Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false });
     window.saved = {}; const old = URL.createObjectURL;
-    URL.createObjectURL = function (blob) { if (blob.name) window.saved[blob.name] = blob.arrayBuffer(); return old.call(this, blob); };
+    URL.createObjectURL = function (blob) { if (blob.name) window.saved[blob.askedAs||blob.name] = blob.arrayBuffer(); return old.call(this, blob); };
     window.toasts = []; new MutationObserver(() => { const t = document.querySelector('#toast').textContent; if (t) window.toasts.push(t); }).observe(document.querySelector('#toast'), { childList: true, subtree: true, characterData: true });
   });
   await p.click('#drawNew'); await wait(250);
