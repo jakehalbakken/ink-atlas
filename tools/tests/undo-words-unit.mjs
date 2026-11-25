@@ -11,6 +11,8 @@ assert.equal(w([t()], [t({ wrap: 0.4 })]), 'the wrap on Rose');
 assert.equal(w([t()], [t({ status: 'existing' })]), 'marking Rose as on your skin');
 assert.equal(w([t({ status: 'existing' })], [t()]), 'marking Rose as planned');
 assert.equal(w([t()], [t({ hidden: true })]), 'hiding Rose');
+assert.equal(w([t()], [t({ flip: true })]), 'mirroring Rose');
+assert.equal(w([t({ imageTopDown: true })], [t({ imageTopDown: false })]), 'flipping Rose');
 assert.equal(w([t()], [t({ locked: true })]), 'locking Rose');
 assert.equal(w([t()], [t({ name: 'Peony' })]), 'renaming Rose');
 assert.equal(w([t()], [t({ note: 'fine lines' })]), 'the note on Rose');

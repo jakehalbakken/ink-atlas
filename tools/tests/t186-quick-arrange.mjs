@@ -13,6 +13,7 @@ export default async function (p) {
   const sizes = [[1194, 834], [834, 1194], [1366, 1024], [1024, 1366], [1180, 820], [820, 1180], [744, 1133], [678, 1024], [507, 1024], [390, 844]];
   for (const [W, H] of sizes) {
     await p.setViewport({ width: W, height: H, deviceScaleFactor: 1 }); await wait(900);
+    if (W < 700) await p.evaluate(() => { const d = document.querySelector('#layersDock'); if (d && d.classList.contains('open')) document.querySelector('#ldToggle')?.click(); }); if (W < 700) await wait(500);
     if (!(await p.evaluate(() => window.__ink.selected()))) { await p.evaluate(() => { const d = document.querySelector('#layersDock'); if (d && !d.classList.contains('open')) document.querySelector('#ldToggle')?.click(); }); await wait(400); await p.click('#ldList .ld-tat'); await wait(700); }
     assert.ok(await p.evaluate(() => window.__ink.selected()), `${W}x${H}: a tattoo is selected`);
     if (await p.$eval('#sheet', (e) => e.classList.contains('min') || document.querySelector('#bSheetMin').getAttribute('aria-expanded') === 'false')) { await p.click('#bSheetMin'); await wait(400); }
@@ -25,6 +26,9 @@ export default async function (p) {
       assert.ok(r.w >= 44 && r.h >= 44, `${W}x${H}: ${s} 44pt: ${r.w}x${r.h}`);
       assert.ok(r.l >= 0 && r.r <= W && r.t >= 0 && r.b <= H, `${W}x${H}: ${s} on screen ${JSON.stringify(r)}`);
       assert.ok(r.t >= sheet.t - 1 && r.b <= sheet.b + 1, `${W}x${H}: ${s} inside the panel without scrolling`);
+      // and nothing (Layers, a popover) lies over it: a finger there reaches the tile
+      const onTop = await p.$eval(s, (e) => { const b = e.getBoundingClientRect(), h = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!h && (h === e || e.contains(h)); });
+      assert.ok(onTop, `${W}x${H}: ${s} is not covered`);
     }
     const label = await p.$$eval('#sheet .editor-arrange .btn', (bs) => bs.every((b) => b.scrollWidth <= b.clientWidth + 1));
     assert.ok(label, `${W}x${H}: every word fits its tile`);
@@ -43,14 +47,16 @@ export default async function (p) {
   await p.click('#undo'); await wait(600); assert.deepEqual(await get(), start, 'one undo step');
   if (!(await p.evaluate(() => window.__ink.selected()))) { await p.click(`#ldList .ld-tat[data-id="${id}"]`); await wait(600); }
   await p.click('#bFlipVertical'); await wait(500); assert.equal((await get()).down, !start.down, 'Flip vertical flips it');
-  await p.click('#undo'); await wait(600); assert.deepEqual(await get(), start, 'one undo step');
+  await p.click('#undo'); await wait(300); assert.match(await p.$eval('#toast', (e) => e.textContent.trim()), /^Undid flipping /, 'Undo says it flipped it'); await wait(300); assert.deepEqual(await get(), start, 'one undo step');
   if (!(await p.evaluate(() => window.__ink.selected()))) { await p.click(`#ldList .ld-tat[data-id="${id}"]`); await wait(600); }
   await p.click('#bHide'); await wait(500);
   assert.equal((await get()).hidden, true, 'Hide hides it');
   assert.equal(await p.$eval('#bHide', (e) => e.textContent.trim() + ':' + e.getAttribute('aria-pressed')), 'Show:true', 'and the tile says Show');
+  assert.equal(await p.$eval('#bHide', (e) => e.classList.contains('i-eye-off') && !e.classList.contains('i-eye')), true, 'with the crossed-out eye its Layers line has');
   await p.click('#bHide'); await wait(500);
   assert.equal(await p.$eval('#bHide', (e) => e.textContent.trim() + ':' + e.getAttribute('aria-pressed')), 'Hide:false', 'Show brings it back');
   assert.equal((await get()).hidden, false);
+  assert.equal(await p.$eval('#bHide', (e) => e.classList.contains('i-eye') && !e.classList.contains('i-eye-off')), true, 'and the open eye again');
   await p.click('#bDup'); await wait(900);
   assert.equal(await p.evaluate(() => window.__ink.state().tattoos.length), start.n + 1, 'Duplicate makes one copy');
   assert.equal(await p.$eval('#editorAdvanced', (e) => e.open), false, 'More controls stayed shut throughout');

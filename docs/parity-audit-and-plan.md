@@ -729,7 +729,13 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-24 QA batch 27 (not live)
+## 2026-11-25 QA batch 28 (not live)
+
+- Re-tested the new row of Mirror, Flip vertical, Duplicate and Hide at every iPad size and in a 60-tattoo project: each tap answers in a few tens of milliseconds and every tile is on screen at 44 pt. t186 now also checks that nothing lies over a tile (a finger there reaches it), which its size checks alone could not tell.
+- A hidden tattoo's tile read Show with an open eye while its Layers line showed a crossed-out one. The tile now takes the crossed-out eye while the tattoo is hidden (`i-eye-off`).
+- Undo after Flip vertical said "Undid the change to Rose." It now says "Undid flipping Rose." (`imageTopDown` in `undo-words.js`). Checked in `undo-words-unit.mjs` and t186. New to try entry hideTile.
+
+## 2026-11-24 QA batch 27 (live 02:27 UTC Nov 25)
 
 - Timed every tap in the edit sheet in a 60-tattoo project. Hide, Show, On my skin, Mirror and Duplicate each spent most of their time working out the line under the size (the gap to the nearest tattoo, or how much old ink a cover-up covers) from scratch. The line is now kept for what it was worked out from (`gapText`: this tattoo's ink and kind, and each other tattoo's ink, kind, name and whether it shows), so Hide and Show work nothing out (about 180 ms busy down to about 40 to 70 ms in the headless checks). When the search does run it skips points further from the other piece's box than the best gap so far and stops once two pieces touch (about half the time). It also looks only at the other piece's points close across the body (kept sorted by x), starts every candidate from the best gap so far, and takes a quick look at every 16th point first so that gap shrinks early: working out the line for all 60 tattoos in turn went from about 550 ms to about 150 ms, and the slowest single one (a piece inside a tight cluster) from about 210 ms to about 80 ms. The test checks the answer against comparing every point with every point. Test t187 (with `tools/big-project.mjs`); New to try entry hideQuick.
 - The first-pick check (t184) failed now and then: it counted right after the 60th tattoo was worked out, while a tattoo whose ink was rebuilt a moment late was still being worked out in the background. It now waits for that to stop before it counts; three runs in a row pass.

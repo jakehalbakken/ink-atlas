@@ -5,7 +5,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 // one tattoo's change, the most telling field first
 const FIELDS = [
   ['pos', 'moving'], ['width', 'resizing'], ['rot', 'turning'], ['img', 'the artwork of'], ['versions', 'the artwork of'],
-  ['wrap', 'the wrap on'], ['bend', 'the wrap on'], ['taper', 'the wrap on'], ['warp', 'the shape of'], ['flip', 'mirroring'], ['opacity', 'the ink strength of'], ['blend', 'the blend mode of'], ['adjust', 'the colours of'],
+  ['wrap', 'the wrap on'], ['bend', 'the wrap on'], ['taper', 'the wrap on'], ['warp', 'the shape of'], ['flip', 'mirroring'], ['imageTopDown', 'flipping'], ['opacity', 'the ink strength of'], ['blend', 'the blend mode of'], ['adjust', 'the colours of'],
   ['status', null], ['hidden', null], ['locked', null], ['name', 'renaming'], ['group', null], ['note', 'the note on'], ['sittings', 'the sittings for'],
   ['made', 'the artist details of'], ['review', 'the answer on'],
 ];
@@ -49,7 +49,7 @@ export function changeWords(before, after) {
     const kinds = new Set(changed.map((id) => oneTattoo(A.get(id), B.get(id)).split(' ')[0]));
     const k = kinds.size === 1 ? [...kinds][0] : '';
     if ([...kinds].every((x) => x === 'putting' || x === 'taking')) return 'the folders';
-    return ['moving', 'resizing', 'turning', 'hiding', 'showing', 'locking', 'unlocking', 'mirroring'].includes(k) ? `${k} ${changed.length} tattoos` : `changes to ${changed.length} tattoos`;
+    return ['moving', 'resizing', 'turning', 'hiding', 'showing', 'locking', 'unlocking', 'mirroring', 'flipping'].includes(k) ? `${k} ${changed.length} tattoos` : `changes to ${changed.length} tattoos`;
   }
   if (!same([...A.keys()], [...B.keys()])) return 'reordering the tattoos';
   const diff = (k) => !same(before[k], after[k]);

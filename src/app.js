@@ -1645,7 +1645,7 @@ function renderSheet() {
   $('#rWrap').value = Math.round((t.wrap || 0) * 100); $('#rBend').value = Math.round((t.bend || 0) * 100); $('#rTaper').value = Math.round((t.taper || 0) * 100);
   const shaped = (t.bend || 0) || (t.taper || 0); $('#wrapMark').textContent = shaped ? 'on' : ''; if (!shaped && !$('#wrapBox').open) { /* leave closed */ }
   $('#bLock').textContent = t.locked ? 'Unlock' : 'Lock in place'; $('#bLock').setAttribute('aria-pressed', t.locked ? 'true' : 'false');
-  $('#bHide').textContent = t.hidden ? 'Show' : 'Hide'; $('#bHide').setAttribute('aria-pressed', t.hidden ? 'true' : 'false');
+  $('#bHide').textContent = t.hidden ? 'Show' : 'Hide'; $('#bHide').setAttribute('aria-pressed', t.hidden ? 'true' : 'false'); $('#bHide').classList.toggle('i-eye', !t.hidden); $('#bHide').classList.toggle('i-eye-off', !!t.hidden);
   for (const b of document.querySelectorAll('#statusSeg .btn')) b.setAttribute('aria-pressed', String((t.status === 'existing' ? 'existing' : 'planned') === b.dataset.status));
   $('#bFlip').setAttribute('aria-pressed', t.flip ? 'true' : 'false');
   // a piece on an arm or leg that is long or reaches far round it: how far round, and one tap to
@@ -1765,7 +1765,7 @@ $('#bLock').addEventListener('click', () => { const t = sel(); if (!t) return; s
 // also locks it in place, as before; one undo step
 function setStatus(t, want) { if (!t || (t.status === 'existing' ? 'existing' : 'planned') === want) return false; snapshot(); t.status = want; t.locked = want === 'existing'; markTried('statusSwitch'); commit(); return true; }
 for (const b of document.querySelectorAll('#statusSeg .btn')) b.addEventListener('click', () => setStatus(sel(), b.dataset.status));
-$('#bHide').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.hidden = !t.hidden; commit(); });
+$('#bHide').addEventListener('click', () => { const t = sel(); if (!t) return; snapshot(); t.hidden = !t.hidden; commit(); if (t.hidden) markTried('hideTile'); });
 $('#bFlipVertical').addEventListener('click',()=>{const t=sel();if(!t)return;snapshot();t.imageTopDown=!t.imageTopDown;commit();});
 // Copy to other side: the same artwork, mirrored, at the matching spot on the other side of the
 // body (the body is symmetric left to right). It shares the artwork, so cleaning one up offers
