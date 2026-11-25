@@ -730,7 +730,7 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-25 QA batch 29 (not live)
+## 2026-11-25 QA batch 29 (live 16:36 UTC)
 
 - Re-tested Layers in a 60-tattoo project at iPad landscape: Sort by area, Fold all, Open all, Select and Pick all each answer in under 100 ms, and every visible button is 44 pt.
 - With a tattoo on my skin and a planned one picked together, the pick bar's Merge tile was filled as the main action, and a tap on it dropped every pick before the merge said "Merge tattoos of one kind". Merge is now filled only when `mergePlan` says the picks can be merged, and the picks stay until a merge has gone through, so a refusal (mixed kinds, a locked piece, too far apart on the body) leaves them picked. Checked in t189 at both iPad orientations. New to try entry mergeTile.
