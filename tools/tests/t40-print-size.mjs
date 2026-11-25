@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
 export default async function(p){
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.askedAs||blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
  await p.click('#shareBtn');await p.click('#cPrint');
  await p.waitForFunction(()=>!!window.saved['ink-atlas-real-size.pdf'],{timeout:60000});
  const info=await p.evaluate(async()=>{const b=new Uint8Array(await window.saved['ink-atlas-real-size.pdf']);let s='';for(const c of b)s+=String.fromCharCode(c);

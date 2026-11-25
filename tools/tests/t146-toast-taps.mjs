@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 export default async function (p) {
   const wait = (n = 400) => new Promise((r) => setTimeout(r, n));
-  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = []; const old = URL.createObjectURL; URL.createObjectURL = function (b) { window.saved.push(b.name || ''); return old.call(this, b); }; });
+  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = []; const old = URL.createObjectURL; URL.createObjectURL = function (b) { window.saved.push(b.askedAs || b.name || ''); return old.call(this, b); }; });
   await p.click('#shareBtn'); await wait();
   await p.evaluate(() => { document.querySelector('#shMore').open = true; });
   // a real save shows its message at the bottom while Share is open

@@ -8,7 +8,7 @@ export default async function(p){
  const wait=(n=300)=>new Promise(r=>setTimeout(r,n));
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.askedAs||blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
  // a T-shirt over the chest tattoo: the file still shows it, clothes are not part of it
  await p.evaluate(()=>window.__ink.setClothes({top:'tee'}));await wait(200);
  const get=async()=>{await p.evaluate(()=>{delete window.saved['ink-atlas-layers.psd'];});await p.click('#shareBtn');await p.click('#cPsd');

@@ -11,7 +11,7 @@ export default async function(p){
  const pick=all.find(t=>!t.hidden)||all[0];
  const chip=(await p.$$('#ldList .ld-tat'))[all.indexOf(pick)];await chip.click();await wait(300);
  assert.equal(await p.evaluate(()=>window.__ink.selected()),pick.id);
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.askedAs||blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  await p.evaluate(()=>{document.querySelector('#editorAdvanced').open=true;});
  const bs=await p.$eval('#bStencil',e=>{const r=e.getBoundingClientRect();return [r.width,r.height];});assert.ok(bs[1]>=44,'button big enough');

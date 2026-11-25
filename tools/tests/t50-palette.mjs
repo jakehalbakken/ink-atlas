@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 export default async function(p){
  const wait=(n=300)=>new Promise(r=>setTimeout(r,n));
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(b){if(b.name)window.saved[b.name]=b;return old.call(this,b);};});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(b){if(b.name)window.saved[b.askedAs||b.name]=b;return old.call(this,b);};});
  await p.click('#shareBtn');await wait(400);
  const card=await p.$eval('#cSwatches',e=>{const r=e.getBoundingClientRect();return {w:r.width,h:r.height,text:e.textContent};});
  assert.ok(card.h>=44,'big enough');assert.match(card.text,/Colour palette/);

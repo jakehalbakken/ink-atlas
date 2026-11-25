@@ -5,7 +5,7 @@ import { writeFileSync } from 'node:fs';
 export default async function(p){
  const before=await p.evaluate(()=>JSON.stringify(window.__ink.state()));
  await p.waitForFunction(()=>window.__ink.settled(),{timeout:20000});const view=await p.evaluate(()=>({...window.__ink.cur}));
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(blob){if(blob.name)window.saved[blob.askedAs||blob.name]=blob.arrayBuffer();return old.call(this,blob);};});
  await p.evaluate(()=>window.__ink.setPose('raised'));await p.waitForFunction(()=>window.__ink.pose().settled);
  await p.click('#shareBtn');await p.click('#cSpin');
  await p.waitForFunction(()=>Object.keys(window.saved).some(n=>/ink-atlas-spin\.(mp4|webm)$/.test(n)),{timeout:240000});

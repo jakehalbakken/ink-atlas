@@ -72,7 +72,7 @@ export default async function (p) {
   await p.screenshot({ path: 'shots/t128-dock.png' });
   await p.click('#lkDone'); await wait(200);
   // the PSD keeps the blend mode on the tattoo's layer
-  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (blob) { if (blob.name) window.saved[blob.name] = blob.arrayBuffer(); return old.call(this, blob); }; });
+  await p.evaluate(() => { Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }); window.saved = {}; const old = URL.createObjectURL; URL.createObjectURL = function (blob) { if (blob.name) window.saved[blob.askedAs||blob.name] = blob.arrayBuffer(); return old.call(this, blob); }; });
   await p.evaluate(() => window.__ink.select(null)); await wait(400); await settled();
   await p.click('#shareBtn'); await p.click('#cPsd');
   await p.waitForFunction(() => !!window.saved['ink-atlas-layers.psd'], { timeout: 120000 });

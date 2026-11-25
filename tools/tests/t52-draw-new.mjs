@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 export default async function(p){
  const wait=(n=300)=>new Promise(r=>setTimeout(r,n));
  await p.waitForFunction(()=>window.__ink&&window.__ink.ready());await wait(1200);
- await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(b){if(b.name)window.saved[b.name]=b;return old.call(this,b);};});
+ await p.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>false});window.saved={};const old=URL.createObjectURL;URL.createObjectURL=function(b){if(b.name)window.saved[b.askedAs||b.name]=b;return old.call(this,b);};});
  await p.click('#views [data-view="0"]');await p.waitForFunction(()=>window.__ink.settled(),{timeout:10000});await wait(300);
  const n0=await p.evaluate(()=>window.__ink.state().tattoos.length);
  const btn=await p.$eval('#drawNew',e=>{const r=e.getBoundingClientRect();return [r.width,r.height,e.textContent];});assert.ok(btn[1]>=44,'tray button big enough');assert.equal(btn[2],'Procreate');

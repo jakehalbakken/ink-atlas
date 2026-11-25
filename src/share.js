@@ -35,10 +35,33 @@ export function canShareFiles() {
   catch (_) { return false; }
 }
 
+// Every file the app saves gets its name from the namer the app sets (src/export-names.js):
+// numbered from the last export, so nothing needs renaming. The number is kept only when the
+// file went out, so a cancelled share sheet uses none.
+let namer = null, lastName = '';
+export function setFileNamer(fn) { namer = typeof fn === 'function' ? fn : null; }
+export function lastFileName() { return lastName; }
+// The name the next save of `filename` will get, without using up its number.
+export function peekFileName(filename) {
+  if (!namer) return filename;
+  try { const r = namer(filename); return (r && r.name) || filename; } catch (_) { return filename; }
+}
+
 // Returns 'shared' | 'downloaded' | 'cancelled'. Must be called from a user gesture
 // so the native share sheet is allowed to open.
 export async function shareOrDownload(filename, data) {
+  const asked = filename;
+  let keep = null;
+  if (namer) { try { const r = namer(filename); if (r && r.name) { filename = r.name; keep = r.commit; } } catch (_) { /* keep the asked name */ } }
+  lastName = filename;
+  const how = await handOff(filename, data, asked);
+  if (how !== 'cancelled' && keep) { try { keep(); } catch (_) { /* the name still went out */ } }
+  return how;
+}
+
+async function handOff(filename, data, asked) {
   const file = toFile(filename, data);
+  try { Object.defineProperty(file, 'askedAs', { value: asked }); } catch (_) { /* only tests read it */ }
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file] }); return 'shared'; }
     catch (err) { if (err && err.name === 'AbortError') return 'cancelled'; /* otherwise fall back */ }

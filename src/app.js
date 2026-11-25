@@ -36,7 +36,8 @@ import { makeArtistPacket } from './artist-packet.js';
 import { cleanState, imageKeysFor, REACTIONS, SUGGEST_KEYS } from './project.js';
 import { openStore } from './store.js';
 import { sampleSun, sampleSprig } from './sample-art.js';
-import { dataUrlBlob, shareOrDownload, canShareFiles } from './share.js';
+import { dataUrlBlob, shareOrDownload, canShareFiles, setFileNamer, lastFileName, peekFileName } from './share.js';
+import { makeNamer } from './export-names.js';
 import { createBeforeAfter } from './before-after.js';
 import { createPoseView } from './pose-view.js';
 import { createClothes, TOPS, BOTTOMS, HAIR, coverage as clothesCoverage } from './clothes.js';
@@ -117,6 +118,8 @@ const STENCIL = '#8474ff';
 // v2: muscle and weight run 0..1 with 0.5 = average; `fit` holds the fine-tune sliders (-1..1, see fit.js).
 const freshState = () => ({ app: 'ink-atlas-proto', v: 2, tattoos: [], skin: 1, heightCm: 175, figure: 'male', muscle: 0.6, weight: 0.5, fit: {}, genitals: false }); // genitals off for anything new; older saves without the field keep them shown (cleanState)
 let state = freshState();
+// every saved file is numbered from the last export of its kind in this project (export-names.js)
+setFileNamer(makeNamer(() => state.projectName));
 let images = {}; // key -> dataURL
 const imgEls = {}; // key -> HTMLImageElement
 let selectedId = null;
@@ -3586,6 +3589,7 @@ function needTattoo() {
 }
 var infoQuietUntil = 0, infoByShow = false; // More controls opened by a Show me: pointed at, not tried
 const SHOW = {
+  fileNames: () => { toggle('#share', true); return ['#cView', 'Tap Picture of this view, then Save or share. The file is named for this project and what it is, with a number that goes up by one each time, like View 1, View 2. Every file you save from Ink Atlas is named this way.']; },
   bodyPhotos: () => { toggle('#bodyPop', true); return ['#bodyPhotoBtn', 'Tap Match photos of me and pick a few photos of you at once: straight on, side on and your back.']; },
   onPhoto: () => { showLook(true); return ['#onPhotoBtn', 'Tap On a photo of me and pick a photo of you where your shoulders and hips show. Your planned tattoos land on your skin in it.']; },
   wrapGrab: () => { const t = sel() || state.tattoos.find((x) => !x.hidden && isWrap(x)) || state.tattoos.find((x) => !x.hidden && wrapInfo(x)); if (!t) return [null, 'Put a long piece on an arm or leg, tap Wrap it round under its name, then drag it anywhere on it: sideways turns it round, up or down slides it along.']; if (sel() !== t) select(t.id, true); else revealTattoo(t); renderSheet(); return $('#wrapRow').hidden ? [null, 'Move the tattoo onto an arm or leg: Wrap it round shows under its name. Then drag it anywhere on it, even round the back.'] : [$('#wrapFit').hidden ? '#wrapRow' : '#wrapFit', $('#wrapFit').hidden ? 'It goes all the way round. Drag it anywhere on it: sideways turns it round the limb, up or down slides it along.' : 'Tap Wrap it round: the long side goes round the limb with the ends meeting at the back. Then drag it anywhere on it, sideways to turn it, up or down to slide it.']; },
@@ -6752,17 +6756,19 @@ function showPreview(url, filename, title) {
   $('#pvSave').hidden = false;
   $('#pvNote').textContent = canShareFiles()
     ? 'Save opens the share sheet to send it or keep it in Files. You can also touch and hold the picture to copy or share it.'
-    : 'Save downloads the picture. You can also touch and hold it to save, copy or share it.';
+    : 'Save downloads the picture. You can also touch and hold it to save, copy or share it.'
+  $('#pvName').textContent = 'Saves as ' + peekFileName(filename);
   toggle('#planMenu', false); toggle('#share', false); toggle('#preview', true);
 }
 async function saveFile(filename, data) {
   try {
-    const r = await shareOrDownload(filename, data);
-    if (r === 'shared') toast('Shared ' + filename);
-    else if (r === 'downloaded') toast('Saved ' + filename + ' to your downloads');
+    const r = await shareOrDownload(filename, data), name = lastFileName() || filename;
+    if (r === 'shared') toast('Shared ' + name);
+    else if (r === 'downloaded') toast('Saved ' + name + ' to your downloads');
+    if (r !== 'cancelled') markTried('fileNames');
   } catch (err) { toast('Could not save: ' + ((err && err.message) || 'something went wrong')); }
 }
-$('#pvSave').addEventListener('click', () => { if (previewFile) saveFile(previewFile.filename, dataUrlBlob(previewFile.url)); });
+$('#pvSave').addEventListener('click', async () => { if (!previewFile) return; const f = previewFile; await saveFile(f.filename, dataUrlBlob(f.url)); if (previewFile === f) $('#pvName').textContent = 'Saves as ' + peekFileName(f.filename); });
 $('#cView').addEventListener('click', () => showPreview(shot(false), 'ink-atlas-view.png', 'Picture of this view'));
 $('#cPoses').addEventListener('click', () => { const url = posesSheet(); if (!url) { toast('Add a tattoo first, then try this.'); return; } markTried('poses-sheet'); showPreview(url, 'ink-atlas-poses.png', 'As you move'); });
 // the plan as a message: every planned tattoo in a few lines, for a text to the artist
