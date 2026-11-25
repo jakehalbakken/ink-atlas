@@ -82,6 +82,8 @@ import { sessionHours, sessionText, planText } from './estimate.js';
 import { evenness, evennessText, limbLine, straighten, readsFor } from './symmetry.js';
 import { planSittings, dayWords, sittingHours, sittingsCalendar, clearOn, tripClash, sleepLine, sittingCost, planCalendar, planCalendarText, planCalendarFile } from './sittings.js';
 import { keepVersion, useVersion, versionList } from './versions.js';
+import { SkinDrawing } from './skin-draw.js';
+import { artSize, uvToArt, areaBox, closeGaps, softenMask, padBox } from './skin-draw-math.js';
 import { matchesComment } from './comment-find.js';
 import { writePrefs, readPrefs as readDevicePrefs } from './prefs.js';
 import { initWrapStudio } from './wrap-studio.js';
@@ -873,11 +875,12 @@ function syncDecals() {
       decalGroup.add(d.mesh, d.outline);
     }
     const tk = texKeyOf(t);
-    if (d.texKey !== tk && imgEls[t.img]) { const was = d.tex; d.tex = inkTexture(t); freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
+    if (skinDraw && skinDraw.id === t.id) { if (d.tex !== skinDraw.s.tex) { const was = d.tex; d.tex = skinDraw.s.tex; freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, false); } d.texKey = 'drawing'; } // the picture being drawn on, live
+    else if (d.texKey !== tk && imgEls[t.img]) { const was = d.tex; d.tex = inkTexture(t); freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t)), shapeKey].join('|');
     if (d.geoKey !== gk) { geoBuilds++; d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
-    d.mesh.visible = !t.hidden && !!d.tex && viewShows(t); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting && !(warpPanel && warpPanel.isOpen()); // the warp grid is the outline then
+    d.mesh.visible = !!d.tex && ((!t.hidden && viewShows(t)) || (!!skinDraw && skinDraw.id === t.id)); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting && !(warpPanel && warpPanel.isOpen()); // the warp grid is the outline then
   });
   syncPaint();
   needsRender = true;
@@ -1116,8 +1119,8 @@ const shapeSig = (s) => JSON.stringify([s.figure || 'male', +(s.muscle ?? 0.5), 
 function restore(json) { const asks = state.asks, was = shapeSig(state); state = JSON.parse(json); if (asks) state.asks = asks; else delete state.asks; if (!state.tattoos.find((t) => t.id === selectedId)) selectedId = null; skinMat.color.set(skinColor()); if (shapeSig(state) !== was) applyShape(); else if (state.tattoos.length >= 20) markTried('undoQuick'); syncDecals(); renderUI(); save(); if (wrapStudio) wrapStudio.refresh(); notePlaces(); }
 // each undo and redo says in a toast what it put back, so a tap never changes something unseen
 function stepWords(a, b) { try { return changeWords(a, b); } catch { return ''; } }
-function undo() { if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); if (words === 'the folders' || /^(putting|taking) /.test(words)) markTried('undoFolders'); }
-function redo() { if (!redoStack.length) return; const now = JSON.stringify(state), next = redoStack.pop(), words = stepWords(state, JSON.parse(next)); undoStack.push(now); restore(next); refreshUndo(); toast(undoToast(words, true)); }
+function undo() { if (skinDraw) { drawUndo(); return; } if (!undoStack.length) return; const now = JSON.stringify(state), back = undoStack.pop(), words = stepWords(JSON.parse(back), state); redoStack.push(now); restore(back); refreshUndo(); toast(undoToast(words)); markTried('undoWords'); if (words === 'the folders' || /^(putting|taking) /.test(words)) markTried('undoFolders'); }
+function redo() { if (skinDraw) { drawRedo(); return; } if (!redoStack.length) return; const now = JSON.stringify(state), next = redoStack.pop(), words = stepWords(state, JSON.parse(next)); undoStack.push(now); restore(next); refreshUndo(); toast(undoToast(words, true)); }
 // Go back several steps at once (the history list): every step passed goes onto Redo, in order.
 function undoSteps(n) {
   n = Math.min(n, undoStack.length); if (n < 1) return;
@@ -1132,8 +1135,8 @@ function renderHistory() {
   list.replaceChildren(...rows.map((r) => el('button', { class: 'btn', type: 'button', 'data-steps': String(r.steps) }, el('span', { text: r.words }), el('span', { class: 'spotsub', text: r.steps === 1 ? 'Last step' : `${r.steps} steps back` }))));
   $('#historyEmpty').hidden = rows.length > 0;
 }
-function openHistory() { cancelGesture(); renderHistory(); toggle('#historyPop', true); markTried('history'); }
-function refreshUndo() { $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
+function openHistory() { if (skinDraw) return; cancelGesture(); renderHistory(); toggle('#historyPop', true); markTried('history'); }
+function refreshUndo() { if (skinDraw) { $('#undo').disabled = !skinDraw.s.history.canUndo; $('#redo').disabled = !skinDraw.s.history.canRedo; return; } $('#undo').disabled = !undoStack.length; $('#redo').disabled = !redoStack.length; }
 // Area folders keep up with the body: a tattoo filed by where it sits follows itself into the folder
 // for its new area when it moves (dragged, Try other spots, Copy to other side), and an area folder
 // left empty goes. Positions are noted at each commit of the same project and body shape; anything
@@ -1303,6 +1306,7 @@ canvas.addEventListener('pointerdown', (e) => {
   try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
   clearLiveGuides(); if (!$('#lookMenu').hidden) showLook(false);
   if (followId) stopFollow();
+  if (gest && gest.mode === 'draw' && gest.type === 'pen' && e.pointerType === 'touch') return; // a palm on the glass while the Pencil draws
   pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pts.size === 1) {
     if (selfV.mode === 'eyes' || selfV.mode === 'mirror') { gest = { mode: 'self', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, type: e.pointerType }; return; }
@@ -1310,7 +1314,8 @@ canvas.addEventListener('pointerdown', (e) => {
     const onInk = onSelectedInk(e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 10);
     const sc = t ? screenOf(new V3(...viewSpot(t).pos)) : { x: 0, y: 0 };
     if (onInk && poseView.motion.playing) poseView.pause(); // hold the pose still while the ink moves
-    if (paint && hitBody(e.clientX, e.clientY)) { gest = { mode: 'paint', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: true, snap: false, type: e.pointerType, dab: new Set() }; paintAt(e.clientX, e.clientY, gest.dab); return; }
+    if (skinDraw && drawDown(e)) { gest = { mode: 'draw', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: true, snap: false, type: e.pointerType }; return; }
+    if (paint && hitBody(e.clientX, e.clientY)) { gest = { mode: 'paint', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: true, snap: false, type: e.pointerType, dab: new Set(), take: paintTake }; paintAt(e.clientX, e.clientY, gest.dab); return; }
     gest = { mode: onInk ? 'ink' : 'cam', sx: e.clientX, sy: e.clientY, px: e.clientX, py: e.clientY, t0: performance.now(), moved: false, snap: false, ox: e.clientX - sc.x, oy: e.clientY - sc.y, type: e.pointerType };
     if (onInk) gest.limb = limbGrab(t, e.clientX, e.clientY, e.pointerType === 'mouse' ? 0 : 10);
     // a big piece seen close up can have its middle off the screen, off the body's outline or behind
@@ -1319,7 +1324,8 @@ canvas.addEventListener('pointerdown', (e) => {
   } else if (pts.size === 2 && gest) {
     const s = two();
     // two fingers that land together are a pan or zoom, not paint: take back the first finger's dab
-    if (gest.mode === 'paint') { if (paint && gest.dab && !gest.stroked && performance.now() - gest.t0 < 400) { for (const t of gest.dab) paint.tris.delete(t); showPaint(); } gest.mode = 'cam'; }
+    if (gest.mode === 'draw') { drawUp(performance.now() - gest.t0 < 450); gest.mode = 'cam'; } // two fingers: the view, and a stroke just begun is taken back
+    if (gest.mode === 'paint') { if (paint && gest.dab && !gest.stroked && performance.now() - gest.t0 < 400) { for (const t of gest.dab) { if (gest.take) paint.tris.add(t); else paint.tris.delete(t); } showPaint(); } gest.mode = 'cam'; }
     // Fingers that land together arrive in no fixed order, so "two fingers starting on it"
     // must not depend on which one the browser reports first: if the first finger has not
     // moved yet and the second one lands on the selected tattoo, it is a resize/turn of it.
@@ -1335,6 +1341,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (pts.size === 1) {
     const dx = e.clientX - gest.px, dy = e.clientY - gest.py; gest.px = e.clientX; gest.py = e.clientY;
     if (gest.hadTwo) return; // the finger left behind after a pinch or pan must not jerk the view or the ink
+    if (gest.mode === 'draw') { drawMove(e); return; }
     if (gest.mode === 'paint') { gest.stroked = gest.stroked || Math.hypot(e.clientX - gest.sx, e.clientY - gest.sy) > 12; paintAt(e.clientX, e.clientY, gest.stroked ? null : gest.dab); return; }
     if (!gest.moved && Math.hypot(e.clientX - gest.sx, e.clientY - gest.sy) < (gest.type === 'mouse' ? 4 : 9)) return;
     if (!gest.moved && !(viewLocked && gest.mode === 'cam')) handsOn(true);
@@ -1379,6 +1386,7 @@ canvas.addEventListener('pointermove', (e) => {
 function cancelGesture() {
   clearLiveGuides();
   const g = gest; gest = null; handsOn(false);
+  if (g && g.mode === 'draw') drawUp(false);
   const ids = [...pts.keys()]; pts.clear();
   for (const id of ids) { try { canvas.releasePointerCapture(id); } catch (_) { /* already released */ } }
   if (g?.snap) commit();
@@ -1392,6 +1400,7 @@ function endPointer(e) {
   if (pts.size === 1 && gest) { const p = [...pts.values()][0]; gest.px = p.x; gest.py = p.y; const t = sel(); if (t) { const sc = screenOf(new V3(...viewSpot(t).pos)); gest.ox = p.x - sc.x; gest.oy = p.y - sc.y; if (gest.limb) gest.limb = limbGrab(t, p.x, p.y, 10); } return; }
   if (pts.size > 0 || !gest) return;
   const g = gest; gest = null; handsOn(false);
+  if (g.mode === 'draw') { drawUp(false); return; }
   if (g.mode === 'ink' && g.moved && !taught.has('move')) { learnt('move'); renderSheet(); }
   if (g.limb && g.moved && !taught.has('wrapMove')) { learnt('wrapMove'); renderSheet(); }
   if (g.snap) { commit(); }
@@ -1401,8 +1410,8 @@ canvas.addEventListener('pointerup', endPointer); canvas.addEventListener('point
 // Procreate's quick undo: two fingers tapped together undo, three redo, two held still keep undoing.
 // It reads the same touches as the gestures above without changing them; a pinch or pan never counts.
 const fingerTaps = createMultiTap({
-  onUndo: (held) => { if (held) cancelGesture(); if (!undoStack.length) { if (!held) toast('Nothing to undo.'); return; } if (handleDrag) markTried('tapOnHandle'); undo(); markTried('tapUndo'); },
-  onRedo: () => { if (!redoStack.length) { toast('Nothing to redo.'); return; } redo(); markTried('tapUndo'); },
+  onUndo: (held) => { if (skinDraw) { undo(); markTried('tapUndo'); return; } if (held) cancelGesture(); if (!undoStack.length) { if (!held) toast('Nothing to undo.'); return; } if (handleDrag) markTried('tapOnHandle'); undo(); markTried('tapUndo'); },
+  onRedo: () => { if (skinDraw) { redo(); markTried('tapUndo'); return; } if (!redoStack.length) { toast('Nothing to redo.'); return; } redo(); markTried('tapUndo'); },
 });
 canvas.addEventListener('pointerdown', (e) => fingerTaps.down(e));
 canvas.addEventListener('pointermove', (e) => fingerTaps.move(e));
@@ -1415,6 +1424,7 @@ window.addEventListener('blur', cancelGesture);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelGesture(); });
 canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (selfV.mode === 'eyes' || selfV.mode === 'mirror') { selfPinch(Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016))); return; } if (viewLocked) { lockNote(); return; } glide = false; goal.r = THREE.MathUtils.clamp(goal.r * Math.exp(e.deltaY * (e.ctrlKey ? 0.01 : 0.0016)), 0.22, 7); needsRender = true; }, { passive: false });
 function tap(x, y) {
+  if (skinDraw) return; // while drawing, a tap neither picks a tattoo nor leaves the drawing
   if (selfV.mode) { selfTap(x, y); return; }
   if (wrapStudio && wrapStudio.isOpen() && wrapStudio.tapBody(hitBody(x, y))) return;
   if (pointing.on) { pointTap(x, y); return; }
@@ -2455,7 +2465,7 @@ function renderProcreateBar() {
 // One finger (or the Pencil) that starts on the body paints the area; one that starts off the
 // body still turns the view, and two fingers still zoom and pan. Nothing is saved until the
 // drawing comes back as a new tattoo.
-let paint = null, drawGuideUrl = null;
+let paint = null, drawGuideUrl = null, paintTake = false, paintK = 1, paintSoft = true;
 const paintMat = new THREE.MeshBasicMaterial({ color: 0x8474ff, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
 function startPaint() {
   markTried('draw-new');
@@ -2463,17 +2473,31 @@ function startPaint() {
   cancelGesture(); select(null); showLook(false); tapPlaceId = null;
   const geo = new THREE.BufferGeometry(); geo.setAttribute('position', bodyGeo.attributes.position); geo.setIndex([]);
   const mesh = new THREE.Mesh(geo, paintMat); mesh.renderOrder = 3; mesh.frustumCulled = false; scene.add(mesh);
-  paint = { tris: new Set(), mesh }; renderPaint(); renderProcreateBar();
+  paint = { tris: new Set(), mesh }; paintTake = false; renderPaint(); renderProcreateBar();
 }
 function endPaint() { if (!paint) return; scene.remove(paint.mesh); paint.mesh.geometry.dispose(); paint = null; renderPaint(); renderProcreateBar(); needsRender = true; }
 function renderPaint() {
   $('#paintBar').hidden = !paint; document.body.classList.toggle('painting', !!paint);
-  if (!paint) return; $('#paintGo').disabled = !paint.tris.size; $('#paintClear').disabled = !paint.tris.size;
+  if (!paint) return; $('#paintGo').disabled = !paint.tris.size; $('#paintClear').disabled = !paint.tris.size; $('#paintHere').disabled = !paint.tris.size;
+  for (const b of document.querySelectorAll('#paintMode [data-pmode]')) b.setAttribute('aria-pressed', String((b.dataset.pmode === 'take') === paintTake));
+  for (const b of document.querySelectorAll('#paintSize [data-psize]')) b.setAttribute('aria-pressed', String(+b.dataset.psize === paintK));
+  $('#paintSoft').setAttribute('aria-pressed', String(paintSoft));
 }
 function triCentre(tri, I = bodyGeo.index.array, P = bodyGeo.attributes.position.array) { const c = [0, 0, 0]; for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) c[j] += P[I[tri * 3 + k] * 3 + j] / 3; return c; }
+// added: the triangles this dab changed (painted, or rubbed out with Rub out on), so a dab that
+// turns out to be the start of a pinch can be taken back
 function paintAt(x, y, added = null) {
   const h = hitBody(x, y); if (!h || h.faceIndex == null || !paint) return;
-  const k = (2 * cur.r * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / canvas.getBoundingClientRect().height, R = Math.max(0.006, 26 * k);
+  const k = (2 * cur.r * Math.tan(THREE.MathUtils.degToRad(FOV / 2))) / canvas.getBoundingClientRect().height, R = Math.max(0.006 * paintK, 26 * k * paintK);
+  if (paintTake) {
+    const A = bodyAdjacency(), seen = new Set([h.faceIndex]), queue = [h.faceIndex], p = h.point;
+    while (queue.length) {
+      const t = queue.pop(), c = triCentre(t); if (Math.hypot(c[0] - p.x, c[1] - p.y, c[2] - p.z) > R && t !== h.faceIndex) continue;
+      if (paint.tris.delete(t)) added?.add(t);
+      for (let j = 0; j < 3; j++) { const nx = A[t * 3 + j]; if (nx >= 0 && !seen.has(nx)) { seen.add(nx); queue.push(nx); } }
+    }
+    showPaint(); return;
+  }
   const A = bodyAdjacency(), seen = new Set([h.faceIndex]), queue = [h.faceIndex], p = h.point;
   while (queue.length) {
     const t = queue.pop(), c = triCentre(t); if (Math.hypot(c[0] - p.x, c[1] - p.y, c[2] - p.z) > R && t !== h.faceIndex) continue;
@@ -2559,6 +2583,10 @@ $('#ppSplit').addEventListener('click', () => { toggle('#paintPop', false); pain
 $('#ppRemove').addEventListener('click', () => { if (!state.paint) return; snapshot(); delete state.paint; toggle('#paintPop', false); commit(); renderPcMenu(); toast('Paint removed: the plain body is back with your tattoos. Undo brings the paint back.'); });
 $('#pmPaintRemove').addEventListener('click', () => { if (!state.paint) return; snapshot(); delete state.paint; commit(); renderPcMenu(); toast('Paint removed. Undo brings it back.'); });
 $('#paintCancel').addEventListener('click', endPaint);
+$('#paintMode').addEventListener('click', (e) => { const b = e.target.closest('[data-pmode]'); if (!b) return; paintTake = b.dataset.pmode === 'take'; renderPaint(); });
+$('#paintSize').addEventListener('click', (e) => { const b = e.target.closest('[data-psize]'); if (!b) return; paintK = +b.dataset.psize || 1; renderPaint(); });
+$('#paintSoft').addEventListener('click', () => { paintSoft = !paintSoft; renderPaint(); });
+$('#paintHere').addEventListener('click', () => drawOnPainted().catch((e) => { toast('Could not start drawing: ' + e.message); }));
 $('#paintClear').addEventListener('click', () => { if (!paint) return; paint.tris.clear(); showPaint(); });
 $('#paintGo').addEventListener('click', () => {
   if (!paint || !paint.tris.size) return;
@@ -2568,6 +2596,251 @@ $('#paintGo').addEventListener('click', () => {
   endPaint(); sendDrawGuide(); // straight from the tap, so the share sheet may open
 });
 $('#pcSend').addEventListener('click', sendDrawGuide);
+/* ---------- draw right on the skin, in a layer (src/skin-draw.js, src/skin-draw-math.js) ---------- */
+// 2026-11-25, Jake: "select an area of skin like with a brush and then have that part be something I can
+// edit and draw on in a layer if I want to like add to a tattoo or like sketch something in shape without
+// having to like do it in Procreate". Paint the area with the same brush as Draw in Procreate and tap Draw
+// here: a new planned layer is laid on that skin with a blank picture and the area as its edge. Or Draw on
+// it in a tattoo's sheet: a new layer above it, or on the tattoo itself. Pencil, Brush, Eraser and Area
+// (grow or shrink the area), colour, size, opacity and the Pencil's pressure. While drawing, Undo and Redo
+// (and the two and three finger taps) step through strokes; Done makes the whole drawing one undo step,
+// cut to what was drawn. A drawing is saved on the device as it goes, so a closed page loses nothing.
+let skinDraw = null;
+let drawFingers = (() => { try { return localStorage.getItem('ia-draw-fingers') !== 'off'; } catch { return true; } })();
+const drawPrefs = { tool: 'pencil', color: '#1d1b22', size: 35, opacity: 100 }; // kept while the page is open
+const drawMm = (v) => +(0.2 * Math.pow(150, Math.max(0, Math.min(100, v)) / 100)).toFixed(2); // 0.2 to 30 mm
+const tattooMm = (t) => t.width * 1000 * (state.heightCm || 175) / 175;
+const fmtMm = (mm) => (mm < 10 ? mm.toFixed(1) : Math.round(mm)) + ' mm';
+function freeSketchName() { const names = new Set(state.tattoos.map((t) => t.name)); if (!names.has('Sketch')) return 'Sketch'; let i = 2; while (names.has('Sketch ' + i)) i++; return 'Sketch ' + i; }
+function blankArt(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; const url = c.toDataURL('image/png'); c.width = c.height = 0; return url; }
+// The chosen skin in the new layer's own pixels: its decal triangles over the chosen body triangles,
+// filled, small gaps between them closed, and the edge softened.
+function areaMask(t, keep, W, H, pxPerMm) {
+  const d = decals[t.id], geo = d && d.mesh.geometry; if (!geo || !geo.userData.tris || !geo.attributes.uv) return null;
+  const c = document.createElement('canvas'); c.width = W; c.height = H; const g = c.getContext('2d', { willReadFrequently: true });
+  const UV = geo.attributes.uv.array, tris = geo.userData.tris, span = 1 - 2 * UV_MARGIN; let n = 0;
+  g.fillStyle = STENCIL; g.strokeStyle = STENCIL; g.lineWidth = 1.5; g.lineJoin = 'round';
+  for (let i = 0; i < tris.length; i++) {
+    if (!keep.has(tris[i])) continue;
+    g.beginPath();
+    for (let k = 0; k < 3; k++) { const j = (i * 3 + k) * 2, x = (UV[j] - UV_MARGIN) / span * W, y = (UV[j + 1] - UV_MARGIN) / span * H; if (k) g.lineTo(x, y); else g.moveTo(x, y); }
+    g.closePath(); g.fill(); g.stroke(); n++;
+  }
+  if (!n) { c.width = c.height = 0; return null; }
+  const img = g.getImageData(0, 0, W, H), A = new Uint8ClampedArray(W * H);
+  for (let i = 0; i < A.length; i++) A[i] = img.data[i * 4 + 3];
+  const shut = closeGaps(A, W, H, Math.max(1, Math.round(0.5 * pxPerMm))), soft = softenMask(shut, W, H, Math.min(16, Math.max(1, Math.round((paintSoft ? 0.9 : 0.15) * pxPerMm))));
+  for (let i = 0; i < A.length; i++) { const o = i * 4; img.data[o] = 0x84; img.data[o + 1] = 0x74; img.data[o + 2] = 0xff; img.data[o + 3] = soft[i]; }
+  g.putImageData(img, 0, 0); return c;
+}
+// Paint bar > Draw here: a new layer on the painted skin.
+async function drawOnPainted() {
+  if (!paint || !paint.tris.size || skinDraw) return;
+  if (commentOnly) { toast('You can comment on this project, not add tattoos.'); return; }
+  const keep = new Set(paint.tris), { patch, geo } = paintedPatch();
+  let box; try { box = areaBox(geo.attributes.uv.array, geo.userData.tris || [], keep, UV_MARGIN); } finally { geo.dispose(); }
+  if (!box) { toast('That area could not be laid out. Paint a little more of it and try again.'); return; }
+  // the layer reaches a few millimetres past the area, so a line can run past its edge with Stay inside off
+  const pad = 0.004 * 175 / (state.heightCm || 175);
+  const w = THREE.MathUtils.clamp(2 * box.hx * patch.width + 2 * pad, 0.015, 0.9), h = THREE.MathUtils.clamp(2 * box.hy * patch.width + 2 * pad, 0.015, 0.9);
+  const sz = artSize(w * 1000 * (state.heightCm || 175) / 175, h * 1000 * (state.heightCm || 175) / 175);
+  endPaint(); cancelGesture(); snapshot();
+  const t = await addImage(blankArt(sz.w, sz.h), freeSketchName(), { pos: patch.pos, normal: patch.normal, width: w });
+  if (!t) { undoStack.pop(); refreshUndo(); return; }
+  t.status = 'planned'; selectedId = null; syncDecals();
+  const mask = areaMask(t, keep, sz.w, sz.h, sz.pxPerMm);
+  return startSkinDraw(t, { fresh: true, mask });
+}
+// Draw on it, from a tattoo's sheet: a new layer above it laid the same way (default, so the tattoo
+// is never touched), or on the tattoo itself when it can be changed.
+const canDrawOn = (t) => !!t && !t.locked && t.status !== 'existing' && !warpOf(t) && !commentOnly;
+async function drawOnTattoo(t, where = 'new') {
+  if (!t || skinDraw) return;
+  if (commentOnly) { toast('You can comment on this project, not change tattoos.'); return; }
+  if (where === 'on' && !canDrawOn(t)) where = 'new';
+  if (where === 'on') {
+    const im = imgEls[t.img] || await loadImg(t.img); if (!im) { toast('Getting the artwork ready. Tap Draw on it again.'); return; }
+    cancelGesture(); snapshot(); return startSkinDraw(t, { fresh: false, from: t.id });
+  }
+  const sz = artSize(tattooMm(t), tattooMm(t) / t.aspect);
+  cancelGesture(); snapshot();
+  const nt = await addImage(blankArt(sz.w, sz.h), freeSketchName(), { pos: [...t.pos], normal: [...t.normal], width: t.width, rot: t.rot || 0, wrap: t.wrap, bend: t.bend, taper: t.taper });
+  if (!nt) { undoStack.pop(); refreshUndo(); return; }
+  nt.status = 'planned'; if (t.group) nt.group = t.group;
+  state.tattoos.splice(state.tattoos.indexOf(nt), 1); state.tattoos.splice(state.tattoos.indexOf(t) + 1, 0, nt); // just above it
+  selectedId = null; syncDecals();
+  return startSkinDraw(nt, { fresh: true, from: t.id });
+}
+function startSkinDraw(t, o) {
+  const im = imgEls[t.img]; if (!im) { toast('That layer is not ready yet. Try again.'); return false; }
+  const W = im.naturalWidth || im.width, H = im.naturalHeight || im.height;
+  cancelGesture(); showLook(false); tapPlaceId = null; for (const id of ['#pcMenu', '#bodyPop', '#lightPop', '#posePop', '#clothesPop', '#agePop', '#newPop', '#planMenu', '#share']) toggle(id, false);
+  if (selectedId) select(null);
+  if (t.hidden) t.hidden = false;
+  const s = new SkinDrawing({ THREE, art: o.fresh ? null : im, W, H, mask: o.mask || null, margin: UV_MARGIN, view: 1024, flip: !!t.flip, upsideDown: !o.fresh && t.imageTopDown === false });
+  s.pxPerMm = W / Math.max(1, tattooMm(t));
+  s.tool = drawPrefs.tool === 'area' && !s.hasArea ? 'pencil' : drawPrefs.tool; s.color = drawPrefs.color; s.sizeMm = drawMm(drawPrefs.size); s.opacity = drawPrefs.opacity / 100;
+  skinDraw = { id: t.id, s, fresh: !!o.fresh, from: o.from || null, orig: structuredClone(t), snap: undoStack[undoStack.length - 1], autoKey: null, timer: 0, busy: false, ask: false };
+  document.body.classList.add('drawing'); s.redraw(); syncDecals(); renderDrawBar(); refreshUndo(); markTried('drawSkin');
+  if (!taught.has('drawSkin')) { learnt('drawSkin'); toast(s.hasArea ? 'Draw on the purple area with the Pencil or a finger. Two fingers move the view.' : 'Draw on the layer with the Pencil or a finger. Two fingers move the view.'); }
+  return true;
+}
+// Leaves drawing; the layer shows its saved picture again.
+function closeSkinDraw() {
+  const D = skinDraw; if (!D) return null;
+  clearTimeout(D.timer); skinDraw = null; document.body.classList.remove('drawing');
+  const d = decals[D.id]; if (d) d.texKey = '';
+  D.s.dispose(); renderDrawBar(); refreshUndo(); needsRender = true; return D;
+}
+// A picture saved on the way that nothing points at any more
+function dropAutoKey(D, keepKey) { if (D.autoKey && D.autoKey !== keepKey && !state.tattoos.some((q) => q.img === D.autoKey)) { delete images[D.autoKey]; delete imgEls[D.autoKey]; } D.autoKey = null; }
+// Cancel: back to exactly how it was before the drawing started.
+function cancelSkinDraw() {
+  const D = closeSkinDraw(); if (!D) return;
+  if (D.snap && undoStack[undoStack.length - 1] === D.snap) { undoStack.pop(); restore(D.snap); }
+  dropAutoKey(D); refreshUndo(); commit();
+}
+async function finishSkinDraw() {
+  const D = skinDraw; if (!D || D.busy) return; D.busy = true;
+  const s = D.s; s.end();
+  const t = state.tattoos.find((q) => q.id === D.id);
+  if (!t) { closeSkinDraw(); dropAutoKey(D); toast('That layer is no longer in this project.'); return; }
+  if (D.fresh) {
+    const box = s.inkBox();
+    if (!box) { cancelSkinDraw(); toast('Nothing was drawn, so no layer was added.'); return; }
+    // cut to what was drawn, with a little room, so its size reads true; the ink stays where it is
+    const b = padBox(box, Math.round(1.5 * s.pxPerMm), s.W, s.H), key = uid(); images[key] = s.encode(b);
+    if (!await loadImg(key)) { delete images[key]; D.busy = false; toast('The drawing could not be kept. Tap Done again.'); return; }
+    closeSkinDraw();
+    t.img = key; t.aspect = b.w / b.h; t.imageTopDown = true;
+    const rec = t.artworkId && state.artworks && state.artworks[t.artworkId]; if (rec) { rec.source = key; rec.output = key; }
+    keepInkInPlace(t, D.orig, { widthScale: b.w / s.W, shift: { x: (b.x + b.w / 2 - s.W / 2) / s.W, y: (b.y + b.h / 2 - s.H / 2) / s.H } });
+    dropAutoKey(D, key); selectedId = t.id; commit(); renderNew();
+    toast(`${t.name} is a new layer on your skin. Draw on it again any time from its sheet.`, 'Undo', undo);
+    return;
+  }
+  if (!s.changed) { cancelSkinDraw(); return; }
+  const key = uid(); images[key] = s.encode();
+  if (!await loadImg(key)) { delete images[key]; D.busy = false; toast('The drawing could not be kept. Tap Done again.'); return; }
+  closeSkinDraw();
+  // back to how it was before drawing, so its versions and linked copies see one change
+  t.img = D.orig.img; t.imageTopDown = D.orig.imageTopDown; if (D.orig.versions) t.versions = D.orig.versions; else delete t.versions;
+  const was = new Map(state.tattoos.map((q) => [q.id, q]));
+  const rev = applyArtworkRevision(state, t.id, key, s.W / s.H, { linked: true });
+  state = rev.nextState;
+  for (const cid of rev.changedIds) { const q = state.tattoos.find((x) => x.id === cid); if (q) q.imageTopDown = true; keepVersion(was.get(cid), q); } // the drawing is kept top row first
+  dropAutoKey(D, key); selectedId = t.id; commit();
+  toast(`Drawing added to ${t.name || 'the tattoo'}. Its earlier artwork is kept.${rev.skippedIds.length ? ' Locked copies unchanged.' : ''}`, 'Undo', undo);
+}
+// Saved on the device as it goes: a few seconds after the last stroke and when the app leaves the screen.
+function autosaveDrawing() {
+  const D = skinDraw; if (!D || D.busy || !D.s.changed || D.s.stroke) return;
+  const t = state.tattoos.find((q) => q.id === D.id); if (!t) return;
+  const key = uid(); try { images[key] = D.s.encode(); } catch { return; }
+  const old = D.autoKey; t.img = key; t.imageTopDown = true; D.autoKey = key;
+  if (!D.fresh) keepVersion(D.orig, t); // a page closed now still has the artwork from before as a version
+  if (old && old !== key) { delete images[old]; delete imgEls[old]; }
+  D.s.changed = false; save();
+}
+function afterStroke() { const D = skinDraw; if (!D) return; clearTimeout(D.timer); D.timer = setTimeout(autosaveDrawing, 4000); refreshUndo(); renderDrawBar(); needsRender = true; }
+window.addEventListener('visibilitychange', () => { if (document.hidden && skinDraw) { skinDraw.s.end(); autosaveDrawing(); } }, true);
+window.addEventListener('pagehide', () => { if (skinDraw) { skinDraw.s.end(); autosaveDrawing(); } }, true);
+function drawUndo() {
+  const D = skinDraw; if (!D) return; const st = D.s.undo();
+  if (!st) { toast('Nothing more to undo in this drawing. Cancel takes all of it away.', null, null, 2400); return; }
+  D.s.changed = true; afterStroke(); toast(`Undid ${st.word}.`, null, null, 1200);
+}
+function drawRedo() {
+  const D = skinDraw; if (!D) return; const st = D.s.redo();
+  if (!st) { toast('Nothing to redo.', null, null, 1200); return; }
+  D.s.changed = true; afterStroke(); toast(`Redid ${st.word}.`, null, null, 1200);
+}
+// Where a touch lands on the layer being drawn, in its picture's pixels, or null off it. check: also
+// make sure no other skin is in front of it (the other arm), for the first touch of a stroke.
+function drawPoint(x, y, check) {
+  const D = skinDraw, d = D && decals[D.id]; if (!d || !d.mesh.visible) return null;
+  ray.setFromCamera(ndc(x, y), camera);
+  const h = (poseView.active ? poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]) : ray.intersectObject(d.mesh, false))[0];
+  if (!h || !h.uv) return null;
+  if (check) { const b = hitBody(x, y); if (b && b.distance < h.distance - 0.012) return null; }
+  return uvToArt(h.uv.x, h.uv.y, D.s.W, D.s.H, UV_MARGIN, D.s.flip);
+}
+const penPressure = (e) => (e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : NaN);
+// A one-finger or Pencil touch that starts drawing; false leaves it to the view.
+function drawDown(e) {
+  const D = skinDraw; if (!D) return false;
+  const pen = e.pointerType === 'pen';
+  if (pen && drawFingers && !D.penNote) { D.penNote = true; drawFingers = false; try { localStorage.setItem('ia-draw-fingers', 'off'); } catch { /* private mode */ } toast('The Pencil draws, so fingers now move the view. Fingers draw turns it back.', null, null, 4200); renderDrawBar(); }
+  if (!pen && !drawFingers && e.pointerType !== 'mouse') return false;
+  const a = drawPoint(e.clientX, e.clientY, true); if (!a) return false;
+  D.s.begin(a[0], a[1], penPressure(e)); needsRender = true; return true;
+}
+function drawMove(e) {
+  const S = skinDraw && skinDraw.s; if (!S) return;
+  const evs = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [], list = evs.length ? evs.slice(-8) : [e];
+  for (const q of list) {
+    if (!S.stroke) { const b = drawPoint(q.clientX, q.clientY, true); if (b) S.begin(b[0], b[1], penPressure(q)); continue; }
+    const a = drawPoint(q.clientX, q.clientY, false);
+    if (!a) { if (S.end()) afterStroke(); continue; } // off the layer: this part of the stroke ends, and goes on when it comes back
+    S.extend(a[0], a[1], penPressure(q));
+  }
+  needsRender = true;
+}
+function drawUp(young) { const S = skinDraw && skinDraw.s; if (!S) return; if (young) S.drop(); else if (S.end()) afterStroke(); needsRender = true; renderDrawBar(); }
+function renderDrawBar() {
+  const D = skinDraw; $('#drawBar').hidden = !D; if (!D) return;
+  const s = D.s, t = state.tattoos.find((q) => q.id === D.id);
+  for (const b of document.querySelectorAll('#dbTools [data-tool]')) { b.setAttribute('aria-pressed', String(b.dataset.tool === s.tool)); if (b.dataset.tool === 'area') b.hidden = !s.hasArea; }
+  $('#dbAreaRow').hidden = s.tool !== 'area';
+  for (const b of document.querySelectorAll('#dbAreaMode [data-amode]')) b.setAttribute('aria-pressed', String((b.dataset.amode === 'add') === s.areaAdd));
+  const inkTool = s.tool === 'pencil' || s.tool === 'brush';
+  $('#dbColorRow').hidden = !inkTool; $('#dbOpBox').hidden = !inkTool;
+  if ($('#dbColor').value !== s.color) $('#dbColor').value = s.color;
+  for (const b of document.querySelectorAll('#dbSwatches [data-c]')) b.setAttribute('aria-pressed', String(b.dataset.c === s.color));
+  $('#dbSizeWord').textContent = s.tool === 'area' ? `Size ${fmtMm(s.sizeMm * 4)}` : `Size ${fmtMm(s.sizeMm)}`;
+  $('#dbOpWord').textContent = `Opacity ${Math.round(s.opacity * 100)}%`;
+  $('#dbClip').hidden = !s.hasArea; $('#dbClip').setAttribute('aria-pressed', String(s.clip));
+  $('#dbFingers').setAttribute('aria-pressed', String(drawFingers));
+  const from = D.from && state.tattoos.find((q) => q.id === D.from);
+  $('#dbWhereRow').hidden = !(from && canDrawOn(from) && !s.history.count && !s.changed && !D.autoKey);
+  for (const b of document.querySelectorAll('#dbWhere [data-where]')) b.setAttribute('aria-pressed', String((b.dataset.where === 'new') === D.fresh));
+  $('#dbAsk').hidden = !D.ask; $('#dbMain').hidden = D.ask;
+  $('#dbState').textContent = t ? (D.fresh ? t.name : `On ${t.name || 'the tattoo'}`) : '';
+}
+$('#dbTools').addEventListener('click', (e) => { const b = e.target.closest('[data-tool]'); if (!b || !skinDraw) return; skinDraw.s.setTool(b.dataset.tool); drawPrefs.tool = b.dataset.tool; needsRender = true; renderDrawBar(); });
+$('#dbAreaMode').addEventListener('click', (e) => { const b = e.target.closest('[data-amode]'); if (!b || !skinDraw) return; skinDraw.s.areaAdd = b.dataset.amode === 'add'; renderDrawBar(); });
+function drawColor(c) { if (!skinDraw || !/^#[0-9a-f]{6}$/i.test(c)) return; skinDraw.s.color = drawPrefs.color = c.toLowerCase(); renderDrawBar(); }
+$('#dbColor').addEventListener('input', (e) => drawColor(e.target.value));
+$('#dbSwatches').addEventListener('click', (e) => { const b = e.target.closest('[data-c]'); if (b) drawColor(b.dataset.c); });
+$('#dbSize').addEventListener('input', (e) => { drawPrefs.size = +e.target.value; if (skinDraw) skinDraw.s.sizeMm = drawMm(drawPrefs.size); renderDrawBar(); });
+$('#dbOpacity').addEventListener('input', (e) => { drawPrefs.opacity = +e.target.value; if (skinDraw) skinDraw.s.opacity = drawPrefs.opacity / 100; renderDrawBar(); });
+$('#dbClip').addEventListener('click', () => { if (!skinDraw) return; skinDraw.s.setClip(!skinDraw.s.clip); needsRender = true; renderDrawBar(); });
+$('#dbFingers').addEventListener('click', () => { drawFingers = !drawFingers; try { localStorage.setItem('ia-draw-fingers', drawFingers ? 'on' : 'off'); } catch { /* private mode */ } if (skinDraw) skinDraw.penNote = true; renderDrawBar(); toast(drawFingers ? 'Fingers draw. Two fingers still move the view.' : 'Fingers move the view. The Pencil draws.', null, null, 2400); });
+$('#dbWhere').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-where]'), D = skinDraw; if (!b || !D || D.busy) return;
+  const want = b.dataset.where; if ((want === 'new') === D.fresh) return;
+  const from = state.tattoos.find((q) => q.id === D.from); cancelSkinDraw();
+  if (from) await drawOnTattoo(state.tattoos.find((q) => q.id === from.id), want);
+});
+$('#dbDone').addEventListener('click', () => finishSkinDraw().catch((e) => { if (skinDraw) skinDraw.busy = false; toast('Could not keep the drawing: ' + e.message); }));
+$('#dbCancel').addEventListener('click', () => { const D = skinDraw; if (!D) return; if (D.s.history.count || D.autoKey) { D.ask = true; renderDrawBar(); } else cancelSkinDraw(); });
+$('#dbKeep').addEventListener('click', () => { if (skinDraw) { skinDraw.ask = false; renderDrawBar(); } });
+$('#dbDiscard').addEventListener('click', () => { cancelSkinDraw(); toast('Drawing thrown away.'); });
+$('#drawSkin').addEventListener('click', () => { if (skinDraw) return; startPaint(); });
+$('#pmHere').addEventListener('click', () => { toggle('#pcMenu', false); startPaint(); });
+$('#bDrawOn').addEventListener('click', () => drawOnTattoo(sel(), 'new').catch((e) => toast('Could not start drawing: ' + e.message)));
+// keys while drawing: P B E A pick the tool, [ and ] change the size, Enter keeps it
+document.addEventListener('keydown', (e) => {
+  if (!skinDraw || e.altKey || e.metaKey || e.ctrlKey || modalUp()) return;
+  const tgt = e.target; if (tgt && tgt.closest && tgt.closest('input,textarea,select,[contenteditable]')) return;
+  const tools = { p: 'pencil', b: 'brush', e: 'eraser', a: 'area' }, k = e.key.toLowerCase(), s = skinDraw.s;
+  if (tools[k] && (k !== 'a' || s.hasArea)) { s.setTool(tools[k]); drawPrefs.tool = tools[k]; needsRender = true; }
+  else if (k === '[' || k === ']') { drawPrefs.size = Math.max(0, Math.min(100, drawPrefs.size + (k === ']' ? 5 : -5))); s.sizeMm = drawMm(drawPrefs.size); $('#dbSize').value = drawPrefs.size; }
+  else if (e.key === 'Enter') { finishSkinDraw(); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') { /* never removes the layer while drawing */ }
+  else return;
+  e.preventDefault(); e.stopImmediatePropagation(); renderDrawBar();
+}, true);
 async function bringBackNewDrawing(blob, p) {
   const url = URL.createObjectURL(blob);
   let im; try { im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('That picture could not be opened.')); i.src = url; }); } finally { URL.revokeObjectURL(url); }
@@ -3435,6 +3708,7 @@ const SHOW = {
   bentJoint: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=guard]', 'Tap Boxing guard, or Squat under Legs. The skin over the point of the elbow and the knee cap now stretches evenly across the joint, so ink there bends with it instead of one line turning into a thick smeared bar.']; },
   straightArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=straightDown]', 'Tap Arms straight down, Arms straight out or Palms forward. The elbows go fully straight and your arm tattoos go with the skin. Standing puts you back.']; },
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
+  drawSkin: () => ['#drawSkin', 'Tap the brush, paint a spot of skin, then tap Draw here.'],
   accountFix: () => (account && account.configured ? ['#accountBtn', 'When your project could not go to your account, the line under Ink Atlas turns red and this button carries a !. Tap either one to see why and put it there.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
@@ -5586,7 +5860,7 @@ const shown = (n) => !!n && n.isConnected && !n.hidden && n.getClientRects().len
 // a dialog left in the page but hidden must not swallow the keys
 function modalUp() { return [...document.querySelectorAll('[aria-modal=true]')].some(shown); }
 function busyEditing() {
-  if (gest || Date.now() - pickingFileAt < 3 * 60 * 1000) return true;
+  if (gest || skinDraw || paint || Date.now() - pickingFileAt < 3 * 60 * 1000) return true;
   if ([...document.querySelectorAll('[aria-modal=true]')].some(shown)) return true;
   return ['#tryOn', '#wrapStudio', '#measurePad', '#inkLook'].some((s) => shown(document.querySelector(s)));
 }
@@ -5735,7 +6009,7 @@ $('#openLayers').addEventListener('click',openLayersSheet);
 // The Layers panel at the right: folded to a slim rail or open the full height of the screen
 layersDock=createLayersDock({getState:()=>state,getImages:()=>images,selectedId:()=>selectedId,kinds:kindOff,
   pick:id=>{const t=state.tattoos.find(x=>x.id===id);if(!t)return;if(innerWidth>=700)markTried('layersRoom');if(t.id===selectedId){if(!viewLocked)focusTattoo(t);}else select(t.id,true);},
-  adds:[$('#add'),$('#drawNew')],badges:t=>tatBadges(t),sheetShown:()=>!$('#sheet').hidden,
+  adds:[$('#add'),$('#drawSkin'),$('#drawNew')],badges:t=>tatBadges(t),sheetShown:()=>!$('#sheet').hidden,
   change:fn=>{snapshot();fn(state);commit();},openSheet:openLayersSheet,onPaint:()=>openPaintPop(),openLook:id=>openInkLook(id),
   onStatus:()=>markTried('statusSwitch'),
   duplicate:id=>duplicateLayer(id),remove:ids=>removeLayers(ids),merge:ids=>mergeLayers(ids),
@@ -7272,7 +7546,8 @@ window.__ink = {
   gpu: () => ({ ...renderer.info.memory, programs: renderer.info.programs?.length || 0 }),
   self: () => ({ mode: selfV.mode, yaw: selfV.yaw, pitch: selfV.pitch, fov: camera.fov, near: camera.near, cam: camera.position.toArray(), look: new V3(0, 0, -1).applyQuaternion(camera.quaternion).toArray(), eye: selfV.mode ? selfFrame().eye : null, flip: canvas.style.transform, text: $('#selfText').textContent, best: selfV.best, base: selfV.bestBase, hand: selfV.mode === 'mirror' ? selfHand() : null, share: (id) => { const t = state.tattoos.find((x) => x.id === id); return t ? selfShare(t) : null; }, washOn: !!(selfV.mesh && selfV.mesh.visible), phone: !!(selfV.phone && selfV.phone.visible) }), selfDrag: (dx, dy) => selfDrag(dx, dy), selfPinch: (r) => selfPinch(r), selfTap: (x, y) => selfTap(x, y), selfiePicture: () => selfiePicture(),
   shownIds: () => state.tattoos.filter((t) => decals[t.id] && decals[t.id].mesh.visible).map((t) => t.id), kinds: () => ({ ...kindOff }), layersDock: () => layersDock,
-  wrap: () => wrapStudio, finest: (id) => finestOf(state.tattoos.find((q) => q.id === id)), warpPanel: () => warpPanel, warpSpot: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpSpot(t, x, y) : null; }, warpJac: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpJac(t, x, y) : null; },   state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
+  wrap: () => wrapStudio, finest: (id) => finestOf(state.tattoos.find((q) => q.id === id)), warpPanel: () => warpPanel, warpSpot: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpSpot(t, x, y) : null; }, warpJac: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpJac(t, x, y) : null; },   drawing: () => { const D = skinDraw; if (!D) return null; const s = D.s; return { id: D.id, fresh: D.fresh, from: D.from, tool: s.tool, color: s.color, sizeMm: s.sizeMm, clip: s.clip, hasArea: s.hasArea, strokes: s.strokes, steps: s.history.count, canRedo: s.history.canRedo, changed: s.changed, ink: s.inkBox(), W: s.W, H: s.H, pxPerMm: s.pxPerMm, autoKey: D.autoKey, ask: D.ask, fingers: drawFingers, maskAt: (x, y) => (s.mask ? s.mg.getImageData(x, y, 1, 1).data[3] : 255), artAt: (x, y) => [...s.g.getImageData(x, y, 1, 1).data], inked: () => { const a = s.g.getImageData(0, 0, s.W, s.H).data, m = s.mask ? s.mg.getImageData(0, 0, s.W, s.H).data : null; let n = 0, out = 0, inside = 0; for (let i = 3; i < a.length; i += 4) { if (m && m[i] >= 8) inside++; if (a[i] < 8) continue; n++; if (m && m[i] < 8) out++; } return { n, out, inside }; } }; }, autosaveDrawing,
+  state: () => state, ready: () => booted, peers: () => peersHere, following: () => followId, followPeer, points: () => ({ on: pointing.on, mine: pointing.mine, marks: pointing.els.map((e) => ({ text: e.d.textContent, shown: !e.d.hidden, x: parseFloat(e.d.style.left), y: parseFloat(e.d.style.top) })), button: !$('#showSpotBtn').hidden }),
   sizes: () => sizesLast, sizeSteps, distance: () => distanceLast, distanceSheet, bodyChange: () => bodyChangeLast, mirror: () => mirrorLast, sleeve: () => sleeveLast, inkCheck: () => ic.last, approval: () => approvalLast, answers: () => answersLast, bringInAnswers,
   pain: () => ({ on: pain.on, text: $('#painText').textContent, shown: !!(pain.mesh && pain.mesh.visible), at: (v) => { const d = painData(); return { level: d.smooth[v], raw: d.level[v], place: d.place[v] }; }, stats: () => { const d = painData(), o = {}; for (let v = 0; v < PAIN_N; v++) { const k = d.place[v]; if (!k) continue; const e = o[k] || (o[k] = { n: 0, level: 0, x: 0, y: 0 }); e.n++; e.level += d.smooth[v]; e.x += bodyGeo.attributes.position.array[v * 3]; e.y += bodyGeo.attributes.position.array[v * 3 + 1]; } for (const k in o) { o[k].level /= o[k].n; o[k].x /= o[k].n; o[k].y /= o[k].n; } return o; }, ofTattoo: (id) => painOfTattoo(state.tattoos.find((t) => t.id === id)), colours: () => pain.mesh ? Array.from(pain.mesh.geometry.attributes.color.array.slice(0, 30)) : null, drawnAt: (v) => pain.mesh ? Array.from(pain.mesh.geometry.attributes.position.array.slice(v * 3, v * 3 + 3)) : null }),
   tape: () => ({ on: tape.on, mode: tape.mode, pts: tape.pts.length, result: tape.result && JSON.parse(JSON.stringify(tape.result)), text: $('#tapeText').textContent, label: $('#tapeLabel').hidden ? '' : $('#tapeLabel').textContent, meshes: tape.group.children.length, visible: tape.group.visible, start: tape.pts.length ? (poseView.active ? poseView.pointOn(tape.pts[0].tri, tape.pts[0].w).pos : tapeSpot(tape.pts[0]).pos) : null, ring0: (() => { drawFrame(); const m = tape.group.children.find((c) => c.geometry.type === 'TubeGeometry'); if (!m) return null; const a = m.geometry.attributes.position.array, o = [0, 0, 0]; for (let i = 0; i < 6; i++) for (let d = 0; d < 3; d++) o[d] += a[i * 3 + d] / 6; return o; })(), dot: (() => { const m = tape.group.children.find((c) => c.geometry.type === 'SphereGeometry'); if (!m) return null; m.geometry.computeBoundingSphere(); return m.geometry.boundingSphere.center.toArray(); })() }),
