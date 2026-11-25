@@ -7265,6 +7265,7 @@ wrapStudio = initWrapStudio({
 $('#openWrap').addEventListener('click', () => { toggle('#planMenu', false); wrapStudio.open(); });
 
 window.__ink = {
+  redraw: () => { needsRender = true; },
   onPhoto: () => onPhoto.state(), onPhotoLayer: () => { const im = onPhoto.layerPixels(); return im && { w: im.width, h: im.height, data: im.data }; },
   gpu: () => ({ ...renderer.info.memory, programs: renderer.info.programs?.length || 0 }),
   self: () => ({ mode: selfV.mode, yaw: selfV.yaw, pitch: selfV.pitch, fov: camera.fov, near: camera.near, cam: camera.position.toArray(), look: new V3(0, 0, -1).applyQuaternion(camera.quaternion).toArray(), eye: selfV.mode ? selfFrame().eye : null, flip: canvas.style.transform, text: $('#selfText').textContent, best: selfV.best, base: selfV.bestBase, hand: selfV.mode === 'mirror' ? selfHand() : null, share: (id) => { const t = state.tattoos.find((x) => x.id === id); return t ? selfShare(t) : null; }, washOn: !!(selfV.mesh && selfV.mesh.visible), phone: !!(selfV.phone && selfV.phone.visible) }), selfDrag: (dx, dy) => selfDrag(dx, dy), selfPinch: (r) => selfPinch(r), selfTap: (x, y) => selfTap(x, y), selfiePicture: () => selfiePicture(),

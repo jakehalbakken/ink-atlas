@@ -4,6 +4,7 @@
 // the side one moves the depth sliders towards the truth, the panel says it read both, and See
 // my tattoos on these photos keeps the body and opens the same photos with the tattoos on them.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { bodyMeasure } from '../../src/body-match.js';
 export default async function (p) {
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -18,10 +19,12 @@ export default async function (p) {
   }, truth);
   const hide = 'body *{visibility:hidden!important} canvas{visibility:visible!important} #bmPic,#toArt,#onPhoto canvas{visibility:hidden!important}';
   const snap = async (name, theta) => {
-    await p.evaluate((t) => { const g = window.__ink.goal; Object.assign(g, { theta: t, phi: 1.5, roll: 0, tx: 0, ty: 0.87, tz: 0, r: 4.3 }); Object.assign(window.__ink.cur, g); }, theta);
-    const st = await p.addStyleTag({ content: hide }); await wait(1500); await p.screenshot({ path: `shots/t192-${name}.png` }); await st.evaluate((s) => s.remove());
+    await p.evaluate((t) => { const g = window.__ink.goal; Object.assign(g, { theta: t, phi: 1.5, roll: 0, tx: 0, ty: 0.87, tz: 0, r: 4.3 }); Object.assign(window.__ink.cur, g); window.__ink.redraw(); }, theta);
+    // cur and goal set together leave the camera still, so nothing draws unless asked to
+    const st = await p.addStyleTag({ content: hide }); await p.waitForFunction(() => window.__ink.settled() && window.__ink.pose().settled, { timeout: 10000 }); await p.evaluate(() => window.__ink.redraw()); await wait(600); await p.screenshot({ path: `shots/t192-${name}.png` }); await st.evaluate((s) => s.remove());
   };
   await snap('front', 0); await snap('side', Math.PI / 2);
+  { const a = fs.readFileSync('shots/t192-front.png'), b = fs.readFileSync('shots/t192-side.png'); assert.ok(!a.equals(b), 'the side photo is a different picture from the front one'); }
   await p.evaluate((s) => { window.__ink.setShape(s); window.__ink.setPose('neutral'); }, std); await wait(300);
   const undo0 = await p.evaluate(() => window.__ink.undoLen());
   await p.click('#bodyBtn'); await wait(200);

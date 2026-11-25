@@ -25,8 +25,8 @@ export default async function (p) {
   // the app's camera is 30 degrees top to bottom: as a 35 mm focal length on this screen
   const f35 = await p.evaluate(() => { const w = innerWidth, h = innerHeight, f = (h / 2) / Math.tan(15 * Math.PI / 180); return Math.round(f * 43.27 / Math.hypot(w, h)); });
   const hide = 'body *{visibility:hidden!important} canvas{visibility:visible!important} #onPhoto canvas{visibility:hidden!important}';
-  const snap = async (name) => { const st = await p.addStyleTag({ content: hide }); await wait(1400); const b = await p.screenshot({ type: 'jpeg', quality: 95 }); await st.evaluate((s) => s.remove()); fs.writeFileSync(`shots/t191-${name}.jpg`, withLens(Buffer.from(b), f35)); };
-  const aim = (g) => p.evaluate((g) => { Object.assign(window.__ink.goal, g); Object.assign(window.__ink.cur, g); }, g);
+  const snap = async (name) => { const st = await p.addStyleTag({ content: hide }); await p.waitForFunction(() => window.__ink.settled() && window.__ink.pose().settled, { timeout: 10000 }); await p.evaluate(() => window.__ink.redraw()); await wait(600); const b = await p.screenshot({ type: 'jpeg', quality: 95 }); await st.evaluate((s) => s.remove()); fs.writeFileSync(`shots/t191-${name}.jpg`, withLens(Buffer.from(b), f35)); };
+  const aim = (g) => p.evaluate((g) => { Object.assign(window.__ink.goal, g); Object.assign(window.__ink.cur, g); window.__ink.redraw(); }, g);
   await p.evaluate(() => { const I = window.__ink, s = I.state(); s.tattoos = []; I.setShape({ figure: 'male', muscle: 0.5, weight: 0.5, fit: {} }); I.commitTest(); });
   await wait(300);
   const shots = [
