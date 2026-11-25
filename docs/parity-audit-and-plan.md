@@ -733,6 +733,7 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 
 - Re-tested Layers in a 60-tattoo project at iPad landscape: Sort by area, Fold all, Open all, Select and Pick all each answer in under 100 ms, and every visible button is 44 pt.
 - With a tattoo on my skin and a planned one picked together, the pick bar's Merge tile was filled as the main action, and a tap on it dropped every pick before the merge said "Merge tattoos of one kind". Merge is now filled only when `mergePlan` says the picks can be merged, and the picks stay until a merge has gone through, so a refusal (mixed kinds, a locked piece, too far apart on the body) leaves them picked. Checked in t189 at both iPad orientations. New to try entry mergeTile.
+- Double-tap for the full body (2026-11-25, Jake: "I want to be able to turn off the double tap to full screen feature on this app... I just get pissed every time I accidentally use it"): a one-finger double tap on empty space no longer goes to the full body unless Plan > On this device > Double-tap for the full body is on. It starts off on every device with nothing for Jake to do, is kept per device in localStorage `ia-dbl-full` (never in the project), the hint only offers it while it is on, and Full body at the top always works. Two-finger tap undo, three-finger redo, the view lock and slider double-taps are untouched. Checked in t190 at both iPad orientations, through a reload. New to try entry dblFull.
 
 ## 2026-11-25 QA batch 28 (live 06:10 UTC)
 
