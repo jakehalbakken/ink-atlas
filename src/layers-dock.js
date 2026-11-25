@@ -13,7 +13,7 @@
 // pinch lines together to merge them, press and hold to drag a line to a new place, and tap the
 // selected line for its options (name, Duplicate, Merge down, Lock, Blend and colour, Zoom to it...).
 import { reorderTattoo, changeSelected, assignGroup } from './layers.js';
-import { SWIPE, swipeKind, pinchMerges, rangeBetween, displayOrder, lineBelow } from './layer-ops.js';
+import { SWIPE, swipeKind, pinchMerges, rangeBetween, displayOrder, lineBelow, mergePlan } from './layer-ops.js';
 import { sortPlan, sortIntoAreas, soloFolder, unfolder, renameFolder } from './body-areas.js';
 import { blendOf, blendLetter, blendName, hasLook, describeLook, DEFAULT_BLEND } from './ink-look.js';
 
@@ -408,7 +408,9 @@ export function createLayersDock(o) {
         ? tile(UNGROUP, 'Ungroup', `Take ${them} out of ${n === 1 ? 'its group' : 'their groups'}`, () => { const x = new Set(ids); o.change((s) => { for (const t of s.tattoos) if (x.has(t.id)) delete t.group; s.groups = (s.groups || []).filter((g) => s.tattoos.some((t) => t.group === g.id)); }); o.onGroup?.(false); })
         : tile(FOLDER, 'Group', `Group ${them}`, () => { const x = [...ids]; o.change((s) => assignGroup(s, x, `Group ${(s.groups || []).length + 1}`)); o.onGroup?.(true); }),
       tile(LOCK, allLocked ? 'Unlock' : 'Lock', `${allLocked ? 'Unlock' : 'Lock'} ${them}`, () => o.change((s) => changeSelected(s, planned.map((t) => t.id), { locked: !allLocked }))),
-      tile(MERGE, 'Merge', `Merge ${them} into one`, () => { const x = [...ids]; picked.clear(); selecting = false; lastKey = ''; render(); o.merge?.(x); }, 'primary'),
+      // filled only when the merge can go ahead; the picks stay until it has, so a merge that says no (on my skin with planned,
+      // a locked one, too far apart) leaves them picked
+      tile(MERGE, 'Merge', `Merge ${them} into one`, () => { const x = [...ids]; Promise.resolve(o.merge?.(x)).then((done) => { if (done) { picked.clear(); selecting = false; } lastKey = ''; render(); }); }, n > 1 && mergePlan(state, ids).ok ? 'primary' : ''),
       tile(DOTS, 'More', `More for ${them}: move together, ink strength, solo`, () => o.openSheet?.([...ids])),
       tile(BIN, 'Delete', `Delete ${them}`, () => { if (onSkin) { askDelete = true; lastKey = ''; render(); return; } const x = [...ids]; picked.clear(); o.remove?.(x); lastKey = ''; render(); }, 'danger'),
     );
