@@ -32,7 +32,7 @@ export function loadPoseFinder() {
 
 // source: an image or canvas. Returns { lm, mask, w, h, canvas, ratios, problems } or throws a
 // plain sentence when no one is found.
-export async function readBodyPhoto(source) {
+export async function readBodyPhoto(source, opts = {}) {
   const sw = source.naturalWidth || source.videoWidth || source.width, sh = source.naturalHeight || source.videoHeight || source.height;
   if (!sw || !sh) throw new Error('That picture could not be opened.');
   const k = Math.min(1, 1280 / Math.max(sw, sh)), w = Math.round(sw * k), h = Math.round(sh * k);
@@ -46,7 +46,7 @@ export async function readBodyPhoto(source) {
   let mask = m.getAsFloat32Array(); const mw = m.width, mh = m.height;
   mask = new Float32Array(mask); m.close();
   if (mw !== w || mh !== h) { const out = new Float32Array(w * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out[y * w + x] = mask[Math.min(mh - 1, Math.floor(y * mh / h)) * mw + Math.min(mw - 1, Math.floor(x * mw / w))]; mask = out; }
-  return { lm, mask, w, h, canvas, ...measurePhoto(lm, mask, w, h) };
+  return { lm, mask, w, h, canvas, ...measurePhoto(lm, mask, w, h, opts) };
 }
 
 let parts = null;

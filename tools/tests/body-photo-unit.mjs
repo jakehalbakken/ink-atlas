@@ -80,6 +80,15 @@ fill(150, 250, 110, 400); for (let y = 110; y < 400; y++) for (let x = 150; x < 
 put(LM.shoulderL, 250, 125); put(LM.shoulderR, 150, 125); r = read(); assert.equal(r.view, 'side', 'shoulders spill out of a narrow outline');
 assert.ok(Math.abs(r.ratios.chestD - 70 / 678) < 1e-6, 'the depth is the outline, not the guessed shoulders');
 fill(150, 250, 110, 400); assert.equal(read().view, 'front', 'the wide outline again reads straight on');
+// a photo of the same person straight on makes a side one, only as deep as the body, plainly narrower
+const straight = read(); assert.ok(straight.shape > 0.3, 'the outline at the chest against the torso');
+for (let y = 110; y < 400; y++) for (let x = 150; x < 250; x++) if (x < 172 || x >= 228) mask[y * W + x] = 0;
+put(LM.shoulderL, 235, 125); put(LM.shoulderR, 165, 125); assert.equal(read().view, 'front', 'alone it can look straight on');
+assert.equal(measurePhoto(lm.map((q) => ({ ...q })), mask, W, H, { frontShape: straight.shape }).view, 'side', 'beside the photo straight on it is side on');
+// and the person can say which way the photo faces
+const forced = measurePhoto(lm.map((q) => ({ ...q })), mask, W, H, { view: 'side' }); assert.equal(forced.view, 'side'); assert.ok(forced.parts.includes('waistD'));
+assert.equal(measurePhoto(lm.map((q) => ({ ...q })), mask, W, H, { view: 'back' }).view, 'back');
+fill(150, 250, 110, 400);
 put(LM.shoulderL, 235, 125); put(LM.shoulderR, 165, 125);
 put(LM.shoulderL, 250, 125); put(LM.shoulderR, 150, 125);
 // arms against the sides: chest and waist are left out, with a note

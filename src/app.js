@@ -2854,7 +2854,7 @@ $('#bSpots').addEventListener('click', () => { cancelGesture(); toggle('#newPop'
 /* ---------- Match a photo of me: fit the body sliders to a full-length photo ---------- */
 // The photo is read on this device and dropped when the panel closes; only the body settings
 // it leads to are kept, and only when Keep this body is tapped. Undo puts the old body back.
-const bm = { before: null, busy: false, token: 0, batch: 0, result: null, ink: null, files: [], faceFile: null, faceSize: 0 };
+const bm = { before: null, busy: false, token: 0, batch: 0, result: null, ink: null, files: [], faceFile: null, faceSize: 0, last: null, lastBase: null, frontShape: null };
 function bmShape() { return { figure: state.figure, muscle: state.muscle ?? 0.5, weight: state.weight ?? 0.5, fit: { ...(state.fit || {}) } }; }
 function bmSetShape(p) {
   const a = anchorsNow();
@@ -2869,6 +2869,10 @@ function bmButtons(fitted) {
   $('#bmOnPhoto').hidden = !bm.files.length || !state.tattoos.some((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
   $('#bmOnPhoto').textContent = bm.files.length > 1 ? 'See my tattoos on these photos' : 'See my tattoos on this photo';
   $('#bmFace').hidden = !bm.faceFile || face.busy;
+  // which way the last photo faces, as read, with a tap to read it the other way
+  $('#bmView').hidden = !bm.last || bm.busy;
+  const v = bm.last && bm.last.view;
+  $('#bmView').querySelectorAll('[data-v]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
 }
 // move the body into the space beside the panel, seen from the front
 function bmFrame() {
@@ -2970,14 +2974,16 @@ async function bmRun(file) {
   try {
     url = URL.createObjectURL(file);
     const img = new Image(); img.src = url; await img.decode();
-    const res = await readBodyPhotoLazy(img); if (token !== bm.token) return;
+    const res = await readBodyPhotoLazy(img, { frontShape: bm.frontShape ?? undefined }); if (token !== bm.token) return;
+    bm.last = res; bm.lastBase = bm.result || bm.before;
     if (!bm.files.includes(file)) bm.files.push(file);
     // a face big enough in the photo to put on the body (straight on, both ears seen)
     const eL = res.lm[7], eR = res.lm[8], fs = eL && eR && (eL.visibility ?? 1) > 0.5 && (eR.visibility ?? 1) > 0.5 && res.view === 'front' ? Math.abs(eL.x - eR.x) * res.w / Math.max(res.w, res.h) : 0;
     if (fs > 0.06 && fs > bm.faceSize) { bm.faceFile = file; bm.faceSize = fs; }
     if (res.view !== 'side') { try { await bmFindInk(res); } catch { bm.ink = null; } } if (token !== bm.token) return;
     bmDraw(res); bmInkRender();
-    bm.ratios = res.ratios; bm.read = { ref: res.ref, parts: res.parts, view: res.view }; bm.lm = res.lm;
+    bm.ratios = res.ratios; bm.read = { ref: res.ref, parts: res.parts, view: res.view, why: res.why }; bm.lm = res.lm;
+    if (res.view !== 'side' && Number.isFinite(res.shape) && bm.frontShape == null) bm.frontShape = res.shape;
     if (res.problems.length) { bmText(res.problems.join(' ')); return; }
     bmText('Shaping the body to match...');
     await new Promise((r) => setTimeout(r, 30));
@@ -3011,10 +3017,23 @@ function bmSaid(res) {
   if (res.notes.length) msg += ' ' + res.notes.join(' ');
   return msg + (whole ? ' Keep it, or put the old one back.' : ' Add another photo to fill in more, or keep this.');
 }
-async function readBodyPhotoLazy(img) { const { readBodyPhoto } = await import('./body-match.js'); return readBodyPhoto(img); }
+async function readBodyPhotoLazy(img, opts) { const { readBodyPhoto } = await import('./body-match.js'); return readBodyPhoto(img, opts); }
+// the person says which way the last photo faces: it is read again that way, from the body the
+// photos before it made
+async function bmSetView(v) {
+  const was = bm.last; if (!was || bm.busy || was.view === v) return;
+  const { measurePhoto } = await import('./body-photo.js'), { fitToPhoto } = await import('./body-match.js');
+  const res = { ...was, ...measurePhoto(was.lm, was.mask, was.w, was.h, { view: v }) };
+  bm.last = res; bm.read = { ref: res.ref, parts: res.parts, view: res.view, why: res.why }; bm.ratios = res.ratios;
+  bmDraw(res);
+  if (res.problems.length) { bmSetShape(bm.lastBase); bm.result = bm.lastBase === bm.before ? null : bm.lastBase; bmButtons(!!bm.result); bmText(res.problems.join(' ')); return; }
+  const fit = fitToPhoto(res, bm.lastBase);
+  bmSetShape(fit.params); bm.result = fit.params; bmButtons(true); if (v === 'side') markTried('bodyPhotos');
+  bmText(bmSaid(res));
+}
 function openBodyMatch(file) {
   cancelGesture(); closePanels(); toggle('#spotPop', false);
-  bm.before = bmShape(); bm.result = null; bm.files = []; bm.faceFile = null; bm.faceSize = 0;
+  bm.before = bmShape(); bm.result = null; bm.files = []; bm.faceFile = null; bm.faceSize = 0; bm.last = null; bm.lastBase = null; bm.frontShape = null;
   toggle('#bodyMatch', true); bmFrame();
   const c = $('#bmPic'); c.width = 1; c.height = 1; bmButtons(false); bmText('');
   return bmRun(file);
@@ -3033,7 +3052,7 @@ function closeBodyMatch(keep) {
   bm.token++;
   if (bm.result && !keep) bmSetShape(bm.before);
   if (bm.result && keep) { bmSetShape(bm.before); snapshot(); bmSetShape(bm.result); commit(); toast('Body matched to your photo. Undo puts the old one back.'); }
-  bm.result = null; bm.before = null; bm.files = []; bm.faceFile = null; bm.faceSize = 0; bm.batch++;
+  bm.result = null; bm.before = null; bm.files = []; bm.faceFile = null; bm.faceSize = 0; bm.last = null; bm.lastBase = null; bm.frontShape = null; bm.batch++;
   const c = $('#bmPic'); c.width = 1; c.height = 1; $('#bodyPhotoFile').value = ''; // drop the photo
   toggle('#bodyMatch', false); fullBody(0);
 }
@@ -3047,6 +3066,7 @@ $('#bmClose').addEventListener('click', () => closeBodyMatch(true)); // Done kee
 $('#bmOnPhoto').addEventListener('click', () => { if (bm.busy) return; const files = bm.files.slice(); closeBodyMatch(true); if (files.length) onPhoto.openWith(files); });
 $('#bmFace').addEventListener('click', () => { const f = bm.faceFile; if (!f || bm.busy) return; bm.faceFile = null; bmButtons(!!bm.result); faceFromFile(f); });
 $('#bmInkAdd').addEventListener('click', () => bmInkAdd());
+$('#bmView').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (b) bmSetView(b.dataset.v); });
 $('#bmMirror').addEventListener('click', () => { if (!bm.ink) return; bm.ink.mirror = !bm.ink.mirror; bmInkRender(); });
 // tap a found tattoo in the picture to leave it out or put it back
 $('#bmPic').addEventListener('click', (e) => {

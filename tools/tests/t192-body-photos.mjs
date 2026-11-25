@@ -29,12 +29,18 @@ export default async function (p) {
   assert.equal(await p.$eval('#bodyPhotoFile', (e) => e.multiple), true, 'several photos at once');
   await (await p.$('#bodyPhotoFile')).uploadFile('shots/t192-front.png', 'shots/t192-side.png');
   await p.waitForFunction(() => /Read 2 photos/.test(document.querySelector('#bmText').textContent) && !window.__ink.bodyMatch().busy, { timeout: 180000 });
-  const text = await p.$eval('#bmText', (e) => e.textContent); console.log(text);
+  let text = await p.$eval('#bmText', (e) => e.textContent); console.log(text);
+  const why = await p.evaluate(() => window.__ink.bodyMatch().read); console.log('side photo read as', JSON.stringify(why));
+  // the picker shows which way the last photo was read, and a tap reads it the other way
+  assert.equal(await p.$eval('#bmView', (e) => e.hidden), false, 'Front, Side or Back offered');
   if (!/from the side/.test(text)) {
-    // what the landmarker saw on the last photo, to tell why it wasn't read side on
-    const d = await p.evaluate(() => { const lm = window.__ink.bodyMatchLm(), r = window.__ink.bodyMatch().read; const at = (i) => lm && lm[i] && [+lm[i].x.toFixed(3), +lm[i].y.toFixed(3), +(lm[i].z ?? NaN).toFixed(3), +(lm[i].visibility ?? 1).toFixed(2)]; return { read: r, nose: at(0), ears: [at(7), at(8)], shoulders: [at(11), at(12)], hips: [at(23), at(24)] }; });
-    console.log('side photo landmarks', JSON.stringify(d));
-  }
+    const d = await p.evaluate(() => { const lm = window.__ink.bodyMatchLm(); const at = (i) => lm && lm[i] && [+lm[i].x.toFixed(3), +lm[i].y.toFixed(3), +(lm[i].z ?? NaN).toFixed(3), +(lm[i].visibility ?? 1).toFixed(2)]; return { nose: at(0), ears: [at(7), at(8)], shoulders: [at(11), at(12)], hips: [at(23), at(24)] }; });
+    console.log('NOT READ SIDE ON BY ITSELF; landmarks', JSON.stringify(d), '- tapping Side');
+    await p.click('#bmView [data-v=side]');
+    await p.waitForFunction(() => /from the side/.test(document.querySelector('#bmText').textContent), { timeout: 30000 });
+    text = await p.$eval('#bmText', (e) => e.textContent); console.log(text);
+  } else console.log('read side on by itself');
+  assert.equal(await p.$eval('#bmView [data-v=side]', (e) => e.getAttribute('aria-pressed')), 'true');
   assert.match(text, /from the side/, 'the side photo was read side on');
   const fitted = await p.evaluate(() => { const s = window.__ink.state(); return { figure: s.figure, muscle: s.muscle, weight: s.weight, fit: { ...s.fit } }; });
   console.log('fitted', JSON.stringify(fitted));

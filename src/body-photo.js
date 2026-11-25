@@ -47,7 +47,10 @@ export function rowRun(mask, w, h, y, cx) {
 //   the camera: the depth of the chest, belly and seat are read in place of the widths).
 // - problems: plain sentences when nothing usable could be read (the photo is refused).
 // - notes: plain sentences about parts left out of an otherwise usable photo.
-export function measurePhoto(lm, mask, w, h) {
+// opts.view: 'front', 'side' or 'back' to read the photo that way whatever it looks like (the
+// person said so). opts.frontShape: shape from a photo of the same person straight on, which a
+// side photo, only as deep as the body, is clearly narrower than.
+export function measurePhoto(lm, mask, w, h, opts = {}) {
   const problems = [], notes = [];
   const P = (i) => ({ x: lm[i].x * w, y: lm[i].y * h, v: lm[i].visibility ?? 1 });
   // a joint counts when it's confidently found and inside the picture
@@ -57,7 +60,7 @@ export function measurePhoto(lm, mask, w, h) {
   // From behind, the nose sits further from the camera than the ears (the landmarker's z is
   // depth, smaller = nearer); with no depth, a face that isn't seen means a back.
   const nz = lm[LM.nose]?.z, ez = ((lm[LM.earL]?.z ?? NaN) + (lm[LM.earR]?.z ?? NaN)) / 2;
-  const view = Number.isFinite(nz) && Number.isFinite(ez) ? (nz > ez + 0.02 ? 'back' : 'front')
+  let view = Number.isFinite(nz) && Number.isFinite(ez) ? (nz > ez + 0.02 ? 'back' : 'front')
     : (lm[LM.nose]?.visibility ?? 1) < 0.5 && (lm[LM.earL]?.visibility ?? 1) < 0.6 && (lm[LM.earR]?.visibility ?? 1) < 0.6 ? 'back' : 'front';
   const ratios = Object.fromEntries(KEYS.map((k) => [k, NaN]));
   const inPic = (i) => lm[i] && lm[i].x >= 0.01 && lm[i].x <= 0.99 && lm[i].y >= 0.01 && lm[i].y <= 0.99;
@@ -84,8 +87,17 @@ export function measurePhoto(lm, mask, w, h) {
   const spill = dx > 0 && [0.08, 0.15].every((t) => { const r = run(S.y + tl * t, S.x); return Number.isFinite(r) && r < dx * 0.75; });
   // the landmarker reads a turned body part way when side on, so a narrowish pair of shoulders
   // counts too when the depth or the face says side on
-  const side = pair(LM.shoulderL, LM.shoulderR) && pair(LM.hipL, LM.hipR) && upright
-    && (dx < tl * 0.22 || spill || (dx < tl * 0.45 && dxH < tl * 0.45 && ((Number.isFinite(dz) && dz > dx * 1.2) || profile)));
+  // the outline's width at the chest over the torso's length: about the body's width straight on
+  // (with the arms), only its depth side on
+  const shape = run(S.y + tl * LEVELS.chest, (S.x + Hm.x) / 2) / tl;
+  const narrower = Number.isFinite(opts.frontShape) && Number.isFinite(shape) && shape < opts.frontShape * 0.72;
+  const auto = pair(LM.shoulderL, LM.shoulderR) && pair(LM.hipL, LM.hipR) && upright
+    && (dx < tl * 0.22 || spill || narrower || (dx < tl * 0.45 && dxH < tl * 0.45 && ((Number.isFinite(dz) && dz > dx * 1.2) || profile)));
+  const autoView = auto ? 'side' : view;
+  const forced = ['front', 'side', 'back'].includes(opts.view) ? opts.view : null;
+  const side = forced ? forced === 'side' && tl > 0 : auto;
+  if (forced && forced !== 'side') view = forced;
+  const why = { dx: +(dx / tl).toFixed(3), runs: [0.08, 0.15].map((t) => +(run(S.y + tl * t, S.x) / dx).toFixed(3)), shape: +shape.toFixed(3), frontShape: opts.frontShape ?? null, dz: Number.isFinite(dz) ? +(dz / dx).toFixed(3) : null, profile, auto: autoView };
   if (side) {
     const cx = (S.x + Hm.x) / 2, at = (t) => S.y + (Hm.y - S.y) * t;
     raw.chestD = run(at(LEVELS.chest), cx); raw.waistD = run(at(LEVELS.waist), cx); raw.hipsD = run(at(LEVELS.hips), Hm.x);
@@ -130,7 +142,7 @@ export function measurePhoto(lm, mask, w, h) {
   if (side && Number.isFinite(raw.chestD) && Number.isFinite(raw.hipsD) && raw.chestD > raw.torso * 0.9) { ratios.chestD = NaN; ratios.waistD = NaN; notes.push('An arm stands out from your body, so I left your chest and belly out. Let your arms hang at your sides.'); }
   const parts = KEYS.filter((k) => Number.isFinite(ratios[k]));
   if (!parts.length && !problems.length) problems.push('I could not read your outline. Try a plain background.');
-  return { ratios, ref, parts, view: side ? 'side' : view, problems: [...new Set(problems)], notes };
+  return { ratios, ref, parts, view: side ? 'side' : forced || view, problems: [...new Set(problems)], notes, shape, why };
 }
 
 // The same proportions from the 3D body. positions: flat xyz (y up, front +z), joints: flat
