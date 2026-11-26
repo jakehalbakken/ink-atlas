@@ -423,7 +423,8 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
 #sheet .editor-quick .btn[aria-pressed=true]::before{color:var(--stencil)}
 .i-flipv::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%2012h18%22%2F%3E%3Cpath%20d%3D%22M7%208.5%2012%204l5%204.5M7%2015.5l5%204.5%205-4.5%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M3%2012h18%22%2F%3E%3Cpath%20d%3D%22M7%208.5%2012%204l5%204.5M7%2015.5l5%204.5%205-4.5%22%2F%3E%3C%2Fsvg%3E")}
 /* Mirror, Flip vertical, Duplicate and Hide (2026-11-24, Jake: "Those are really important controls to have
-   easily accessible"): a second row of tiles right under the quick actions, a little shorter */
+   easily accessible"): a second row of tiles right under the quick actions, a little shorter; Draw on it
+   (2026-11-25) makes five, the same columns as the quick actions above */
 /* a hidden tattoo's Show tile has the same crossed-out eye as its Layers line */
 .i-eye-off::before{-webkit-mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%204l16%2016M9.9%205.8A9.7%209.7%200%200%201%2012%205.5c6%200%209.5%206.5%209.5%206.5a17%2017%200%200%201-2.9%203.7M6.3%207.6C3.9%209.3%202.5%2012%202.5%2012S6%2018.5%2012%2018.5c1.4%200%202.6-.3%203.7-.8%22%2F%3E%3Cpath%20d%3D%22M9.9%209.9a3%203%200%200%200%204.2%204.2%22%2F%3E%3C%2Fsvg%3E");mask-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.9%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M4%204l16%2016M9.9%205.8A9.7%209.7%200%200%201%2012%205.5c6%200%209.5%206.5%209.5%206.5a17%2017%200%200%201-2.9%203.7M6.3%207.6C3.9%209.3%202.5%2012%202.5%2012S6%2018.5%2012%2018.5c1.4%200%202.6-.3%203.7-.8%22%2F%3E%3Cpath%20d%3D%22M9.9%209.9a3%203%200%200%200%204.2%204.2%22%2F%3E%3C%2Fsvg%3E")}
 #sheet .editor-arrange{grid-template-columns:repeat(5,minmax(0,1fr))}
@@ -739,7 +740,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
       <button class="btn i-lock" id="bLock" type="button">Lock in place</button>
       <button class="btn i-pencil" id="bProcreate" type="button">Edit in Procreate</button>
     </div>
-    <div class="row editor-quick editor-arrange" role="group" aria-label="Mirror, flip, copy and hide">
+    <div class="row editor-quick editor-arrange" role="group" aria-label="Mirror, flip, copy, hide and draw on it">
       <button class="btn i-mirror" id="bFlip" type="button" aria-pressed="false">Mirror</button>
       <button class="btn i-flipv" id="bFlipVertical" type="button">Flip vertical</button>
       <button class="btn i-stack" id="bDup" type="button">Duplicate</button>

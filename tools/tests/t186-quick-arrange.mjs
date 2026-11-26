@@ -1,14 +1,14 @@
 // Mirror, Flip vertical, Duplicate and Hide one tap away (2026-11-24, Jake: "Those are really important
 // controls to have easily accessible", then "show/hide should be on that top panel too"). A second
 // row of tiles right under the quick actions, with More controls shut, on screen at every iPad size
-// and in split-window widths, 44 pt each, gone from More controls, and each one undo step.
+// and in split-window widths, 44 pt each (Draw on it, 2026-11-25, makes five, in one row like the quick actions), gone from More controls, and each one undo step.
 import assert from 'node:assert/strict';
 export default async function (p) {
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
   await p.waitForFunction(() => window.__ink && window.__ink.ready()); await wait(1200);
   const rect = (s) => p.$eval(s, (e) => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); return { l: r.left, r: r.right, t: r.top, b: r.bottom, w: r.width, h: r.height, vis: cs.visibility !== 'hidden' && cs.display !== 'none' && r.width > 0 }; });
-  const ids = ['#bFlip', '#bFlipVertical', '#bDup', '#bHide'];
-  assert.deepEqual(await p.$$eval('#sheet .editor-arrange .btn', (bs) => bs.map((b) => '#' + b.id)), ids, 'the four, in order, in one row');
+  const ids = ['#bFlip', '#bFlipVertical', '#bDup', '#bHide', '#bDrawOn']; // Draw on it joined the row 2026-11-25 (draw right on the skin)
+  assert.deepEqual(await p.$$eval('#sheet .editor-arrange .btn', (bs) => bs.map((b) => '#' + b.id)), ids, 'the five, in order, in one row');
   for (const s of ids) assert.equal(await p.$eval(s, (e) => !!e.closest('#editorAdvanced')), false, s + ' is no longer in More controls');
   const sizes = [[1194, 834], [834, 1194], [1366, 1024], [1024, 1366], [1180, 820], [820, 1180], [744, 1133], [678, 1024], [507, 1024], [390, 844]];
   for (const [W, H] of sizes) {
@@ -30,6 +30,7 @@ export default async function (p) {
       const onTop = await p.$eval(s, (e) => { const b = e.getBoundingClientRect(), h = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2); return !!h && (h === e || e.contains(h)); });
       assert.ok(onTop, `${W}x${H}: ${s} is not covered`);
     }
+    { const tops = await p.$$eval('#sheet .editor-arrange .btn', (bs) => bs.map((b) => Math.round(b.getBoundingClientRect().top))); assert.ok(Math.max(...tops) - Math.min(...tops) <= 1, `${W}x${H}: the five sit in one row: ${tops}`); }
     const label = await p.$$eval('#sheet .editor-arrange .btn', (bs) => bs.every((b) => b.scrollWidth <= b.clientWidth + 1));
     assert.ok(label, `${W}x${H}: every word fits its tile`);
     // on an iPad Layers still shows lines above the panel

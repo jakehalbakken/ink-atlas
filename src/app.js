@@ -3719,7 +3719,7 @@ const SHOW = {
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
   duplicate: () => { if (!needTattoo()) return null; return ['#bDup', 'Duplicate puts a copy beside it to move and size.']; },
-  quickArrange: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = false; return ['#sheet .editor-arrange', 'Mirror, Flip vertical, Duplicate and Hide are right here under the quick actions, one tap each.']; },
+  quickArrange: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = false; return ['#sheet .editor-arrange', 'Mirror, Flip vertical, Duplicate, Hide and Draw on it are right here under the quick actions, one tap each.']; },
   spotCompare: () => { const t = needTattoo(); if (!t) return null; if ($('#spotPop').hidden) $('#bSpots').click(); return ['#spotChoices [data-spot="forearm-front"]', 'Each spot says how much it usually hurts, the lightest clothes that hide this tattoo there, and on an arm or leg whether it fits at this size. Tap one to move it.']; },
   spots: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bSpots', 'Try other spots moves this tattoo to the forearm, calf, ribs and more, one tap each.']; },
   tryOn: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera puts this tattoo over your camera. Point it at your skin.']; },
