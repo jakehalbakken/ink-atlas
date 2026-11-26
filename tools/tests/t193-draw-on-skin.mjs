@@ -25,7 +25,7 @@ export default async function (p) {
   const finger = async (pts) => { await touch('touchStart', [pts[0]]); for (const q of pts.slice(1)) { await touch('touchMove', [q]); await wait(16); } await touch('touchEnd', []); await wait(300); };
   const line = (a, b, n = 14) => Array.from({ length: n + 1 }, (_, i) => [a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n]);
   const S = () => p.evaluate(() => window.__ink.state());
-  const D = () => p.evaluate(() => { const d = window.__ink.drawing(); return d && { ...d, maskAt: undefined, artAt: undefined, inked: d.inked(), maskBox: d.maskBox() }; });
+  const D = () => p.evaluate(() => { const d = window.__ink.drawing(); return d && { ...d, maskAt: undefined, artAt: undefined, inked: d.inked(12), maskBox: d.maskBox() }; });
   const cam = () => p.evaluate(() => ({ ...window.__ink.goal }));
   const front = async () => { await p.click('#views [data-view="0"]'); await p.waitForFunction(() => window.__ink.settled(), { timeout: 10000 }); await wait(300); };
   const all44 = async (sel) => { const r = await p.$$eval(sel, (es) => es.filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0).map((e) => { const r = e.getBoundingClientRect(); return [e.id || e.textContent.trim() || e.getAttribute('aria-label'), Math.round(r.width), Math.round(r.height)]; })); assert.ok(r.length, sel + ' shows'); for (const [n, w, h] of r) assert.ok(w >= 44 && h >= 44, `${sel} "${n}" is ${w}x${h}`); };
@@ -91,7 +91,7 @@ export default async function (p) {
   const cross = line([s.x, s.y + 10], [s.x + 30, s.y + 330], 70);
   await pen(cross); await wait(300);
   d = await D(); assert.equal(d.tool, 'brush'); assert.ok(d.inked.n > n1, 'the brush drew'); assert.ok(d.inked.out <= d.inked.n * 0.01, `kept inside the area (${d.inked.out} of ${d.inked.n} outside)`);
-  assert.ok(d.ink && d.maskBox && (d.ink.y + d.ink.h >= d.maskBox.y + d.maskBox.h - 16 || d.ink.y <= d.maskBox.y + 16), `the stroke reached the area's edge (area ${JSON.stringify(d.maskBox)}, ink ${JSON.stringify(d.ink)})`);
+  assert.ok(d.inked.atEdge > 50, `the stroke reached the area's own edge (${d.inked.atEdge} inked pixels within 12 px of it; area box ${JSON.stringify(d.maskBox)}, ink ${JSON.stringify(d.ink)})`);
   await p.click('#dbClip'); await wait(100); assert.equal((await D()).clip, false);
   await pen(cross.map(([x, y]) => [x + 8, y])); await wait(300);
   d = await D(); assert.ok(d.inked.out > 0, `with Stay inside off the ink runs past the edge (layer ${d.W}x${d.H}, area ${JSON.stringify(d.maskBox)}, ink ${JSON.stringify(d.ink)}, ${d.steps} strokes)`);
