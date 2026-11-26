@@ -38,6 +38,10 @@ assert.equal(pick([A, B], 60, 60, 0, ink).id, 'B', 'no ink there: the topmost bo
 assert.equal(pick([A, B], 145, 145, 0, ink).id, 'B');
 assert.equal(pick([A, B], 300, 300, 0, ink), null, 'outside everything');
 assert.equal(pick([A, { ...B, shown: false }], 145, 145, 0, ink), null, 'a hidden layer is never picked');
+// the photo screen's own layers carry no shown flag at all (it hands pick only the shown ones)
+const bare = ({ shown, ...rest }) => rest;
+assert.equal(pick([bare(A), bare(B)], 5, 5, 0, ink).id, 'A', 'a layer with no shown flag is pickable by its ink');
+assert.equal(pick([bare(A), bare(B)], 60, 60, 0, ink).id, 'B', 'and by its box');
 assert.equal(touches(A, 12, 12, 0, ink), false); assert.equal(touches(A, 12, 12, 4, ink), true, 'a finger near thin ink still counts');
 // picked after it moved: the ink is where it is shown
 const A2 = { ...A, nudge: { x: 200, y: 0, r: 0, s: 1 } };

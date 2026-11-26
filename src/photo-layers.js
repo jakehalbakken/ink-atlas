@@ -123,11 +123,11 @@ export function touches(layer, px, py, slop, inkAt) {
 function ring(r) { const o = []; for (let k = 0; k < 8; k++) o.push([Math.cos(k * Math.PI / 4) * r, Math.sin(k * Math.PI / 4) * r]); return o; }
 
 // The topmost shown layer with ink under a point (the list's last is drawn last, so on top), else
-// the topmost whose box holds the point, else null.
+// the topmost whose box holds the point, else null. A layer counts as shown unless shown is false.
 export function pick(layers, px, py, slop, inkAt) {
-  for (let i = layers.length - 1; i >= 0; i--) { const L = layers[i]; if (L.shown && touches(L, px, py, slop, inkAt)) return L; }
+  for (let i = layers.length - 1; i >= 0; i--) { const L = layers[i]; if (L.shown !== false && touches(L, px, py, slop, inkAt)) return L; }
   for (let i = layers.length - 1; i >= 0; i--) {
-    const L = layers[i]; if (!L.shown) continue;
+    const L = layers[i]; if (L.shown === false) continue;
     const p = toLayer(L, px, py); if (p.x >= 0 && p.y >= 0 && p.x <= L.w && p.y <= L.h) return L;
   }
   return null;
