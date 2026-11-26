@@ -2773,7 +2773,8 @@ function drawDown(e) {
   const pen = e.pointerType === 'pen';
   if (pen && drawFingers && !D.penNote) { D.penNote = true; drawFingers = false; try { localStorage.setItem('ia-draw-fingers', 'off'); } catch { /* private mode */ } toast('The Pencil draws, so fingers now move the view. Fingers draw turns it back.', null, null, 4200); renderDrawBar(); }
   if (!pen && !drawFingers && e.pointerType !== 'mouse') return false;
-  const a = drawPoint(e.clientX, e.clientY, true); if (!a) return false;
+  const a = drawPoint(e.clientX, e.clientY, true);
+  if (!a) return pen; // the Pencil never turns the view: a stroke started off the layer draws once it reaches it
   D.s.begin(a[0], a[1], penPressure(e)); needsRender = true; return true;
 }
 function drawMove(e) {
@@ -3709,7 +3710,7 @@ const SHOW = {
   bentJoint: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=guard]', 'Tap Boxing guard, or Squat under Legs. The skin over the point of the elbow and the knee cap now stretches evenly across the joint, so ink there bends with it instead of one line turning into a thick smeared bar.']; },
   straightArms: () => { toggle('#posePop', true); renderPose(); return ['#poseList [data-pose=straightDown]', 'Tap Arms straight down, Arms straight out or Palms forward. The elbows go fully straight and your arm tattoos go with the skin. Standing puts you back.']; },
   drawNew: () => ['#drawNew', 'Tap Procreate, then Draw on a spot you paint.'],
-  drawSkin: () => ['#drawSkin', 'Tap the brush, paint a spot of skin, then tap Draw here.'],
+  drawSkin: () => { layersDock.setOpen(true, true); return ['#drawSkin', 'Tap the brush, paint a spot of skin, then tap Draw here.']; },
   accountFix: () => (account && account.configured ? ['#accountBtn', 'When your project could not go to your account, the line under Ink Atlas turns red and this button carries a !. Tap either one to see why and put it there.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
