@@ -1723,7 +1723,8 @@ function toast(msg, action, fn, ms = 5200) {
   const t = $('#toast'); t.replaceChildren(el('span', { text: msg })); if (action) t.append(el('button', { type: 'button', text: action, onclick: () => { fn(); t.hidden = true; } }));
   // below a bar that is showing at the top, never behind it
   const bar = ['#procreateBar', '#paintBar'].map((q) => $(q)).find((b) => b && !b.hidden);
-  t.style.top = bar ? `${Math.round(bar.getBoundingClientRect().bottom + 8)}px` : '';
+  const br = bar && bar.getBoundingClientRect();
+  t.style.top = br && br.top < innerHeight / 2 ? `${Math.round(br.bottom + 8)}px` : '';
   t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, ms);
 }
 let slideSnap = false;

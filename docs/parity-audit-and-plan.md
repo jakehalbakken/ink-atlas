@@ -730,6 +730,12 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-26 QA batch 30 (built, not live)
+
+- Re-tested last night's ships at six screen sizes (iPad mini, Air and Pro in both orientations, and a phone): drawing on the skin, a layer a tattoo on photos of me, and numbered file names. The drawing bar, its Cancel question and every control are on screen at 44 pt with nothing over them.
+- The paint bar for drawing on the skin (Layers > the brush) sat at the top of the screen. On an iPad on its side (1180 x 820 and 1133 x 744) it lay over the chest and belly, so a finger there touched the bar instead of the skin. It now sits along the bottom like the drawing bar that follows it and the Tape measure, is wider and so one row shorter (177 px, was 231), rises in from below, and hides the hint line under it while it shows. A message shown while it is up stays at the top, clear of it.
+- Paint and Rub out, and the drawing bar's two-choice rows, took two thirds of their row and left an empty third column (the shared `.seg` grid is three columns); they now fill it. Check t195 (fails on the live build at 1180 x 820, chest under the bar). New to try entry paintBarLow.
+
 ## 2026-11-25 QA batch 29 (live 16:36 UTC)
 
 - Re-tested Layers in a 60-tattoo project at iPad landscape: Sort by area, Fold all, Open all, Select and Pick all each answer in under 100 ms, and every visible button is 44 pt.
