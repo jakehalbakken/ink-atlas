@@ -946,7 +946,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
 </div>
 <div id="onPhoto" hidden role="dialog" aria-label="Your tattoos on a photo of you">
   <div id="opStage"><canvas id="opPic"></canvas><canvas id="opInk"></canvas><canvas id="opFit"></canvas><canvas id="opSel"></canvas></div>
-  <div id="opLayers" class="glass" hidden><button class="op-head" type="button" id="opLayersFold" aria-expanded="true"><span>Tattoos</span><b id="opLayersCount">0</b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div id="opLayersList" role="list"></div></div>
+  <div id="opLayers" class="glass" hidden><button class="op-head" type="button" id="opLayersFold" aria-expanded="true"><span>Tattoos</span><b id="opLayersCount">0</b><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div id="opLayersList" role="list" data-scroll></div></div>
   <div id="opTop" class="glass"><span id="opText"></span><button class="btn primary" type="button" id="opClose">Done</button></div>
   <div id="opBusy" class="glass" hidden>Reading your photo…</div>
   <div id="opBar" class="glass">
