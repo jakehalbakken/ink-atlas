@@ -87,10 +87,13 @@ export default async function (p) {
   const wide = line([s.x - 160, s.y + 10], [s.x + 160, s.y + 10], 60);
   await p.click('#dbTools [data-tool="brush"]'); await wait(100);
   await p.evaluate(() => { const e = document.querySelector('#dbSize'); e.value = 70; e.dispatchEvent(new Event('input', { bubbles: true })); });
-  await pen(wide); await wait(300);
+  // a stroke from inside the area straight down past its lower edge, well into the room round it
+  const cross = line([s.x, s.y + 10], [s.x + 30, s.y + 330], 70);
+  await pen(cross); await wait(300);
   d = await D(); assert.equal(d.tool, 'brush'); assert.ok(d.inked.n > n1, 'the brush drew'); assert.ok(d.inked.out <= d.inked.n * 0.01, `kept inside the area (${d.inked.out} of ${d.inked.n} outside)`);
+  assert.ok(d.ink && d.maskBox && (d.ink.y + d.ink.h >= d.maskBox.y + d.maskBox.h - 16 || d.ink.y <= d.maskBox.y + 16), `the stroke reached the area's edge (area ${JSON.stringify(d.maskBox)}, ink ${JSON.stringify(d.ink)})`);
   await p.click('#dbClip'); await wait(100); assert.equal((await D()).clip, false);
-  await pen(wide.map(([x, y]) => [x, y + 6])); await wait(300);
+  await pen(cross.map(([x, y]) => [x + 8, y])); await wait(300);
   d = await D(); assert.ok(d.inked.out > 0, `with Stay inside off the ink runs past the edge (layer ${d.W}x${d.H}, area ${JSON.stringify(d.maskBox)}, ink ${JSON.stringify(d.ink)}, ${d.steps} strokes)`);
   await p.click('#dbClip'); await wait(100);
   const before = d.inked.n;
