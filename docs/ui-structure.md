@@ -29,7 +29,7 @@ Nothing else floats on the left any more. Panels open from the button that owns 
 
 ## The edit sheet
 
-Always shown: name, size, Done; the review row on shared projects; one row of quick actions (Tap to place, Clean up artwork, Lock, Edit in Procreate, Reference pictures, Comments). Under it, a second shorter row of tiles: Mirror, Flip vertical, Duplicate and Hide (2026-11-24, Jake: "Those are really important controls to have easily accessible"); they are no longer in More controls.
+Always shown: name, size, Done; the review row on shared projects; one row of quick actions (Tap to place, Clean up artwork, Lock, Edit in Procreate, Reference pictures, Comments). Under it, a second shorter row of tiles: Mirror, Flip vertical, Duplicate and Hide (2026-11-24, Jake: "Those are really important controls to have easily accessible"); they are no longer in More controls. Draw on it (2026-11-25) is the fifth tile, in the same five columns as the quick actions above.
 
 More controls opens sections, each with a small heading:
 
