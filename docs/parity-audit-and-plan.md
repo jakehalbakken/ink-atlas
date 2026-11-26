@@ -730,6 +730,13 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-26 QA batch 32 (built, not live)
+
+- Re-tested How I see it, Pain map, Open skin, Tape measure, Bend and warp, Blend and colour, Measure me, Share, Plan, New to try, Body, Try other spots, Ink check and Comments at six iPad sizes, turning the iPad with each open. All clean but two.
+- Fixed: Measure me ran past the bottom of the screen on an iPad on its side (half of Skip and Next under the edge at 1180 x 820, all of them at 1133 x 744), so each of its 17 screens needed a scroll first. Back, Skip and Next now stay at the bottom of the screen's right side (sticky foot inside `.mm-right`, which scrolls on its own), the feet key shares the fractions' row (`.np-extra` takes four columns when the feet key shows, every number pad), the pad is a little tighter on a screen under 900 px high, and "The model now measures" sits above the pad so it is never cut off.
+- Fixed: in Try other spots a long note (Wrist: "High pain, always shows, wraps more than half way round") ran out of its button over the one beside it. Notes wrap inside their own button, balanced. On an iPad the list (and Match photos of me, which had the same rule) now reaches the bottom of the screen; it stopped 190 px short, room kept for the tray of tattoos that went on 2026-11-19. A phone keeps the old room for the edit sheet.
+- Checks: t198, t199. New to try: measureFits.
+
 ## 2026-11-26 QA batch 31 (built, not live)
 
 - Re-tested On a photo of me, Try on with camera, Real size on screen and Stencil for your artist at six screen sizes, turning the iPad with each open.

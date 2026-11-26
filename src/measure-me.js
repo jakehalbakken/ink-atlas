@@ -95,8 +95,8 @@ export function createMeasureMe(host, o) {
     const now = o.read(st.key);
     const model = h('p', 'mm-model', now != null ? `The model now measures ${st.kind === 'height' ? ftText(now) : fmt(now)}.` : '');
     left.append(fig);
-    right.append(count, bar, name, tip);
-    const padHost = h('div', 'mm-pad'); right.append(padHost, model);
+    // what the model measures now goes above the pad, so it shows on a short screen too
+    const padHost = h('div', 'mm-pad'); right.append(count, bar, name, tip, model, padHost);
     wrap.append(left, right);
     const last = i === o.steps.length - 1;
     pad = openPad({
