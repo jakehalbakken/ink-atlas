@@ -25,7 +25,7 @@ export default async function (p) {
   const finger = async (pts) => { await touch('touchStart', [pts[0]]); for (const q of pts.slice(1)) { await touch('touchMove', [q]); await wait(16); } await touch('touchEnd', []); await wait(300); };
   const line = (a, b, n = 14) => Array.from({ length: n + 1 }, (_, i) => [a[0] + (b[0] - a[0]) * i / n, a[1] + (b[1] - a[1]) * i / n]);
   const S = () => p.evaluate(() => window.__ink.state());
-  const D = () => p.evaluate(() => { const d = window.__ink.drawing(); return d && { ...d, maskAt: undefined, artAt: undefined, inked: d.inked() }; });
+  const D = () => p.evaluate(() => { const d = window.__ink.drawing(); return d && { ...d, maskAt: undefined, artAt: undefined, inked: d.inked(), maskBox: d.maskBox() }; });
   const cam = () => p.evaluate(() => ({ ...window.__ink.goal }));
   const front = async () => { await p.click('#views [data-view="0"]'); await p.waitForFunction(() => window.__ink.settled(), { timeout: 10000 }); await wait(300); };
   const all44 = async (sel) => { const r = await p.$$eval(sel, (es) => es.filter((e) => e.checkVisibility() && e.getBoundingClientRect().width > 0).map((e) => { const r = e.getBoundingClientRect(); return [e.id || e.textContent.trim() || e.getAttribute('aria-label'), Math.round(r.width), Math.round(r.height)]; })); assert.ok(r.length, sel + ' shows'); for (const [n, w, h] of r) assert.ok(w >= 44 && h >= 44, `${sel} "${n}" is ${w}x${h}`); };
@@ -52,6 +52,7 @@ export default async function (p) {
   let d = await D();
   assert.equal(d.fresh, true); assert.equal(d.hasArea, true); assert.equal(d.clip, true, 'Stay inside is on for an area');
   assert.ok(d.inked.inside > 100, 'the area is in the layer: ' + d.inked.inside);
+  { const m = d.maskBox; assert.ok(m && m.x > 0 && m.y > 0 && m.x + m.w < d.W && m.y + m.h < d.H, `the layer reaches past the area (layer ${d.W}x${d.H}, area ${JSON.stringify(m)})`); }
   assert.equal((await S()).tattoos.length, n0 + 1, 'a new layer'); assert.equal(await p.evaluate(() => window.__ink.undoLen()), u0 + 1, 'one undo step so far');
   const layer = (await S()).tattoos.find((t) => t.id === d.id); assert.equal(layer.status, 'planned'); assert.match(layer.name, /^Sketch/);
   assert.ok(await shown('#drawBar'), 'the drawing bar shows'); assert.equal(await p.$eval('#paintBar', (e) => e.hidden), true);
@@ -90,7 +91,7 @@ export default async function (p) {
   d = await D(); assert.equal(d.tool, 'brush'); assert.ok(d.inked.n > n1, 'the brush drew'); assert.ok(d.inked.out <= d.inked.n * 0.01, `kept inside the area (${d.inked.out} of ${d.inked.n} outside)`);
   await p.click('#dbClip'); await wait(100); assert.equal((await D()).clip, false);
   await pen(wide.map(([x, y]) => [x, y + 6])); await wait(300);
-  d = await D(); assert.ok(d.inked.out > 0, 'with Stay inside off the ink runs past the edge');
+  d = await D(); assert.ok(d.inked.out > 0, `with Stay inside off the ink runs past the edge (layer ${d.W}x${d.H}, area ${JSON.stringify(d.maskBox)}, ink ${JSON.stringify(d.ink)}, ${d.steps} strokes)`);
   await p.click('#dbClip'); await wait(100);
   const before = d.inked.n;
   await p.click('#dbTools [data-tool="eraser"]'); await wait(100);
