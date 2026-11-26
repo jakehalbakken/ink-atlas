@@ -730,6 +730,16 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-26 QA batch 31 (built, not live)
+
+- Re-tested On a photo of me, Try on with camera, Real size on screen and Stencil for your artist at six screen sizes, turning the iPad with each open.
+- Fixed: turning the iPad with On a photo of me open left the photo laid out for the old shape of the screen, cut off at the side. It is laid out again whenever the screen changes size (`ResizeObserver` on the screen, `on-photo.js`).
+- Fixed: on an iPad on its side, picking a tattoo grew the controls along the bottom over most of the photo. On a screen 1000 px wide and wider in landscape the controls stand as a column at the left and the photo fills the room beside them; upright the photo sits above the controls. The room is measured without the picked tattoo's own controls, so picking one never moves the photo.
+- Fixed: on a phone the Tattoos list could start over the top line when it wrapped (`--optop`).
+- Fixed: Try on with camera kept the artwork at its screen pixels, so turning the iPad moved it to other skin on the photo or off the screen. On a photo it stays on the same spot of the photo at the same size against it, over the camera it keeps its place in proportion, its middle stays on screen, and a second turn puts it back where it was (`toReflow` in `app.js`).
+- Real size on screen and Stencil were clean at every size.
+- Checks: t196, t197. New to try: photoTurns.
+
 ## 2026-11-26 QA batch 30 (built, not live)
 
 - Re-tested last night's ships at six screen sizes (iPad mini, Air and Pro in both orientations, and a phone): drawing on the skin, a layer a tattoo on photos of me, and numbered file names. The drawing bar, its Cancel question and every control are on screen at 44 pt with nothing over them.

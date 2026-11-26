@@ -144,8 +144,18 @@ export function createOnPhoto(api) {
   function say(text) { $('#opText').textContent = text; }
   function layout() {
     const p = cur(); if (!p || !p.read) return;
-    const box = root.getBoundingClientRect(), k = Math.min(box.width / p.read.w, box.height / p.read.h);
-    const W = p.read.w * k, H = p.read.h * k, L = (box.width - W) / 2, T = (box.height - H) / 2;
+    // the photo goes in the room the panels leave: beside the controls when they stand as a column
+    // (an iPad on its side), above them when they sit along the bottom, and under the line at the
+    // top. Picking a tattoo grows the controls, so the room is measured without the picked part,
+    // and the photo stays put when one is picked.
+    const box = root.getBoundingClientRect(), bar = $('#opBar').getBoundingClientRect(), pk = $('#opPicked');
+    const extra = pk.hidden ? 0 : pk.offsetHeight + 8;
+    let l = 0, t = 0, r = box.width, b = box.height;
+    const column = bar.width && bar.right - box.left < box.width * 0.45 && bar.bottom - box.top - extra < box.height * 0.9 && bar.left - box.left < 40 && bar.width < box.width * 0.4;
+    if (column) { l = bar.right - box.left + 12; t = 84; b = box.height - 16; }
+    else if (bar.width) { const bt = bar.top - box.top + extra - 8; if (bt - 84 > box.height * 0.45) { t = 84; b = bt; } }
+    const fw = Math.max(1, r - l), fh = Math.max(1, b - t), k = Math.min(fw / p.read.w, fh / p.read.h);
+    const W = p.read.w * k, H = p.read.h * k, L = l + (fw - W) / 2, T = t + (fh - H) / 2;
     for (const c of [pic, over, fitC, selC]) Object.assign(c.style, { width: W + 'px', height: H + 'px', left: L + 'px', top: T + 'px' });
     S.view = { k, L, T, W, H, box };
   }
@@ -372,7 +382,13 @@ export function createOnPhoto(api) {
   $('#opUnpick').addEventListener('click', () => pickLayer(null));
   $('#rOpSize').addEventListener('input', () => { const L = selLayer(); if (!L) return; L.nudge = { ...L.nudge, s: Math.min(MAX_S, Math.max(MIN_S, +$('#rOpSize').value / 100)) }; soon(); $('#opOne').hidden = !moved(L.nudge); $('#opReset').hidden = false; });
   $('#rOpTurn').addEventListener('input', () => { const L = selLayer(); if (!L) return; L.nudge = { ...L.nudge, r: +$('#rOpTurn').value * Math.PI / 180 }; soon(); $('#opOne').hidden = !moved(L.nudge); $('#opReset').hidden = false; });
-  addEventListener('resize', () => { if (!root.hidden) { layout(); drawSel(); } });
+  // the screen turning or the iPad's visual viewport changing size resizes #viewport after the
+  // window's own resize event, so the photo is laid out again when the screen itself has changed
+  const relayout = () => { if (!root.hidden) { layout(); drawSel(); } };
+  // the line at the top wraps to more lines on a narrow screen: the list of tattoos starts under it
+  const topLine = () => root.style.setProperty('--optop', Math.round($('#opTop').getBoundingClientRect().bottom - root.getBoundingClientRect().top + 6) + 'px');
+  if (typeof ResizeObserver === 'function') { const ro = new ResizeObserver(relayout); ro.observe(root); ro.observe($('#opBar')); new ResizeObserver(topLine).observe($('#opTop')); }
+  addEventListener('resize', () => requestAnimationFrame(relayout));
   document.addEventListener('keydown', (e) => {
     if (root.hidden) return;
     if (e.key === 'Escape') { if (S.sel) pickLayer(null); else close(); e.preventDefault(); return; }

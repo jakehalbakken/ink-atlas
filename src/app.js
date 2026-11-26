@@ -2067,7 +2067,7 @@ async function openTryOn() {
   const t = sel(); if (!t) return; markTried('try-on');
   tryOn.id = t.id; tryOn.dt = null; tryOn.img = await loadImg(t.img); if (!tryOn.img) { toast('This artwork could not be opened.'); return; }
   if (warpOf(t)) { const d = asDrawn(t, 1024); if (d.im) { tryOn.img = d.im; tryOn.dt = d.t; markTried('tryOnBent'); } }
-  const v = toView(); tryOn.baseW = Math.min(v.w, v.h) * 0.42; tryOn.t = { x: v.w / 2, y: v.h * 0.45, s: 1, r: 0 };
+  const v = toView(); tryOn.baseW = Math.min(v.w, v.h) * 0.42; tryOn.t = { x: v.w / 2, y: v.h * 0.45, s: 1, r: 0 }; tryOn.view = v;
   tryOn.curve = 0; $('#rToCurve').value = 0; tryOn.frozen = null; tryOn.pts.clear();
   $('#tryOn').hidden = false; $('#toPhoto').hidden = true; $('#toLive').hidden = false; $('#toDone').hidden = true; $('#toSnap').disabled = false; $('#toSwitch').disabled = false;
   $('#toText').textContent = toLabel(); toRenderArt(); toStartCamera();
@@ -2122,7 +2122,24 @@ $('#rToCurve').addEventListener('input', () => { tryOn.curve = +$('#rToCurve').v
   const end = (e) => { if (!tryOn.pts.delete(e.pointerId)) return; if (tryOn.pts.size) begin(); else tryOn.start = null; };
   surf.addEventListener('pointerup', end); surf.addEventListener('pointercancel', end);
 }
-addEventListener('resize', () => { if (!$('#tryOn').hidden) toPlace(); });
+// The iPad turning: on a photo (or the frozen frame) the artwork stays on the same skin, since the
+// picture fills the screen the same way at any size; over the live camera it keeps its place on the
+// screen in proportion. Either way its middle stays on screen.
+function toReflow() {
+  if ($('#tryOn').hidden) return;
+  const nv = toView(), ov = tryOn.view || nv, ph = $('#toPhoto');
+  if (ov.w !== nv.w || ov.h !== nv.h) {
+    // from where it truly was, not where it was held on screen, so a second turn puts it back
+    const t = tryOn.tFree && tryOn.tShown === tryOn.t ? tryOn.tFree : tryOn.t; let x, y, k;
+    if (!ph.hidden && ph.naturalWidth) {
+      const bw = ph.naturalWidth, bh = ph.naturalHeight, so = Math.max(ov.w / bw, ov.h / bh), sn = Math.max(nv.w / bw, nv.h / bh);
+      x = (nv.w - bw * sn) / 2 + (t.x - (ov.w - bw * so) / 2) / so * sn; y = (nv.h - bh * sn) / 2 + (t.y - (ov.h - bh * so) / 2) / so * sn; k = sn / so;
+    } else { x = t.x * nv.w / ov.w; y = t.y * nv.h / ov.h; k = Math.min(nv.w, nv.h) / Math.min(ov.w, ov.h); }
+    tryOn.tFree = { ...t, x, y }; tryOn.t = tryOn.tShown = { ...t, x: Math.min(nv.w - 24, Math.max(24, x)), y: Math.min(nv.h - 24, Math.max(24, y)) }; tryOn.baseW *= k;
+  }
+  tryOn.view = nv; toPlace();
+}
+addEventListener('resize', () => requestAnimationFrame(toReflow));
 document.addEventListener('visibilitychange', () => { if (document.hidden && tryOn.stream) toStopCamera(); else if (!document.hidden && !$('#tryOn').hidden && !tryOn.frozen) toStartCamera(); });
 // Where Duplicate puts the copy: beside the original on the same skin, to its right, then left,
 // above or below, nearer if need be. A straight ray from just past the side of an arm or leg used to
