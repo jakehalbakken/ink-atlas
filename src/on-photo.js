@@ -153,15 +153,14 @@ export function createOnPhoto(api) {
     const p = cur(); if (!p) return;
     if (p.error) { say(p.error); return; }
     if (!p.fit) { say('Reading the photo…'); return; }
-    const L = selLayer();
-    if (L) { say(`${L.name} picked. Drag to move it, pinch to size and turn it. Tap the photo away from it to move them all.`); return; }
-    const n = shown(p).length, many = n !== 1;
+    const L = selLayer(), n = shown(p).length, many = n !== 1;
     const c = api.counts(), total = S.which === 'planned' ? c.planned : S.which === 'existing' ? c.existing : c.planned + c.existing, away = Math.max(0, total - inKind(p).length);
     const what = S.which === 'planned' ? (many ? 'planned tattoos' : 'planned tattoo') : S.which === 'existing' ? (many ? 'tattoos from your skin' : 'tattoo from your skin') : (many ? 'tattoos' : 'tattoo');
     const words = fitWords(p.fit, p.read.w, p.read.h);
     const lead = n ? `${n} ${what} on your photo.` : inKind(p).length ? 'Every tattoo here is hidden.' : S.which === 'existing' ? 'No tattoos marked On my skin to show.' : S.which === 'planned' ? 'No planned tattoos to show.' : 'No tattoos to show.';
     const out = away ? ` ${away === 1 ? '1 is' : away + ' are'} out of sight from this angle.` : '';
-    const tail = !n ? '' : words === 'good' ? ' Tap one to move it on its own, or drag to move them all.' : words === 'rough' ? ' This photo was harder to read, so tap each one and drag, pinch or turn it into place.' : ' I could not read how you stand very well here. Try Turn it round, or tap each one and drag it into place.';
+    // with one picked, the count still leads, so hiding one with its eye says how many are left
+    const tail = L ? ` ${L.name} picked. Drag to move it, pinch to size and turn it. Tap the photo away from it to move them all.` : !n ? '' : words === 'good' ? ' Tap one to move it on its own, or drag to move them all.' : words === 'rough' ? ' This photo was harder to read, so tap each one and drag, pinch or turn it into place.' : ' I could not read how you stand very well here. Try Turn it round, or tap each one and drag it into place.';
     say(lead + out + tail + (S.photos.length > 1 ? ` Photo ${S.at + 1} of ${S.photos.length}.` : ''));
   }
   function controls() {
