@@ -107,9 +107,11 @@ export default async function (p) {
   const chest = () => o.L.find((L) => L.name === 'Chest'), thigh = () => o.L.find((L) => L.name === 'Thigh');
   // a drag that starts on the chest piece's ink picks it and moves it alone
   let [x, y] = scr(chest(), 0.2, 0.2);
+  const under = await p.evaluate((x, y) => { const e = document.elementFromPoint(x, y); return e ? (e.id || e.className || e.tagName) + (e.closest('#opStage') ? ' (on the photo)' : ' (NOT on the photo)') : 'nothing'; }, x, y);
   await p.mouse.move(x, y); await p.mouse.down(); await p.mouse.move(x + 30, y + 12, { steps: 6 }); await p.mouse.up(); await wait(250);
   o = await ph();
-  assert.equal(o.sel, chest().id, 'the touched tattoo is picked');
+  const down = await p.evaluate(() => window.__ink.onPhoto().down);
+  assert.equal(o.sel, chest().id, `the touched tattoo is picked (pressed at ${x.toFixed(0)},${y.toFixed(0)} over ${under}; chest box ${JSON.stringify([chest().x, chest().y, chest().w, chest().h])}, view ${JSON.stringify(o.view)}, pointer down ${JSON.stringify(down)})`);
   assert.ok(chest().nudge.x > 10 && Math.abs(thigh().nudge.x) < 1e-6, 'only the picked one moved');
   assert.match(o.text, /Chest picked/);
   assert.equal(await p.$eval('#opPicked', (e) => e.hidden), false, 'its own controls show');

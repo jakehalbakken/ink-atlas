@@ -393,18 +393,25 @@ export function createOnPhoto(api) {
   const stage = $('#opStage');
   const toPhoto = (e) => { const v = S.view; return { x: (e.clientX - v.box.left - v.L) / v.k, y: (e.clientY - v.box.top - v.T) / v.k }; };
   const begin = () => {
+    if (!S.g) return;
     const p = cur(), q = [...S.pts.values()], who = S.g.who;
     const ls = who === 'all' ? shown(p) : shown(p).filter((L) => L.id === who);
     S.g = { ...S.g, ls, starts: new Map(ls.map((L) => [L.id, { ...L.nudge }])), a: { ...q[0] }, b: q[1] ? { ...q[1] } : null };
     if (who === 'all') S.g.pivot = groupCentre(ls);
   };
   stage.addEventListener('pointerdown', (e) => {
-    const p = cur(); if (!p || !p.layers || !S.view || S.pts.size >= 2) return;
+    const p = cur();
+    // a first finger (or the mouse) starts a new gesture: drop any finger whose lift never arrived
+    if (e.isPrimary && S.pts.size) { S.pts.clear(); S.g = null; }
+    S.down = { at: null, hit: null, why: '' };
+    if (!p || !p.layers || !S.view) { S.down.why = 'not ready'; return; }
+    if (S.pts.size >= 2) { S.down.why = 'two fingers already'; return; }
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const at = toPhoto(e);
     S.pts.set(e.pointerId, at); try { stage.setPointerCapture(e.pointerId); } catch (_) { /* synthetic */ }
-    if (S.pts.size === 1) {
+    if (S.pts.size === 1 || !S.g) {
       const hit = pick(shown(p), at.x, at.y, 22 / S.view.k, inkAt);
+      S.down = { at, hit: hit ? hit.id : null, why: 'picked' };
       if (hit && hit.id !== S.sel) { S.sel = hit.id; api.tried('photoLayers'); describe(); controls(); drawSel(); }
       S.g = { who: hit ? hit.id : S.sel || 'all', onEmpty: !hit, moved: false, x0: e.clientX, y0: e.clientY };
     }
@@ -432,7 +439,7 @@ export function createOnPhoto(api) {
     if (g && !g.moved && g.onEmpty && S.sel) { pickLayer(null); return; } // a tap away from every tattoo
     compose(); describe(); controls();
   };
-  stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+  stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end); stage.addEventListener('lostpointercapture', end);
 
   return {
     open, openWith, close, addFiles,
@@ -442,7 +449,7 @@ export function createOnPhoto(api) {
       photos: S.photos.map((p) => ({ fit: p.fit && { error: p.fit.error, view: p.fit.view, camera: p.fit.camera, rotations: p.fit.rotations }, error: p.error, mirror: p.mirror, turn: p.turn,
         layers: p.layers && p.layers.map((L) => ({ id: L.id, name: L.name, status: L.status, x: L.x, y: L.y, w: L.w, h: L.h, nudge: { ...L.nudge }, hidden: p.off.has(L.id) })),
         w: p.read && p.read.w, h: p.read && p.read.h })),
-      at: S.at, which: S.which, sel: S.sel, text: $('#opText').textContent, view: S.view && { k: S.view.k, L: S.view.L + S.view.box.left, T: S.view.T + S.view.box.top },
+      at: S.at, which: S.which, sel: S.sel, down: S.down || null, text: $('#opText').textContent, view: S.view && { k: S.view.k, L: S.view.L + S.view.box.left, T: S.view.T + S.view.box.top },
     }),
     layerPixels: () => { const p = cur(); if (!p || !p.read) return null; return over.getContext('2d').getImageData(0, 0, p.read.w, p.read.h); },
     refresh: () => { const p = cur(); if (p) { p.layers = null; show(); } },
