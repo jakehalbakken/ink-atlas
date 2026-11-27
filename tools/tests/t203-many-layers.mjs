@@ -10,6 +10,7 @@ export default async function (p) {
   const wait = (n = 300) => new Promise((r) => setTimeout(r, n));
   await p.setViewport({ width: 1180, height: 820, hasTouch: true, deviceScaleFactor: 1 });
   await p.waitForFunction(() => window.__ink && window.__ink.ready(), { timeout: 30000 }); await wait(1000);
+  await p.evaluate(() => { window.__idbGet = (k) => new Promise((res, rej) => { const r = indexedDB.open('ink-atlas-proto', 1); r.onerror = () => rej(r.error); r.onsuccess = () => { const db = r.result, g = db.transaction('kv').objectStore('kv').get(k); g.onsuccess = () => { db.close(); res(g.result); }; g.onerror = () => rej(g.error); }; }); });
   const before = await p.evaluate(() => window.__ink.inkTex());
   // 87 layers: 10 on my skin, 77 planned, 70 of the planned hidden
   await p.evaluate(() => {
@@ -24,7 +25,7 @@ export default async function (p) {
   assert.equal(many.tex.count, 17, 'only the 17 layers that show keep an ink picture');
   assert.ok(many.tex.mb < 250, `ink pictures held stay small (${many.tex.mb} MB)`);
   // showing a hidden one from its Layers eye draws it again, hiding it gives it back, one undo step each
-  const eyeOf = (name) => p.evaluate((nm) => { const line = [...document.querySelectorAll('#ldList .ld-tat')].find((l) => l.textContent.includes(nm)); if (!line) return false; line.scrollIntoView({ block: 'center' }); line.querySelector('.ld-eye').click(); return true; }, name);
+  const eyeOf = (name) => p.evaluate((nm) => { const line = [...document.querySelectorAll('#ldList .ld-tat')].find((l) => l.textContent.includes(nm)); if (!line) return false; line.scrollIntoView({ block: 'center' }); (line.parentElement.querySelector('.ld-eye') || line.querySelector('.ld-eye')).click(); return true; }, name);
   if (!(await p.evaluate(() => !!document.querySelector('#ldList .ld-tat')))) { await p.click('#layersRail, #layersDock .ld-rail'); await wait(400); }
   assert.ok(await eyeOf('Layer 40'), 'Layer 40 has its line');
   await wait(800);

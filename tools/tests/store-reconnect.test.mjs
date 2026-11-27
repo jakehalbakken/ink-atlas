@@ -34,7 +34,7 @@ if (process.env.CHROME) {
   const server = createServer(async (q, r) => { try { r.setHeader('Content-Type', q.url === '/' ? 'text/html' : 'text/javascript'); r.end(q.url === '/' ? '<!doctype html><title>store</title>' : await readFile(new URL('../../src' + q.url, import.meta.url))); } catch { r.statusCode = 404; r.end(); } });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const b = await puppeteer.launch({ executablePath: process.env.CHROME, headless: true, args: ['--no-sandbox'] });
-  try { const p = await b.newPage(); await p.goto(`http://127.0.0.1:${server.address().port}/`); out = await p.evaluate(`(${run.toString()})((await import('/store.js')).openStore)`); }
+  try { const p = await b.newPage(); await p.goto(`http://127.0.0.1:${server.address().port}/`); out = await p.evaluate(`(async () => (${run.toString()})((await import('/store.js')).openStore))()`); }
   finally { await b.close(); server.close(); }
 } else {
   await import(process.env.FAKE_IDB || 'fake-indexeddb/auto');
