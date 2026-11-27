@@ -730,6 +730,14 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-27 QA batch 34 (built, not live)
+
+Re-tested Layers (a line's options, Select with every line picked, folders), More controls and every top-bar panel (Body, Preview, Plan, Share, New) at six iPad sizes and a phone: no small, clipped or covered controls.
+
+- The tattoo's name at the top of the edit sheet was 122 px on every iPad, so "Sunburst (sample)" stopped mid-letter. The bin beside it is now 44 pt like the fold arrow (was 50), and a name still too long ends in … until the box is tapped to type.
+
+Checks: t202. New to try: nameRoom.
+
 ## 2026-11-27 QA batch 33 (built, not live)
 
 - Re-tested Try other spots on three phone sizes (the list stops above the bottom bar, nothing under it), all ten Clean up tools turning the iPad with each open at six sizes, and every Measured wrap step (Quick, Measurements, Existing tattoo, Design, Procreate, Print) at six sizes.
