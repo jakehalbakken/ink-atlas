@@ -336,9 +336,12 @@ function viewportBox() { const e = $('#viewport'), r = e.getBoundingClientRect()
 function placeChrome() {
   if (typeof fitLookLabel === 'function') try { fitLookLabel(); } catch {}
   const body = document.body, v = $('#views'), tb = $('#top .toolbar'), br = $('#top .brand');
-  body.classList.remove('views-low');
-  const vr = v.getBoundingClientRect(), tr = tb.getBoundingClientRect(), b = br.getBoundingClientRect();
-  const fits = vr.right <= tr.left - 8 && tr.right <= innerWidth - 4 && vr.left >= 0 && (!b.width || vr.left >= b.right + 4) && Math.abs(vr.top - tr.top) < 30;
+  body.classList.remove('views-low', 'views-tight');
+  const fitsNow = () => { const vr = v.getBoundingClientRect(), tr = tb.getBoundingClientRect(), b = br.getBoundingClientRect(); return vr.right <= tr.left - 8 && tr.right <= innerWidth - 4 && vr.left >= 0 && (!b.width || vr.left >= b.right + 4) && Math.abs(vr.top - tr.top) < 30; };
+  // a tight top row first shows Full body as its icon alone, so the views keep their row (an 11 inch
+  // iPad on its side once Find any tool joined the toolbar, 2026-11-27)
+  let fits = fitsNow();
+  if (!fits) { body.classList.add('views-tight'); fits = fitsNow(); if (!fits) body.classList.remove('views-tight'); }
   // --below and --views-top are used inside #viewport, which iOS can shift and scale with its visual
   // viewport (browser bars, keyboard), so they are measured from its own top: measured from the
   // window, a shifted moment left Layers starting under the top bar (2026-11-19, Chrome on the iPad)
@@ -1904,9 +1907,9 @@ function renderRealSize() {
   $('#rsText').textContent = `${t.name}: ${w.toFixed(1)} × ${h.toFixed(1)} in (${(w * 2.54).toFixed(0)} × ${(h * 2.54).toFixed(0)} cm) at real size.` + (big ? ' Bigger than the screen, so the middle shows.' : ' Hold the screen against your skin.');
   const card = $('#rsCard'); card.style.width = 3.370 * rsPpi + 'px'; card.style.height = 2.125 * rsPpi + 'px';
 }
-function showRealSize(on) {
+function showRealSize(on, id = selectedId) {
   $('#realSize').hidden = !on; if (!on) { $('#rsCal').hidden = true; $('#rsCard').hidden = true; $('#rsCheck').hidden = false; return; }
-  markTried('real-size'); rsPpi = guessPpi(); rsId = selectedId; renderRealSize();
+  markTried('real-size'); rsPpi = guessPpi(); rsId = id; renderRealSize();
 }
 $('#bRealSize').addEventListener('click', () => showRealSize(true));
 $('#rsClose').addEventListener('click', () => showRealSize(false));
@@ -1989,10 +1992,10 @@ async function makeStencil() {
   if (soft) markTried('sharp');
   stReady(r.linePixels > 0);
 }
-function showStencil(on) {
+function showStencil(on, id = null) {
   $('#stencil').hidden = !on; st.run++; clearTimeout(st.timer);
   if (!on) return;
-  const t = sel(); if (!t) { $('#stencil').hidden = true; toast('Select a tattoo first.'); return; }
+  const t = id ? state.tattoos.find((x) => x.id === id) : sel(); if (!t) { $('#stencil').hidden = true; toast('Select a tattoo first.'); return; }
   markTried('stencil'); st.id = t.id; makeStencil();
   const n = planStencilList().length; $('#stAll').hidden = n < 2; $('#stAll').textContent = `All ${n} planned pieces`;
 }
@@ -3720,6 +3723,7 @@ const SHOW = {
   undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],
   sizesBent: () => { toggle('#share', true); return ['#cLabels', 'Picture with sizes, Three sizes, the plan as a message, the page for approval, the time to tattoo and the everyday size now all read a bent tattoo at the size it fills on your skin.']; },
   tryOnBent: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera now shows a bent tattoo bent, at the size it fills on your skin.']; },
+  atShop: () => { toggle('#share', true); return ['#cShop', 'At the shop goes through each planned piece full screen: on the body, its size, where it sits, your note and references, with Real size on screen and the stencil. Swipe to the next one.']; },
   labels: () => { toggle('#share', true); return ['#cLabels', 'A picture of this view with each tattoo’s name and size written beside it, to send to your artist.']; },
   centre: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; $('#preciseBox').open = true; return ['#snapLabel', 'Drag a tattoo on your chest, stomach or back across the middle and a line shows down the centre of the body. Turn on snapping here and it sits right on it.']; },
   keys: () => { if (!needTattoo()) return null; return [null, 'With a keyboard: the arrows move the selected tattoo (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Undo puts any of it back.']; },
@@ -6960,6 +6964,114 @@ $('#cLabels').addEventListener('click', () => { const url = labelsShot(); if (ur
 $('#cMirror').addEventListener('click', () => { const url = mirrorShot(); if (!url) { toast('Add a tattoo first.'); return; } markTried('mirror'); showPreview(url, 'ink-atlas-mirror.png', 'In a mirror'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
+// At the shop: the iPad held up for the artist, one planned piece at a time. A close picture on the
+// body and the whole body from the same side with the spot ringed, the artwork, its size, where it
+// sits, the time, the note for the artist, its references and open comments, with Real size on
+// screen and the stencil for that piece. View only: the camera, pose and selection stay as they were.
+const shop = { list: [], i: 0, pics: new Map(), run: 0, x: null };
+function shopPieces() { return state.tattoos.filter((t) => t.status !== 'existing' && !t.hidden); }
+function shopShots(t, wholeAspect = 0.55) {
+  const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, inset = curInset;
+  const W = canvas.width, H = canvas.height, tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+  const cut = (w, h) => { const c = document.createElement('canvas'), k = Math.min(1, 1100 / Math.max(w, h)); c.width = Math.round(w * k); c.height = Math.round(h * k); c.getContext('2d').drawImage(canvas, Math.round((W - w) / 2), Math.round((H - h) / 2), w, h, 0, 0, c.width, c.height); return c; };
+  let near = null, whole = null;
+  try {
+    curInset = 0; applyInset(); exporting = true; syncDecals();
+    const spot = shotSpot(t), side = Math.min(W, H);
+    const rNear = THREE.MathUtils.clamp((spot.ext * 1.8 + 0.1) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 2.6);
+    const view = clearView(spot, rNear), theta = view.theta != null ? view.theta : goal.theta, phi = view.phi != null ? view.phi : 1.5;
+    Object.assign(goal, { tx: spot.pos[0], ty: spot.pos[1], tz: spot.pos[2], roll: 0, r: rNear, theta, phi });
+    Object.assign(cur, goal); glide = false; applyCam();
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+    near = cut(side, side);
+    // the whole body from the same side, a tall picture, with a ring round the piece
+    // cut to the shape of the place it shows in, far enough back that the arms fit across
+    const ww = Math.min(W, Math.round(H * wholeAspect)), a = ww / H;
+    Object.assign(goal, { tx: 0, ty: 0.86, tz: 0.02, roll: 0, r: Math.max(2.2 / (2 * tn), 1.3 / (2 * tn * a)), theta, phi: 1.5 });
+    Object.assign(cur, goal); applyCam();
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+    whole = cut(ww, H);
+    camera.updateMatrixWorld();
+    const p = new V3(...spot.pos).project(camera);
+    const k = whole.height / H, x = ((p.x + 1) / 2 * W - (W - ww) / 2) * k, y = (1 - p.y) / 2 * H * k;
+    const rr = Math.max(14, spot.ext / (2 * goal.r * tn) * H * k * 0.75 + 10), g = whole.getContext('2d');
+    g.lineWidth = Math.max(3, whole.height / 220); g.strokeStyle = '#ff5a7a'; g.beginPath(); g.arc(x, y, rr, 0, Math.PI * 2); g.stroke();
+  } finally {
+    exporting = false; syncDecals();
+    Object.assign(cur, oldCur); Object.assign(goal, oldGoal); glide = oldGlide; curInset = inset; applyInset(); applyCam(); needsRender = true;
+  }
+  return { near: near.toDataURL('image/jpeg', 0.9), whole: whole.toDataURL('image/jpeg', 0.9) };
+}
+async function renderShop() {
+  const t = shop.list[shop.i]; if (!t || $('#shop').hidden) return;
+  const run = ++shop.run, n = shop.list.length;
+  $('#spCount').textContent = n > 1 ? `At the shop: ${shop.i + 1} of ${n}` : 'At the shop';
+  $('#spName').textContent = t.name || 'Tattoo';
+  const { w, h } = inchesOf(shownSize(t));
+  $('#spSize').textContent = `${w.toFixed(1)} × ${h.toFixed(1)} in  ·  ${Math.round(w * 2.54)} × ${Math.round(h * 2.54)} cm`;
+  const where = whereOf(t); $('#spWhere').textContent = where ? where.line : ''; $('#spWhere').hidden = !where;
+  const hrs = hoursOf(t); $('#spTime').textContent = hrs ? 'Time to tattoo: ' + sessionText(hrs, 0) : ''; $('#spTime').hidden = !hrs;
+  $('#spNote').textContent = t.note ? 'Note for you: ' + t.note : ''; $('#spNote').hidden = !t.note;
+  const comments = pinNotes().filter((x) => x.tattooId === t.id && !x.done);
+  $('#spComments').replaceChildren(...comments.map((x) => el('li', { text: (x.by ? x.by + ': ' : '') + x.text })));
+  $('#spComments').hidden = !comments.length;
+  $('#spPrev').disabled = shop.i === 0; $('#spNext').disabled = shop.i >= n - 1; $('#spNav').hidden = n < 2;
+  $('#spDots').replaceChildren(...shop.list.map((_, j) => el('i', { class: j === shop.i ? 'on' : '' })));
+  const refs = refList().filter((r) => r.tattooId === t.id);
+  $('#spRefs').replaceChildren(); $('#spRefs').hidden = !refs.length;
+  // the artwork as it sits on the body: bent, mirrored and upside down as it is there
+  if (!imgEls[t.img]) await loadImg(t.img); if (run !== shop.run) return;
+  const d = asDrawn(t, 512); let src = images[t.img] || '';
+  if (d.im && d.im !== imgEls[t.img]) src = d.im.toDataURL();
+  $('#spArtImg').src = src; $('#spArtImg').style.transform = `scale(${d.t.flip ? -1 : 1},${d.t.imageTopDown === false ? -1 : 1})`;
+  let pics = shop.pics.get(t.id);
+  if (!pics) {
+    $('#spNear').removeAttribute('src'); $('#spWhole').removeAttribute('src');
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))); if (run !== shop.run) return;
+    const wb = $('#spWhole').getBoundingClientRect();
+    pics = shopShots(t, wb.width > 40 && wb.height > 40 ? Math.max(0.3, Math.min(1, wb.width / wb.height)) : 0.55); shop.pics.set(t.id, pics);
+  }
+  $('#spNear').src = pics.near; $('#spWhole').src = pics.whole;
+  for (const r of refs) {
+    const thumb = await refThumb(r.img, 240); if (run !== shop.run) return; if (!thumb) continue;
+    $('#spRefs').append(el('button', { type: 'button', 'aria-label': r.note ? 'Reference: ' + r.note : 'Reference picture', onclick: () => shopBig(images[r.img]) }, el('img', { src: thumb, alt: '', draggable: 'false' })));
+  }
+  window.__shop = { i: shop.i, n, id: t.id, refs: $('#spRefs').children.length, comments: comments.length, pics: !!pics };
+}
+function shopBig(src) { if (!src) return; $('#spBigImg').src = src; $('#spBig').hidden = false; }
+function shopStep(d) { const i = Math.max(0, Math.min(shop.list.length - 1, shop.i + d)); if (i === shop.i) return; shop.i = i; $('#spBig').hidden = true; renderShop(); }
+function openShop() {
+  const list = shopPieces(); if (!list.length) { toast('Mark a tattoo as planned first, then show it here.'); return; }
+  cancelGesture(); toggle('#share', false);
+  shop.list = list; shop.pics.clear(); const at = list.findIndex((t) => t.id === selectedId); shop.i = at >= 0 ? at : 0;
+  $('#spBig').hidden = true; $('#shop').hidden = false; markTried('atShop'); renderShop();
+}
+function closeShop() { $('#shop').hidden = true; $('#spBig').hidden = true; shop.run++; shop.pics.clear(); window.__shop = null; }
+$('#cShop').addEventListener('click', openShop);
+$('#spDone').addEventListener('click', closeShop);
+$('#spPrev').addEventListener('click', () => shopStep(-1));
+$('#spNext').addEventListener('click', () => shopStep(1));
+$('#spBig').addEventListener('click', () => { $('#spBig').hidden = true; });
+$('#spNear').addEventListener('click', () => shopBig($('#spNear').src));
+$('#spWhole').addEventListener('click', () => shopBig($('#spWhole').src));
+$('#spReal').addEventListener('click', () => { const t = shop.list[shop.i]; if (t) showRealSize(true, t.id); });
+$('#spStencil').addEventListener('click', () => { const t = shop.list[shop.i]; if (t) showStencil(true, t.id); });
+// a sideways swipe on the piece goes to the next or the one before
+$('#spCard').addEventListener('pointerdown', (e) => { shop.x = e.isPrimary ? { x: e.clientX, y: e.clientY, at: e.timeStamp } : null; });
+$('#spCard').addEventListener('pointerup', (e) => {
+  const s = shop.x; shop.x = null; if (!s || !e.isPrimary) return;
+  const dx = e.clientX - s.x, dy = e.clientY - s.y;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && e.timeStamp - s.at < 800) shopStep(dx < 0 ? 1 : -1);
+});
+$('#spCard').addEventListener('pointercancel', () => { shop.x = null; });
+// its keys stay inside it, above Real size and the stencil
+window.addEventListener('keydown', (e) => {
+  if ($('#shop').hidden || !$('#realSize').hidden || !$('#stencil').hidden) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { shopStep(e.key === 'ArrowRight' ? 1 : -1); }
+  else if (e.key === 'Escape') { if (!$('#spBig').hidden) $('#spBig').hidden = true; else closeShop(); }
+  else if (!(e.metaKey || e.ctrlKey)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+}, true);
 // Procreate colour palette: skin tone, its shade and highlight, then the project's ink colours.
 // Built when the Share sheet opens, so the tap hands the file straight to the share sheet.
 let paletteReady = null;
