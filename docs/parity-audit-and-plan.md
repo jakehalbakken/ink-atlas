@@ -1021,3 +1021,20 @@ Jake: "when I try to like pull a design that I want to wrap up like my armpit an
 - Numbers (`armpit-ink-unit.mjs`, standalone node): round the right armpit, 219 of 224 pieces whole (82 before), bare triangles inside the picture 110 in 37 placements (1487 in 118 before), worst piece 0.95 of its picture (0.59 before); over the body for male, female and muscular shapes, 18 or 19 of 138 pieces not quite whole, only on the feet and side of the face (34 to 38 before), none stretched a tenth of its skin by more than a quarter (some before, every shape). A piece takes about 3 ms to lay instead of 1.
 - Kept as main lays it (after QA found t68's flat chest Sunburst drawn differently): `buildDecal` first runs the old unfolding (`stencilUnfold`) and keeps its result unless it left more than 0.2% of the picture bare after dropping a triangle, or stretched a tenth of its skin by more than a quarter; only then `stencilFlat` lays it again. The Sunburst and every other piece the old walk laid whole are byte for byte the same as main; the armpit numbers above are unchanged or within a few triangles (bare 117 in 39).
 - Not yet run: the browser checks that lay ink (t7, t7b, t115, t116, t124, t133, t134, t155) need the QA machine with Chrome. Not yet on the iPad.
+
+## The audit round: eight improvements (2026-11-27, built, not live)
+
+Jake on 2026-11-27: "Yes all also send me link", to the eight ranked in the Nov 25 audit.
+
+1. Find any tool: built (`find-tools.js`, `find-tools` scoring checked through t55 and its own use in t204).
+2. Instant picks and sliders: built (three-mesh-bvh on the body, t202 compares every hit with the plain raycast).
+3. Daily account backups: built (`backups.js`, `backups-unit.mjs`, t203 against the fake Supabase). Nothing for Jake to set up.
+4. Lighter edit sheet: built (folds in More controls, t204).
+5. Faster start: measured first. Reopening is about 0.9 s to ready in the headless browser, most of it shader compile; the base64 decode was the one cheap win and is in. Lazy-loading panels would save little and was not done.
+6. Procreate layers back from the separate-tattoo body: built (`layered-back.js`, `layered-back-unit.mjs`, t205: the same file back changes nothing; a dot drawn on one tattoo's set changes only that tattoo, its ink within 0.6 mm; paint on the skin set adds a tattoo; one undo puts everything back). Not checked on a file saved by Procreate itself, which can't be made here; the USDZ pictures came back flipped in the headless check and both ways are tried.
+7. Always show my ink healed: built (t206: kept after a reload, another age still previews, the separate-tattoo model has the same pictures with it on or off). Also fixes aged ink going out to Procreate while an age was previewed.
+8. At the shop: built (t207 at both iPad orientations, 44 pt, swipe, keys, Real size and Stencil on top, view and tattoos unchanged).
+- Also: the Find button pushed Share off a phone's toolbar and the views onto their own row on an 11 inch iPad on its side; fixed (t114 passes at every size).
+- Known failing before this round and still failing: t134's ribs drag ("side of ribs, Left view: still on the ink after a drag of -30,0"), the same on the live commit 519cf96.
+- Not yet on the iPad.
+
