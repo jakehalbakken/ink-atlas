@@ -857,7 +857,7 @@ const ptsIds = new WeakMap(); let ptsSeq = 0, gapMemo = null, gapRuns = 0;
 function ptsId(x) { if (!x) return 0; let i = ptsIds.get(x); if (!i) { i = ++ptsSeq; ptsIds.set(x, i); } return i; }
 function gapText(t) {
   const d = decals[t.id], geo = d && d.mesh.geometry;
-  let key = t.id + '|' + (t.status === 'existing' ? 'e' : 'p') + '|' + (state.heightCm || 175) + '|' + ptsId(inkPoints(t)) + '|' + (d ? d.texKey + ':' + (geo.attributes.position ? geo.attributes.position.version : '') : '');
+  let key = t.id + '|' + (t.status === 'existing' ? 'e' : 'p') + '|' + (state.heightCm || 175) + '|' + ptsId(inkPoints(t)) + '|' + (d ? texKeyOf(t) + ':' + (geo.attributes.position ? geo.attributes.position.version : '') : '');
   for (const o of state.tattoos) if (o.id !== t.id) key += ';' + (o.hidden ? 'h' : ptsId(inkPoints(o)) + (o.status === 'existing' ? 'e' : 'p') + (o.name || ''));
   if (gapMemo && gapMemo.key === key) { if (gapMemo.txt && state.tattoos.length >= 20 && gapMemo.id === t.id) markTried('hideQuick'); return gapMemo.txt; }
   gapRuns++; const txt = gapWorkOut(t); gapMemo = { key, txt, id: t.id }; return txt;
