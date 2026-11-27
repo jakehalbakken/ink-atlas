@@ -1042,7 +1042,23 @@ Jake: "when I try to like pull a design that I want to wrap up like my armpit an
 
 Jake, with 87 layers (10 on my skin, 77 planned, most hidden): the page still closes often and keeps saying "Not saved: storage problem".
 
-- Cause, memory: every layer kept its ink picture, a canvas of up to 1024 px plus its copy on the graphics chip with smaller sizes, about 9 MB, whether it showed or not. 87 layers held close to 800 MB, which is more than Chrome on an iPad lets one page keep. Now a hidden layer keeps none (`syncDecals`); showing it draws it again. Checked in t203 through `__ink.inkTex`.
-- Cause, saving: the store opened its database once. WebKit drops a page's connection when the iPad runs short of memory (the same pressure that closes pages) and after time in the background, and every write after that failed until a reload. The message was not "out of space", so it was not the disk. Now a lost connection is opened again and the write run once more (`store-reconnect.test.mjs`, t203). A failed save also tries again by itself (3, 10, 30 seconds), the warning shows once a page instead of after every failed save, and the last failure's name is kept in localStorage `ia-save-err`.
+- Cause, memory: every layer kept its ink picture, a canvas of up to 1024 px plus its copy on the graphics chip with smaller sizes, about 9 MB, whether it showed or not. 87 layers held close to 800 MB, which is more than Chrome on an iPad lets one page keep. Now a hidden layer keeps none (`syncDecals`); showing it draws it again. Checked in t210 through `__ink.inkTex`.
+- Cause, saving: the store opened its database once. WebKit drops a page's connection when the iPad runs short of memory (the same pressure that closes pages) and after time in the background, and every write after that failed until a reload. The message was not "out of space", so it was not the disk. Now a lost connection is opened again and the write run once more (`store-reconnect.test.mjs`, t210). A failed save also tries again by itself (3, 10, 30 seconds), the warning shows once a page instead of after every failed save, and the last failure's name is kept in localStorage `ia-save-err`.
 - Back up now builds the file in pieces (`backupBlob`), same bytes as before, so a big project never needs the whole file as one string.
 - Not checked on the iPad yet.
+## The audit round: eight improvements (2026-11-27, built, not live)
+
+Jake on 2026-11-27: "Yes all also send me link", to the eight ranked in the Nov 25 audit.
+
+1. Find any tool: built (`find-tools.js`, `find-tools` scoring checked through t55 and its own use in t204).
+2. Instant picks and sliders: built (three-mesh-bvh on the body, t209 compares every hit with the plain raycast).
+3. Daily account backups: built (`backups.js`, `backups-unit.mjs`, t203 against the fake Supabase). Nothing for Jake to set up.
+4. Lighter edit sheet: built (folds in More controls, t204).
+5. Faster start: measured first. Reopening is about 0.9 s to ready in the headless browser, most of it shader compile; the base64 decode was the one cheap win and is in. Lazy-loading panels would save little and was not done.
+6. Procreate layers back from the separate-tattoo body: built (`layered-back.js`, `layered-back-unit.mjs`, t205: the same file back changes nothing; a dot drawn on one tattoo's set changes only that tattoo, its ink within 0.6 mm; paint on the skin set adds a tattoo; one undo puts everything back). Not checked on a file saved by Procreate itself, which can't be made here; the USDZ pictures came back flipped in the headless check and both ways are tried.
+7. Always show my ink healed: built (t206: kept after a reload, another age still previews, the separate-tattoo model has the same pictures with it on or off). Also fixes aged ink going out to Procreate while an age was previewed.
+8. At the shop: built (t207 at both iPad orientations, 44 pt, swipe, keys, Real size and Stencil on top, view and tattoos unchanged).
+- Also: the Find button pushed Share off a phone's toolbar and the views onto their own row on an 11 inch iPad on its side; fixed (t114 passes at every size).
+- Known failing before this round and still failing: t134's ribs drag ("side of ribs, Left view: still on the ink after a drag of -30,0"), the same on the live commit 519cf96.
+- Not yet on the iPad.
+

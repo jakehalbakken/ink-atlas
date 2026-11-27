@@ -28,7 +28,7 @@ export default async function (p) {
   const trim = async (what) => {
     const t0 = await get(), i0 = await ink();
     assert.equal(await p.$eval('#trimRow', (n) => n.hidden), false, what + ': the panel says there is empty space');
-    assert.match(await p.$eval('#trimText', (n) => n.textContent), /makes it read [\d.]+ × [\d.]+ in\. The ink is [\d.]+ × [\d.]+ in\./);
+    assert.match(await p.$eval('#trimText', (n) => n.textContent), /The ink is [\d.]+ × [\d.]+ in; empty space round it makes it read [\d.]+ × [\d.]+\./);
     await p.click('#bTrimInk').catch(async (e) => { console.log(what, await p.evaluate(() => JSON.stringify(document.querySelector('#bTrimInk').getBoundingClientRect()))); await p.screenshot({ path: 'shots/t133-fail.png' }); throw e; });
     await p.waitForFunction((i, img) => window.__ink.state().tattoos.find((t) => t.id === i).img !== img, { timeout: 8000 }, id, t0.img);
     await p.waitForFunction((i, img) => { const t = window.__ink.state().tattoos.find((q) => q.id === i); return window.__ink.inkOnSkin(i) && t.img !== img; }, {}, id, t0.img); await wait(400);

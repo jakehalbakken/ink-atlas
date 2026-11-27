@@ -74,7 +74,7 @@ export async function startFakeSupabase({ realtime = true, port = 0, db = 'ink_f
     if (req.method === 'OPTIONS') { res.statusCode = 204; return res.end(); }
     const chunks = []; for await (const ch of req) chunks.push(ch);
     const raw = Buffer.concat(chunks), u = new URL(req.url, 'http://x'), path = u.pathname;
-    const send = (code, body, type = 'application/json') => { res.statusCode = code; if (body === undefined) return res.end(); res.setHeader('Content-Type', type); res.end(type === 'application/json' ? JSON.stringify(body) : body); };
+    const send = (code, body, type = 'application/json') => { res.statusCode = code; if (body === undefined) return res.end(); res.setHeader('Content-Type', type); res.end(type === 'application/json' && !Buffer.isBuffer(body) ? JSON.stringify(body) : body); };
     const json = () => { try { return raw.length ? JSON.parse(raw.toString('utf8')) : {}; } catch (e) { return {}; } };
     const claims = unjwt((req.headers.authorization || '').replace(/^Bearer /i, '')), uid = claims && claims.sub && claims.role === 'authenticated' ? claims.sub : null;
     log.push(req.method + ' ' + path + (uid ? ' as ' + uid.slice(0, 8) : ''));
@@ -150,6 +150,16 @@ export async function startFakeSupabase({ realtime = true, port = 0, db = 'ink_f
         const rows = await as(uid, (c) => c.query("select name, id, created_at from storage.objects where bucket_id = $1 and name like $2 order by name limit $3 offset $4", [bucket, prefix + '/%', 100000, 0])).then((r) => r.rows);
         const out = rows.map((r) => ({ ...r, name: r.name.slice(prefix.length + 1) })).filter((r) => !r.name.includes('/')).slice(offset, offset + limit);
         return send(200, out.map((r) => ({ name: r.name, id: r.id, created_at: r.created_at, metadata: {} })));
+      }
+      // removing files: { prefixes: [names] }, each one only if this person may delete it
+      s = /^\/storage\/v1\/object\/([^/]+)$/.exec(path);
+      if (s && req.method === 'DELETE') {
+        const bucket = decodeURIComponent(s[1]), names = (json().prefixes || []).filter((n) => typeof n === 'string'), out = [];
+        for (const name of names) {
+          const r = await as(uid, (c) => c.query('delete from storage.objects where bucket_id = $1 and name = $2 returning name', [bucket, name]));
+          if (r.rows.length) { files.delete(bucket + '/' + name); out.push({ name, bucket_id: bucket }); }
+        }
+        return send(200, out);
       }
       s = /^\/storage\/v1\/object\/([^/]+)\/(.+)$/.exec(path);
       if (s) {

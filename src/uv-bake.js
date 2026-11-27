@@ -1,4 +1,5 @@
 // Tattoos painted into the skin. The body is laid flat by MakeHuman's own texture
+import { b64typed } from './b64.js';
 // coordinates (UVs), every tattoo triangle is drawn onto the triangle of skin it
 // sits on, and the result is one skin picture wrapped on one body mesh. That is what
 // Procreate, AR Quick Look, Blender and most 3D apps expect, unlike the separate
@@ -12,8 +13,7 @@ let cornerCache = null;
 // Per-corner UVs (u, v in 0..1) for the body and eye triangles, in index order.
 export function bodyCornerUVs() {
   if (!cornerCache) {
-    const bin = atob(UV_CORNERS), raw = new Uint16Array(bin.length / 2);
-    for (let i = 0; i < raw.length; i++) raw[i] = bin.charCodeAt(i * 2) | (bin.charCodeAt(i * 2 + 1) << 8);
+    const raw = b64typed(UV_CORNERS, Uint16Array);
     cornerCache = Float32Array.from(raw, (q) => q / 65535);
   }
   return cornerCache;

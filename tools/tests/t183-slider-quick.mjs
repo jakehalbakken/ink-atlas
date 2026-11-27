@@ -24,10 +24,12 @@ export default async function (p) {
   let r = r1;
   for (const v of [65, 70, 75, 80]) { await step(v); await wait(150); const n = await reads();
     assert.equal(n.rays, r.rays, `step to ${v} sends no ray through the body (${n.rays - r.rays})`);
-    assert.equal(n.geo - r.geo, 60, 'every tattoo is rebuilt on each step');
+    assert.equal(n.geo - r.geo, 0, 'while the finger is down the ink rides the skin, nothing is laid again (2026-11-27)');
     assert.ok(n.limbs - r.limbs <= 4, `each limb is measured at most once a step (${n.limbs - r.limbs})`);
     r = n; }
+  const g0 = (await reads()).geo;
   await ink(() => document.querySelector('#rWeight').dispatchEvent(new Event('change'))); await wait(1200);
+  assert.equal((await reads()).geo - g0, 60, 'every tattoo is laid afresh once the finger lifts');
   // the ink is exactly what a fresh rebuild gives with nothing remembered
   const ids = await ink(() => window.__ink.state().tattoos.map((t) => t.id));
   const before = await ink((ids) => ids.map((id) => window.__ink.decalGeo(id)), ids);

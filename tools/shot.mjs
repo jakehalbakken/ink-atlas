@@ -37,6 +37,10 @@ await p.setViewport({ width: 1180, height: 820, deviceScaleFactor: 1 });
 await p.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: process.env.INK_THEME === 'light' ? 'light' : 'dark' }]);
 p.on('console', (m) => { const t = m.text(); if (!/GPU stall|fonts\.g|ERR_/.test(t)) console.log('console:', t); });
 p.on('pageerror', (e) => console.log('PAGEERROR', e.message));
+// More controls opens to folded sections on a real device; the older checks were written with
+// every section open, so they start that way unless the test says "shot: real folds"
+const realFolds = script ? /shot: real folds/.test(await readFile(resolve(script), 'utf8')) : false;
+if (!realFolds) await p.evaluateOnNewDocument(() => { try { if (localStorage.getItem('ia-more-open') == null) localStorage.setItem('ia-more-open', JSON.stringify(['size', 'spot', 'check', 'plan', 'copy'])); } catch (e) { /* no storage */ } });
 await p.goto(url, { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 2500));
 await p.evaluate(() => { const c = document.querySelector('#coachOk'); c && c.click(); });

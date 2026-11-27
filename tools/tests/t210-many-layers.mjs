@@ -48,5 +48,5 @@ export default async function (p) {
   assert.ok(/^Saved on this device/.test(after.saved.text), 'it says saved: ' + after.saved.text);
   assert.ok(!/not being saved/.test(after.toast), 'no warning for a save that recovered');
   assert.ok(await p.evaluate(() => window.__ink.backupSame()), 'Back up now writes the same file as before, built in pieces');
-  console.log('PASS t203 87 layers keep memory small and saves survive a lost connection');
+  console.log('PASS t210 87 layers keep memory small and saves survive a lost connection');
 }

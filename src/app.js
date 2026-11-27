@@ -39,7 +39,7 @@ import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles, setFileNamer, lastFileName, peekFileName } from './share.js';
 import { makeNamer } from './export-names.js';
 import { createBeforeAfter } from './before-after.js';
-import { createPoseView } from './pose-view.js';
+import { createPoseView, posedDecalPositions } from './pose-view.js';
 import { createClothes, TOPS, BOTTOMS, HAIR, coverage as clothesCoverage } from './clothes.js';
 import { OUTFITS, visibilityText, sittingWear } from './visibility.js';
 import { sizeLikeText } from './size-like.js';
@@ -58,7 +58,10 @@ import { patchMaskTriangles } from './procreate-patch.js';
 import { makePatchReference } from './patch-reference.js';
 import { toneColour, nearestTone, sampleSkin, skinCheck, hexToRgb } from './skin-tone.js';
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
-import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered, readSeen, writeSeen, unseenCount } from './whats-new.js';
+import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
+import { dayWords as backupDay } from './backups.js';
+import { search as findSearch, wordsFor as findWords, fold as findFold } from './find-tools.js';
+import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered, readSeen, writeSeen, unseenCount, seedSeen } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
 import { createOnPhoto } from './on-photo.js';
 import { inkBox as photoInkBox, cropBox, fillTri, growOwners, splitInk } from './photo-layers.js';
@@ -95,7 +98,7 @@ import { limbAxis, limbPlace, limbPoint, LimbDrag, rotFor, rotRound, shareRound,
 import { scanDevice } from './device-scan.js';
 import { createMultiTap } from './multi-tap.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
-const newSeen = readSeen();
+seedSeen(ALL_FEATURES); const newSeen = readSeen();
 // Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
 const TAUGHT_KEY = 'ia-taught', taught = (() => { try { return new Set(JSON.parse(localStorage.getItem(TAUGHT_KEY) || '[]')); } catch (_) { return new Set(); } })();
 // the fine print under the pain map and open skin is read once, then the bars stay slim
@@ -204,6 +207,25 @@ function setBodyPositions(pos, withGenitals) {
 function applyShape() { setBodyPositions(shapePositions(state), genitalsShown()); }
 const body = new THREE.Mesh(bodyGeo, skinMat);
 scene.add(body); body.updateMatrixWorld(true);
+// Taps, drags and shape steps ask where a ray meets the skin dozens of times; checking all 27,000
+// triangles each time was most of a body slider step in a big project (2026-11-25 audit). A
+// bounding volume tree (three-mesh-bvh, MIT) finds the same hit by looking only at the few
+// triangles near the ray. It is built with indirect: true so the body's own triangle order, which
+// saved anchors use, is never touched; one tree per index (with or without the genital geometry)
+// and per geometry (the posed copy), refitted when the positions change.
+const bvhOf = new WeakMap();
+function bvhVer(g) { return g.attributes.position.version + '|' + shapeKey + '|' + (g === bodyGeo ? 'rest' : poseView ? 'p' + poseView.version : ''); }
+body.raycast = function (rc, hits) {
+  const g = this.geometry, idx = g && g.index;
+  if (!idx || !g.attributes.position || noBvh) return THREE.Mesh.prototype.raycast.call(this, rc, hits);
+  let m = bvhOf.get(g); if (!m) { m = new Map(); bvhOf.set(g, m); }
+  let e = m.get(idx); const ver = bvhVer(g);
+  if (!e || e.arr !== g.attributes.position.array || e.n !== idx.count) { e = { bvh: new MeshBVH(g, { indirect: true, maxLeafSize: 8 }), ver, arr: g.attributes.position.array, n: idx.count }; m.set(idx, e); }
+  else if (e.ver !== ver) { e.bvh.refit(); e.ver = ver; }
+  const was = g.boundsTree; g.boundsTree = e.bvh;
+  try { acceleratedRaycast.call(this, rc, hits); } finally { g.boundsTree = was; }
+};
+let noBvh = false, noFollow = false; // for the checks that compare them with the plain way
 
 let floorShadow = null;
 { // soft floor shadow
@@ -314,9 +336,12 @@ function viewportBox() { const e = $('#viewport'), r = e.getBoundingClientRect()
 function placeChrome() {
   if (typeof fitLookLabel === 'function') try { fitLookLabel(); } catch {}
   const body = document.body, v = $('#views'), tb = $('#top .toolbar'), br = $('#top .brand');
-  body.classList.remove('views-low');
-  const vr = v.getBoundingClientRect(), tr = tb.getBoundingClientRect(), b = br.getBoundingClientRect();
-  const fits = vr.right <= tr.left - 8 && tr.right <= innerWidth - 4 && vr.left >= 0 && (!b.width || vr.left >= b.right + 4) && Math.abs(vr.top - tr.top) < 30;
+  body.classList.remove('views-low', 'views-tight');
+  const fitsNow = () => { const vr = v.getBoundingClientRect(), tr = tb.getBoundingClientRect(), b = br.getBoundingClientRect(); return vr.right <= tr.left - 8 && tr.right <= innerWidth - 4 && vr.left >= 0 && (!b.width || vr.left >= b.right + 4) && Math.abs(vr.top - tr.top) < 30; };
+  // a tight top row first shows Full body as its icon alone, so the views keep their row (an 11 inch
+  // iPad on its side once Find any tool joined the toolbar, 2026-11-27)
+  let fits = fitsNow();
+  if (!fits) { body.classList.add('views-tight'); fits = fitsNow(); if (!fits) body.classList.remove('views-tight'); }
   // --below and --views-top are used inside #viewport, which iOS can shift and scale with its visual
   // viewport (browser bars, keyboard), so they are measured from its own top: measured from the
   // window, a shifted moment left Layers starting under the top bar (2026-11-19, Chrome on the iPad)
@@ -847,7 +872,12 @@ function gapWorkOut(t) {
 let gapTimer = 0, gapReads = 0, geoBuilds = 0;
 function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { gapReads++; const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; if (txt && state.tattoos.length >= 20) { markTried('gapQuick'); if (inkWarmDone) markTried('pickQuick'); } }, 120); }
 let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
-let agingYears = 0; // view only: how the ink looks after this many years
+// Always show my ink healed (Preview > Aging): the everyday look is Healed, kept on this device
+let healedLook = (() => { try { return localStorage.getItem('ia-healed') === '1'; } catch { return false; } })();
+let agingYears = healedLook ? 1 : 0; // view only: how the ink looks after this many years
+// Files for Procreate and the bring-back that reads them use the ink as drawn, never aged or
+// healed, so a drawing that comes back is never the softened copy.
+async function withFreshInk(fn) { if (!agingYears) return fn(); const keep = agingYears; agingYears = 0; syncDecals(); try { return await fn(); } finally { agingYears = keep; syncDecals(); needsRender = true; } }
 function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0, lookKey(t), blendOf(t) !== DEFAULT_BLEND ? skinColor() : '', lookDraft === t.id || warpDraft === t.id ? 'draft' : '', warpKey(warpOf(t))].join('|'); }
 // A tattoo that is selected is always drawn: one added, duplicated, switched between On my skin and
 // Planned or picked in Layers while the view shows only the other kind brings that kind back into
@@ -883,7 +913,15 @@ function syncDecals() {
     else if (t.hidden && !(peek && peek.id === t.id)) { if (d.tex) { const was = d.tex; d.tex = null; d.mesh.material.map = null; freeTexture(was); d.mesh.material.needsUpdate = true; markTried('manyLayers'); } d.texKey = ''; } // a hidden layer keeps no picture in memory (2026-11-27: 87 layers, most hidden, each held about 9 MB)
     else if (d.texKey !== tk && imgEls[t.img]) { const was = d.tex; d.tex = inkTexture(t); freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t)), shapeKey].join('|');
-    if (d.geoKey !== gk) { geoBuilds++; d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
+    // while a body slider is being dragged, the ink rides on the skin it was laid on (each decal
+    // point is tied to a body vertex), and is laid out afresh once the finger lifts: laying 60
+    // stencils again on every step was most of a slider step in a big project (2026-11-27)
+    const sk = [t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t))].join('|');
+    const sup = d.mesh.geometry.userData && d.mesh.geometry.userData.supports;
+    if (d.geoKey !== gk && shapeSlide && !noFollow && d.sk === sk && sup && sup.length && d.mesh.geometry.attributes.position) {
+      const g = d.mesh.geometry, P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array;
+      g.attributes.position.array.set(posedDecalPositions(P, N, sup)); g.attributes.position.needsUpdate = true; g.computeBoundingSphere(); g.computeBoundingBox(); d.geoKey = 'follow';
+    } else if (d.geoKey !== gk) { geoBuilds++; d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; d.sk = sk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
     d.mesh.visible = !!d.tex && ((!t.hidden && viewShows(t)) || (!!skinDraw && skinDraw.id === t.id)); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting && !(warpPanel && warpPanel.isOpen()); // the warp grid is the outline then
   });
@@ -1717,7 +1755,7 @@ function renderSheet() {
   if (lost) { const n = state.tattoos.filter(isLost).length; $('#lostText').textContent = n > 1 ? `This picture was lost (${n} are). Its place and size are kept.` : 'This picture was lost. Its place and size are kept.'; }
   const ink = !commentOnly && !t.locked && !lost ? inkShareOf(t) : null, padded = !!ink && (ink.w < 0.96 || ink.h < 0.96);
   $('#trimRow').hidden = !padded;
-  if (padded) { const s = inchesOf(t); $('#trimText').textContent = `Empty space round the ink makes it read ${s.w.toFixed(1)} × ${s.h.toFixed(1)} in. The ink is ${(s.w * ink.w).toFixed(1)} × ${(s.h * ink.h).toFixed(1)} in.`; }
+  if (padded) { const s = inchesOf(t); $('#trimText').textContent = `The ink is ${(s.w * ink.w).toFixed(1)} × ${(s.h * ink.h).toFixed(1)} in; empty space round it makes it read ${s.w.toFixed(1)} × ${s.h.toFixed(1)}.`; }
   $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Already on you, so fingers on the body won\'t move it. The size, turn and nudge controls here still fine-tune it.':t.locked?'Locked in place: fingers on the body won\'t move it, and everything in this panel still works.':isWrap(t)&&!taught.has('wrapMove')?`Drag it sideways to turn it round your ${/leg/.test(wrapInfo(t).L.key)?'leg':'arm'}, up or down to slide it along. Grab it anywhere, even round the back.`:taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
 }
 function renderBody() {
@@ -1888,9 +1926,9 @@ function renderRealSize() {
   $('#rsText').textContent = `${t.name}: ${w.toFixed(1)} × ${h.toFixed(1)} in (${(w * 2.54).toFixed(0)} × ${(h * 2.54).toFixed(0)} cm) at real size.` + (big ? ' Bigger than the screen, so the middle shows.' : ' Hold the screen against your skin.');
   const card = $('#rsCard'); card.style.width = 3.370 * rsPpi + 'px'; card.style.height = 2.125 * rsPpi + 'px';
 }
-function showRealSize(on) {
+function showRealSize(on, id = selectedId) {
   $('#realSize').hidden = !on; if (!on) { $('#rsCal').hidden = true; $('#rsCard').hidden = true; $('#rsCheck').hidden = false; return; }
-  markTried('real-size'); rsPpi = guessPpi(); rsId = selectedId; renderRealSize();
+  markTried('real-size'); rsPpi = guessPpi(); rsId = id; renderRealSize();
 }
 $('#bRealSize').addEventListener('click', () => showRealSize(true));
 $('#rsClose').addEventListener('click', () => showRealSize(false));
@@ -1973,10 +2011,10 @@ async function makeStencil() {
   if (soft) markTried('sharp');
   stReady(r.linePixels > 0);
 }
-function showStencil(on) {
+function showStencil(on, id = null) {
   $('#stencil').hidden = !on; st.run++; clearTimeout(st.timer);
   if (!on) return;
-  const t = sel(); if (!t) { $('#stencil').hidden = true; toast('Select a tattoo first.'); return; }
+  const t = id ? state.tattoos.find((x) => x.id === id) : sel(); if (!t) { $('#stencil').hidden = true; toast('Select a tattoo first.'); return; }
   markTried('stencil'); st.id = t.id; makeStencil();
   const n = planStencilList().length; $('#stAll').hidden = n < 2; $('#stAll').textContent = `All ${n} planned pieces`;
 }
@@ -3051,7 +3089,9 @@ renderClothes();
 /* ---------- aging: how the ink looks after some years (view only, not saved) ---------- */
 function renderAging() {
   const a = AGES.find((x) => x.years === agingYears);
-  $('#ageBtn').textContent = agingYears ? 'Aging: ' + a.label : 'Aging';
+  // with Always show my ink healed on, Healed is the everyday look, so only another age is a preview
+  $('#ageBtn').textContent = agingYears !== (healedLook ? 1 : 0) ? 'Aging: ' + a.label : 'Aging';
+  $('#healedLook').checked = healedLook;
   $('#ageBtn').setAttribute('aria-expanded', String(!$('#agePop').hidden));
   document.querySelectorAll('#ageChoices [data-years]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.years === agingYears)));
 }
@@ -3059,6 +3099,7 @@ function setAging(years) { agingYears = AGES.some((a) => a.years === years) ? ye
 $('#ageChoices').innerHTML = AGES.map((a) => `<button class="btn" type="button" data-years="${a.years}">${a.label}</button>`).join('');
 $('#ageBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#lightPop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop'); renderAging(); });
 $('#ageChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-years]'); if (b) setAging(+b.dataset.years); });
+$('#healedLook').addEventListener('change', (e) => { healedLook = e.target.checked; try { localStorage.setItem('ia-healed', healedLook ? '1' : '0'); } catch { /* no storage */ } setAging(healedLook ? 1 : 0); if (healedLook) markTried('healedLook'); });
 renderAging();
 /* ---------- light: studio, daylight, warm room or midday sun (view only, kept on this device) ---------- */
 let lightId = applyLight(readLight(), { hemi, key, rim, rim2 });
@@ -3618,7 +3659,7 @@ function renderNew() {
   }));
 }
 function openNew(on = true) { closePanels(); toggle('#planMenu', false); $('#newPop').hidden = !on; renderNew(); }
-function closePanels() { cancelGesture(); showLook(false); if (inkLook) inkLook.close(); if (warpPanel) warpPanel.close(); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#pcMenu', '#newPop']) toggle(id, false); }
+function closePanels() { cancelGesture(); showLook(false); if (inkLook) inkLook.close(); if (warpPanel) warpPanel.close(); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#pcMenu', '#newPop', '#findPop']) toggle(id, false); }
 function needTattoo() {
   const t = sel() || state.tattoos.find((x) => !x.hidden) || state.tattoos[0];
   if (!t) { toast('Add a tattoo first, then try this.'); return null; }
@@ -3703,6 +3744,7 @@ const SHOW = {
   undoWords: () => [null, 'Undo and Redo now say what they put back, like Undid moving Rose, so a tap never changes something you cannot see.'],
   sizesBent: () => { toggle('#share', true); return ['#cLabels', 'Picture with sizes, Three sizes, the plan as a message, the page for approval, the time to tattoo and the everyday size now all read a bent tattoo at the size it fills on your skin.']; },
   tryOnBent: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bTryOn', 'Try on with camera now shows a bent tattoo bent, at the size it fills on your skin.']; },
+  atShop: () => { toggle('#share', true); return ['#cShop', 'At the shop goes through each planned piece full screen: on the body, its size, where it sits, your note and references, with Real size on screen and the stencil. Swipe to the next one.']; },
   labels: () => { toggle('#share', true); return ['#cLabels', 'A picture of this view with each tattoo’s name and size written beside it, to send to your artist.']; },
   centre: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; $('#preciseBox').open = true; return ['#snapLabel', 'Drag a tattoo on your chest, stomach or back across the middle and a line shows down the centre of the body. Turn on snapping here and it sits right on it.']; },
   keys: () => { if (!needTattoo()) return null; return [null, 'With a keyboard: the arrows move the selected tattoo (Shift for bigger steps), [ and ] turn it, - and = size it, Cmd+D duplicates, Delete removes. Undo puts any of it back.']; },
@@ -3760,6 +3802,8 @@ const SHOW = {
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
   layers3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dLayers', 'Send the 3D body with each tattoo separate. In Procreate, open Layers: Skin and each tattoo are their own groups to paint on.']; },
+  layersBack: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint on a tattoo\'s own texture set in the separate-tattoo body, export it from Procreate as USDZ, then pick it here. That tattoo gets the new artwork in place.']; },
+  healedLook: () => { showLook(false); toggle('#agePop', true); return ['#healedRow', 'Tick this to see every tattoo the way it looks once healed, every time you open Ink Atlas.']; },
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
   duplicate: () => { if (!needTattoo()) return null; return ['#bDup', 'Duplicate puts a copy beside it to move and size.']; },
@@ -3779,6 +3823,9 @@ const SHOW = {
   palette: () => { toggle('#share', true); paletteReady = buildPalette(); return ['#cSwatches', 'Saves your skin and ink colours as a palette Procreate opens.']; },
   cleanup: () => { if (!needTattoo()) return null; return ['#bCleanup', 'Opens the cleanup. Pick a tool on the left, pinch to zoom, and tap Done when it looks right.']; },
   editProcreate: () => { if (!needTattoo()) return null; return ['#bProcreate', 'Sends this tattoo to Procreate. Copy All there, then tap Paste here.']; },
+  moreFolds: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; return ['#editorAdvanced details.fold[data-fold=check] > summary', 'More controls opens to short headings now. Tap one to open it, and it stays open next time.']; },
+  dailyBackups: () => { toggle('#share', false); toggle('#recover', true); renderRecovery(); return ['#rcList', account && account.configured ? (account.status().signedIn ? 'Each day\'s copy from your account is listed here. Tap one to open it; Undo puts back what was on screen.' : 'Sign in and each project in your account keeps a copy a day there, listed here.') : 'Every copy kept on this device is listed here. Daily account copies show here once accounts are on.']; },
+  findTool: () => { openFind(true); return ['#findQ', 'Type what you want to do, like stencil, erase or hair, and tap the line that comes up. Press / or Cmd+K on a keyboard.']; },
   pan: () => [null, 'Put two fingers on the screen away from a tattoo and slide them to move the view. Twist clearly to turn it.'],
 };
 // Sort by area, Fold all and Select sit at the foot of Layers, which steps aside while the edit
@@ -3790,7 +3837,11 @@ function showMe(f) {
   infoQuietUntil = performance.now() + 1000; const r = SHOW[f.show]?.(); if ($('#editorAdvanced').open) infoByShow = true; if (!r) return;
   coach(r[0], r[1]);
 }
+// a control inside a folded section (More controls, Precise placement, a heading's fold) is shown
+// by opening every fold round it first
+function unfoldTo(n) { for (let d = n && n.parentElement && n.parentElement.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open) d.open = true; }
 function coach(target, text) {
+  { const n0 = typeof target === 'string' ? document.querySelector(target) : target; if (n0 && n0.isConnected && n0.closest('#sheet, #bodyPop, #lookMenu, #planMenu, #share, #pcMenu')) unfoldTo(n0); }
   const ring = $('#pointRing'), tip = $('#pointTip');
   tip.textContent = text; tip.hidden = false; ring.hidden = !target; coachArmed = performance.now() + 350;
   cancelAnimationFrame(coachTimer);
@@ -3800,7 +3851,7 @@ function coach(target, text) {
   const place = () => {
     const now = performance.now(); if (last) shown += Math.min(now - last, 100); last = now;
     if (shown > 8000) return endCoach();
-    const n = target && document.querySelector(target), vis = n && n.getClientRects().length && !n.hidden;
+    const n = target && (typeof target === 'string' ? document.querySelector(target) : target), vis = n && n.isConnected && n.getClientRects().length && !n.hidden;
     // scrolled into view, and again if lines filling in above it push it off screen
     if (vis && scrolled < 6) { const r = n.getBoundingClientRect(); if (!scrolled || r.top < 0 || r.bottom > innerHeight) { n.scrollIntoView({ block: 'nearest', inline: 'nearest' }); scrolled++; } }
     if (vis) {
@@ -3819,6 +3870,92 @@ function coach(target, text) {
 }
 function endCoach() { cancelAnimationFrame(coachTimer); $('#pointRing').hidden = true; $('#pointTip').hidden = true; }
 document.addEventListener('pointerdown', () => { if (!$('#pointTip').hidden && performance.now() > coachArmed) endCoach(); }, true);
+/* ---------- Find a tool: type what you want and be taken to it ---------- */
+// The list is read from the panels themselves at the moment of the search (every button, slider
+// and card with a name), so a tool added later is found with nothing to keep up to date here.
+// Picking one opens its panel the way its own button would and rings the control, as Show me does.
+const FIND_AREAS = [
+  { root: '#sheet', skip: '#editorAdvanced', where: 'Selected tattoo', needT: true, open: () => !!needTattoo() },
+  { root: '#editorAdvanced', where: 'More controls', needT: true, open: () => { if (!needTattoo()) return false; $('#editorAdvanced').open = true; return true; } },
+  { root: '#bodyPop', where: 'Body', open: () => { $('#bodyBtn').click(); return true; } },
+  { root: '#lookMenu', where: 'Preview', open: () => { showLook(true); return true; } },
+  { root: '#planMenu', where: 'Plan', open: () => { toggle('#planMenu', true); return true; } },
+  { root: '#share', where: 'Share', open: () => { $('#shareBtn').click(); return true; } },
+  { root: '#pcMenu', where: 'Procreate', open: () => { renderPcMenu(); toggle('#pcMenu', true); return true; } },
+  { root: '#layersDock', where: 'Layers', skip: '#ldList', open: () => { if (selectedId) select(null); layersDock.setOpen(true, true); return true; } },
+  { root: '#top', where: 'Top bar', skip: '#findBtn', open: () => true },
+];
+const findLabel = (n) => {
+  if (n.matches('.card')) { const b = n.querySelector('b'); return (b ? b.textContent : n.textContent).trim(); }
+  let t = (n.getAttribute('aria-label') || '').trim();
+  if (!t || n.matches('button') && n.textContent.trim() && n.textContent.trim().length < 48) t = n.textContent.trim() || t;
+  t = t.replace(/\s+/g, ' ');
+  const g = n.closest('.seg,[role=group]'); const gl = g && g !== n && g.getAttribute('aria-label');
+  if (gl && n.matches('.seg .btn') && !t.toLowerCase().includes(gl.toLowerCase())) t = gl + ': ' + t;
+  return t;
+};
+function findItems() {
+  const out = [];
+  for (const a of FIND_AREAS) {
+    const root = $(a.root); if (!root) continue;
+    for (const n of root.querySelectorAll('button, ink-slider, .card, summary')) {
+      if (a.skip && n.closest(a.skip)) continue;
+      let hid = false; for (let p = n; p && p !== root; p = p.parentElement) if (p.hidden) { hid = true; break; }
+      if (hid || n.disabled && !a.needT) continue;
+      const label = findLabel(n); if (!label || label.length < 2 || /^(done|cancel|close|ok)$/i.test(label)) continue;
+      const sec = n.closest('section.sec,.sec'); const h = sec && sec.querySelector('h5,h4,.menu-head');
+      const head = h ? h.textContent.trim() : (n.closest('[class*=cards]') && n.closest('section,div')?.querySelector('h3,h4,h5')?.textContent.trim()) || '';
+      const desc = n.matches('.card') ? (n.querySelector('span')?.textContent || '').trim() : (n.getAttribute('title') || '');
+      out.push({ label, where: a.where + (head && head !== a.where ? ' › ' + head : ''), desc, words: findWords(label + ' ' + head), area: a, node: n });
+    }
+  }
+  // tattoos by name, so typing Rose goes to it
+  for (const t of state.tattoos) if (t.name) out.push({ label: t.name, where: t.status === 'existing' ? 'Tattoo on your skin' : 'Planned tattoo', desc: '', words: 'tattoo layer', tattoo: t.id });
+  return out;
+}
+let findRes = [], findOn = 0;
+function renderFind() {
+  const q = $('#findQ').value, list = $('#findList');
+  findRes = q.trim() ? findSearch(findItems(), q, 30) : [];
+  findOn = 0;
+  $('#findNone').hidden = !q.trim() || findRes.length > 0;
+  list.replaceChildren(...findRes.map((r, i) => el('button', { class: 'btn quiet find-row' + (i === 0 ? ' on' : ''), type: 'button', role: 'listitem', onclick: () => findGo(r) }, el('b', { text: r.label }), el('small', { text: r.where + (r.desc ? ' · ' + r.desc : '') }))));
+  if (!q.trim()) list.append(el('h6', { text: 'Try' }), ...['stencil', 'erase', 'pose', 'hair', 'print', 'backup'].map((w) => el('button', { class: 'btn quiet find-row', type: 'button', onclick: () => { $('#findQ').value = w; renderFind(); $('#findQ').focus(); } }, el('b', { text: w }))));
+}
+function openFind(on = true) {
+  if (on) { closePanels(); toggle('#planMenu', false); toggle('#pcMenu', false); }
+  toggle('#findPop', on); $('#findBtn').setAttribute('aria-expanded', String(on));
+  if (on) { $('#findQ').value = ''; renderFind(); requestAnimationFrame(() => $('#findQ').focus({ preventScroll: true })); }
+  else $('#findQ').blur();
+}
+function findGo(r) {
+  openFind(false); markTried('findTool');
+  if (r.tattoo) { const t = state.tattoos.find((x) => x.id === r.tattoo); if (t) { if (t.hidden) toast(`${t.name} is hidden. Tap its eye in Layers to show it.`); select(t.id, true); layersDock.setOpen(true, true); } return; }
+  closePanels(); toggle('#planMenu', false); toggle('#pcMenu', false);
+  infoQuietUntil = performance.now() + 1000;
+  if (!r.area.open()) return;
+  if (r.area.needT) infoByShow = r.area.where === 'More controls';
+  // the control may be built again when its panel opens, so find it again by the same name
+  requestAnimationFrame(() => {
+    let n = r.node; if (!n.isConnected || !n.getClientRects().length) { const again = findItems().find((x) => x.area === r.area && findFold(x.label) === findFold(r.label)); if (again) n = again.node; }
+    coach(n, n.matches('ink-slider') ? `${r.label}: drag it left or right.` : `Here it is: ${r.label}.`);
+  });
+}
+$('#findBtn').addEventListener('click', () => openFind($('#findPop').hidden));
+$('#top').addEventListener('click', (e) => { if (!$('#findPop').hidden && e.target.closest('button') && !e.target.closest('#findBtn')) openFind(false); }, true);
+$('#findQ').addEventListener('input', renderFind);
+$('#findQ').addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  const rows = $('#findList').querySelectorAll('.find-row');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!findRes.length) return; findOn = (findOn + (e.key === 'ArrowDown' ? 1 : findRes.length - 1)) % findRes.length; rows.forEach((x, i) => x.classList.toggle('on', i === findOn)); rows[findOn]?.scrollIntoView({ block: 'nearest' }); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (findRes[findOn]) findGo(findRes[findOn]); }
+  else if (e.key === 'Escape') { e.preventDefault(); openFind(false); }
+});
+document.addEventListener('keydown', (e) => {
+  if (modalUp && modalUp()) return;
+  const typing = e.target && (e.target.isContentEditable || /^(input|textarea|select)$/i.test(e.target.tagName));
+  if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') || (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === '/')) { e.preventDefault(); openFind($('#findPop').hidden); }
+});
 $('#newBtn').addEventListener('click', () => openNew($('#newPop').hidden));
 $('#openNew').addEventListener('click', () => openNew(true));
 renderNew();
@@ -4197,7 +4334,7 @@ function refList() { return Array.isArray(state.refs) ? state.refs : []; }
 function canChangeRef(r) { return !commentOnly || (!!r.by && r.by === myName()); }
 function renderRefCount(t) {
   const n = t ? refList().filter((r) => r.tattooId === t.id).length : 0;
-  $('#bRefs').textContent = n ? `Reference pictures (${n})` : 'Add reference pictures';
+  $('#bRefs').textContent = n ? `References (${n})` : 'References';
   // the comments pinned on this tattoo, from anyone
   const c = t ? pinNotes().filter((x) => x.tattooId === t.id) : [], open = c.filter((x) => !x.done).length;
   $('#bPinsFor').hidden = !c.length;
@@ -5453,6 +5590,15 @@ function renderInfo() {
 }
 $('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRate').value); writeRate(n > 0 ? n : 0); const t = sel(), hrs = t && hoursOf(t); if (hrs) $('#estLine').textContent = sessionText(hrs, readRate()); planRender(t); if (t) sitRender(t); markTried('estimate'); });
 // opened by a Show me, it is only being pointed at, not tried yet
+// More controls opens to short headed sections; which are open is kept on this device
+{
+  const KEY = 'ia-more-open';
+  let open = ['size']; try { const v = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(v)) open = v.filter((x) => typeof x === 'string'); } catch (e) { /* the first time */ }
+  for (const d of document.querySelectorAll('#editorAdvanced details.fold')) {
+    d.open = open.includes(d.dataset.fold);
+    d.addEventListener('toggle', () => { const now = [...document.querySelectorAll('#editorAdvanced details.fold')].filter((x) => x.open).map((x) => x.dataset.fold); try { localStorage.setItem(KEY, JSON.stringify(now)); } catch (e) { /* not kept */ } if (d.open && d.dataset.fold === 'spot' && sel()) renderInfo(); });
+  }
+}
 $('#editorAdvanced').addEventListener('toggle', () => { if (!$('#editorAdvanced').open) infoByShow = false; else if (sel()) { renderInfo(); if (!infoByShow && performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); markTried('like'); } } });
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */
 function showLook(open) {
@@ -6193,7 +6339,7 @@ $('#openProjects').addEventListener('click', oneAtATime(async () => {
 }));
 $('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (modalUp()) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); closeBodyMatch(false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#pcMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (modalUp()) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); closeBodyMatch(false); toggle('#newPop', false); toggle('#findPop', false); endCoach(); toggle('#planMenu', false); toggle('#pcMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -6843,6 +6989,114 @@ $('#cLabels').addEventListener('click', () => { const url = labelsShot(); if (ur
 $('#cMirror').addEventListener('click', () => { const url = mirrorShot(); if (!url) { toast('Add a tattoo first.'); return; } markTried('mirror'); showPreview(url, 'ink-atlas-mirror.png', 'In a mirror'); });
 $('#cCompare').addEventListener('click', () => { const url = compareShot(); if (!url) { toast('Mark a tattoo as planned to see before and after.'); return; } markTried('compare-shot'); showPreview(url, 'ink-atlas-before-after.png', 'Before and after'); });
 $('#cSheet').addEventListener('click', async () => showPreview(await artistSheet(), 'ink-atlas-artist-sheet.png', 'Artist sheet'));
+// At the shop: the iPad held up for the artist, one planned piece at a time. A close picture on the
+// body and the whole body from the same side with the spot ringed, the artwork, its size, where it
+// sits, the time, the note for the artist, its references and open comments, with Real size on
+// screen and the stencil for that piece. View only: the camera, pose and selection stay as they were.
+const shop = { list: [], i: 0, pics: new Map(), run: 0, x: null };
+function shopPieces() { return state.tattoos.filter((t) => t.status !== 'existing' && !t.hidden); }
+function shopShots(t, wholeAspect = 0.55) {
+  const oldCur = { ...cur }, oldGoal = { ...goal }, oldGlide = glide, inset = curInset;
+  const W = canvas.width, H = canvas.height, tn = Math.tan(THREE.MathUtils.degToRad(FOV / 2));
+  const cut = (w, h) => { const c = document.createElement('canvas'), k = Math.min(1, 1100 / Math.max(w, h)); c.width = Math.round(w * k); c.height = Math.round(h * k); c.getContext('2d').drawImage(canvas, Math.round((W - w) / 2), Math.round((H - h) / 2), w, h, 0, 0, c.width, c.height); return c; };
+  let near = null, whole = null;
+  try {
+    curInset = 0; applyInset(); exporting = true; syncDecals();
+    const spot = shotSpot(t), side = Math.min(W, H);
+    const rNear = THREE.MathUtils.clamp((spot.ext * 1.8 + 0.1) / (2 * tn * Math.min(1, camera.aspect)), 0.3, 2.6);
+    const view = clearView(spot, rNear), theta = view.theta != null ? view.theta : goal.theta, phi = view.phi != null ? view.phi : 1.5;
+    Object.assign(goal, { tx: spot.pos[0], ty: spot.pos[1], tz: spot.pos[2], roll: 0, r: rNear, theta, phi });
+    Object.assign(cur, goal); glide = false; applyCam();
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+    near = cut(side, side);
+    // the whole body from the same side, a tall picture, with a ring round the piece
+    // cut to the shape of the place it shows in, far enough back that the arms fit across
+    const ww = Math.min(W, Math.round(H * wholeAspect)), a = ww / H;
+    Object.assign(goal, { tx: 0, ty: 0.86, tz: 0.02, roll: 0, r: Math.max(2.2 / (2 * tn), 1.3 / (2 * tn * a)), theta, phi: 1.5 });
+    Object.assign(cur, goal); applyCam();
+    poseView.withPosed(() => renderer.render(scene, camera), posedInk());
+    whole = cut(ww, H);
+    camera.updateMatrixWorld();
+    const p = new V3(...spot.pos).project(camera);
+    const k = whole.height / H, x = ((p.x + 1) / 2 * W - (W - ww) / 2) * k, y = (1 - p.y) / 2 * H * k;
+    const rr = Math.max(14, spot.ext / (2 * goal.r * tn) * H * k * 0.75 + 10), g = whole.getContext('2d');
+    g.lineWidth = Math.max(3, whole.height / 220); g.strokeStyle = '#ff5a7a'; g.beginPath(); g.arc(x, y, rr, 0, Math.PI * 2); g.stroke();
+  } finally {
+    exporting = false; syncDecals();
+    Object.assign(cur, oldCur); Object.assign(goal, oldGoal); glide = oldGlide; curInset = inset; applyInset(); applyCam(); needsRender = true;
+  }
+  return { near: near.toDataURL('image/jpeg', 0.9), whole: whole.toDataURL('image/jpeg', 0.9) };
+}
+async function renderShop() {
+  const t = shop.list[shop.i]; if (!t || $('#shop').hidden) return;
+  const run = ++shop.run, n = shop.list.length;
+  $('#spCount').textContent = n > 1 ? `At the shop: ${shop.i + 1} of ${n}` : 'At the shop';
+  $('#spName').textContent = t.name || 'Tattoo';
+  const { w, h } = inchesOf(shownSize(t));
+  $('#spSize').textContent = `${w.toFixed(1)} × ${h.toFixed(1)} in  ·  ${Math.round(w * 2.54)} × ${Math.round(h * 2.54)} cm`;
+  const where = whereOf(t); $('#spWhere').textContent = where ? where.line : ''; $('#spWhere').hidden = !where;
+  const hrs = hoursOf(t); $('#spTime').textContent = hrs ? 'Time to tattoo: ' + sessionText(hrs, 0) : ''; $('#spTime').hidden = !hrs;
+  $('#spNote').textContent = t.note ? 'Note for you: ' + t.note : ''; $('#spNote').hidden = !t.note;
+  const comments = pinNotes().filter((x) => x.tattooId === t.id && !x.done);
+  $('#spComments').replaceChildren(...comments.map((x) => el('li', { text: (x.by ? x.by + ': ' : '') + x.text })));
+  $('#spComments').hidden = !comments.length;
+  $('#spPrev').disabled = shop.i === 0; $('#spNext').disabled = shop.i >= n - 1; $('#spNav').hidden = n < 2;
+  $('#spDots').replaceChildren(...shop.list.map((_, j) => el('i', { class: j === shop.i ? 'on' : '' })));
+  const refs = refList().filter((r) => r.tattooId === t.id);
+  $('#spRefs').replaceChildren(); $('#spRefs').hidden = !refs.length;
+  // the artwork as it sits on the body: bent, mirrored and upside down as it is there
+  if (!imgEls[t.img]) await loadImg(t.img); if (run !== shop.run) return;
+  const d = asDrawn(t, 512); let src = images[t.img] || '';
+  if (d.im && d.im !== imgEls[t.img]) src = d.im.toDataURL();
+  $('#spArtImg').src = src; $('#spArtImg').style.transform = `scale(${d.t.flip ? -1 : 1},${d.t.imageTopDown === false ? -1 : 1})`;
+  let pics = shop.pics.get(t.id);
+  if (!pics) {
+    $('#spNear').removeAttribute('src'); $('#spWhole').removeAttribute('src');
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))); if (run !== shop.run) return;
+    const wb = $('#spWhole').getBoundingClientRect();
+    pics = shopShots(t, wb.width > 40 && wb.height > 40 ? Math.max(0.3, Math.min(1, wb.width / wb.height)) : 0.55); shop.pics.set(t.id, pics);
+  }
+  $('#spNear').src = pics.near; $('#spWhole').src = pics.whole;
+  for (const r of refs) {
+    const thumb = await refThumb(r.img, 240); if (run !== shop.run) return; if (!thumb) continue;
+    $('#spRefs').append(el('button', { type: 'button', 'aria-label': r.note ? 'Reference: ' + r.note : 'Reference picture', onclick: () => shopBig(images[r.img]) }, el('img', { src: thumb, alt: '', draggable: 'false' })));
+  }
+  window.__shop = { i: shop.i, n, id: t.id, refs: $('#spRefs').children.length, comments: comments.length, pics: !!pics };
+}
+function shopBig(src) { if (!src) return; $('#spBigImg').src = src; $('#spBig').hidden = false; }
+function shopStep(d) { const i = Math.max(0, Math.min(shop.list.length - 1, shop.i + d)); if (i === shop.i) return; shop.i = i; $('#spBig').hidden = true; renderShop(); }
+function openShop() {
+  const list = shopPieces(); if (!list.length) { toast('Mark a tattoo as planned first, then show it here.'); return; }
+  cancelGesture(); toggle('#share', false);
+  shop.list = list; shop.pics.clear(); const at = list.findIndex((t) => t.id === selectedId); shop.i = at >= 0 ? at : 0;
+  $('#spBig').hidden = true; $('#shop').hidden = false; markTried('atShop'); renderShop();
+}
+function closeShop() { $('#shop').hidden = true; $('#spBig').hidden = true; shop.run++; shop.pics.clear(); window.__shop = null; }
+$('#cShop').addEventListener('click', openShop);
+$('#spDone').addEventListener('click', closeShop);
+$('#spPrev').addEventListener('click', () => shopStep(-1));
+$('#spNext').addEventListener('click', () => shopStep(1));
+$('#spBig').addEventListener('click', () => { $('#spBig').hidden = true; });
+$('#spNear').addEventListener('click', () => shopBig($('#spNear').src));
+$('#spWhole').addEventListener('click', () => shopBig($('#spWhole').src));
+$('#spReal').addEventListener('click', () => { const t = shop.list[shop.i]; if (t) showRealSize(true, t.id); });
+$('#spStencil').addEventListener('click', () => { const t = shop.list[shop.i]; if (t) showStencil(true, t.id); });
+// a sideways swipe on the piece goes to the next or the one before
+$('#spCard').addEventListener('pointerdown', (e) => { shop.x = e.isPrimary ? { x: e.clientX, y: e.clientY, at: e.timeStamp } : null; });
+$('#spCard').addEventListener('pointerup', (e) => {
+  const s = shop.x; shop.x = null; if (!s || !e.isPrimary) return;
+  const dx = e.clientX - s.x, dy = e.clientY - s.y;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && e.timeStamp - s.at < 800) shopStep(dx < 0 ? 1 : -1);
+});
+$('#spCard').addEventListener('pointercancel', () => { shop.x = null; });
+// its keys stay inside it, above Real size and the stencil
+window.addEventListener('keydown', (e) => {
+  if ($('#shop').hidden || !$('#realSize').hidden || !$('#stencil').hidden) return;
+  if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { shopStep(e.key === 'ArrowRight' ? 1 : -1); }
+  else if (e.key === 'Escape') { if (!$('#spBig').hidden) $('#spBig').hidden = true; else closeShop(); }
+  else if (!(e.metaKey || e.ctrlKey)) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+}, true);
 // Procreate colour palette: skin tone, its shade and highlight, then the project's ink colours.
 // Built when the Share sheet opens, so the tap hands the file straight to the share sheet.
 let paletteReady = null;
@@ -6902,7 +7156,8 @@ $('#cGlb').addEventListener('click',async()=>{
 });
 $('#cObj').addEventListener('click',async()=>{toggle('#share',false);try{const {exportSceneObjPackage}=await import('./obj-export.js');const result=await exportSceneObjPackage(previewInput());await saveFile('ink-atlas-neutral-obj.zip',result.blob);}catch(e){toast('Could not export OBJ package: '+e.message);}});
 // Tattoos painted into one skin texture on the body's own UVs (src/uv-bake.js).
-async function exportPainted(kind) {
+function exportPainted(kind) { return withFreshInk(() => exportPaintedNow(kind)); }
+async function exportPaintedNow(kind) {
   toggle('#share', false);
   const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
   toast(kind === 'usdz' ? 'Making the 3D body for Procreate. This takes a few seconds.' : 'Painting your tattoos onto the skin. This takes a few seconds.');
@@ -6918,7 +7173,8 @@ async function exportPainted(kind) {
 }
 // The 3D body with each tattoo as its own part and material (src/layered-model.js), so
 // Procreate shows the skin and every tattoo as separate, named texture sets in Layers.
-async function exportLayered() {
+function exportLayered() { return withFreshInk(() => exportLayeredNow()); }
+async function exportLayeredNow() {
   toggle('#share', false); toggle('#pcMenu', false);
   const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
   toast(visible.length ? 'Making the 3D body with each tattoo separate. This takes a few seconds.' : 'No tattoos showing, so this is the plain body. Making it now.');
@@ -6940,10 +7196,10 @@ const PAINT_SIZE = 2048;
 function shrinkTo(src, S) { const c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, S, S); const d = g.getImageData(0, 0, S, S).data; c.width = c.height = 0; return d; }
 // The same skin baked here without paint: plain skin plus the visible tattoos, at the
 // picture's own size and then shrunk exactly as the picture is, so thin lines match.
-async function bakeBaseline(skinColor, native, S, withPaint = true) {
+async function bakeBaseline(skinColor, native, S, withPaint = true, withInk = true) {
   const { bakeSkin } = await import('./uv-bake.js');
   syncDecals();
-  const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
+  const visible = withInk ? state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex) : []; // the separate-tattoo model's skin has no ink in it
   const baked = bakeSkin({ THREE, renderer, bodyGeometry: bodyGeo, skinColor, decals: visible.map((t) => ({ geometry: decals[t.id].mesh.geometry, material: exportMaterial(t, 'linear') })), size: native });
   freeExportMaterials();
   const full = document.createElement('canvas'); full.width = full.height = baked.size; full.getContext('2d').putImageData(new ImageData(baked.pixels, baked.size, baked.size), 0, 0);
@@ -6953,13 +7209,13 @@ async function bakeBaseline(skinColor, native, S, withPaint = true) {
   if (paintIm) { const { paintOver } = await import('./paint-layer.js'); out = paintOver(out, shrinkTo(paintIm, S)); }
   return out;
 }
-async function readPainted(file, withPaint = true) {
+async function readPainted(file, withPaint = true, withInk = true) {
   const P = await import('./procreate-import.js'), S = PAINT_SIZE;
   const pic = await P.skinPictureOf(file);
   const bmp = await createImageBitmap(pic), native = Math.max(256, Math.min(bmp.width, renderer.capabilities.maxTextureSize || 4096, 4096));
   const raw = shrinkTo(bmp, S); bmp.close && bmp.close();
   const map = P.triangleMap(S), skin = P.skinColorOf(raw, null);
-  const baseline = await bakeBaseline(new THREE.Color().setRGB(skin[0] / 255, skin[1] / 255, skin[2] / 255, THREE.SRGBColorSpace), native, S, withPaint);
+  const baseline = await bakeBaseline(new THREE.Color().setRGB(skin[0] / 255, skin[1] / 255, skin[2] / 255, THREE.SRGBColorSpace), native, S, withPaint, withInk);
   return { P, S, map, skin, baseline, quiet: P.inkZone(baseline, map, S, skin), pixels: P.uprightPixels(raw, baseline, map, S) };
 }
 // Separate drawings in a skin picture (or on one paint layer, given its mask and ink), each
@@ -6988,7 +7244,8 @@ async function tattoosFrom({ P, S, map, skin, baseline, pixels, quiet = null, ma
   return added;
 }
 // New drawing on a painted model becomes tattoos (kept for files dropped in as tattoos).
-async function importPainted(file, undoStep = true) {
+function importPainted(file, undoStep = true) { return withFreshInk(() => importPaintedNow(file, undoStep)); }
+async function importPaintedNow(file, undoStep = true) {
   toggle('#share', false);
   if (file.size > 300e6) { toast('That file is too large to open here.'); return []; }
   toast('Looking for new drawing on the model. This takes a few seconds.');
@@ -7005,7 +7262,8 @@ async function importPainted(file, undoStep = true) {
 }
 // Back from Procreate as paint: the whole of the paint on the model replaces the paint here,
 // so painting more, changing it or rubbing it out in Procreate all come back.
-async function bringBackPainted(file) {
+function bringBackPainted(file) { return withFreshInk(() => bringBackPaintedNow(file)); }
+async function bringBackPaintedNow(file) {
   toggle('#share', false); toggle('#pcMenu', false);
   if (file.size > 300e6) { toast('That file is too large to open here.'); return null; }
   toast('Bringing back your paint. This takes a few seconds.');
@@ -7052,7 +7310,74 @@ async function layersFrom(bytes) {
   if (flip) for (const l of read) l.px = P.flipRows(l.px, S);
   return { P, S, map, skin, baseline, quiet: P.inkZone(baseline, map, S, skin), layers: read.reverse() /* bottom first */ };
 }
-async function bringBack(file) {
+// Back from the 3D body sent with each tattoo separate (src/layered-model.js, src/layered-back.js):
+// a tattoo whose own texture set was painted gets that picture as its new artwork, on the same
+// skin at the same size (the earlier artwork kept as a version), and new drawing on the skin's
+// set comes back as new tattoos. Returns null when the file is not that kind of model.
+async function layeredBack(entries, file) {
+  const L = await import('./layered-back.js'), { partsFor, bakePart } = await import('./layered-model.js');
+  const colour = entries.filter((e) => L.colourPictures([e.name]).length);
+  if (colour.length < 2) return null;
+  const pics = [];
+  for (const e of colour) { try { const bmp = await createImageBitmap(new Blob([await e.read()])); pics.push({ name: e.name, w: bmp.width, h: bmp.height, bmp }); } catch { /* not a picture this browser opens */ } }
+  const text = entries.find((e) => /\.usda$/i.test(e.name)), usda = text ? new TextDecoder().decode(await text.read()) : null;
+  syncDecals();
+  const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
+  const list = partsFor({ bodyGeometry: bodyGeo, tattoos: visible.map((t) => ({ id: t.id, name: t.name || 'Tattoo', aspect: t.aspect, geometry: decals[t.id].mesh.geometry, material: exportMaterial(t, 'linear') })), max: renderer.capabilities.maxTextureSize || 4096 });
+  const close = () => { freeExportMaterials(); for (const p of pics) p.bmp.close && p.bmp.close(); };
+  try {
+    const match = L.matchPictures({ pictures: pics, parts: list.map((x) => ({ label: x.label, ratio: x.part.ratio })), usda });
+    if (!match.parts.size) return null; // a model from somewhere else: read it the usual way
+    const changed = [], kept = [], skippedWarp = [], skippedLock = [];
+    for (const x of list) {
+      const name = match.parts.get(x.label); if (!name) continue;
+      const pic = pics.find((p) => p.name === name), t = state.tattoos.find((q) => q.id === x.t.id); if (!pic || !t) continue;
+      // what went out, and what came back, at the same size
+      const sent = bakePart({ THREE, renderer, part: x.part, material: x.t.material, skinColor: skinMat.color, longest: x.longest });
+      const W = sent.width, H = sent.height, back = document.createElement('canvas'); back.width = W; back.height = H;
+      const bg = back.getContext('2d', { willReadFrequently: true }); bg.imageSmoothingQuality = 'high';
+      const k = Math.min(1, 256 / Math.max(W, H)), sw = Math.max(8, Math.round(W * k)), sh = Math.max(8, Math.round(H * k)), small = (src, flip = false) => { const c = document.createElement('canvas'); c.width = sw; c.height = sh; const g = c.getContext('2d', { willReadFrequently: true }); if (flip) { g.translate(0, sh); g.scale(1, -1); } g.drawImage(src, 0, 0, sw, sh); return g.getImageData(0, 0, sw, sh).data; };
+      // a USD file keeps its pictures bottom row first, so the picture may come back upside down: take the way that matches
+      const was = small(sent), straight = L.changedPixels(was, small(pic.bmp)), turned = L.changedPixels(was, small(pic.bmp, true)), up = turned.n < straight.n, diff = up ? turned : straight;
+      if (up) { bg.translate(0, H); bg.scale(1, -1); } bg.drawImage(pic.bmp, 0, 0, W, H); bg.setTransform(1, 0, 0, 1, 0, 0); sent.width = sent.height = 0;
+      if (!diff.changed) { kept.push(t.id); back.width = back.height = 0; continue; }
+      if (t.warp) { skippedWarp.push(t.name); back.width = back.height = 0; continue; }
+      if (t.locked) { skippedLock.push(t.name); back.width = back.height = 0; continue; }
+      const px = bg.getImageData(0, 0, W, H).data, ink = L.inkOutOfSkin(px, L.edgeSkin(px, W, H), t.opacity ?? 0.92);
+      back.width = back.height = 0;
+      const b = inkBounds(ink, W, H); if (!b) continue; // all rubbed out: the tattoo is left as it was
+      const frame = L.partFrame({ box: x.part.box, margin: UV_MARGIN, flip: !!t.flip, flipY: decals[t.id].tex.flipY, crop: { x: b.x / W, y: b.y / H, w: b.w / W, h: b.h / H } });
+      const full = document.createElement('canvas'); full.width = W; full.height = H; full.getContext('2d').putImageData(new ImageData(ink, W, H), 0, 0);
+      const out = document.createElement('canvas'); out.width = b.w; out.height = b.h; const og = out.getContext('2d');
+      og.translate(frame.mirror ? b.w : 0, frame.upsideDown ? b.h : 0); og.scale(frame.mirror ? -1 : 1, frame.upsideDown ? -1 : 1); og.drawImage(full, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+      full.width = full.height = 0;
+      const key = uid(); images[key] = out.toDataURL('image/png'); out.width = out.height = 0;
+      if (!await loadImg(key)) { delete images[key]; continue; }
+      changed.push({ id: t.id, key, aspect: b.w / b.h, frame });
+    }
+    let added = [];
+    const skinPic = match.skin && entries.find((e) => e.name === match.skin);
+    if (!changed.length && !skinPic) return { changed: [], added: [], kept, skippedWarp, skippedLock };
+    snapshot();
+    for (const c of changed) {
+      const was = new Map(state.tattoos.map((q) => [q.id, q]));
+      const revision = applyArtworkRevision(state, c.id, c.key, c.aspect, { linked: false });
+      state = revision.nextState;
+      const q = state.tattoos.find((y) => y.id === c.id), before = was.get(c.id);
+      if (!q) continue;
+      keepVersion(before, q); keepInkInPlace(q, before, { widthScale: c.frame.widthScale, shift: c.frame.shift });
+      delete q.blend; delete q.adjust; // the look it had is drawn into the picture now
+    }
+    if (skinPic) {
+      const skinFile = new File([await skinPic.read()], /\.png$/i.test(skinPic.name) ? 'skin.png' : 'skin.jpg', { type: /\.png$/i.test(skinPic.name) ? 'image/png' : 'image/jpeg' });
+      const r = await readPainted(skinFile, true, false); // the skin went out with its paint and without ink
+      added = await tattoosFrom(r);
+    }
+    return { changed: changed.map((c) => c.id), added, kept, skippedWarp, skippedLock };
+  } finally { close(); }
+}
+function bringBack(file) { return withFreshInk(() => bringBackNow(file)); }
+async function bringBackNow(file) {
   toggle('#share', false); toggle('#pcMenu', false);
   if (file.size > 300e6) { toast('That file is too large to open here.'); return []; }
   let layered = /\.procreate$/i.test(file.name);
@@ -7085,6 +7410,22 @@ async function bringBack(file) {
         added.push(...got);
       }
     } else {
+      let back = null;
+      try { const { readZip } = await import('./procreate-import.js'); if (/\.(usdz|zip)$/i.test(file.name) || /usdz|zip/.test(file.type)) back = await layeredBack(await readZip(new Uint8Array(await file.arrayBuffer())), file); } catch (e) { if (undoStack.length > before) undo(); throw e; }
+      if (back) {
+        window.__lastLayeredBack = back;
+        const n = back.changed.length, m = back.added.length, left = [...back.skippedWarp, ...back.skippedLock];
+        if (!n && !m) { if (undoStack.length > before) { undoStack.pop(); refreshUndo(); } toast('Nothing new on that model. Every tattoo is as it went out.' + (left.length ? ` ${left.join(', ')} changed but ${left.length === 1 ? 'stays' : 'stay'} as ${left.length === 1 ? 'it was' : 'they were'}: bent, warped or locked.` : '')); return []; }
+        if (n) syncDecals();
+        selectedId = (back.added[0] || state.tattoos.find((t) => t.id === back.changed[0]) || {}).id || null;
+        commit(); markTried('layersBack');
+        const sel1 = state.tattoos.find((t) => t.id === selectedId); if (sel1) userFocus(sel1);
+        const parts = [];
+        if (n) parts.push(n === 1 ? `${state.tattoos.find((t) => t.id === back.changed[0])?.name || 'One tattoo'} has its new artwork` : `${n} tattoos have their new artwork`);
+        if (m) parts.push(m === 1 ? '1 new tattoo from the skin' : `${m} new tattoos from the skin`);
+        toast(parts.join(', and ') + '. Earlier artwork kept as a version.' + (left.length ? ` ${left.join(', ')} stayed as ${left.length === 1 ? 'it was' : 'they were'}: bent, warped or locked.` : ''), 'Undo', undo);
+        return [...back.changed, ...back.added.map((t) => t.id)];
+      }
       const r = await readPainted(file);
       snapshot();
       added.push(...await tattoosFrom(r));
@@ -7103,7 +7444,8 @@ async function bringBack(file) {
 // The base layer laid over the skin picture (it is opaque, so it is the picture).
 function P_over(r, l) { const out = new Uint8ClampedArray(r.baseline); for (let o = 0; o < out.length; o += 4) { const a = l.px[o + 3] / 255; for (let k = 0; k < 3; k++) out[o + k] = Math.round(out[o + k] * (1 - a) + l.px[o + k] * a); } return out; }
 // The paint on the body, split into movable tattoos (one undo step).
-async function paintToTattoos() {
+function paintToTattoos() { return withFreshInk(() => paintToTattoosNow()); }
+async function paintToTattoosNow() {
   toggle('#pcMenu', false);
   const im = state.paint && await loadImg(state.paint.img); if (!im) return [];
   toast('Making movable tattoos from your paint. This takes a few seconds.');
@@ -7296,6 +7638,17 @@ async function renderRecovery() {
   if (shelf.length) {
     host.append(head('Projects on this device'));
     host.append(cards(shelf.map((r) => row(r.name, `${tatText(r.tattoos, r.real)} · ${whenText(r.updatedAt)}${r.archived ? ' · archived' : ''}`, () => restoreCopy(async () => { const sh = await openProjectShelf(); try { return await sh.get(r.id); } finally { sh.close(); } }, `"${r.name}"`)))));
+  }
+  // one copy a day in the account (src/backups.js), the newest 30 days
+  if (account && account.configured && account.status().signedIn) {
+    const box = el('div', { id: 'rcCloud' }, head('In your account, one a day'), el('p', { class: 'tip', text: 'Looking in your account…' }));
+    host.append(box);
+    const r = await account.backups();
+    if (!box.isConnected) return;
+    box.replaceChildren(head('In your account, one a day'));
+    if (r.why === 'unreachable') box.append(el('p', { class: 'tip', text: 'Your account did not answer, so its daily copies cannot be listed just now.' }));
+    else if (!r.list.length) box.append(el('p', { class: 'tip', text: 'The first daily copy goes into your account the next time this project saves there. One is kept each day, for 30 days.' }));
+    else box.append(cards(r.list.slice(0, 60).map((b) => row(`${b.name || 'A project no longer in your account'}`, `${backupDay(b.day)} · kept in your account`, () => { const d = backupDay(b.day); restoreCopy(() => account.loadBackup(b.file), `${b.name ? '"' + b.name + '"' : 'the project'} from ${/^(Today|Yesterday)$/.test(d) ? d.toLowerCase() : d}`); }))));
   }
 }
 function openFindSaves() { toggle('#share', false); toggle('#recover', true); renderRecovery(); markTried('findSaves'); }
@@ -7655,6 +8008,8 @@ wrapStudio = initWrapStudio({
 $('#openWrap').addEventListener('click', () => { toggle('#planMenu', false); wrapStudio.open(); });
 
 window.__ink = {
+  bvh: (on) => { noBvh = !on; }, follow: (on) => { noFollow = !on; },
+  rayBody: (o, d) => { ray.set(new THREE.Vector3(...o), new THREE.Vector3(...d).normalize()); const h = ray.intersectObject(body, false); return h.map((x) => [x.faceIndex, +x.distance.toFixed(6)]); },
   redraw: () => { needsRender = true; },
   onPhoto: () => onPhoto.state(), onPhotoLayer: () => { const im = onPhoto.layerPixels(); return im && { w: im.width, h: im.height, data: im.data }; },
   gpu: () => ({ ...renderer.info.memory, programs: renderer.info.programs?.length || 0 }),
@@ -7727,7 +8082,7 @@ window.__ink = {
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, bodyIndex: () => bodyGeo.index.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, looksBlank: () => looksBlank(state), blankHold: () => ({ guardSave, holdBlank }), lostLook: (o) => findLostPictures(o), lostCount: () => state.tattoos.filter(isLost).length, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
-  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), gapNow: (id) => { const t0 = performance.now(), g = nearestGap(state.tattoos.find((q) => q.id === id)); return { g, ms: performance.now() - t0 }; }, addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), closeUp: (id) => closeUpShot(state.tattoos.find((q) => q.id === id)), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), gapNow: (id) => { const t0 = performance.now(), g = nearestGap(state.tattoos.find((q) => q.id === id)); return { g, ms: performance.now() - t0 }; }, addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), closeUp: (id) => closeUpShot(state.tattoos.find((q) => q.id === id)), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), showMe: (key) => showMe({ show: key }), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)
   // where the ink itself lies on the skin, read from the decal and its own texture: the middle and the area

@@ -4,12 +4,8 @@
 import { shapeJoints, applyLocalGirth, LOCAL_GIRTH } from './pose.js';
 import { BODY_BASE, BODY_IDX, BODY_IDX_GENITAL, COUNTS, MARKS, EYES, LIPS, TARGETS } from './body.js';
 
-export function b64(s, Type) {
-  const bin = atob(s);
-  const u = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
-  return new Type(u.buffer);
-}
+import { b64typed } from './b64.js';
+export function b64(s, Type) { return b64typed(s, Type); }
 
 // Decoded once at module load. Vertex order: body, eyes, genital helper.
 export const BASE = b64(BODY_BASE, Float32Array);

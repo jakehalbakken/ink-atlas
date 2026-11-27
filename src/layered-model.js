@@ -63,7 +63,7 @@ export function tattooPart({ positions, normals, index, tris, uv, aspect = 1, sc
 }
 
 // The part's picture: skin colour, the ink multiplied over it exactly as on the body.
-function bakePart({ THREE, renderer, part, material, skinColor, longest }) {
+export function bakePart({ THREE, renderer, part, material, skinColor, longest }) {
   const w = part.ratio >= 1 ? longest : Math.max(64, Math.round(longest * part.ratio)), h = part.ratio >= 1 ? Math.max(64, Math.round(longest / part.ratio)) : longest;
   const g = new THREE.BufferGeometry(), flat = new Float32Array(part.st.length / 2 * 3);
   for (let i = 0; i < part.st.length / 2; i++) { flat[i * 3] = part.st[i * 2] * 2 - 1; flat[i * 3 + 1] = part.st[i * 2 + 1] * 2 - 1; }
@@ -101,6 +101,24 @@ export function zipAligned(files, zipSync) {
   return zipSync(out, { level: 0, mtime: new Date(2026, 0, 1) });
 }
 
+// Each tattoo's part, its texture's longest side and its name in the file, in the order the
+// file lists them. Bringing a painted file back works these out again the same way, so a
+// texture set named Rose is matched to the Rose here (src/layered-back.js).
+export function partsFor({ bodyGeometry, tattoos, scale = 1, max = 4096, used = new Set(['skin']) }) {
+  const P = bodyGeometry.getAttribute('position').array, N = bodyGeometry.getAttribute('normal').array, I = bodyGeometry.index.array, out = [];
+  for (const t of tattoos) {
+    const tris = t.geometry.userData.tris, uv = t.geometry.getAttribute('uv');
+    if (!tris || !uv) continue;
+    const part = tattooPart({ positions: P, normals: N, index: I, tris, uv: uv.array, aspect: t.aspect || 1, scale });
+    if (!part) continue;
+    const img = t.material.map && t.material.map.image, artPx = img ? Math.max(img.width || 0, img.height || 0) : 1024;
+    const span = Math.max(part.box[2] - part.box[0], part.box[3] - part.box[1]);
+    const longest = Math.min(2048, max, Math.max(1024, Math.round(artPx * span)));
+    out.push({ t, part, label: usdName(t.name, used), longest });
+  }
+  return out;
+}
+
 // tattoos: [{ name, geometry, material, aspect }] in tray order (visible ones only).
 export async function exportLayeredModel({ THREE, renderer, bodyGeometry, skinColor, tattoos, state, paint = null, size }) {
   const height = state.heightCm ?? 175;
@@ -120,16 +138,7 @@ export async function exportLayeredModel({ THREE, renderer, bodyGeometry, skinCo
   try {
     const skinName = usdName('Skin', used), bodyMesh = new THREE.Mesh(texturedBody({ THREE, bodyGeometry, scale }), surface(skinCanvas, skinName));
     bodyMesh.name = skinName; owned.push(bodyMesh.geometry); scene.add(bodyMesh);
-    const P = bodyGeometry.getAttribute('position').array, N = bodyGeometry.getAttribute('normal').array, I = bodyGeometry.index.array;
-    for (const t of tattoos) {
-      const tris = t.geometry.userData.tris, uv = t.geometry.getAttribute('uv');
-      if (!tris || !uv) continue;
-      const part = tattooPart({ positions: P, normals: N, index: I, tris, uv: uv.array, aspect: t.aspect || 1, scale });
-      if (!part) continue;
-      const img = t.material.map && t.material.map.image, artPx = img ? Math.max(img.width || 0, img.height || 0) : 1024;
-      const span = Math.max(part.box[2] - part.box[0], part.box[3] - part.box[1]);
-      const longest = Math.min(2048, max, Math.max(1024, Math.round(artPx * span)));
-      const label = usdName(t.name, used);
+    for (const { t, part, label, longest } of partsFor({ bodyGeometry, tattoos, scale, max, used })) {
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(part.positions, 3)); g.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3)); g.setAttribute('uv', new THREE.BufferAttribute(part.st, 2));
       g.setIndex(part.positions.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(part.index, 1) : new THREE.Uint16BufferAttribute(part.index, 1));
