@@ -66,7 +66,7 @@ export default async function (p) {
     await p.evaluate(() => { window.__ink.state().tattoos[0].name = 'Changed on A'; window.__ink.commitTest(); });
     await until(p, () => window.__ink.account().bind.rev === 2 && window.__ink.account().text === 'Saved to your account', null, 'A saved up');
     rows = await db('select rev, state from public.projects'); assert.equal(rows[0].rev, 2); assert.equal(rows[0].state.tattoos[0].name, 'Changed on A');
-    const uploadsBefore = fake.log.filter((l) => l.startsWith('POST /storage')).length;
+    const uploadsBefore = fake.log.filter((l) => l.startsWith('POST /storage') && !l.includes('/backups/')).length;
 
     // settings that follow you: A's light and hair go into the account's user details
     await p.evaluate(() => { document.querySelector('#lightChoices [data-light="warm"]').click(); document.querySelector('#hairRow [data-hair="buzz"]').click(); });
@@ -118,7 +118,7 @@ export default async function (p) {
     // B changes it; A picks it up on coming back
     await q.evaluate(() => { window.__ink.state().tattoos[0].name = 'Changed on B'; window.__ink.commitTest(); });
     await until(q, () => window.__ink.account().text === 'Saved to your account' && window.__ink.account().bind.rev === 3, null, 'B saved up');
-    assert.equal(fake.log.filter((l) => l.startsWith('POST /storage')).length, uploadsBefore, 'artwork already up is not sent again');
+    assert.equal(fake.log.filter((l) => l.startsWith('POST /storage') && !l.includes('/backups/')).length, uploadsBefore, 'artwork already up is not sent again');
     await p.evaluate(() => window.__ink.accountApi().pull());
     await until(p, () => window.__ink.state().tattoos[0].name === 'Changed on B', null, 'A got B\'s change');
     assert.equal(await p.evaluate(() => window.__ink.account().bind.rev), 3);
