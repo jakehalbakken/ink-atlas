@@ -43,7 +43,7 @@ export default async function (p) {
   await p.click('#ldList .ld-tat'); await wait(1300);
   await p.screenshot({ path: `shots/t114-${theme}-sheet.png` });
   await p.click('#editorAdvanced > summary'); await wait(700);
-  const secs = await p.$$eval('#editorAdvanced .sec > h5', (a) => a.map((e) => e.textContent));
+  const secs = await p.$$eval('#editorAdvanced .sec h5', (a) => a.map((e) => e.textContent));
   assert.deepEqual(secs, ['Size and shape', 'About this spot', 'Check it', 'Plan it', 'Copy and arrange', 'This tattoo']);
   await p.screenshot({ path: `shots/t114-${theme}-more.png` });
   await p.click('#editorAdvanced > summary'); await wait(300);

@@ -1728,7 +1728,7 @@ function renderSheet() {
   if (lost) { const n = state.tattoos.filter(isLost).length; $('#lostText').textContent = n > 1 ? `This picture was lost (${n} are). Its place and size are kept.` : 'This picture was lost. Its place and size are kept.'; }
   const ink = !commentOnly && !t.locked && !lost ? inkShareOf(t) : null, padded = !!ink && (ink.w < 0.96 || ink.h < 0.96);
   $('#trimRow').hidden = !padded;
-  if (padded) { const s = inchesOf(t); $('#trimText').textContent = `Empty space round the ink makes it read ${s.w.toFixed(1)} × ${s.h.toFixed(1)} in. The ink is ${(s.w * ink.w).toFixed(1)} × ${(s.h * ink.h).toFixed(1)} in.`; }
+  if (padded) { const s = inchesOf(t); $('#trimText').textContent = `The ink is ${(s.w * ink.w).toFixed(1)} × ${(s.h * ink.h).toFixed(1)} in; empty space round it makes it read ${s.w.toFixed(1)} × ${s.h.toFixed(1)}.`; }
   $('#moveTip').textContent = commentOnly?'You can say yes or ask for a change, pin a comment under Preview, Comments, and add reference pictures. Only people who can edit can move tattoos.':tapPlaceId?'Tap a spot on the body to place this tattoo. Drag or pinch to adjust the view first.':t.status==='existing'?'Already on you, so fingers on the body won\'t move it. The size, turn and nudge controls here still fine-tune it.':t.locked?'Locked in place: fingers on the body won\'t move it, and everything in this panel still works.':isWrap(t)&&!taught.has('wrapMove')?`Drag it sideways to turn it round your ${/leg/.test(wrapInfo(t).L.key)?'leg':'arm'}, up or down to slide it along. Grab it anywhere, even round the back.`:taught.has('move')?'':'Drag the tattoo to move it. Drag the corner to resize, the dot above to turn. Two fingers on it do both.';
 }
 function renderBody() {
@@ -3788,7 +3788,8 @@ const SHOW = {
   palette: () => { toggle('#share', true); paletteReady = buildPalette(); return ['#cSwatches', 'Saves your skin and ink colours as a palette Procreate opens.']; },
   cleanup: () => { if (!needTattoo()) return null; return ['#bCleanup', 'Opens the cleanup. Pick a tool on the left, pinch to zoom, and tap Done when it looks right.']; },
   editProcreate: () => { if (!needTattoo()) return null; return ['#bProcreate', 'Sends this tattoo to Procreate. Copy All there, then tap Paste here.']; },
-  dailyBackups: () => { openFindSaves(); return ['#rcList', account && account.configured ? (account.status().signedIn ? 'Each day\'s copy from your account is listed here. Tap one to open it; Undo puts back what was on screen.' : 'Sign in and each project in your account keeps a copy a day there, listed here.') : 'Every copy kept on this device is listed here. Daily account copies show here once accounts are on.']; },
+  moreFolds: () => { const t = needTattoo(); if (!t) return null; $('#editorAdvanced').open = true; return ['#editorAdvanced details.fold[data-fold=check] > summary', 'More controls opens to short headings now. Tap one to open it, and it stays open next time.']; },
+  dailyBackups: () => { toggle('#share', false); toggle('#recover', true); renderRecovery(); return ['#rcList', account && account.configured ? (account.status().signedIn ? 'Each day\'s copy from your account is listed here. Tap one to open it; Undo puts back what was on screen.' : 'Sign in and each project in your account keeps a copy a day there, listed here.') : 'Every copy kept on this device is listed here. Daily account copies show here once accounts are on.']; },
   findTool: () => { openFind(true); return ['#findQ', 'Type what you want to do, like stencil, erase or hair, and tap the line that comes up. Press / or Cmd+K on a keyboard.']; },
   pan: () => [null, 'Put two fingers on the screen away from a tattoo and slide them to move the view. Twist clearly to turn it.'],
 };
@@ -3801,7 +3802,11 @@ function showMe(f) {
   infoQuietUntil = performance.now() + 1000; const r = SHOW[f.show]?.(); if ($('#editorAdvanced').open) infoByShow = true; if (!r) return;
   coach(r[0], r[1]);
 }
+// a control inside a folded section (More controls, Precise placement, a heading's fold) is shown
+// by opening every fold round it first
+function unfoldTo(n) { for (let d = n && n.parentElement && n.parentElement.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open) d.open = true; }
 function coach(target, text) {
+  { const n0 = typeof target === 'string' ? document.querySelector(target) : target; if (n0 && n0.isConnected && n0.closest('#sheet, #bodyPop, #lookMenu, #planMenu, #share, #pcMenu')) unfoldTo(n0); }
   const ring = $('#pointRing'), tip = $('#pointTip');
   tip.textContent = text; tip.hidden = false; ring.hidden = !target; coachArmed = performance.now() + 350;
   cancelAnimationFrame(coachTimer);
@@ -3898,7 +3903,6 @@ function findGo(r) {
   // the control may be built again when its panel opens, so find it again by the same name
   requestAnimationFrame(() => {
     let n = r.node; if (!n.isConnected || !n.getClientRects().length) { const again = findItems().find((x) => x.area === r.area && findFold(x.label) === findFold(r.label)); if (again) n = again.node; }
-    const det = n.closest('details'); if (det && !det.open) det.open = true;
     coach(n, n.matches('ink-slider') ? `${r.label}: drag it left or right.` : `Here it is: ${r.label}.`);
   });
 }
@@ -4295,7 +4299,7 @@ function refList() { return Array.isArray(state.refs) ? state.refs : []; }
 function canChangeRef(r) { return !commentOnly || (!!r.by && r.by === myName()); }
 function renderRefCount(t) {
   const n = t ? refList().filter((r) => r.tattooId === t.id).length : 0;
-  $('#bRefs').textContent = n ? `Reference pictures (${n})` : 'Add reference pictures';
+  $('#bRefs').textContent = n ? `References (${n})` : 'References';
   // the comments pinned on this tattoo, from anyone
   const c = t ? pinNotes().filter((x) => x.tattooId === t.id) : [], open = c.filter((x) => !x.done).length;
   $('#bPinsFor').hidden = !c.length;
@@ -5551,6 +5555,15 @@ function renderInfo() {
 }
 $('#estRate').addEventListener('input', () => { const n = Math.round(+$('#estRate').value); writeRate(n > 0 ? n : 0); const t = sel(), hrs = t && hoursOf(t); if (hrs) $('#estLine').textContent = sessionText(hrs, readRate()); planRender(t); if (t) sitRender(t); markTried('estimate'); });
 // opened by a Show me, it is only being pointed at, not tried yet
+// More controls opens to short headed sections; which are open is kept on this device
+{
+  const KEY = 'ia-more-open';
+  let open = ['size']; try { const v = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(v)) open = v.filter((x) => typeof x === 'string'); } catch (e) { /* the first time */ }
+  for (const d of document.querySelectorAll('#editorAdvanced details.fold')) {
+    d.open = open.includes(d.dataset.fold);
+    d.addEventListener('toggle', () => { const now = [...document.querySelectorAll('#editorAdvanced details.fold')].filter((x) => x.open).map((x) => x.dataset.fold); try { localStorage.setItem(KEY, JSON.stringify(now)); } catch (e) { /* not kept */ } if (d.open && d.dataset.fold === 'spot' && sel()) renderInfo(); });
+  }
+}
 $('#editorAdvanced').addEventListener('toggle', () => { if (!$('#editorAdvanced').open) infoByShow = false; else if (sel()) { renderInfo(); if (!infoByShow && performance.now() > infoQuietUntil) { markTried('where'); markTried('estimate'); markTried('like'); } } });
 /* ---------- Preview menu: before/after, pose, clothes and aging behind one button ---------- */
 function showLook(open) {
@@ -7817,7 +7830,7 @@ window.__ink = {
   loadState: (s) => { state = s; selectedId = null; skinMat.color.set(skinColor()); adoptState(); commit(); },
   positions: () => bodyGeo.attributes.position.array, bodyIndex: () => bodyGeo.index.array, v1Positions: shapePositionsV1,
   store: () => store, flush: flushSave, looksBlank: () => looksBlank(state), blankHold: () => ({ guardSave, holdBlank }), lostLook: (o) => findLostPictures(o), lostCount: () => state.tattoos.filter(isLost).length, account: () => account && account.status(), accountApi: () => account, undo, saved: () => ({ dirty, saving, text: $('#saved').textContent }),
-  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), gapNow: (id) => { const t0 = performance.now(), g = nearestGap(state.tattoos.find((q) => q.id === id)); return { g, ms: performance.now() - t0 }; }, addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), closeUp: (id) => closeUpShot(state.tattoos.find((q) => q.id === id)), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
+  surfaceAt: (o, d) => surfaceAt(new V3(...o), new V3(...d)), gapNow: (id) => { const t0 = performance.now(), g = nearestGap(state.tattoos.find((q) => q.id === id)); return { g, ms: performance.now() - t0 }; }, addArt: (url, name, place) => addImage(url, name, place), commitTest: commit, grabsAt: (x, y, slop = 0) => onSelectedInk(x, y, slop), closeUp: (id) => closeUpShot(state.tattoos.find((q) => q.id === id)), uvAt: (x, y) => { const t = sel(), d = t && decals[t.id], h = hitBody(x, y); if (!d || !h) return null; ray.setFromCamera(ndc(x, y), camera); const q = poseView.withPosed(() => ray.intersectObject(d.mesh, false), [d.mesh]).find((q) => Math.abs(q.distance - h.distance) < 0.012); return q && q.uv ? [q.uv.x, q.uv.y] : null; }, wrapShare: (id) => { const w = wrapInfo(state.tattoos.find((q) => q.id === id)); return w ? { share: w.share, limb: w.L.key, r: w.at.r } : null; }, wrapRound: (id) => wrapRound(state.tattoos.find((q) => q.id === id)), girthHere: (id) => girthHere(state.tattoos.find((q) => q.id === id)), gestMode: () => (gest ? (gest.limb ? 'wrap' : gest.mode) : null), aim: (t, r, theta = goal.theta, phi = goal.phi) => { Object.assign(goal, { tx: t[0], ty: t[1], tz: t[2], r, theta, phi, roll: 0 }); Object.assign(cur, goal); needsRender = true; }, cam: () => [camera.position.x, camera.position.y, camera.position.z].map((v) => +v.toFixed(4)), select: (id) => select(id, false), showMe: (key) => showMe({ show: key }), screenOfPos: (p) => { const v = screenOf(new V3(...p)); return { x: v.x, y: v.y }; }, pins: () => ({ on: pins.on, n: pinNotes().length, openCount: pinNotes().filter((n) => !n.done).length, listShown: !$('#pinList').hidden, listItems: [...document.querySelectorAll('#pinListItems li')].map((li) => li.textContent), replies: document.querySelectorAll('#pinReplies li').length, resolveLabel: $('#pinResolve').textContent, canDelete: !$('#pinDelete').hidden, pending: !!pins.pending, open: pins.open, shown: [...pins.els.values()].filter((e) => !e.b.hidden).length, label: $('#pinsBtn').textContent }), pinsOn, openPin, turnToPin, answerShown: () => !$('#approveRow').hidden, imageOf: (k) => images[k], commentOnly: () => commentOnly, suggesting: () => (suggesting ? suggesting.id : null), undoLen: () => undoStack.length, refs: () => ({ open: !$('#refs').hidden, viewing: refsUi.open, tiles: document.querySelectorAll('#refsGrid .refTile').length, count: $('#bRefs').textContent }),
   // how much of each artwork lands on the skin (share of its rectangle covered) and how evenly
   // (the worst 10% of triangles' skin area per picture area, against the piece's own scale)
   // where the ink itself lies on the skin, read from the decal and its own texture: the middle and the area

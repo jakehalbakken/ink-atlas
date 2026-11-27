@@ -3,7 +3,8 @@
 // NOT MakeHuman bone-roll axes. Always skin a fresh rest mesh, never posed output.
 import { RIG } from './rig.js';
 import { BODY_BASE, TARGETS } from './body.js';
-function decode(s,Type){const bytes=Uint8Array.from(atob(s),c=>c.charCodeAt(0));return new Type(bytes.buffer);}
+import { b64typed } from './b64.js';
+function decode(s,Type){return b64typed(s,Type);}
 const BASE=decode(BODY_BASE,Float32Array), JB=decode(RIG.jointBase,Float64Array);
 const JT=Object.fromEntries(Object.entries(RIG.jointTargets).map(([k,v])=>[k,decode(v,Float64Array)]));
 const T=Object.fromEntries(Object.entries(TARGETS).map(([k,v])=>[k,{i:decode(v.i,Uint16Array),d:decode(v.d,Int16Array),s:v.s}]));

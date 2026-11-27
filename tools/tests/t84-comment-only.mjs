@@ -112,7 +112,7 @@ export default async function (p) {
     const png = await q.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 200; const g = c.getContext('2d'); g.fillStyle = '#e8d8c8'; g.fillRect(0, 0, 320, 200); g.fillStyle = '#7a1f2b'; g.beginPath(); g.arc(160, 100, 70, 0, 7); g.fill(); return c.toDataURL('image/png').split(',')[1]; });
     const file = path.join(tmp, 'rose-reference.png'); fs.writeFileSync(file, Buffer.from(png, 'base64'));
     await q.evaluate((id) => window.__ink.select(id), t0); await wait(300);
-    assert.match(await q.$eval('#bRefs', (e) => e.textContent), /Add reference pictures/);
+    assert.match(await q.$eval('#bRefs', (e) => e.textContent), /References/);
     await q.click('#bRefs'); await wait(300);
     assert.equal((await q.evaluate(() => window.__ink.refs())).open, true, 'the board opens');
     await (await q.$('#refsFile')).uploadFile(file);
@@ -127,7 +127,7 @@ export default async function (p) {
     assert.equal(await shown(q, '#refRemove'), true, 'she can remove her own picture');
     assert.equal(await shown(q, '#refTry'), false, 'but cannot put it on the body');
     await q.click('#refBack'); await q.click('#refs [data-close="refs"]'); await wait(200);
-    assert.match(await q.$eval('#bRefs', (e) => e.textContent), /Reference pictures \(1\)/);
+    assert.match(await q.$eval('#bRefs', (e) => e.textContent), /References \(1\)/);
     for (let i = 0; i < 100; i++) { const st = (await db('select state from public.projects'))[0].state; if (st.refs && st.refs[0] && st.refs[0].note && st.notes) break; await wait(200); }
     let saved = (await db('select state, image_keys from public.projects'))[0];
     assert.ok(saved.state.notes.some((n) => n.text === 'Shade the petals darker' && n.by === 'Mara'), 'her comment is in the account');

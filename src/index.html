@@ -187,7 +187,7 @@ body.hands-on #top,body.hands-on #views,body.hands-on #lookMenu,body.hands-on #d
 body.panel-open #hint{visibility:hidden}
 #sheet{max-height:55vh;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y;width:min(760px,100%);padding:10px 12px 12px;display:flex;flex-direction:column;gap:8px}
 .sec{display:flex;flex-direction:column;gap:8px;padding-top:12px;border-top:1px solid var(--line)}.sec:first-child{border-top:0;padding-top:0}
-.sec>h5{margin:0;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.sec.fold{gap:0}.sec.fold>summary{list-style:none;cursor:pointer;min-height:48px;display:flex;flex-direction:column;justify-content:center;gap:2px;padding-right:30px;position:relative}.sec.fold>summary::-webkit-details-marker{display:none}.sec.fold>summary::after{content:"";position:absolute;right:6px;top:50%;width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);transition:transform .18s}.sec.fold[open]>summary::after{transform:translateY(-30%) rotate(-135deg)}.sec.fold>summary h5{margin:0;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.sec.fold>summary span{font-size:13px;color:var(--muted);line-height:1.3}.sec.fold[open]>summary{margin-bottom:8px}.sec.fold>:not(summary){margin-top:8px}.sec.fold>summary+*{margin-top:0}@media (prefers-reduced-motion:reduce){.sec.fold>summary::after{transition:none}}.sec>h5{margin:0;font:650 11.5px/1.2 var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .sec .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px}.sec .grid .btn{justify-content:flex-start;padding:0 12px}
 .sec .info{display:flex;flex-direction:column;gap:0;background:var(--fill-soft);border-radius:var(--r-md);overflow:hidden;clip-path:inset(1px 0 0 0 round var(--r-md))}.sec .info:empty,.sec .info:not(:has(>:not([hidden]))){display:none}#estRow,#planSits,#sitBox,#verBox,#noteBox,#madeBox{background:var(--fill-soft);border-radius:var(--r-md);padding:12px 14px}#estRow{justify-content:space-between;row-gap:6px;padding:8px 8px 8px 14px;min-height:56px}#estRow #estLine{flex:1 1 160px;min-width:0}#planLine{margin:-2px 4px 0}#planSits{display:flex;flex-direction:column;gap:6px}#planSits>p{margin:0}#planSits>.btn{align-self:flex-start}#sitBox>span,#verBox>span,#madeBox>span{color:var(--text);font-weight:600}#sitBox>span small,#verBox>span small{font-weight:400;color:var(--muted)}#sitBox>.tip{margin:0;padding-top:8px;border-top:1px solid var(--line)}#sitBox>.tip+.tip{border-top:0;padding-top:0}#sitBox>#sitCal{align-self:flex-start}#noteBox{color:var(--text);font-weight:600}#noteBox textarea{font-weight:400}.sec .info>*{margin:0;padding:11px 14px;box-shadow:inset 0 1px 0 var(--line);font-size:14px;line-height:1.35}.sec .info>.row{flex-wrap:nowrap;gap:12px;padding:8px 8px 8px 14px;min-height:52px}.sec .info>.row>span{flex:1;min-width:0}.sec .info>.row>.btn{flex:none;min-height:44px;font-size:14px}#estRate,#exactWidth{min-height:44px;font:inherit;font-size:16px;color:var(--text);background:var(--fill);border:1px solid var(--line);border-radius:12px;padding:0 12px;margin-left:6px;-webkit-appearance:none;appearance:none}#estRate::placeholder{color:var(--faint,var(--muted))}
 #editorAdvanced>summary{min-height:44px;display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;list-style:none;padding:0 12px;border-radius:var(--r-md);background:var(--fill-soft)}#editorAdvanced>summary::-webkit-details-marker{display:none}#editorAdvanced>summary::before{content:"+";font-size:20px;color:var(--muted);width:14px}#editorAdvanced[open]>summary::before{content:"−"}#editorAdvanced>summary span{font-weight:400;color:var(--muted);font-size:12px}#editorAdvanced .editor-advanced-content{display:flex;flex-direction:column;gap:14px;padding:12px 2px 2px}.editor-quick{gap:6px}.editor-quick .btn{flex:1;white-space:nowrap;padding:0 10px}#sheet #moveTip{font-size:12px;line-height:1.35}@media(orientation:landscape) and (max-height:650px){#sheet{max-height:50vh;padding:8px 12px;gap:5px}#sheet #moveTip{display:none}#dock{gap:6px;padding-bottom:8px}#editorAdvanced>summary span{display:none}}
@@ -445,7 +445,7 @@ body:has(.scrim:not([hidden])) #toast{top:auto;bottom:calc(16px + var(--kb,0px) 
 #sheet .editor-arrange .btn::before{width:20px;height:20px}
 #refRow .btn{flex:1;justify-content:flex-start;gap:10px;border-color:transparent}
 #refRow .btn::before{color:var(--muted)}
-#refRow{flex-wrap:wrap}#refRow .btn{min-width:min(100%,180px)}
+#refRow{flex-wrap:wrap}#refRow .btn{min-width:min(100%,130px);padding:0 10px;gap:8px;font-size:15px}#trimRow,#wrapRow{flex-wrap:nowrap;align-items:center;gap:10px}#trimRow>span,#wrapRow>span{flex:1;font-size:13px;line-height:1.3;color:var(--muted)}#trimRow .btn,#wrapRow .btn{flex:none}.sec.fold[data-fold=spot]:not(:has(>.info>:not([hidden]))){display:none}
 #bLook span{display:flex;flex-direction:column;align-items:flex-start;min-width:0;text-align:left}#bLook small{color:var(--muted);font-size:12px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}#bLook small:empty{display:none}
 #sheet #name{min-width:0} /* an input is as wide as 20 letters by default, which pushed Done to its own line */
 /* in the right-hand column each slider gets the whole width, so it is long enough to set by finger */
@@ -756,7 +756,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
     <div id="changeBox" hidden><textarea id="changeNote" maxlength="300" rows="2" aria-label="What should change" placeholder="What should change? Like: move it up an inch"></textarea><div class="row"><button class="btn primary" id="bSendChange" type="button">Save</button><button class="btn" id="bCancelChange" type="button">Cancel</button></div></div>
     <div class="row editor-quick">
       <button class="btn i-target" id="bTapPlace" type="button" aria-pressed="false">Tap to place</button>
-      <button class="btn i-wand" id="bCleanup" type="button">Clean up artwork</button>
+      <button class="btn i-wand" id="bCleanup" type="button" aria-label="Clean up artwork">Clean up</button>
       <button class="btn i-warp" id="bWarp" type="button" aria-pressed="false">Bend and warp</button>
       <button class="btn i-lock" id="bLock" type="button">Lock in place</button>
       <button class="btn i-pencil" id="bProcreate" type="button">Edit in Procreate</button>
@@ -770,9 +770,9 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
     </div>
     <div class="row" id="wrapRow" hidden><span id="wrapText"></span><button class="btn" id="wrapFit" type="button">Wrap it round</button></div>
     <div class="row" id="trimRow" hidden><span id="trimText"></span><button class="btn" id="bTrimInk" type="button">Trim to the ink</button></div>
-    <div class="row" id="refRow"><button class="btn i-palette" id="bLook" type="button" aria-expanded="false"><span>Blend and colour<small id="bLookMode"></small></span></button><button class="btn i-photo" id="bRefs" type="button">Add reference pictures</button><button class="btn i-chat" id="bPinsFor" type="button" hidden>Comments</button></div>
+    <div class="row" id="refRow"><button class="btn i-palette" id="bLook" type="button" aria-expanded="false"><span>Blend and colour<small id="bLookMode"></small></span></button><button class="btn i-photo" id="bRefs" type="button" aria-label="Reference pictures">References</button><button class="btn i-chat" id="bPinsFor" type="button" hidden>Comments</button></div>
     <details id="editorAdvanced"><summary>More controls <span>size, checks, plan and actions</span></summary><div class="editor-advanced-content">
-    <section class="sec"><h5>Size and shape</h5>
+    <details class="sec fold" data-fold="size"><summary><h5>Size and shape</h5><span>size, turn, ink strength, exact numbers</span></summary>
     <div class="sliders">
       <div class="lbl">Size<ink-slider id="rSize" min="0" max="1000" aria-label="Size"></ink-slider></div>
       <div class="lbl">Turn<ink-slider id="rTurn" unit="°" min="-180" max="180" aria-label="Turn"></ink-slider></div>
@@ -796,36 +796,36 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
         <div class="lbl">Taper<ink-slider id="rTaper" unit="%" min="-75" max="75" default="0" aria-label="Taper"></ink-slider></div>
       </div>
     </details>
-    </section>
-    <section class="sec"><h5>About this spot</h5><div class="info">
+    </details>
+    <details class="sec fold" data-fold="spot"><summary><h5>About this spot</h5><span>what it is like, what hides it, how it moves</span></summary><div class="info">
     <p id="likeLine" hidden></p><p id="whereLine" hidden></p>
     <p id="showsLine" hidden></p>
     <p id="wearLine" hidden></p>
     <div class="row" id="stretchRow" hidden><span id="stretchText"></span><button class="btn" id="stretchShow" type="button" hidden>Show that pose</button></div>
     <div class="row" id="lineRow" hidden><span id="lineText"></span><button class="btn" id="lineFix" type="button" hidden>Straighten</button></div><div class="row" id="readRow" hidden><span id="readText"></span><button class="btn" id="readFix" type="button" hidden>Turn it to face me</button></div>
     <div class="row" id="evenRow" hidden><span id="evenLine"></span><button class="btn" id="evenFix" type="button" hidden>Centre it</button></div>
-    </div></section>
-    <section class="sec"><h5>Check it</h5><div class="grid">
+    </div></details>
+    <details class="sec fold" data-fold="check"><summary><h5>Check it</h5><span>ink check, other spots, room, camera</span></summary><div class="grid">
       <button class="btn" id="bInkCheck" type="button">Ink check</button>
       <button class="btn" id="bSpots" type="button">Try other spots</button>
       <button class="btn" id="bRoom" type="button">Find room for it</button>
       <button class="btn" id="bRealSize" type="button">Real size on screen</button>
       <button class="btn" id="bTryOn" type="button">Try on with camera</button>
-    </div></section>
-    <section class="sec"><h5>Plan it</h5>
+    </div></details>
+    <details class="sec fold" data-fold="plan"><summary><h5>Plan it</h5><span>time, cost, sittings, versions, note</span></summary>
     <div class="row" id="estRow"><span id="estLine"></span><label for="estRate">Artist's rate $<input id="estRate" type="number" inputmode="decimal" min="0" max="2000" step="5" placeholder="per hour" style="width:124px;min-height:44px;font-size:16px"></label></div>
     <p id="planLine" class="tip" hidden></p><div id="planSits" hidden><p id="planNext" class="tip"></p><p id="planClash" class="tip" hidden></p><button class="btn" id="planCal" type="button">Add every sitting to calendar</button></div>
     <div id="sitBox" hidden><span>Sittings <small>with time to heal between them</small></span><ol id="sitList"></ol><div class="row"><label for="sitStart">First sitting<input id="sitStart" type="date"></label><label for="sitGap">Weeks between<select id="sitGap"><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select></label><label for="sitAway">Trip or beach day<input id="sitAway" type="date"></label></div><p id="sitHealed" class="tip" hidden></p><p id="sitDry" class="tip" hidden></p><p id="sitWear" class="tip" hidden></p><p id="sitSleep" class="tip" hidden></p><div id="sitClash" hidden><p id="sitClashText"></p><div class="row"><button class="btn" id="sitLater" type="button">Start after it</button><button class="btn" id="sitEarlier" type="button">Finish before it</button></div></div><button class="btn" id="sitCal" type="button" hidden>Add to calendar</button></div>
     <div id="verBox" hidden><span>Versions <small>tap one to see it on the body</small></span><div id="verList" role="group" aria-label="Versions"></div><p id="verText" class="tip" aria-live="polite"></p><div class="row" id="verActs" hidden><button class="btn" id="verUse" type="button">Use this one</button><button class="btn" id="verSide" type="button">Side by side</button></div></div>
     <label id="noteBox" for="tNote">Note for your artist<textarea id="tNote" maxlength="500" rows="2" placeholder="Like: fine lines, black and grey only"></textarea></label>
     <div id="madeBox" hidden><span>Who did it and when</span><div class="row"><input id="madeArtist" type="text" maxlength="60" autocomplete="off" placeholder="Artist" aria-label="Artist"><input id="madeStudio" type="text" maxlength="60" autocomplete="off" placeholder="Studio" aria-label="Studio"><input id="madeWhen" type="month" aria-label="Month it was done"></div></div>
-    </section>
-    <section class="sec"><h5>Copy and arrange</h5><div class="grid">
+    </details>
+    <details class="sec fold" data-fold="copy"><summary><h5>Copy and arrange</h5><span>other side, stencil for your artist</span></summary><div class="grid">
       <button class="btn" id="bOtherSide" type="button">Copy to other side</button>
       <button class="btn" id="bSplit" type="button" hidden>Split into designs</button>
       <button class="btn" id="bCleanupLinked" type="button" hidden>Clean up linked copies</button>
       <button class="btn" id="bStencil" type="button">Stencil for your artist</button>
-    </div></section>
+    </div></details>
     <section class="sec"><h5>This tattoo</h5><div class="grid">
       <button class="btn danger" id="bDel" type="button">Remove</button>
     </div></section>
