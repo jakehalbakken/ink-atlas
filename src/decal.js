@@ -17,6 +17,19 @@ export const UV_MARGIN = 0.04;
 const HOLE_SHARE = 0.002;
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+// Working arrays the size of the whole body, kept from one laying to the next. A drag lays its piece
+// again on every move of the finger, and fresh arrays each time came to over a megabyte a move since
+// 2026-11-25, tens of megabytes a second for the iPad to clear while it also held the project's
+// pictures (2026-11-27, Jake: placing a new tattoo "keeps refreshing" the page). Each is filled
+// before use and never kept past the call that took it; a call takes each name once.
+const scratchPool = new Map();
+function scratch(name, Type, n, fill) {
+  let a = scratchPool.get(name);
+  if (!a || a.length < n) { a = new Type(n); scratchPool.set(name, a); }
+  if (a.length !== n) a = a.subarray(0, n);
+  if (fill !== undefined) a.fill(fill);
+  return a;
+}
 
 // Neighbour triangle across each of a triangle's three edges, or -1. Built once per
 // index buffer (the index only changes when the genital geometry is shown or hidden).
@@ -229,7 +242,7 @@ function vertexRings(I, verts) {
 const h3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z), h2 = (x, y) => Math.sqrt(x * x + y * y);
 export function placeFlat(P, N, I, verts, origin, R, U, startTri, maxD, flat, relaxR = Infinity) {
   const { off, list } = vertexRings(I, verts);
-  const dist = new Float64Array(verts).fill(Infinity), fin = new Uint8Array(verts), fr = new Float64Array(verts * 6);
+  const dist = scratch('pf.dist', Float64Array, verts, Infinity), fin = scratch('pf.fin', Uint8Array, verts, 0), fr = scratch('pf.fr', Float64Array, verts * 6, 0);
   const H = { d: [], v: [] };
   const hpush = (d, v) => { const hd = H.d, hv = H.v; let i = hd.length; hd.push(d); hv.push(v); while (i > 0) { const q = (i - 1) >> 1; if (hd[q] <= d) break; hd[i] = hd[q]; hv[i] = hv[q]; i = q; } hd[i] = d; hv[i] = v; };
   const hpop = () => { const hd = H.d, hv = H.v, v0 = hv[0], ld = hd.pop(), lv = hv.pop(), n = hd.length; if (n) { let i = 0; for (;;) { let c = 2 * i + 1; if (c >= n) break; if (c + 1 < n && hd[c + 1] < hd[c]) c++; if (hd[c] >= ld) break; hd[i] = hd[c]; hv[i] = hv[c]; i = c; } hd[i] = ld; hv[i] = lv; } return v0; };
@@ -336,7 +349,7 @@ export function buildDecal(geo, adj, t, frame, startTri, limb, box) {
 
 // The share of the picture the drawn triangles leave bare (a grid over it).
 function uncovered(uv, n = 64) {
-  const m = UV_MARGIN, sp = 1 - 2 * m, hit = new Uint8Array(n * n);
+  const m = UV_MARGIN, sp = 1 - 2 * m, hit = scratch('uncovered', Uint8Array, n * n, 0);
   for (let k = 0; k + 5 < uv.length; k += 6) {
     const ax = (uv[k] - m) / sp * n, ay = (uv[k + 1] - m) / sp * n, bx = (uv[k + 2] - m) / sp * n, by = (uv[k + 3] - m) / sp * n, cx = (uv[k + 4] - m) / sp * n, cy = (uv[k + 5] - m) / sp * n;
     const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (!den) continue;
@@ -360,7 +373,7 @@ function stencilUnfold(geo, adj, t, frame, startTri, box) {
   // coordinates by unfolding the triangles one by one outward from the anchor, so ink keeps
   // its true size along the skin and carries on round an arm or leg instead of smearing and
   // stopping where the limb turns away (the old flat projection cut pieces off at the side).
-  const flat = new Float64Array(verts * 2).fill(NaN);
+  const flat = scratch('su.flat', Float64Array, verts * 2, NaN);
   const setPlanar = (ix) => { const dx = P[ix * 3] - Ox, dy = P[ix * 3 + 1] - Oy, dz = P[ix * 3 + 2] - Oz;
     flat[ix * 2] = dx * R.x + dy * R.y + dz * R.z; flat[ix * 2 + 1] = dx * U.x + dy * U.y + dz * U.z; };
   const known = (ix) => flat[ix * 2] === flat[ix * 2];
@@ -394,9 +407,9 @@ function stencilUnfold(geo, adj, t, frame, startTri, box) {
     return [N[a] + N[b] + N[c], N[a + 1] + N[b + 1] + N[c + 1], N[a + 2] + N[b + 2] + N[c + 2]]; };
   const edge = 0.05; // triangles may overhang the rectangle by this much before being dropped
 
-  const pos = [], uv = [], supports = [], from = [], seen = new Uint8Array(tris), parent = new Int32Array(tris).fill(-1);
+  const pos = [], uv = [], supports = [], from = [], seen = scratch('su.seen', Uint8Array, tris, 0), parent = scratch('su.parent', Int32Array, tris, -1);
   // trouble: a triangle inside the picture left out because two unfoldings disagreed (see buildDecal)
-  const drawn = new Uint8Array(tris), inPic = (x) => { const r = rect(x); return r[0] > 0 && r[0] < 1 && r[1] > 0 && r[1] < 1; };
+  const drawn = scratch('su.drawn', Uint8Array, tris, 0), inPic = (x) => { const r = rect(x); return r[0] > 0 && r[0] < 1 && r[1] > 0 && r[1] < 1; };
   let trouble = false;
   const queue = [startTri | 0]; seen[startTri | 0] = 1;
   let head = 0;
@@ -465,7 +478,7 @@ function stencilFlat(geo, adj, t, frame, startTri, box) {
   // unfoldings reached the same triangle different ways and disagreed, and the triangle was left
   // out, holes in the middle of the ink (Jake: a design pulled from the armpit onto the bicep
   // "kind of cuts out"). Every vertex now has one place, so the ink stays whole there.
-  const flat = new Float64Array(verts * 2).fill(NaN);
+  const flat = scratch('sf.flat', Float64Array, verts * 2, NaN);
   const known = (ix) => flat[ix * 2] === flat[ix * 2];
   // how far from the anchor along the skin any of the picture can reach: its corners (or its warped
   // box), widened by a taper and a bend, with room for skin that the walk measures a little long
@@ -491,10 +504,10 @@ function stencilFlat(geo, adj, t, frame, startTri, box) {
   // kept: ink there beats a bare triangle in the middle of the picture.
   const bad = (x, y) => { const l2 = len2(x, y), l3 = len3(x, y); return l2 > l3 * 1.6 + 1e-4 || l2 < l3 / 1.6 - 1e-4; };
 
-  const pos = [], uv = [], supports = [], from = [], parent = new Int32Array(tris).fill(-1);
+  const pos = [], uv = [], supports = [], from = [], parent = scratch('sf.parent', Int32Array, tris, -1);
   // done: drawn, or outside the artwork. One left out at a sharp fold from the side it was reached is
   // tried again from another drawn neighbour (three times at most).
-  const done = new Uint8Array(tris), queued = new Uint8Array(tris), tries = new Uint8Array(tris);
+  const done = scratch('sf.done', Uint8Array, tris, 0), queued = scratch('sf.queued', Uint8Array, tris, 0), tries = scratch('sf.tries', Uint8Array, tris, 0);
   const queue = [startTri | 0]; queued[startTri | 0] = 1;
   const reach = (tri, o) => { for (let s = 0; s < 3; s++) { const nb = adj[o + s]; if (nb >= 0 && !done[nb] && !queued[nb] && tries[nb] < 3) { queued[nb] = 1; parent[nb] = tri; queue.push(nb); } } };
   let head = 0;

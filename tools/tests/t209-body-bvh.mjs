@@ -44,5 +44,5 @@ export default async function (p) {
   console.log('slider step ms, before', slow.ts.map(Math.round), 'now', fast.ts.map(Math.round));
   assert.deepEqual(fast.after, slow.after, 'once the finger lifts the ink is laid out exactly as before');
   assert.ok(med(fast.ts) < med(slow.ts) * 0.5, `a slider step is at least twice as quick (${Math.round(med(fast.ts))} vs ${Math.round(med(slow.ts))} ms)`);
-  console.log('t202 ok');
+  console.log('t209 ok');
 }

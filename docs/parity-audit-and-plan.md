@@ -730,6 +730,14 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-27 QA batch 34 (built, not live)
+
+Re-tested Layers (a line's options, Select with every line picked, folders), More controls and every top-bar panel (Body, Preview, Plan, Share, New) at six iPad sizes and a phone: no small, clipped or covered controls.
+
+- The tattoo's name at the top of the edit sheet was 122 px on every iPad, so "Sunburst (sample)" stopped mid-letter. The bin beside it is now 44 pt like the fold arrow (was 50), and a name still too long ends in … until the box is tapped to type.
+
+Checks: t202. New to try: nameRoom.
+
 ## 2026-11-27 QA batch 33 (built, not live)
 
 - Re-tested Try other spots on three phone sizes (the list stops above the bottom bar, nothing under it), all ten Clean up tools turning the iPad with each open at six sizes, and every Measured wrap step (Quick, Measurements, Existing tattoo, Design, Procreate, Print) at six sizes.
@@ -1001,6 +1009,14 @@ Jake: "the whole entire web page will like suddenly reload or crash ... in the c
 - Clean up keeps a draft on the device (`cleanup-draft.js`, IndexedDB `ink-atlas-cleanup-draft`, never in the project or account) a moment after each change and when the app leaves the screen; after the page closes, a toast offers Open it and the edits come back; Done (once saved), Cancel and Throw away clear it.
 - Checks: `cleanup-memory-unit.mjs` (node), t188 (browser, needs the QA machine). Not yet on the iPad.
 
+## The page reloading while placing a new tattoo (2026-11-27, built, not live)
+
+Jake: "when I'm trying to place a new tattoo it keeps refreshing ... page crashing and not saving progress."
+
+- Cause, most likely: since the 2026-11-25 armpit fix, every finger move laid the piece again and made about 11 fresh arrays the size of the whole body (over 1 MB a move), on top of the project's pictures, the photo chooser's own memory and the MediaPipe models that were never closed. iPad Chrome closes a tab that holds too much, which reads as a reload. A placement was only saved 350 ms after the finger lifted, so a close mid-drag lost it.
+- Fixed: the arrays are kept and reused (`scratch` in `decal.js`, same output for 600 pieces compared); a slow rebuild waits up to 250 ms while a finger is down; saved about once a second during a drag (`saveAsYouGo`), at once after a new picture and before the chooser opens (warp and ink caches dropped there); pose and skin models closed 20 s after their screens close.
+- Checks: `decal-reuse-unit.mjs` (no whole-body arrays after the first laying, same output in any order), `armpit-ink-unit.mjs` unchanged. Browser suite needs the QA machine. Not yet on the iPad.
+
 ## Your tattoos on a photo of you, and the body from several photos (2026-11-25, built, not live)
 
 Jake: "I wish I could just upload photos of myself and it would just start looking like me from different angles. Or like if I uploaded a photo of myself, it would apply the tattoos that we've already been working on onto the photo of myself."
@@ -1027,7 +1043,7 @@ Jake: "when I try to like pull a design that I want to wrap up like my armpit an
 Jake on 2026-11-27: "Yes all also send me link", to the eight ranked in the Nov 25 audit.
 
 1. Find any tool: built (`find-tools.js`, `find-tools` scoring checked through t55 and its own use in t204).
-2. Instant picks and sliders: built (three-mesh-bvh on the body, t202 compares every hit with the plain raycast).
+2. Instant picks and sliders: built (three-mesh-bvh on the body, t209 compares every hit with the plain raycast).
 3. Daily account backups: built (`backups.js`, `backups-unit.mjs`, t203 against the fake Supabase). Nothing for Jake to set up.
 4. Lighter edit sheet: built (folds in More controls, t204).
 5. Faster start: measured first. Reopening is about 0.9 s to ready in the headless browser, most of it shader compile; the base64 decode was the one cheap win and is in. Lazy-loading panels would save little and was not done.
