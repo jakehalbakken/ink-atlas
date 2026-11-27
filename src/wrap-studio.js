@@ -74,6 +74,7 @@ const CSS = `
 #wsSide .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 #wsSide .row .btn{flex:1 1 auto}
 #wsSide .seg .btn[aria-pressed=true]{background:var(--stencil);color:var(--on-accent);border-color:var(--stencil)}
+#wsPaper .btn{padding:0 6px;min-width:44px} /* five paper sizes share the narrow column, each as wide as its name needs */
 #wsSide label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);flex:1 1 120px;min-width:0}
 #wsSide input[type=text],#wsSide input[type=number],#wsSide select{min-height:44px;font:16px var(--body);color:var(--text);background:var(--fill);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 12px;width:100%;-webkit-user-select:text;user-select:text}
 #wsSide p,#wsSide li{font-size:14px;line-height:1.4;margin:0;color:var(--muted)}
@@ -817,7 +818,7 @@ function printPanel(r) {
   out.push(seg([['stencil', 'Stencil'], ['guide', 'Placement guide']], ui.printKind, (v) => { ui.printKind = v; ui.printOut = null; renderSide(reg()); }));
   out.push(h('p', { text: stencil ? 'Just the new garden as clean lines, for stencil paper. The old cactus and the guides are left off so they never transfer.' : 'For plain paper: the old ink, the gaps to keep open, the landmarks, the cut edges and a 1 cm grid, with the new garden faint. Wrap it round your ankle to check the fit before the stencil.' }));
   out.push(h('h3', { class: 'shHead', text: 'Paper' }));
-  out.push(h('div', { class: 'seg', style: 'grid-template-columns:repeat(5,1fr)', id: 'wsPaper' }, ...PP.PAPER_ORDER.map((k) => h('button', { class: 'btn', type: 'button', 'data-v': k, 'aria-pressed': String(pr.paper === k), text: PAPER_LABEL[k], onclick: () => setPrint((x) => { x.paper = k; if (k === 'custom' && !x.custom) x.custom = { w: 215.9, h: 279.4 }; }) }))));
+  out.push(h('div', { class: 'seg', style: 'grid-template-columns:repeat(5,auto)', id: 'wsPaper' }, ...PP.PAPER_ORDER.map((k) => h('button', { class: 'btn', type: 'button', 'data-v': k, 'aria-pressed': String(pr.paper === k), text: PAPER_LABEL[k], onclick: () => setPrint((x) => { x.paper = k; if (k === 'custom' && !x.custom) x.custom = { w: 215.9, h: 279.4 }; }) }))));
   if (pr.paper === 'custom') { const c = pr.custom || { w: 215.9, h: 279.4 }; out.push(h('div', { class: 'row' }, lenInput('wsPaperW', c.w, (v) => setPrint((x) => { x.custom = { ...(x.custom || c), w: Math.min(2000, Math.max(50, v)) }; }), 'Width'), lenInput('wsPaperH', c.h, (v) => setPrint((x) => { x.custom = { ...(x.custom || c), h: Math.min(2000, Math.max(50, v)) }; }), 'Height'))); }
   out.push(seg([['auto', 'Auto'], ['landscape', 'Landscape'], ['portrait', 'Portrait']], pr.orient, (v) => setPrint((x) => { x.orient = v; })));
   out.push(h('h3', { class: 'shHead', text: 'Printer' }));

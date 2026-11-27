@@ -730,6 +730,13 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
+## 2026-11-27 QA batch 33 (built, not live)
+
+- Re-tested Try other spots on three phone sizes (the list stops above the bottom bar, nothing under it), all ten Clean up tools turning the iPad with each open at six sizes, and every Measured wrap step (Quick, Measurements, Existing tattoo, Design, Procreate, Print) at six sizes.
+- Fixed: Clean up's Adjust chips (Darker lines, Light, Levels, Curves, Threshold, Sharpen, Blur) were 38 px tall, under 44 pt. Now 44 pt; the card keeps its one height and scrolls.
+- Fixed: Measured wrap > Print shared the side column in five equal paper buttons, so "8.5×16" and "Custom" were wider than their buttons on an iPad on its side and ran into each other. Each paper size now takes the width its name needs, at least 44 pt, on one full row.
+- Checks: t200, t201. New to try: adjustChips.
+
 ## 2026-11-26 QA batch 32 (live 2026-11-26 23:29 UTC)
 
 - Re-tested How I see it, Pain map, Open skin, Tape measure, Bend and warp, Blend and colour, Measure me, Share, Plan, New to try, Body, Try other spots, Ink check and Comments at six iPad sizes, turning the iPad with each open. All clean but two.
