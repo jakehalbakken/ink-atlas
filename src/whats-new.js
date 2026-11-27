@@ -5,6 +5,9 @@
 // Every batch that ships adds its features at the top of this list, with the date it went live.
 
 export const NEW_FEATURES = [
+  { id: 'dailyBackups', date: '2026-11-27', title: 'A copy a day kept in your account', how: 'When you are signed in, each project that is in your account keeps one copy a day there, for the last 30 days, with nothing to set up. To go back to one, open Share, tap Find my saves and look under In your account, one a day. Tap a day and that version opens with its pictures; Undo puts back what was on screen.', show: 'dailyBackups' },
+  { id: 'fastPicks', date: '2026-11-27', title: 'Taps and body sliders answer at once', how: 'Open Body and drag Weight or Muscle in a project with lots of tattoos. The body and every tattoo now follow your finger smoothly, about ten times faster than before, and each tattoo is laid exactly again when you let go. Tapping a tattoo or the skin to place one is quicker too, in every pose.', show: 'definition' },
+  { id: 'findTool', date: '2026-11-27', title: 'Find any tool by typing', how: 'Tap the magnifier at the top right (or press / on a keyboard) and type what you want to do, like stencil, erase, hair or a tattoo\'s name. Tap a line and the right panel opens with that control ringed. It finds every button and slider in Body, Preview, Plan, Share, Procreate, Layers and the edit panel.', show: 'findTool' },
   { id: 'adjustChips', date: '2026-11-27', title: 'Bigger buttons in Clean up and wrap printing', how: 'Select a tattoo, tap Clean up and pick Adjust. Darker lines, Light, Levels, Curves, Threshold, Sharpen and Blur are now full size for a finger. In Plan > Measured wrap > Print, the five paper sizes each fit their names, so 8.5×16 and Custom no longer run into each other on an iPad on its side.', show: 'cleanup' },
   { id: 'measureFits', date: '2026-11-26', title: 'Measure me and Try other spots fit an iPad on its side', how: 'Open Body and tap Measure me with the iPad on its side. Skip, Back and Next now sit in reach at the bottom of every screen, with no scrolling first, and what the model measures shows above the number pad. In Try other spots, a long note under a spot now wraps inside its own button instead of running into the next one, and the list reaches down to the bottom of the screen.', show: 'measureMe' },
   { id: 'photoTurns', date: '2026-11-26', title: 'Your photo keeps up when you turn the iPad', how: 'Open Preview, tap On a photo of me and pick a photo of you, then turn the iPad. The photo fits the screen again straight away. With the iPad on its side the controls stand at the left and the photo sits beside them, so picking a tattoo no longer covers it. Try on with camera does the same: the artwork stays on the same spot of your photo when you turn it.', show: 'onPhoto' },
@@ -252,3 +255,11 @@ const SEEN = 'ia-new-seen';
 export function readSeen(storage = globalThis.localStorage) { try { const a = JSON.parse(storage?.getItem(SEEN) || 'null'); return Array.isArray(a) ? new Set(a) : new Set(); } catch (_) { return new Set(); } }
 export function writeSeen(set, storage = globalThis.localStorage) { try { storage?.setItem(SEEN, JSON.stringify([...set])); } catch (_) { /* private mode: lasts until reload */ } }
 export function unseenCount(tried, seen, list = NEW_FEATURES) { return list.filter((f) => !tried.has(f.id) && !seen.has(f.id)).length; }
+// a first visit on a device had every feature unseen, which showed a count of over 200 on the
+// badge; then only the newest few count as new (2026-11-27)
+export function seedSeen(list = NEW_FEATURES, keep = 8, storage = globalThis.localStorage) {
+  let had = true; try { had = storage?.getItem(SEEN) != null; } catch (_) { /* private mode */ }
+  if (had) return null;
+  const s = new Set(list.slice(keep).map((f) => f.id));
+  writeSeen(s, storage); return s;
+}

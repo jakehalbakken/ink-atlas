@@ -39,7 +39,7 @@ import { sampleSun, sampleSprig } from './sample-art.js';
 import { dataUrlBlob, shareOrDownload, canShareFiles, setFileNamer, lastFileName, peekFileName } from './share.js';
 import { makeNamer } from './export-names.js';
 import { createBeforeAfter } from './before-after.js';
-import { createPoseView } from './pose-view.js';
+import { createPoseView, posedDecalPositions } from './pose-view.js';
 import { createClothes, TOPS, BOTTOMS, HAIR, coverage as clothesCoverage } from './clothes.js';
 import { OUTFITS, visibilityText, sittingWear } from './visibility.js';
 import { sizeLikeText } from './size-like.js';
@@ -58,7 +58,10 @@ import { patchMaskTriangles } from './procreate-patch.js';
 import { makePatchReference } from './patch-reference.js';
 import { toneColour, nearestTone, sampleSkin, skinCheck, hexToRgb } from './skin-tone.js';
 import { LIGHTS, readLight, writeLight, applyLight } from './lighting.js';
-import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered, readSeen, writeSeen, unseenCount } from './whats-new.js';
+import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
+import { dayWords as backupDay } from './backups.js';
+import { search as findSearch, wordsFor as findWords, fold as findFold } from './find-tools.js';
+import { NEW_FEATURES as ALL_FEATURES, readTried, writeTried, untriedCount, ordered, readSeen, writeSeen, unseenCount, seedSeen } from './whats-new.js';
 import { curvedArt, compose, pinch } from './try-on.js';
 import { createOnPhoto } from './on-photo.js';
 import { inkBox as photoInkBox, cropBox, fillTri, growOwners, splitInk } from './photo-layers.js';
@@ -95,7 +98,7 @@ import { limbAxis, limbPlace, limbPoint, LimbDrag, rotFor, rotRound, shareRound,
 import { scanDevice } from './device-scan.js';
 import { createMultiTap } from './multi-tap.js';
 import { mentionsMe, pieces as mentionPieces, typingMention, offer as mentionOffer, insertMention } from './mention.js';
-const newSeen = readSeen();
+seedSeen(ALL_FEATURES); const newSeen = readSeen();
 // Each instruction on screen shows until it has been followed once on this device, then gets out of the way.
 const TAUGHT_KEY = 'ia-taught', taught = (() => { try { return new Set(JSON.parse(localStorage.getItem(TAUGHT_KEY) || '[]')); } catch (_) { return new Set(); } })();
 // the fine print under the pain map and open skin is read once, then the bars stay slim
@@ -204,6 +207,25 @@ function setBodyPositions(pos, withGenitals) {
 function applyShape() { setBodyPositions(shapePositions(state), genitalsShown()); }
 const body = new THREE.Mesh(bodyGeo, skinMat);
 scene.add(body); body.updateMatrixWorld(true);
+// Taps, drags and shape steps ask where a ray meets the skin dozens of times; checking all 27,000
+// triangles each time was most of a body slider step in a big project (2026-11-25 audit). A
+// bounding volume tree (three-mesh-bvh, MIT) finds the same hit by looking only at the few
+// triangles near the ray. It is built with indirect: true so the body's own triangle order, which
+// saved anchors use, is never touched; one tree per index (with or without the genital geometry)
+// and per geometry (the posed copy), refitted when the positions change.
+const bvhOf = new WeakMap();
+function bvhVer(g) { return g.attributes.position.version + '|' + shapeKey + '|' + (g === bodyGeo ? 'rest' : poseView ? 'p' + poseView.version : ''); }
+body.raycast = function (rc, hits) {
+  const g = this.geometry, idx = g && g.index;
+  if (!idx || !g.attributes.position || noBvh) return THREE.Mesh.prototype.raycast.call(this, rc, hits);
+  let m = bvhOf.get(g); if (!m) { m = new Map(); bvhOf.set(g, m); }
+  let e = m.get(idx); const ver = bvhVer(g);
+  if (!e || e.arr !== g.attributes.position.array || e.n !== idx.count) { e = { bvh: new MeshBVH(g, { indirect: true, maxLeafSize: 8 }), ver, arr: g.attributes.position.array, n: idx.count }; m.set(idx, e); }
+  else if (e.ver !== ver) { e.bvh.refit(); e.ver = ver; }
+  const was = g.boundsTree; g.boundsTree = e.bvh;
+  try { acceleratedRaycast.call(this, rc, hits); } finally { g.boundsTree = was; }
+};
+let noBvh = false, noFollow = false; // for the checks that compare them with the plain way
 
 let floorShadow = null;
 { // soft floor shadow
@@ -882,7 +904,15 @@ function syncDecals() {
     if (skinDraw && skinDraw.id === t.id) { if (d.tex !== skinDraw.s.tex) { const was = d.tex; d.tex = skinDraw.s.tex; freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, false); } d.texKey = 'drawing'; } // the picture being drawn on, live
     else if (d.texKey !== tk && imgEls[t.img]) { const was = d.tex; d.tex = inkTexture(t); freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t)), shapeKey].join('|');
-    if (d.geoKey !== gk) { geoBuilds++; d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
+    // while a body slider is being dragged, the ink rides on the skin it was laid on (each decal
+    // point is tied to a body vertex), and is laid out afresh once the finger lifts: laying 60
+    // stencils again on every step was most of a slider step in a big project (2026-11-27)
+    const sk = [t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t))].join('|');
+    const sup = d.mesh.geometry.userData && d.mesh.geometry.userData.supports;
+    if (d.geoKey !== gk && shapeSlide && !noFollow && d.sk === sk && sup && sup.length && d.mesh.geometry.attributes.position) {
+      const g = d.mesh.geometry, P = bodyGeo.attributes.position.array, N = bodyGeo.attributes.normal.array;
+      g.attributes.position.array.set(posedDecalPositions(P, N, sup)); g.attributes.position.needsUpdate = true; g.computeBoundingSphere(); g.computeBoundingBox(); d.geoKey = 'follow';
+    } else if (d.geoKey !== gk) { geoBuilds++; d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; d.sk = sk; }
     d.mesh.renderOrder = 10 + i; d.outline.renderOrder = 500;
     d.mesh.visible = !!d.tex && ((!t.hidden && viewShows(t)) || (!!skinDraw && skinDraw.id === t.id)); d.outline.visible = t.id === selectedId && d.mesh.visible && !exporting && !(warpPanel && warpPanel.isOpen()); // the warp grid is the outline then
   });
@@ -3598,7 +3628,7 @@ function renderNew() {
   }));
 }
 function openNew(on = true) { closePanels(); toggle('#planMenu', false); $('#newPop').hidden = !on; renderNew(); }
-function closePanels() { cancelGesture(); showLook(false); if (inkLook) inkLook.close(); if (warpPanel) warpPanel.close(); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#pcMenu', '#newPop']) toggle(id, false); }
+function closePanels() { cancelGesture(); showLook(false); if (inkLook) inkLook.close(); if (warpPanel) warpPanel.close(); for (const id of ['#posePop', '#clothesPop', '#agePop', '#lightPop', '#bodyPop', '#share', '#pcMenu', '#newPop', '#findPop']) toggle(id, false); }
 function needTattoo() {
   const t = sel() || state.tattoos.find((x) => !x.hidden) || state.tattoos[0];
   if (!t) { toast('Add a tattoo first, then try this.'); return null; }
@@ -3758,6 +3788,8 @@ const SHOW = {
   palette: () => { toggle('#share', true); paletteReady = buildPalette(); return ['#cSwatches', 'Saves your skin and ink colours as a palette Procreate opens.']; },
   cleanup: () => { if (!needTattoo()) return null; return ['#bCleanup', 'Opens the cleanup. Pick a tool on the left, pinch to zoom, and tap Done when it looks right.']; },
   editProcreate: () => { if (!needTattoo()) return null; return ['#bProcreate', 'Sends this tattoo to Procreate. Copy All there, then tap Paste here.']; },
+  dailyBackups: () => { openFindSaves(); return ['#rcList', account && account.configured ? (account.status().signedIn ? 'Each day\'s copy from your account is listed here. Tap one to open it; Undo puts back what was on screen.' : 'Sign in and each project in your account keeps a copy a day there, listed here.') : 'Every copy kept on this device is listed here. Daily account copies show here once accounts are on.']; },
+  findTool: () => { openFind(true); return ['#findQ', 'Type what you want to do, like stencil, erase or hair, and tap the line that comes up. Press / or Cmd+K on a keyboard.']; },
   pan: () => [null, 'Put two fingers on the screen away from a tattoo and slide them to move the view. Twist clearly to turn it.'],
 };
 // Sort by area, Fold all and Select sit at the foot of Layers, which steps aside while the edit
@@ -3779,7 +3811,7 @@ function coach(target, text) {
   const place = () => {
     const now = performance.now(); if (last) shown += Math.min(now - last, 100); last = now;
     if (shown > 8000) return endCoach();
-    const n = target && document.querySelector(target), vis = n && n.getClientRects().length && !n.hidden;
+    const n = target && (typeof target === 'string' ? document.querySelector(target) : target), vis = n && n.isConnected && n.getClientRects().length && !n.hidden;
     // scrolled into view, and again if lines filling in above it push it off screen
     if (vis && scrolled < 6) { const r = n.getBoundingClientRect(); if (!scrolled || r.top < 0 || r.bottom > innerHeight) { n.scrollIntoView({ block: 'nearest', inline: 'nearest' }); scrolled++; } }
     if (vis) {
@@ -3798,6 +3830,93 @@ function coach(target, text) {
 }
 function endCoach() { cancelAnimationFrame(coachTimer); $('#pointRing').hidden = true; $('#pointTip').hidden = true; }
 document.addEventListener('pointerdown', () => { if (!$('#pointTip').hidden && performance.now() > coachArmed) endCoach(); }, true);
+/* ---------- Find a tool: type what you want and be taken to it ---------- */
+// The list is read from the panels themselves at the moment of the search (every button, slider
+// and card with a name), so a tool added later is found with nothing to keep up to date here.
+// Picking one opens its panel the way its own button would and rings the control, as Show me does.
+const FIND_AREAS = [
+  { root: '#sheet', skip: '#editorAdvanced', where: 'Selected tattoo', needT: true, open: () => !!needTattoo() },
+  { root: '#editorAdvanced', where: 'More controls', needT: true, open: () => { if (!needTattoo()) return false; $('#editorAdvanced').open = true; return true; } },
+  { root: '#bodyPop', where: 'Body', open: () => { $('#bodyBtn').click(); return true; } },
+  { root: '#lookMenu', where: 'Preview', open: () => { showLook(true); return true; } },
+  { root: '#planMenu', where: 'Plan', open: () => { toggle('#planMenu', true); return true; } },
+  { root: '#share', where: 'Share', open: () => { $('#shareBtn').click(); return true; } },
+  { root: '#pcMenu', where: 'Procreate', open: () => { renderPcMenu(); toggle('#pcMenu', true); return true; } },
+  { root: '#layersDock', where: 'Layers', skip: '#ldList', open: () => { if (selectedId) select(null); layersDock.setOpen(true, true); return true; } },
+  { root: '#top', where: 'Top bar', skip: '#findBtn', open: () => true },
+];
+const findLabel = (n) => {
+  if (n.matches('.card')) { const b = n.querySelector('b'); return (b ? b.textContent : n.textContent).trim(); }
+  let t = (n.getAttribute('aria-label') || '').trim();
+  if (!t || n.matches('button') && n.textContent.trim() && n.textContent.trim().length < 48) t = n.textContent.trim() || t;
+  t = t.replace(/\s+/g, ' ');
+  const g = n.closest('.seg,[role=group]'); const gl = g && g !== n && g.getAttribute('aria-label');
+  if (gl && n.matches('.seg .btn') && !t.toLowerCase().includes(gl.toLowerCase())) t = gl + ': ' + t;
+  return t;
+};
+function findItems() {
+  const out = [];
+  for (const a of FIND_AREAS) {
+    const root = $(a.root); if (!root) continue;
+    for (const n of root.querySelectorAll('button, ink-slider, .card, summary')) {
+      if (a.skip && n.closest(a.skip)) continue;
+      let hid = false; for (let p = n; p && p !== root; p = p.parentElement) if (p.hidden) { hid = true; break; }
+      if (hid || n.disabled && !a.needT) continue;
+      const label = findLabel(n); if (!label || label.length < 2 || /^(done|cancel|close|ok)$/i.test(label)) continue;
+      const sec = n.closest('section.sec,.sec'); const h = sec && sec.querySelector('h5,h4,.menu-head');
+      const head = h ? h.textContent.trim() : (n.closest('[class*=cards]') && n.closest('section,div')?.querySelector('h3,h4,h5')?.textContent.trim()) || '';
+      const desc = n.matches('.card') ? (n.querySelector('span')?.textContent || '').trim() : (n.getAttribute('title') || '');
+      out.push({ label, where: a.where + (head && head !== a.where ? ' › ' + head : ''), desc, words: findWords(label + ' ' + head), area: a, node: n });
+    }
+  }
+  // tattoos by name, so typing Rose goes to it
+  for (const t of state.tattoos) if (t.name) out.push({ label: t.name, where: t.status === 'existing' ? 'Tattoo on your skin' : 'Planned tattoo', desc: '', words: 'tattoo layer', tattoo: t.id });
+  return out;
+}
+let findRes = [], findOn = 0;
+function renderFind() {
+  const q = $('#findQ').value, list = $('#findList');
+  findRes = q.trim() ? findSearch(findItems(), q, 30) : [];
+  findOn = 0;
+  $('#findNone').hidden = !q.trim() || findRes.length > 0;
+  list.replaceChildren(...findRes.map((r, i) => el('button', { class: 'btn quiet find-row' + (i === 0 ? ' on' : ''), type: 'button', role: 'listitem', onclick: () => findGo(r) }, el('b', { text: r.label }), el('small', { text: r.where + (r.desc ? ' · ' + r.desc : '') }))));
+  if (!q.trim()) list.append(el('h6', { text: 'Try' }), ...['stencil', 'erase', 'pose', 'hair', 'print', 'backup'].map((w) => el('button', { class: 'btn quiet find-row', type: 'button', onclick: () => { $('#findQ').value = w; renderFind(); $('#findQ').focus(); } }, el('b', { text: w }))));
+}
+function openFind(on = true) {
+  if (on) { closePanels(); toggle('#planMenu', false); toggle('#pcMenu', false); }
+  toggle('#findPop', on); $('#findBtn').setAttribute('aria-expanded', String(on));
+  if (on) { $('#findQ').value = ''; renderFind(); requestAnimationFrame(() => $('#findQ').focus({ preventScroll: true })); }
+  else $('#findQ').blur();
+}
+function findGo(r) {
+  openFind(false); markTried('findTool');
+  if (r.tattoo) { const t = state.tattoos.find((x) => x.id === r.tattoo); if (t) { if (t.hidden) toast(`${t.name} is hidden. Tap its eye in Layers to show it.`); select(t.id, true); layersDock.setOpen(true, true); } return; }
+  closePanels(); toggle('#planMenu', false); toggle('#pcMenu', false);
+  infoQuietUntil = performance.now() + 1000;
+  if (!r.area.open()) return;
+  if (r.area.needT) infoByShow = r.area.where === 'More controls';
+  // the control may be built again when its panel opens, so find it again by the same name
+  requestAnimationFrame(() => {
+    let n = r.node; if (!n.isConnected || !n.getClientRects().length) { const again = findItems().find((x) => x.area === r.area && findFold(x.label) === findFold(r.label)); if (again) n = again.node; }
+    const det = n.closest('details'); if (det && !det.open) det.open = true;
+    coach(n, n.matches('ink-slider') ? `${r.label}: drag it left or right.` : `Here it is: ${r.label}.`);
+  });
+}
+$('#findBtn').addEventListener('click', () => openFind($('#findPop').hidden));
+$('#top').addEventListener('click', (e) => { if (!$('#findPop').hidden && e.target.closest('button') && !e.target.closest('#findBtn')) openFind(false); }, true);
+$('#findQ').addEventListener('input', renderFind);
+$('#findQ').addEventListener('keydown', (e) => {
+  e.stopPropagation();
+  const rows = $('#findList').querySelectorAll('.find-row');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!findRes.length) return; findOn = (findOn + (e.key === 'ArrowDown' ? 1 : findRes.length - 1)) % findRes.length; rows.forEach((x, i) => x.classList.toggle('on', i === findOn)); rows[findOn]?.scrollIntoView({ block: 'nearest' }); }
+  else if (e.key === 'Enter') { e.preventDefault(); if (findRes[findOn]) findGo(findRes[findOn]); }
+  else if (e.key === 'Escape') { e.preventDefault(); openFind(false); }
+});
+document.addEventListener('keydown', (e) => {
+  if (modalUp && modalUp()) return;
+  const typing = e.target && (e.target.isContentEditable || /^(input|textarea|select)$/i.test(e.target.tagName));
+  if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') || (!typing && !e.metaKey && !e.ctrlKey && !e.altKey && e.key === '/')) { e.preventDefault(); openFind($('#findPop').hidden); }
+});
 $('#newBtn').addEventListener('click', () => openNew($('#newPop').hidden));
 $('#openNew').addEventListener('click', () => openNew(true));
 renderNew();
@@ -6168,7 +6287,7 @@ $('#openProjects').addEventListener('click', oneAtATime(async () => {
 }));
 $('#shareBtn').addEventListener('click', () => { toggle('#share', true); paletteReady = buildPalette(); });
 document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', () => { toggle('#' + b.dataset.close, false); }));
-document.addEventListener('keydown', (e) => { if (modalUp()) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); closeBodyMatch(false); toggle('#newPop', false); endCoach(); toggle('#planMenu', false); toggle('#pcMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
+document.addEventListener('keydown', (e) => { if (modalUp()) return; if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } if (e.key === 'Escape') { if (!$('#skinPick').hidden) closeSkinPick(); if (!$('#tryOn').hidden) closeTryOn(); showRealSize(false); cancelGesture(); showLook(false); toggle('#posePop', false); renderPose(); toggle('#clothesPop', false); toggle('#agePop', false); toggle('#lightPop', false); toggle('#spotPop', false); closeBodyMatch(false); toggle('#newPop', false); toggle('#findPop', false); endCoach(); toggle('#planMenu', false); toggle('#pcMenu', false); toggle('#share', false); toggle('#preview', false); toggle('#recover', false); toggle('#bodyPop', false); } });
 
 /* ---------- export (share sheet / download → src/share.js) ---------- */
 function shot(hideInk) {
@@ -7265,6 +7384,17 @@ async function renderRecovery() {
     host.append(head('Projects on this device'));
     host.append(cards(shelf.map((r) => row(r.name, `${tatText(r.tattoos, r.real)} · ${whenText(r.updatedAt)}${r.archived ? ' · archived' : ''}`, () => restoreCopy(async () => { const sh = await openProjectShelf(); try { return await sh.get(r.id); } finally { sh.close(); } }, `"${r.name}"`)))));
   }
+  // one copy a day in the account (src/backups.js), the newest 30 days
+  if (account && account.configured && account.status().signedIn) {
+    const box = el('div', { id: 'rcCloud' }, head('In your account, one a day'), el('p', { class: 'tip', text: 'Looking in your account…' }));
+    host.append(box);
+    const r = await account.backups();
+    if (!box.isConnected) return;
+    box.replaceChildren(head('In your account, one a day'));
+    if (r.why === 'unreachable') box.append(el('p', { class: 'tip', text: 'Your account did not answer, so its daily copies cannot be listed just now.' }));
+    else if (!r.list.length) box.append(el('p', { class: 'tip', text: 'The first daily copy goes into your account the next time this project saves there. One is kept each day, for 30 days.' }));
+    else box.append(cards(r.list.slice(0, 60).map((b) => row(`${b.name || 'A project no longer in your account'}`, `${backupDay(b.day)} · kept in your account`, () => { const d = backupDay(b.day); restoreCopy(() => account.loadBackup(b.file), `${b.name ? '"' + b.name + '"' : 'the project'} from ${/^(Today|Yesterday)$/.test(d) ? d.toLowerCase() : d}`); }))));
+  }
 }
 function openFindSaves() { toggle('#share', false); toggle('#recover', true); renderRecovery(); markTried('findSaves'); }
 // A blank project on screen while a copy with tattoos is still on this device: say so, once, with the way to it.
@@ -7615,6 +7745,8 @@ wrapStudio = initWrapStudio({
 $('#openWrap').addEventListener('click', () => { toggle('#planMenu', false); wrapStudio.open(); });
 
 window.__ink = {
+  bvh: (on) => { noBvh = !on; }, follow: (on) => { noFollow = !on; },
+  rayBody: (o, d) => { ray.set(new THREE.Vector3(...o), new THREE.Vector3(...d).normalize()); const h = ray.intersectObject(body, false); return h.map((x) => [x.faceIndex, +x.distance.toFixed(6)]); },
   redraw: () => { needsRender = true; },
   onPhoto: () => onPhoto.state(), onPhotoLayer: () => { const im = onPhoto.layerPixels(); return im && { w: im.width, h: im.height, data: im.data }; },
   gpu: () => ({ ...renderer.info.memory, programs: renderer.info.programs?.length || 0 }),

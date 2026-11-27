@@ -19,6 +19,7 @@ import { cloudConfigured, emailCodes, openCloud, openShare, plainError, inTime }
 import { mergeStates, commentsOnto, withoutComments } from './merge.js';
 import { changesBetween } from './changes.js';
 import { readPrefs, cleanPrefs, decide } from './prefs.js';
+import { dayKey } from './backups.js';
 
 const BIND = 'ia-cloud-bind', BASE = 'ia-cloud-base', SEEN = 'ia-cloud-seen', CHANGES = 'ia-cloud-changes', LIVE_MS = 4000;
 const ls = {
@@ -43,7 +44,7 @@ const deviceName = () => { const u = navigator.userAgent || ''; if (/iPad|Macint
 export function createAccount(api) {
   const btn = document.getElementById('accountBtn');
   const shareCard = document.getElementById('cLink');
-  if (!cloudConfigured) { if (btn) btn.hidden = true; if (shareCard) shareCard.hidden = true; return { configured: false, saved() {}, start() {}, unbind() {}, open() {}, sendLink() {}, artwork: async () => ({}), findArtwork: async () => ({ images: {}, why: 'none-set-up' }), status: () => ({ configured: false }) }; }
+  if (!cloudConfigured) { if (btn) btn.hidden = true; if (shareCard) shareCard.hidden = true; return { configured: false, saved() {}, start() {}, unbind() {}, open() {}, sendLink() {}, artwork: async () => ({}), findArtwork: async () => ({ images: {}, why: 'none-set-up' }), backups: async () => ({ list: [], why: 'none-set-up' }), status: () => ({ configured: false }) }; }
   btn.hidden = false; shareCard.hidden = false;
 
   let cloud = null, cloudReady = null, bind = ls.get(BIND), pushing = false, again = false, timer = 0, retry = 0, lastStatus = '';
@@ -153,13 +154,32 @@ export function createAccount(api) {
     if (!myBind() && !following()) { status('Saved on this device only'); return; }
     clearTimeout(timer); timer = setTimeout(push, 1500);
   }
+  // Once a day, a copy of the project as the account has it goes into this person's own backups
+  // folder (src/backups.js), so a project changed by mistake, here or on another device, can be
+  // brought back as it was on any of the last 30 days. Never for a blank or samples-only screen.
+  const BACKUP_DAY = 'ia-cloud-backup';
+  let backingUp = false;
+  async function maybeBackup() {
+    const b = myBind(); if (!b || !cloud || !user() || backingUp || b.role === 'comment') return;
+    const day = dayKey(), done = ls.get(BACKUP_DAY) || {}, k = user().id + ':' + b.id;
+    if (done[k] === day) return;
+    const snap = api.snapshot(), json = JSON.stringify(snap.state);
+    if (!snap.state || (api.looksBlank && api.looksBlank(snap.state)) || b.sig !== sigOf(json)) return;
+    backingUp = true;
+    try {
+      const keys = Object.keys(snap.images || {}).filter((x) => typeof snap.images[x] === 'string');
+      await cloud.backup(b.id, JSON.parse(json), keys, b.name || api.projectName(), !!b.shared);
+      done[k] = day; const ks = Object.keys(done); for (const x of ks.slice(0, Math.max(0, ks.length - 60))) delete done[x];
+      ls.set(BACKUP_DAY, done);
+    } catch (e) { /* tried again with the next save */ } finally { backingUp = false; }
+  }
   async function push() {
     clearTimeout(timer); timer = 0;
     if (!user()) return;
     if (pushing) { again = true; return; }
     if (api.holding && api.holding()) { clearTimeout(retry); retry = setTimeout(push, 1500); return; } // trying something out on this screen: nothing goes up until it is done
     if (!myBind() && !following()) return;
-    if (myBind() && myBind().sig === currentSig()) { status('Saved to your account'); return; }
+    if (myBind() && myBind().sig === currentSig()) { status('Saved to your account'); maybeBackup(); return; }
     if (myBind() && blankOverReal()) { status(api.looksBlank(api.snapshot().state) ? 'Not sent: only samples here, so your account copy is kept. Tap to open it' : 'Not sent, so your account copy is kept. Tap to choose', true, true); return; }
     pushing = true; status('Saving to your account');
     let gone = false;
@@ -211,6 +231,7 @@ export function createAccount(api) {
       retry = 0;
       if (myBind() && myBind().sig === currentSig()) stuck = '';
       if (!gone) status(myBind() && myBind().sig === currentSig() ? 'Saved to your account' : 'Saving to your account');
+      if (!gone && myBind() && myBind().sig === currentSig()) maybeBackup();
     } catch (e) {
       stuck = await whyNot(e);
       status(STUCK, true, true);
@@ -1013,6 +1034,10 @@ export function createAccount(api) {
     configured: true, saved, start, unbind, sendLink,
     status: () => ({ configured: true, signedIn: !!user(), user: user() ? { id: user().id, email: user().email } : null, bind: myBind(), following: following(), view, open: !root.hidden, text: lastStatus, pushing, stuck, fix: stuckOn }),
     showFix: () => openFix(),
+    // the daily backups in this account, newest first, and one of them opened with its pictures
+    async backups() { try { await inTime(ready(), 15000); } catch (e) { return { list: [], why: 'unreachable' }; } if (!user()) return { list: [], why: 'signed-out' }; try { return { list: await inTime(cloud.backups(), 20000), why: 'ok' }; } catch (e) { return { list: [], why: 'unreachable' }; } },
+    loadBackup: async (file) => { await ready(); const r = await inTime(cloud.loadBackup(file), 60000); return { state: r.state, images: r.images, name: r.name }; },
+    backupNow: () => maybeBackup(),
     artwork: async (keys) => { try { return cloud && user() ? await inTime(cloud.artwork(keys, myBind() && myBind().id), 20000) : {}; } catch (e) { return {}; } },
     // Lost pictures from every folder this account can read, waiting for the account to be reached.
     // why: found, none (looked and they are not there), partly (some folders gave no answer),

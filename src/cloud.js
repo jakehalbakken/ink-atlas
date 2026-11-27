@@ -13,6 +13,8 @@
 // which everyone on the project can read and add to; invites, members and accept_invite()
 // are the rest of working on a project together.
 
+import { dayKey, backupName, parseBackupName, toPrune, listBackups, backupBody, readBackupBody } from './backups.js';
+
 const URL_ = (import.meta.env.VITE_SUPABASE_URL || '').trim().replace(/\/+$/, '');
 const KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 // Emailed codes need the project's own email sender (Supabase's built-in one only reaches the
@@ -275,6 +277,35 @@ export async function openCloud() {
       let shares = []; try { shares = check(await sb.from('shares').select('id').eq('owner', me).limit(200)) || []; } catch (e) { failed++; }
       for (const s of shares) if (s && s.id) await look('shared-artwork', me + '/' + s.id);
       return { images, failed, folders };
+    },
+    // Daily backups (src/backups.js): one file a day for each project in this person's own
+    // artwork folder, the newest 30 days kept. Only the backups folder is ever trimmed.
+    async backup(projectId, state, imageKeys, name, shared) {
+      const me = uid(), day = dayKey(), file = backupName(projectId, day);
+      if (!file) return 'skipped';
+      const folder = me + '/backups', body = new TextEncoder().encode(backupBody({ projectId, name, state, imageKeys, shared }));
+      let error = null;
+      try { ({ error } = await inTime(sb.storage.from('artwork').upload(folder + '/' + file, body, { contentType: 'application/json', upsert: false, cacheControl: '0' }), 30000)); } catch (e) { error = e; }
+      if (error && !/exists|duplicate|409/i.test(String(error.message || '') + (error.statusCode || ''))) throw stepError(error, 'keeping today\'s backup');
+      try {
+        const old = toPrune([...await namesIn('artwork', folder)].filter((n) => n.startsWith(projectId + '_')));
+        if (old.length) await inTime(sb.storage.from('artwork').remove(old.map((n) => folder + '/' + n)), 15000);
+      } catch (e) { /* trimmed next time */ }
+      return error ? 'had' : 'kept';
+    },
+    async backups() {
+      const me = uid(), names = [...await namesIn('artwork', me + '/backups')];
+      let projects = []; try { projects = check(await sb.from('projects').select('id,name').limit(200)) || []; } catch (e) { projects = []; }
+      const by = new Map(projects.map((p) => [p.id, p.name]));
+      return listBackups(names, (id) => by.get(id) || '');
+    },
+    // the project as it was that day, with its pictures from wherever the account keeps them
+    async loadBackup(file) {
+      const me = uid(), b = parseBackupName(file); if (!b) throw new Error('That backup is not there.');
+      const blob = check(await sb.storage.from('artwork').download(me + '/backups/' + b.file));
+      const r = readBackupBody(await blob.text());
+      const images = r.keys.length ? await this.artwork(r.keys, r.projectId) : {};
+      return { ...r, images };
     },
     // have(key): artwork already on this device, which is not fetched again
     async load(id, have) {
