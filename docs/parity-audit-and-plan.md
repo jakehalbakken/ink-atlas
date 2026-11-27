@@ -730,14 +730,21 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - The Preview menu takes a finger scroll (`data-scroll` on `#lookMenu`). Check: t123.
 - Full suite: 236 pass. t38 (painted 3D model) times out here and on the live build alike in headless swiftshader; t27 fails on the live build too. Not checked on an iPad yet.
 
-## 2026-11-26 QA batch 32 (built, not live)
+## 2026-11-27 QA batch 33 (built, not live)
+
+- Re-tested Try other spots on three phone sizes (the list stops above the bottom bar, nothing under it), all ten Clean up tools turning the iPad with each open at six sizes, and every Measured wrap step (Quick, Measurements, Existing tattoo, Design, Procreate, Print) at six sizes.
+- Fixed: Clean up's Adjust chips (Darker lines, Light, Levels, Curves, Threshold, Sharpen, Blur) were 38 px tall, under 44 pt. Now 44 pt; the card keeps its one height and scrolls.
+- Fixed: Measured wrap > Print shared the side column in five equal paper buttons, so "8.5×16" and "Custom" were wider than their buttons on an iPad on its side and ran into each other. Each paper size now takes the width its name needs, at least 44 pt, on one full row.
+- Checks: t200, t201. New to try: adjustChips.
+
+## 2026-11-26 QA batch 32 (live 2026-11-26 23:29 UTC)
 
 - Re-tested How I see it, Pain map, Open skin, Tape measure, Bend and warp, Blend and colour, Measure me, Share, Plan, New to try, Body, Try other spots, Ink check and Comments at six iPad sizes, turning the iPad with each open. All clean but two.
 - Fixed: Measure me ran past the bottom of the screen on an iPad on its side (half of Skip and Next under the edge at 1180 x 820, all of them at 1133 x 744), so each of its 17 screens needed a scroll first. Back, Skip and Next now stay at the bottom of the screen's right side (sticky foot inside `.mm-right`, which scrolls on its own), the feet key shares the fractions' row (`.np-extra` takes four columns when the feet key shows, every number pad), the pad is a little tighter on a screen under 900 px high, and "The model now measures" sits above the pad so it is never cut off.
 - Fixed: in Try other spots a long note (Wrist: "High pain, always shows, wraps more than half way round") ran out of its button over the one beside it. Notes wrap inside their own button, balanced. On an iPad the list (and Match photos of me, which had the same rule) now reaches the bottom of the screen; it stopped 190 px short, room kept for the tray of tattoos that went on 2026-11-19. A phone keeps the old room for the edit sheet.
 - Checks: t198, t199. New to try: measureFits.
 
-## 2026-11-26 QA batch 31 (built, not live)
+## 2026-11-26 QA batch 31 (live 2026-11-26 23:29 UTC)
 
 - Re-tested On a photo of me, Try on with camera, Real size on screen and Stencil for your artist at six screen sizes, turning the iPad with each open.
 - Fixed: turning the iPad with On a photo of me open left the photo laid out for the old shape of the screen, cut off at the side. It is laid out again whenever the screen changes size (`ResizeObserver` on the screen, `on-photo.js`).
@@ -747,7 +754,7 @@ Jake: "I try to extend it and it makes it smaller... everything's upside down or
 - Real size on screen and Stencil were clean at every size.
 - Checks: t196, t197. New to try: photoTurns.
 
-## 2026-11-26 QA batch 30 (built, not live)
+## 2026-11-26 QA batch 30 (live 2026-11-26 23:29 UTC)
 
 - Re-tested last night's ships at six screen sizes (iPad mini, Air and Pro in both orientations, and a phone): drawing on the skin, a layer a tattoo on photos of me, and numbered file names. The drawing bar, its Cancel question and every control are on screen at 44 pt with nothing over them.
 - The paint bar for drawing on the skin (Layers > the brush) sat at the top of the screen. On an iPad on its side (1180 x 820 and 1133 x 744) it lay over the chest and belly, so a finger there touched the bar instead of the skin. It now sits along the bottom like the drawing bar that follows it and the Tape measure, is wider and so one row shorter (177 px, was 231), rises in from below, and hides the hint line under it while it shows. A message shown while it is up stays at the top, clear of it.

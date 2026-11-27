@@ -201,7 +201,7 @@ const STYLE = `
 #ink-cleanup .ic-opts-head{display:flex;align-items:center;gap:8px;margin:0;font-size:15px;font-weight:650}
 #ink-cleanup .ic-opts-head kbd{margin-left:auto;font:600 11px/1 var(--body,system-ui);color:var(--ic-muted);border:1px solid var(--ic-line);border-radius:6px;padding:4px 6px}
 #ink-cleanup .ic-chips{display:flex;flex-wrap:wrap;gap:6px}
-#ink-cleanup .ic-chips button{min-height:38px;font-size:13px;padding:0 12px;border-radius:99px}
+#ink-cleanup .ic-chips button{min-height:44px;font-size:14px;padding:0 14px;border-radius:99px}
 #ink-cleanup .ic-chips button[aria-pressed=true]{background:var(--ic-on);box-shadow:0 1px 3px rgba(0,0,0,.18)}
 #ink-cleanup .ic-adj[hidden]{display:none}#ink-cleanup .ic-adj{display:grid;gap:10px}
 #ink-cleanup canvas.ic-graph{position:static;width:100%;height:auto;aspect-ratio:1/1;max-height:240px;border-radius:12px;background:var(--ic-fill);filter:none;touch-action:none}
