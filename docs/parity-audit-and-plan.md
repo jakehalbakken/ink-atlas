@@ -1009,7 +1009,7 @@ Jake: "the whole entire web page will like suddenly reload or crash ... in the c
 - Clean up keeps a draft on the device (`cleanup-draft.js`, IndexedDB `ink-atlas-cleanup-draft`, never in the project or account) a moment after each change and when the app leaves the screen; after the page closes, a toast offers Open it and the edits come back; Done (once saved), Cancel and Throw away clear it.
 - Checks: `cleanup-memory-unit.mjs` (node), t188 (browser, needs the QA machine). Not yet on the iPad.
 
-## The page reloading while placing a new tattoo (2026-11-27, built, not live)
+## The page reloading while placing a new tattoo (2026-11-27, live)
 
 Jake: "when I'm trying to place a new tattoo it keeps refreshing ... page crashing and not saving progress."
 
@@ -1037,3 +1037,12 @@ Jake: "when I try to like pull a design that I want to wrap up like my armpit an
 - Numbers (`armpit-ink-unit.mjs`, standalone node): round the right armpit, 219 of 224 pieces whole (82 before), bare triangles inside the picture 110 in 37 placements (1487 in 118 before), worst piece 0.95 of its picture (0.59 before); over the body for male, female and muscular shapes, 18 or 19 of 138 pieces not quite whole, only on the feet and side of the face (34 to 38 before), none stretched a tenth of its skin by more than a quarter (some before, every shape). A piece takes about 3 ms to lay instead of 1.
 - Kept as main lays it (after QA found t68's flat chest Sunburst drawn differently): `buildDecal` first runs the old unfolding (`stencilUnfold`) and keeps its result unless it left more than 0.2% of the picture bare after dropping a triangle, or stretched a tenth of its skin by more than a quarter; only then `stencilFlat` lays it again. The Sunburst and every other piece the old walk laid whole are byte for byte the same as main; the armpit numbers above are unchanged or within a few triangles (bare 117 in 39).
 - Not yet run: the browser checks that lay ink (t7, t7b, t115, t116, t124, t133, t134, t155) need the QA machine with Chrome. Not yet on the iPad.
+
+## A big project crashing and "Not saved: storage problem" (2026-11-27, built, not live)
+
+Jake, with 87 layers (10 on my skin, 77 planned, most hidden): the page still closes often and keeps saying "Not saved: storage problem".
+
+- Cause, memory: every layer kept its ink picture, a canvas of up to 1024 px plus its copy on the graphics chip with smaller sizes, about 9 MB, whether it showed or not. 87 layers held close to 800 MB, which is more than Chrome on an iPad lets one page keep. Now a hidden layer keeps none (`syncDecals`); showing it draws it again. Checked in t203 through `__ink.inkTex`.
+- Cause, saving: the store opened its database once. WebKit drops a page's connection when the iPad runs short of memory (the same pressure that closes pages) and after time in the background, and every write after that failed until a reload. The message was not "out of space", so it was not the disk. Now a lost connection is opened again and the write run once more (`store-reconnect.test.mjs`, t203). A failed save also tries again by itself (3, 10, 30 seconds), the warning shows once a page instead of after every failed save, and the last failure's name is kept in localStorage `ia-save-err`.
+- Back up now builds the file in pieces (`backupBlob`), same bytes as before, so a big project never needs the whole file as one string.
+- Not checked on the iPad yet.

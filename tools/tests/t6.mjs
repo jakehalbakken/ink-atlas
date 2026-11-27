@@ -90,7 +90,7 @@ export default async function (p) {
   if(!await p.$eval('#editorAdvanced',e=>e.open))await p.click('#editorAdvanced > summary');
   await p.click('#bFlip'); await wait(900);
   check('a failed save is shown as not saved, with a way out', failText.includes('Not saved') && failText.includes('[bad]') && failToast.includes('Back up now'), failText + ' | ' + failToast);
-  check('saving recovers once the disk works again', (await savedText()) === 'Saved on this device');
+  check('saving recovers once the disk works again', /^Saved on this device/.test(await savedText()), await savedText());
 
   // 7. rapid repeats
   const flip0 = await p.evaluate(() => window.__ink.state().tattoos.find((t) => t.name === 'Old save ink').flip);

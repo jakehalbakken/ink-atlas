@@ -13,15 +13,25 @@ export const MAX_RECOVERY = 8;
 
 const sigOf = (s) => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36) + ':' + s.length; };
 
+// WebKit (Safari, and Chrome on the iPad) can drop a page's connection to its database while the page
+// lives on: when the iPad runs short of memory it closes the process that keeps the databases, and after
+// the app has been in the background. Every write after that failed with "Connection to Indexed Database
+// server lost" until the page was reloaded, so the app said "Not saved: storage problem" again and again
+// (2026-11-27, Jake, a project of 87 layers). A lost connection is now opened again and the write tried
+// once more; a write that failed never landed, so trying it again cannot save anything twice.
+const openDb = () => new Promise((res, rej) => {
+  const r = indexedDB.open(DB, 1);
+  r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error('blocked'));
+});
+export const lostConnection = (e) => !!e && (e.name === 'UnknownError' || e.name === 'InvalidStateError' || e.name === 'TransactionInactiveError' || /connection|closing|closed|server lost/i.test(String(e.message || '')));
+
 export async function openStore() {
-  let db = null;
-  try {
-    db = await new Promise((res, rej) => {
-      const r = indexedDB.open(DB, 1);
-      r.onupgradeneeded = () => r.result.createObjectStore(STORE);
-      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error('blocked'));
-    });
-  } catch (e) { db = null; }
+  let db = null, reopening = null, reopened = 0;
+  const watch = (d) => { if (!d) return d; d.onclose = () => { if (db === d) db = null; }; d.onversionchange = () => { try { d.close(); } catch (e) { /* already closed */ } if (db === d) db = null; }; return d; };
+  try { db = watch(await openDb()); } catch (e) { db = null; }
+  const startedOk = !!db;
+  const reopen = () => (reopening || (reopening = openDb().then((d) => { try { if (db && db !== d) db.close(); } catch (e) { /* already gone */ } db = watch(d); reopened++; return d; }).finally(() => { reopening = null; })));
   const stored = new Set(); // artwork keys known to be on disk
   let index = [];
   // Which save this page last read or wrote. Another copy of the app open on the device (a second tab, or the
@@ -46,11 +56,19 @@ export async function openStore() {
       index = next; done(true);
     });
   };
-  const tx = (mode, fn) => new Promise((res, rej) => {
-    let t; try { t = db.transaction(STORE, mode); } catch (e) { rej(e); return; }
+  const tx1 = (mode, fn) => new Promise((res, rej) => {
+    let t; try { if (!db) throw Object.assign(new Error('The database connection is closed'), { name: 'InvalidStateError' }); t = db.transaction(STORE, mode); } catch (e) { rej(e); return; }
     t.oncomplete = () => res(); t.onabort = t.onerror = () => rej(t.inkErr || t.error || new Error('Storage failed'));
     try { fn(t.objectStore(STORE)); } catch (e) { try { t.abort(); } catch (_) { /* already closed */ } rej(e); }
   });
+  // A transaction that failed because the connection was lost is run again, whole, on a new connection.
+  const tx = async (mode, fn) => {
+    try { await tx1(mode, fn); } catch (e) {
+      if (!startedOk || !lostConnection(e)) throw e;
+      try { await reopen(); } catch (e2) { throw e; }
+      await tx1(mode, fn);
+    }
+  };
   // A write made from inside a request's own callback (a put once a read answers) that throws, such as a
   // full disk or a value that cannot be stored, aborts its transaction on purpose and keeps that error for
   // the save to report, instead of leaving an uncaught error behind (found 2026-11-21 under a full disk).
@@ -72,10 +90,14 @@ export async function openStore() {
   };
 
   return {
-    ok: !!db,
+    ok: startedOk,
+    // How many times the connection was opened again after it was lost (for the checks).
+    get reopened() { return reopened; },
+    // For the checks only: drop the connection the way WebKit does.
+    dropConnection() { try { if (db) db.close(); } catch (e) { /* already closed */ } },
     // The project saved on this device, or null. `raw` is the record exactly as stored.
     async load() {
-      if (!db) return null;
+      if (!startedOk) return null;
       const got = await getMany(['project', 'recovery']);
       index = Array.isArray(got.recovery) ? got.recovery.filter((r) => r && typeof r.id === 'string') : [];
       const rec = got.project; mine = sidOf(rec); if (rec == null) return null;
@@ -87,7 +109,7 @@ export async function openStore() {
     // When the project on disk was written by another copy of the app since this page read or wrote it, that
     // version is kept as an earlier save first ({ other: true }), so neither copy's work is lost.
     async save(state, imgs) {
-      if (!db) throw new Error('Storage is off');
+      if (!startedOk) throw new Error('Storage is off');
       const keys = Object.keys(imgs).filter((k) => typeof imgs[k] === 'string');
       const sid = newId(); let other = false;
       await tx('readwrite', (s) => {
@@ -108,14 +130,14 @@ export async function openStore() {
     },
     // True when the project on disk is not the one this page last read or wrote: another copy of the app saved it.
     async changedElsewhere() {
-      if (!db) return false;
+      if (!startedOk) return false;
       const rec = (await getMany(['project'])).project; const theirs = sidOf(rec);
       return !!theirs && theirs !== mine;
     },
     listRecovery() { return index.map((r) => ({ id: r.id, at: r.at, reason: r.reason, tattoos: r.tattoos })); },
     // Keep a copy to go back to. Skipped when it would be identical to the newest copy.
     async addRecovery(state, imgs, reason) {
-      if (!db) return false;
+      if (!startedOk) return false;
       const json = JSON.stringify(state), sig = sigOf(json);
       if (index.length && index[0].sig === sig) return false;
       const keys = imageKeysFor(state).filter((k) => typeof imgs[k] === 'string');
@@ -124,20 +146,20 @@ export async function openStore() {
       keys.forEach((k) => stored.add(k)); return added;
     },
     async loadRecovery(id) {
-      if (!db) return null;
+      if (!startedOk) return null;
       const rec = (await getMany(['rec:' + id]))['rec:' + id]; if (!rec || typeof rec !== 'object') return null;
       return { state: rec.state, images: await imagesFor(Array.isArray(rec.imageKeys) ? rec.imageKeys : []) };
     },
     // Set an unreadable project aside, artwork included, so nothing later can overwrite it.
-    async quarantine(raw, images) { if (!db) return false; try { await tx('readwrite', (s) => { s.put({ raw, images, at: Date.now() }, 'quarantine:' + Date.now()); }); return true; } catch (e) { return false; } },
+    async quarantine(raw, images) { if (!startedOk) return false; try { await tx('readwrite', (s) => { s.put({ raw, images, at: Date.now() }, 'quarantine:' + Date.now()); }); return true; } catch (e) { return false; } },
     // The project record exactly as stored, set aside before anything replaces it. False when it cannot be read.
     async setAsideCurrent() {
-      if (!db) return false;
+      if (!startedOk) return false;
       try { const rec = (await getMany(['project'])).project; if (!rec) return true; const keys = Array.isArray(rec.imageKeys) ? rec.imageKeys.filter((k) => typeof k === 'string') : []; return await this.quarantine(rec, keys.length ? await imagesFor(keys) : (rec.images || {})); } catch (e) { return false; }
     },
     // Every set-aside unreadable save, newest first: { key, at, tattoos, name }.
     async listQuarantine() {
-      if (!db) return [];
+      if (!startedOk) return [];
       const box = {}; await tx('readonly', (s) => { const r = s.getAllKeys(); r.onsuccess = () => { box.keys = r.result; }; });
       const keys = (box.keys || []).filter((k) => typeof k === 'string' && k.startsWith('quarantine:'));
       const got = keys.length ? await getMany(keys) : {};
@@ -147,7 +169,7 @@ export async function openStore() {
       }).sort((a, b) => b.at - a.at);
     },
     async loadQuarantine(key) {
-      if (!db || typeof key !== 'string' || !key.startsWith('quarantine:')) return null;
+      if (!startedOk || typeof key !== 'string' || !key.startsWith('quarantine:')) return null;
       const q = (await getMany([key]))[key]; if (!q || typeof q !== 'object') return null;
       const raw = q.raw && typeof q.raw === 'object' ? q.raw : null; if (!raw) return null;
       const state = raw.state && typeof raw.state === 'object' ? raw.state : raw;
@@ -158,7 +180,7 @@ export async function openStore() {
     },
     // Pictures by key from anywhere on this device: their own records, then any set-aside save.
     async findImages(keys) {
-      if (!db || !keys.length) return {};
+      if (!startedOk || !keys.length) return {};
       const out = await imagesFor(keys); let left = keys.filter((k) => typeof out[k] !== 'string');
       if (!left.length) return out;
       const box = {}; await tx('readonly', (s) => { const r = s.getAllKeys(); r.onsuccess = () => { box.keys = r.result; }; });
@@ -173,7 +195,7 @@ export async function openStore() {
     // transaction, from what is on disk at that moment (never from what this page remembers), so a
     // save made by another copy of the app, or an earlier save this page has not listed, keeps its pictures.
     async gc(liveKeys) {
-      if (!db) return 0;
+      if (!startedOk) return 0;
       let removed = 0;
       await tx('readwrite', (s) => {
         const keep = new Set(liveKeys); for (const r of index) for (const k of r.imageKeys || []) keep.add(k);

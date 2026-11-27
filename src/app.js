@@ -880,6 +880,7 @@ function syncDecals() {
     }
     const tk = texKeyOf(t);
     if (skinDraw && skinDraw.id === t.id) { if (d.tex !== skinDraw.s.tex) { const was = d.tex; d.tex = skinDraw.s.tex; freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, false); } d.texKey = 'drawing'; } // the picture being drawn on, live
+    else if (t.hidden && !(peek && peek.id === t.id)) { if (d.tex) { const was = d.tex; d.tex = null; d.mesh.material.map = null; freeTexture(was); d.mesh.material.needsUpdate = true; markTried('manyLayers'); } d.texKey = ''; } // a hidden layer keeps no picture in memory (2026-11-27: 87 layers, most hidden, each held about 9 MB)
     else if (d.texKey !== tk && imgEls[t.img]) { const was = d.tex; d.tex = inkTexture(t); freeTexture(was); d.mesh.material.map = d.tex; setInkBlend(d.mesh.material, d.tex.userData.lift); d.texKey = tk; }
     const gk = [t.pos, t.normal, t.width, t.rot, t.aspect, t.wrap || 0, t.bend || 0, t.taper || 0, t.flip ? 1 : 0, warpKey(warpOf(t)), shapeKey].join('|');
     if (d.geoKey !== gk) { geoBuilds++; d.mesh.geometry.dispose(); const g = decalGeometry(t); d.mesh.geometry = g; d.outline.geometry = g; d.geoKey = gk; }
@@ -1015,7 +1016,7 @@ function renderFollow() {
   const o = followId && peersHere.find((x) => x.id === followId);
   bar.hidden = !o; if (o) $('#followText').textContent = `Following ${o.name || 'their'}${o.name ? '\u2019s' : ''} view`;
 }
-let account = null, store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, askedPersist = false, lastAuto = Date.now();
+let account = null, store = null, saveTimer = 0, saving = false, saveAgain = false, dirty = false, warnedSave = false, saveFails = 0, saveRetry = 0, askedPersist = false, lastAuto = Date.now();
 function usedImages() { const o = {}; for (const k of imageKeysFor(state)) if (images[k]) o[k] = images[k]; return o; }
 // A project with nothing of yours in it: no tattoos but the samples, no paint, wraps, references or comments.
 // Such a project is never saved over an unreadable save, kept as an earlier copy, or sent over the account copy.
@@ -1055,14 +1056,20 @@ async function flushSave() {
   try {
     const res = await store.save(state, usedImages());
     if (res && res.other && !toldOther) { toldOther = true; toast('This project was also changed in another window. That version is kept in Share > Find my saves.', null, null, 10000); }
-    if (!dirty) { setSaved('Saved on this device'); if (account) account.saved(); }
-    warnedSave = false;
+    if (!dirty) { setSaved(saveFails ? 'Saved on this device again' : 'Saved on this device'); if (account) account.saved(); }
+    saveFails = 0; clearTimeout(saveRetry);
     if (!askedPersist) { askedPersist = true; store.persist(); }
     if (Date.now() - lastAuto > 5 * 60000) { lastAuto = Date.now(); keepRecovery('While you were working'); }
   } catch (err) {
-    dirty = true;
-    setSaved(err && err.name === 'QuotaExceededError' ? 'Not saved: this device is out of space' : 'Not saved: storage problem', true);
-    if (!warnedSave) { warnedSave = true; toast('Your changes are not being saved on this device.', 'Back up now', backupNow); }
+    dirty = true; saveFails++;
+    const full = !!err && err.name === 'QuotaExceededError';
+    setSaved(full ? 'Not saved: this device is out of space' : 'Not saved yet: trying again', true);
+    try { localStorage.setItem('ia-save-err', JSON.stringify({ at: Date.now(), name: String((err && err.name) || ''), msg: String((err && err.message) || '').slice(0, 200), tattoos: state.tattoos.length, fails: saveFails })); } catch (e) { /* only a note for working out what went wrong */ }
+    // It tries again by itself, sooner first, so a passing failure clears without another edit. The warning
+    // shows once, after the tries have failed, not on every failed save (2026-11-27, Jake: "I keep getting
+    // notifications").
+    clearTimeout(saveRetry); saveRetry = setTimeout(() => { if (dirty) flushSave(); }, [3000, 10000, 30000][Math.min(saveFails - 1, 2)] || 60000);
+    if ((full || saveFails >= 3) && !warnedSave) { warnedSave = true; toast(full ? 'This device is out of space, so your changes are not being saved here.' : 'Your changes are not being saved on this device right now.', 'Back up now', backupNow); }
   } finally { saving = false; if (saveAgain) { saveAgain = false; flushSave(); } }
 }
 // A move, turn or resize is written while the finger is still on it, about once a second, so a page the
@@ -7257,7 +7264,14 @@ $('#cV47').addEventListener('click',async()=>{
  panel.append(el('button',{class:'btn',text:'Save full rebuild backup',onclick:()=>saveFile('ink-atlas-full-rebuild-backup.json',JSON.stringify(bundle.rebuildBackup))}),el('button',{class:'btn',text:'Save v47 compatibility copy',onclick:()=>saveFile('ink-atlas-v47-compatibility.ink.json',JSON.stringify(bundle.portable))}),el('button',{class:'btn',text:'Done',onclick:()=>host.remove()}));host.append(panel);$('#viewport').append(host);host.addEventListener('keydown',e=>{e.stopPropagation();if(e.key==='Escape')host.remove();});
  }catch(e){toast('v47 export stopped safely: '+e.message);}
 });
-function backupNow() { const d = new Date(), p2 = (n) => String(n).padStart(2, '0'); saveFile(`ink-atlas-backup-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.json`, JSON.stringify({ app: 'ink-atlas-proto', v: 2, savedAt: d.toISOString(), state, images: usedImages() })); }
+// The backup is built in pieces, one per picture, so a big project never needs the whole file as one
+// string in memory first (with 87 layers that was a few hundred megabytes at once). Same file as before.
+function backupBlob(d = new Date()) {
+  const imgs = usedImages(), parts = [JSON.stringify({ app: 'ink-atlas-proto', v: 2, savedAt: d.toISOString(), state }).slice(0, -1), ',"images":{'];
+  let first = true; for (const k of Object.keys(imgs)) { if (imgs[k] === undefined) continue; parts.push((first ? '' : ',') + JSON.stringify(k) + ':' + JSON.stringify(imgs[k])); first = false; }
+  parts.push('}}'); return new Blob(parts, { type: 'application/json' });
+}
+function backupNow() { const d = new Date(), p2 = (n) => String(n).padStart(2, '0'); saveFile(`ink-atlas-backup-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}.json`, backupBlob(d)); }
 $('#cBackup').addEventListener('click', () => { toggle('#share', false); backupNow(); });
 /* ---------- find my saves: every copy kept on this device ---------- */
 const tatText = (n, real) => { const k = real == null ? n : real; return k ? `${k} tattoo${k === 1 ? '' : 's'}` : n ? 'Only the samples' : 'No tattoos'; };
@@ -7644,6 +7658,8 @@ window.__ink = {
   redraw: () => { needsRender = true; },
   onPhoto: () => onPhoto.state(), onPhotoLayer: () => { const im = onPhoto.layerPixels(); return im && { w: im.width, h: im.height, data: im.data }; },
   gpu: () => ({ ...renderer.info.memory, programs: renderer.info.programs?.length || 0 }),
+  backupSame: async () => { const d = new Date(); return (await backupBlob(d).text()) === JSON.stringify({ app: 'ink-atlas-proto', v: 2, savedAt: d.toISOString(), state, images: usedImages() }); },
+  inkTex: () => { const held = Object.values(decals).filter((d) => d.tex && d.tex.image); return { count: held.length, mb: Math.round(held.reduce((a, d) => a + d.tex.image.width * d.tex.image.height * 4 * 2.33, 0) / 1048576) }; }, // canvas plus GPU copy with its smaller sizes
   self: () => ({ mode: selfV.mode, yaw: selfV.yaw, pitch: selfV.pitch, fov: camera.fov, near: camera.near, cam: camera.position.toArray(), look: new V3(0, 0, -1).applyQuaternion(camera.quaternion).toArray(), eye: selfV.mode ? selfFrame().eye : null, flip: canvas.style.transform, text: $('#selfText').textContent, best: selfV.best, base: selfV.bestBase, hand: selfV.mode === 'mirror' ? selfHand() : null, share: (id) => { const t = state.tattoos.find((x) => x.id === id); return t ? selfShare(t) : null; }, washOn: !!(selfV.mesh && selfV.mesh.visible), phone: !!(selfV.phone && selfV.phone.visible) }), selfDrag: (dx, dy) => selfDrag(dx, dy), selfPinch: (r) => selfPinch(r), selfTap: (x, y) => selfTap(x, y), selfiePicture: () => selfiePicture(),
   shownIds: () => state.tattoos.filter((t) => decals[t.id] && decals[t.id].mesh.visible).map((t) => t.id), kinds: () => ({ ...kindOff }), layersDock: () => layersDock,
   wrap: () => wrapStudio, finest: (id) => finestOf(state.tattoos.find((q) => q.id === id)), warpPanel: () => warpPanel, warpSpot: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpSpot(t, x, y) : null; }, warpJac: (id, x, y) => { const t = state.tattoos.find((q) => q.id === id); return t ? warpJac(t, x, y) : null; },   drawing: () => { const D = skinDraw; if (!D) return null; const s = D.s; return { id: D.id, fresh: D.fresh, from: D.from, tool: s.tool, color: s.color, sizeMm: s.sizeMm, clip: s.clip, hasArea: s.hasArea, strokes: s.strokes, steps: s.history.count, canRedo: s.history.canRedo, changed: s.changed, ink: s.inkBox(), W: s.W, H: s.H, pxPerMm: s.pxPerMm, autoKey: D.autoKey, ask: D.ask, fingers: drawFingers, maskAt: (x, y) => (s.mask ? s.mg.getImageData(x, y, 1, 1).data[3] : 255), artAt: (x, y) => [...s.g.getImageData(x, y, 1, 1).data], maskBox: () => { if (!s.mask) return null; const a = s.mg.getImageData(0, 0, s.W, s.H).data; let x0 = s.W, y0 = s.H, x1 = -1, y1 = -1; for (let y = 0; y < s.H; y++) for (let x = 0; x < s.W; x++) if (a[(y * s.W + x) * 4 + 3] >= 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return x1 < 0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }; }, inked: (edge = 0) => { const W = s.W, H = s.H, a = s.g.getImageData(0, 0, W, H).data, m = s.mask ? s.mg.getImageData(0, 0, W, H).data : null; let n = 0, out = 0, inside = 0, atEdge = 0; let near = null; if (m && edge > 0) { /* inside pixels within edge px of the area's outside */ const o = new Uint8Array(W * H), row = new Uint8Array(W * H); near = new Uint8Array(W * H); for (let i = 0; i < W * H; i++) o[i] = m[i * 4 + 3] < 8 ? 1 : 0; for (let y = 0; y < H; y++) { let c = 0; for (let x = -edge; x < W; x++) { const xa = x + edge; if (xa < W) c += o[y * W + xa]; const xb = x - edge - 1; if (xb >= 0) c -= o[y * W + xb]; if (x >= 0) row[y * W + x] = c > 0 ? 1 : 0; } } for (let x = 0; x < W; x++) { let c = 0; for (let y = -edge; y < H; y++) { const ya = y + edge; if (ya < H) c += row[ya * W + x]; const yb = y - edge - 1; if (yb >= 0) c -= row[yb * W + x]; if (y >= 0) near[y * W + x] = c > 0 ? 1 : 0; } } } for (let i = 3, p = 0; i < a.length; i += 4, p++) { if (m && m[i] >= 8) inside++; if (a[i] < 8) continue; n++; if (m && m[i] < 8) out++; else if (near && near[p]) atEdge++; } return { n, out, inside, atEdge }; } }; }, autosaveDrawing,
