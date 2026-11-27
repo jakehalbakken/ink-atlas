@@ -13,9 +13,10 @@ export const CALIBRATION = { shoulders: 1.075, chest: 1.0, waist: 1.02, hips: 1.
 // The depths (a photo side on) were measured the same way from the 3D body's own side outline
 // (tools/tests/side-photo-unit.mjs prints them).
 
-let ready = null;
+let ready = null, dropTimer = 0;
 const base = () => (import.meta.env && import.meta.env.BASE_URL) || '/';
 export function loadPoseFinder() {
+  clearTimeout(dropTimer);
   if (!ready) {
     ready = (async () => {
       const { FilesetResolver, PoseLandmarker } = await import('@mediapipe/tasks-vision');
@@ -28,6 +29,14 @@ export function loadPoseFinder() {
     ready.catch(() => { ready = null; });
   }
   return ready;
+}
+
+// Once the screens that read photos close, the model and the memory it works in are given back after
+// a short while (sooner opened again, it is kept): an iPad holding it on top of a big project closed
+// the page when a new picture was picked (2026-11-27).
+export function releasePoseFinder(after = 20000) {
+  clearTimeout(dropTimer);
+  dropTimer = setTimeout(() => { const r = ready; ready = null; if (r) r.then((m) => { try { m.close(); } catch (e) { /* already gone */ } }, () => {}); }, after);
 }
 
 // source: an image or canvas. Returns { lm, mask, w, h, canvas, ratios, problems } or throws a

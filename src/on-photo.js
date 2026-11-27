@@ -4,15 +4,16 @@
 // the photo are bare skin, and the ink the 3D body shows from that camera is multiplied onto the
 // photo there, so it takes the photo's own light. The photos are never stored or sent anywhere;
 // they go when the panel closes. Nothing in the project changes.
-import { loadPoseFinder } from './body-match.js';
+import { loadPoseFinder, releasePoseFinder } from './body-match.js';
 import { fitPhoto, mirrorPoints, turnPoints, exifFocal35 } from './photo-pose.js';
 import { still, moved, layerMatrix, corners, pick, groupCentre, moveOne, moveAll, twoFinger, MIN_S, MAX_S } from './photo-layers.js';
 
 const base = () => (import.meta.env && import.meta.env.BASE_URL) || '/';
 const MAX = 2048; // the longest side a photo is worked at
 
-let skinReady = null;
+let skinReady = null, skinDrop = 0;
 function loadSkinFinder() {
+  clearTimeout(skinDrop);
   if (!skinReady) {
     skinReady = (async () => {
       const { FilesetResolver, ImageSegmenter } = await import('@mediapipe/tasks-vision');
@@ -25,6 +26,11 @@ function loadSkinFinder() {
     skinReady.catch(() => { skinReady = null; });
   }
   return skinReady;
+}
+// given back a short while after the screen closes, like the pose model (body-match.js)
+function releaseSkinFinder(after = 20000) {
+  clearTimeout(skinDrop);
+  skinDrop = setTimeout(() => { const r = skinReady; skinReady = null; if (r) r.then((m) => { try { m.close(); } catch (e) { /* already gone */ } }, () => {}); }, after);
 }
 // a mask from MediaPipe at the size w x h (nearest sample is plenty: it is softened later)
 function maskAt(m, w, h) {
@@ -344,6 +350,7 @@ export function createOnPhoto(api) {
     for (const c of [pic, over, fitC, selC]) { c.width = 1; c.height = 1; } // the photos go
     $('#opLayersList').textContent = ''; delete $('#opLayersList').dataset.key;
     $('#opFile').value = '';
+    releasePoseFinder(); releaseSkinFinder();
   }
   async function save() {
     const p = cur(); if (!p || !p.read) return;

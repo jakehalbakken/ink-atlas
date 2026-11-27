@@ -1065,6 +1065,18 @@ async function flushSave() {
     if (!warnedSave) { warnedSave = true; toast('Your changes are not being saved on this device.', 'Back up now', backupNow); }
   } finally { saving = false; if (saveAgain) { saveAgain = false; flushSave(); } }
 }
+// A move, turn or resize is written while the finger is still on it, about once a second, so a page the
+// iPad closes part way through a drag loses a second of it at most, never the whole placement
+// (2026-11-27, Jake: placing a new tattoo the page "keeps refreshing" and is "not saving progress").
+// The undo step is still one per drag. A spot someone who can only comment is trying out is never
+// written: it is put back before anything is saved.
+let goSaveAt = 0, goSaveTimer = 0;
+function saveAsYouGo() {
+  if (!store || !store.ok || suggesting) return;
+  const wait = 1000 - (Date.now() - goSaveAt);
+  if (wait > 0) { if (!goSaveTimer) goSaveTimer = setTimeout(() => { goSaveTimer = 0; if (dirty || inkDirty || pointersOn.size) saveAsYouGo(); }, wait); return; }
+  goSaveAt = Date.now(); dirty = true; flushSave(); if (pointersOn.size && sel()) markTried('placeKept');
+}
 // iPadOS can drop a web page the moment it leaves the screen, so write straight away when that happens.
 document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); else takeNewerSave(); });
 // Back on screen with nothing unsaved here, and the project was saved by another copy of the app in the
@@ -3353,6 +3365,7 @@ function closeBodyMatch(keep) {
   bm.result = null; bm.before = null; bm.files = []; bm.faceFile = null; bm.faceSize = 0; bm.last = null; bm.lastBase = null; bm.frontShape = null; bm.batch++;
   const c = $('#bmPic'); c.width = 1; c.height = 1; $('#bodyPhotoFile').value = ''; // drop the photo
   toggle('#bodyMatch', false); fullBody(0);
+  import('./body-match.js').then((m) => m.releasePoseFinder()).catch(() => {}); // its model goes a little later
 }
 $('#bodyPhotoBtn').addEventListener('click', () => { const f = $('#bodyPhotoFile'); f.value = ''; f.click(); });
 $('#bodyPhotoFile').addEventListener('change', (e) => { const f = e.target.files; if (f && f.length) bmFiles([...f]); });
@@ -5489,7 +5502,8 @@ $('#file').addEventListener('change', async (e) => {
     const t = await addImage(url, f.name.replace(/\.[^.]+$/, '').slice(0, 100), first ? viewCenterSpot() : null); if (t) {first = false;last = t;}
   }
   if (last) {
-    selectedId = last.id; commit(); userFocus(last);
+    // written straight away, not after the usual short wait: a new picture is the work most at risk
+    selectedId = last.id; commit(); flushSave(); userFocus(last);
     // one picture with several designs on it: offer to split it
     if (files.length === 1) flashOf(last).then((f) => {
       if (sel() !== last) return;
@@ -5926,7 +5940,10 @@ if (window.visualViewport) {
 // Jake: "the whole entire web page will like suddenly reload ... in the cleanup mode").
 let touchedSinceBoot = false, updateReady = false, pickingFileAt = 0;
 window.addEventListener('pointerdown', () => { touchedSinceBoot = true; }, { capture: true, passive: true });
-document.addEventListener('click', (e) => { if (e.target instanceof Element && e.target.closest('input[type=file]')) pickingFileAt = Date.now(); }, true);
+// The photo chooser is where an iPad short of memory most often closes the page (it reads and shows the
+// photos in it while the page waits behind), so the save is written before it opens and what is only
+// kept to be quick is given back.
+document.addEventListener('click', (e) => { if (e.target instanceof Element && e.target.closest('input[type=file]')) { pickingFileAt = Date.now(); if (dirty || saveTimer) flushSave(); warpSrcCache.clear(); inkPixels = new WeakMap(); } }, true);
 for (const ev of ['change', 'cancel']) document.addEventListener(ev, (e) => { if (e.target instanceof Element && e.target.matches('input[type=file]')) pickingFileAt = 0; }, true);
 const shown = (n) => !!n && n.isConnected && !n.hidden && n.getClientRects().length > 0;
 // a dialog left in the page but hidden must not swallow the keys
@@ -7457,11 +7474,19 @@ function adoptState() {
   applyShape(); applyAnchors(an); notePlaces();
 }
 /* ---------- loop ---------- */
-let last = performance.now();
+let last = performance.now(), inkBusyUntil = 0;
 let camMoving = false, booted = false, cameUpEmpty = false;
 function tick(now) {
   const dt = Math.min(0.1, (now - last) / 1000); last = now; // slow frames still glide in about the same time
-  if (inkDirty) { inkDirty = false; syncDecals(); const t = sel(); if (t) { $('#size').textContent = sizeText(t); likeRender(t); } }
+  // while a finger is down, a piece that took long to lay is laid again only once that time has
+  // passed (near the hands or face it can take tens of milliseconds on an iPad), so the screen keeps up
+  // and the finger's newest place is the one laid; lifting the finger lays it at once
+  if (inkDirty && (!pointersOn.size || now >= inkBusyUntil)) {
+    inkDirty = false; const b0 = performance.now(); syncDecals(); const took = performance.now() - b0;
+    inkBusyUntil = pointersOn.size && took > 12 ? now + Math.min(250, took) : 0;
+    const t = sel(); if (t) { $('#size').textContent = sizeText(t); likeRender(t); }
+    saveAsYouGo();
+  }
   if (Math.abs(goalInset - curInset) > 0.5) { curInset += (goalInset - curInset) * (1 - Math.exp(-dt * 12)); if (Math.abs(goalInset - curInset) <= 0.5) curInset = goalInset; applyInset(); needsRender = true; }
   const moving = stepCam(dt); camMoving = moving;
   if (moving || needsRender) { needsRender = false; drawFrame(); if(liveGuidePlan)drawLiveGuides(); placeHandles(); if (warpPanel && warpPanel.isOpen()) warpPanel.place(); if (tape.on) placeTape(); if (pins.on) placePins(); if (pointing.els.length) placePoints(); }

@@ -994,6 +994,14 @@ Jake: "the whole entire web page will like suddenly reload or crash ... in the c
 - Clean up keeps a draft on the device (`cleanup-draft.js`, IndexedDB `ink-atlas-cleanup-draft`, never in the project or account) a moment after each change and when the app leaves the screen; after the page closes, a toast offers Open it and the edits come back; Done (once saved), Cancel and Throw away clear it.
 - Checks: `cleanup-memory-unit.mjs` (node), t188 (browser, needs the QA machine). Not yet on the iPad.
 
+## The page reloading while placing a new tattoo (2026-11-27, built, not live)
+
+Jake: "when I'm trying to place a new tattoo it keeps refreshing ... page crashing and not saving progress."
+
+- Cause, most likely: since the 2026-11-25 armpit fix, every finger move laid the piece again and made about 11 fresh arrays the size of the whole body (over 1 MB a move), on top of the project's pictures, the photo chooser's own memory and the MediaPipe models that were never closed. iPad Chrome closes a tab that holds too much, which reads as a reload. A placement was only saved 350 ms after the finger lifted, so a close mid-drag lost it.
+- Fixed: the arrays are kept and reused (`scratch` in `decal.js`, same output for 600 pieces compared); a slow rebuild waits up to 250 ms while a finger is down; saved about once a second during a drag (`saveAsYouGo`), at once after a new picture and before the chooser opens (warp and ink caches dropped there); pose and skin models closed 20 s after their screens close.
+- Checks: `decal-reuse-unit.mjs` (no whole-body arrays after the first laying, same output in any order), `armpit-ink-unit.mjs` unchanged. Browser suite needs the QA machine. Not yet on the iPad.
+
 ## Your tattoos on a photo of you, and the body from several photos (2026-11-25, built, not live)
 
 Jake: "I wish I could just upload photos of myself and it would just start looking like me from different angles. Or like if I uploaded a photo of myself, it would apply the tattoos that we've already been working on onto the photo of myself."
