@@ -869,7 +869,12 @@ function gapWorkOut(t) {
 let gapTimer = 0, gapReads = 0, geoBuilds = 0;
 function renderGap() { clearTimeout(gapTimer); gapTimer = setTimeout(() => { gapReads++; const t = sel(), el = $('#gap'); if (!t) { el.hidden = true; return; } const txt = gapText(t); el.textContent = txt; el.hidden = !txt; if (txt && state.tattoos.length >= 20) { markTried('gapQuick'); if (inkWarmDone) markTried('pickQuick'); } }, 120); }
 let peek = null; // view only: an earlier version of one tattoo shown on the body, { id, v }
-let agingYears = 0; // view only: how the ink looks after this many years
+// Always show my ink healed (Preview > Aging): the everyday look is Healed, kept on this device
+let healedLook = (() => { try { return localStorage.getItem('ia-healed') === '1'; } catch { return false; } })();
+let agingYears = healedLook ? 1 : 0; // view only: how the ink looks after this many years
+// Files for Procreate and the bring-back that reads them use the ink as drawn, never aged or
+// healed, so a drawing that comes back is never the softened copy.
+async function withFreshInk(fn) { if (!agingYears) return fn(); const keep = agingYears; agingYears = 0; syncDecals(); try { return await fn(); } finally { agingYears = keep; syncDecals(); needsRender = true; } }
 function texKeyOf(t) { return [t.img, t.imageTopDown ? 1 : 0, t.flip ? 1 : 0, (t.opacity ?? 0.92).toFixed(2), t.aspect.toFixed(3), agingYears ? agingYears + ':' + (t.width * (state.heightCm || 175)).toFixed(2) : 0, lookKey(t), blendOf(t) !== DEFAULT_BLEND ? skinColor() : '', lookDraft === t.id || warpDraft === t.id ? 'draft' : '', warpKey(warpOf(t))].join('|'); }
 // A tattoo that is selected is always drawn: one added, duplicated, switched between On my skin and
 // Planned or picked in Layers while the view shows only the other kind brings that kind back into
@@ -3062,7 +3067,9 @@ renderClothes();
 /* ---------- aging: how the ink looks after some years (view only, not saved) ---------- */
 function renderAging() {
   const a = AGES.find((x) => x.years === agingYears);
-  $('#ageBtn').textContent = agingYears ? 'Aging: ' + a.label : 'Aging';
+  // with Always show my ink healed on, Healed is the everyday look, so only another age is a preview
+  $('#ageBtn').textContent = agingYears !== (healedLook ? 1 : 0) ? 'Aging: ' + a.label : 'Aging';
+  $('#healedLook').checked = healedLook;
   $('#ageBtn').setAttribute('aria-expanded', String(!$('#agePop').hidden));
   document.querySelectorAll('#ageChoices [data-years]').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.years === agingYears)));
 }
@@ -3070,6 +3077,7 @@ function setAging(years) { agingYears = AGES.some((a) => a.years === years) ? ye
 $('#ageChoices').innerHTML = AGES.map((a) => `<button class="btn" type="button" data-years="${a.years}">${a.label}</button>`).join('');
 $('#ageBtn').addEventListener('click', () => { cancelGesture(); toggle('#posePop', false); toggle('#lightPop', false); toggle('#bodyPop', false); toggle('#clothesPop', false); toggle('#agePop'); renderAging(); });
 $('#ageChoices').addEventListener('click', (e) => { const b = e.target.closest('[data-years]'); if (b) setAging(+b.dataset.years); });
+$('#healedLook').addEventListener('change', (e) => { healedLook = e.target.checked; try { localStorage.setItem('ia-healed', healedLook ? '1' : '0'); } catch { /* no storage */ } setAging(healedLook ? 1 : 0); if (healedLook) markTried('healedLook'); });
 renderAging();
 /* ---------- light: studio, daylight, warm room or midday sun (view only, kept on this device) ---------- */
 let lightId = applyLight(readLight(), { hemi, key, rim, rim2 });
@@ -3769,6 +3777,8 @@ const SHOW = {
   account: () => (account && account.configured ? ['#accountBtn', 'Tap here to make your account or sign in. Share, then Send to someone, makes a link to a copy.'] : [null, 'Accounts are not switched on in this copy of Ink Atlas yet.']),
   paint3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dSend', 'Send the 3D body, paint it in Procreate, then bring back your drawing.']; },
   layers3d: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dLayers', 'Send the 3D body with each tattoo separate. In Procreate, open Layers: Skin and each tattoo are their own groups to paint on.']; },
+  layersBack: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint on a tattoo\'s own texture set in the separate-tattoo body, export it from Procreate as USDZ, then pick it here. That tattoo gets the new artwork in place.']; },
+  healedLook: () => { showLook(false); toggle('#agePop', true); return ['#healedRow', 'Tick this to see every tattoo the way it looks once healed, every time you open Ink Atlas.']; },
   paintLayers: () => { renderPcMenu(); toggle('#pcMenu', true); return ['#pm3dBack', 'Paint each tattoo on its own layer in Procreate, share it as Procreate, then pick it here.']; },
   otherSide: () => { if (!needTattoo()) return null; $('#editorAdvanced').open = true; return ['#bOtherSide', 'Copy to other side puts a mirrored twin on the other side.']; },
   duplicate: () => { if (!needTattoo()) return null; return ['#bDup', 'Duplicate puts a copy beside it to move and size.']; },
@@ -7009,7 +7019,8 @@ $('#cGlb').addEventListener('click',async()=>{
 });
 $('#cObj').addEventListener('click',async()=>{toggle('#share',false);try{const {exportSceneObjPackage}=await import('./obj-export.js');const result=await exportSceneObjPackage(previewInput());await saveFile('ink-atlas-neutral-obj.zip',result.blob);}catch(e){toast('Could not export OBJ package: '+e.message);}});
 // Tattoos painted into one skin texture on the body's own UVs (src/uv-bake.js).
-async function exportPainted(kind) {
+function exportPainted(kind) { return withFreshInk(() => exportPaintedNow(kind)); }
+async function exportPaintedNow(kind) {
   toggle('#share', false);
   const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
   toast(kind === 'usdz' ? 'Making the 3D body for Procreate. This takes a few seconds.' : 'Painting your tattoos onto the skin. This takes a few seconds.');
@@ -7025,7 +7036,8 @@ async function exportPainted(kind) {
 }
 // The 3D body with each tattoo as its own part and material (src/layered-model.js), so
 // Procreate shows the skin and every tattoo as separate, named texture sets in Layers.
-async function exportLayered() {
+function exportLayered() { return withFreshInk(() => exportLayeredNow()); }
+async function exportLayeredNow() {
   toggle('#share', false); toggle('#pcMenu', false);
   const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
   toast(visible.length ? 'Making the 3D body with each tattoo separate. This takes a few seconds.' : 'No tattoos showing, so this is the plain body. Making it now.');
@@ -7047,10 +7059,10 @@ const PAINT_SIZE = 2048;
 function shrinkTo(src, S) { const c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d', { willReadFrequently: true }); g.imageSmoothingQuality = 'high'; g.drawImage(src, 0, 0, S, S); const d = g.getImageData(0, 0, S, S).data; c.width = c.height = 0; return d; }
 // The same skin baked here without paint: plain skin plus the visible tattoos, at the
 // picture's own size and then shrunk exactly as the picture is, so thin lines match.
-async function bakeBaseline(skinColor, native, S, withPaint = true) {
+async function bakeBaseline(skinColor, native, S, withPaint = true, withInk = true) {
   const { bakeSkin } = await import('./uv-bake.js');
   syncDecals();
-  const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
+  const visible = withInk ? state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex) : []; // the separate-tattoo model's skin has no ink in it
   const baked = bakeSkin({ THREE, renderer, bodyGeometry: bodyGeo, skinColor, decals: visible.map((t) => ({ geometry: decals[t.id].mesh.geometry, material: exportMaterial(t, 'linear') })), size: native });
   freeExportMaterials();
   const full = document.createElement('canvas'); full.width = full.height = baked.size; full.getContext('2d').putImageData(new ImageData(baked.pixels, baked.size, baked.size), 0, 0);
@@ -7060,13 +7072,13 @@ async function bakeBaseline(skinColor, native, S, withPaint = true) {
   if (paintIm) { const { paintOver } = await import('./paint-layer.js'); out = paintOver(out, shrinkTo(paintIm, S)); }
   return out;
 }
-async function readPainted(file, withPaint = true) {
+async function readPainted(file, withPaint = true, withInk = true) {
   const P = await import('./procreate-import.js'), S = PAINT_SIZE;
   const pic = await P.skinPictureOf(file);
   const bmp = await createImageBitmap(pic), native = Math.max(256, Math.min(bmp.width, renderer.capabilities.maxTextureSize || 4096, 4096));
   const raw = shrinkTo(bmp, S); bmp.close && bmp.close();
   const map = P.triangleMap(S), skin = P.skinColorOf(raw, null);
-  const baseline = await bakeBaseline(new THREE.Color().setRGB(skin[0] / 255, skin[1] / 255, skin[2] / 255, THREE.SRGBColorSpace), native, S, withPaint);
+  const baseline = await bakeBaseline(new THREE.Color().setRGB(skin[0] / 255, skin[1] / 255, skin[2] / 255, THREE.SRGBColorSpace), native, S, withPaint, withInk);
   return { P, S, map, skin, baseline, quiet: P.inkZone(baseline, map, S, skin), pixels: P.uprightPixels(raw, baseline, map, S) };
 }
 // Separate drawings in a skin picture (or on one paint layer, given its mask and ink), each
@@ -7095,7 +7107,8 @@ async function tattoosFrom({ P, S, map, skin, baseline, pixels, quiet = null, ma
   return added;
 }
 // New drawing on a painted model becomes tattoos (kept for files dropped in as tattoos).
-async function importPainted(file, undoStep = true) {
+function importPainted(file, undoStep = true) { return withFreshInk(() => importPaintedNow(file, undoStep)); }
+async function importPaintedNow(file, undoStep = true) {
   toggle('#share', false);
   if (file.size > 300e6) { toast('That file is too large to open here.'); return []; }
   toast('Looking for new drawing on the model. This takes a few seconds.');
@@ -7112,7 +7125,8 @@ async function importPainted(file, undoStep = true) {
 }
 // Back from Procreate as paint: the whole of the paint on the model replaces the paint here,
 // so painting more, changing it or rubbing it out in Procreate all come back.
-async function bringBackPainted(file) {
+function bringBackPainted(file) { return withFreshInk(() => bringBackPaintedNow(file)); }
+async function bringBackPaintedNow(file) {
   toggle('#share', false); toggle('#pcMenu', false);
   if (file.size > 300e6) { toast('That file is too large to open here.'); return null; }
   toast('Bringing back your paint. This takes a few seconds.');
@@ -7159,7 +7173,74 @@ async function layersFrom(bytes) {
   if (flip) for (const l of read) l.px = P.flipRows(l.px, S);
   return { P, S, map, skin, baseline, quiet: P.inkZone(baseline, map, S, skin), layers: read.reverse() /* bottom first */ };
 }
-async function bringBack(file) {
+// Back from the 3D body sent with each tattoo separate (src/layered-model.js, src/layered-back.js):
+// a tattoo whose own texture set was painted gets that picture as its new artwork, on the same
+// skin at the same size (the earlier artwork kept as a version), and new drawing on the skin's
+// set comes back as new tattoos. Returns null when the file is not that kind of model.
+async function layeredBack(entries, file) {
+  const L = await import('./layered-back.js'), { partsFor, bakePart } = await import('./layered-model.js');
+  const colour = entries.filter((e) => L.colourPictures([e.name]).length);
+  if (colour.length < 2) return null;
+  const pics = [];
+  for (const e of colour) { try { const bmp = await createImageBitmap(new Blob([await e.read()])); pics.push({ name: e.name, w: bmp.width, h: bmp.height, bmp }); } catch { /* not a picture this browser opens */ } }
+  const text = entries.find((e) => /\.usda$/i.test(e.name)), usda = text ? new TextDecoder().decode(await text.read()) : null;
+  syncDecals();
+  const visible = state.tattoos.filter((t) => !t.hidden && decals[t.id] && decals[t.id].tex);
+  const list = partsFor({ bodyGeometry: bodyGeo, tattoos: visible.map((t) => ({ id: t.id, name: t.name || 'Tattoo', aspect: t.aspect, geometry: decals[t.id].mesh.geometry, material: exportMaterial(t, 'linear') })), max: renderer.capabilities.maxTextureSize || 4096 });
+  const close = () => { freeExportMaterials(); for (const p of pics) p.bmp.close && p.bmp.close(); };
+  try {
+    const match = L.matchPictures({ pictures: pics, parts: list.map((x) => ({ label: x.label, ratio: x.part.ratio })), usda });
+    if (!match.parts.size) return null; // a model from somewhere else: read it the usual way
+    const changed = [], kept = [], skippedWarp = [], skippedLock = [];
+    for (const x of list) {
+      const name = match.parts.get(x.label); if (!name) continue;
+      const pic = pics.find((p) => p.name === name), t = state.tattoos.find((q) => q.id === x.t.id); if (!pic || !t) continue;
+      // what went out, and what came back, at the same size
+      const sent = bakePart({ THREE, renderer, part: x.part, material: x.t.material, skinColor: skinMat.color, longest: x.longest });
+      const W = sent.width, H = sent.height, back = document.createElement('canvas'); back.width = W; back.height = H;
+      const bg = back.getContext('2d', { willReadFrequently: true }); bg.imageSmoothingQuality = 'high';
+      const k = Math.min(1, 256 / Math.max(W, H)), sw = Math.max(8, Math.round(W * k)), sh = Math.max(8, Math.round(H * k)), small = (src, flip = false) => { const c = document.createElement('canvas'); c.width = sw; c.height = sh; const g = c.getContext('2d', { willReadFrequently: true }); if (flip) { g.translate(0, sh); g.scale(1, -1); } g.drawImage(src, 0, 0, sw, sh); return g.getImageData(0, 0, sw, sh).data; };
+      // a USD file keeps its pictures bottom row first, so the picture may come back upside down: take the way that matches
+      const was = small(sent), straight = L.changedPixels(was, small(pic.bmp)), turned = L.changedPixels(was, small(pic.bmp, true)), up = turned.n < straight.n, diff = up ? turned : straight;
+      if (up) { bg.translate(0, H); bg.scale(1, -1); } bg.drawImage(pic.bmp, 0, 0, W, H); bg.setTransform(1, 0, 0, 1, 0, 0); sent.width = sent.height = 0;
+      if (!diff.changed) { kept.push(t.id); back.width = back.height = 0; continue; }
+      if (t.warp) { skippedWarp.push(t.name); back.width = back.height = 0; continue; }
+      if (t.locked) { skippedLock.push(t.name); back.width = back.height = 0; continue; }
+      const px = bg.getImageData(0, 0, W, H).data, ink = L.inkOutOfSkin(px, L.edgeSkin(px, W, H), t.opacity ?? 0.92);
+      back.width = back.height = 0;
+      const b = inkBounds(ink, W, H); if (!b) continue; // all rubbed out: the tattoo is left as it was
+      const frame = L.partFrame({ box: x.part.box, margin: UV_MARGIN, flip: !!t.flip, flipY: decals[t.id].tex.flipY, crop: { x: b.x / W, y: b.y / H, w: b.w / W, h: b.h / H } });
+      const full = document.createElement('canvas'); full.width = W; full.height = H; full.getContext('2d').putImageData(new ImageData(ink, W, H), 0, 0);
+      const out = document.createElement('canvas'); out.width = b.w; out.height = b.h; const og = out.getContext('2d');
+      og.translate(frame.mirror ? b.w : 0, frame.upsideDown ? b.h : 0); og.scale(frame.mirror ? -1 : 1, frame.upsideDown ? -1 : 1); og.drawImage(full, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+      full.width = full.height = 0;
+      const key = uid(); images[key] = out.toDataURL('image/png'); out.width = out.height = 0;
+      if (!await loadImg(key)) { delete images[key]; continue; }
+      changed.push({ id: t.id, key, aspect: b.w / b.h, frame });
+    }
+    let added = [];
+    const skinPic = match.skin && entries.find((e) => e.name === match.skin);
+    if (!changed.length && !skinPic) return { changed: [], added: [], kept, skippedWarp, skippedLock };
+    snapshot();
+    for (const c of changed) {
+      const was = new Map(state.tattoos.map((q) => [q.id, q]));
+      const revision = applyArtworkRevision(state, c.id, c.key, c.aspect, { linked: false });
+      state = revision.nextState;
+      const q = state.tattoos.find((y) => y.id === c.id), before = was.get(c.id);
+      if (!q) continue;
+      keepVersion(before, q); keepInkInPlace(q, before, { widthScale: c.frame.widthScale, shift: c.frame.shift });
+      delete q.blend; delete q.adjust; // the look it had is drawn into the picture now
+    }
+    if (skinPic) {
+      const skinFile = new File([await skinPic.read()], /\.png$/i.test(skinPic.name) ? 'skin.png' : 'skin.jpg', { type: /\.png$/i.test(skinPic.name) ? 'image/png' : 'image/jpeg' });
+      const r = await readPainted(skinFile, true, false); // the skin went out with its paint and without ink
+      added = await tattoosFrom(r);
+    }
+    return { changed: changed.map((c) => c.id), added, kept, skippedWarp, skippedLock };
+  } finally { close(); }
+}
+function bringBack(file) { return withFreshInk(() => bringBackNow(file)); }
+async function bringBackNow(file) {
   toggle('#share', false); toggle('#pcMenu', false);
   if (file.size > 300e6) { toast('That file is too large to open here.'); return []; }
   let layered = /\.procreate$/i.test(file.name);
@@ -7192,6 +7273,22 @@ async function bringBack(file) {
         added.push(...got);
       }
     } else {
+      let back = null;
+      try { const { readZip } = await import('./procreate-import.js'); if (/\.(usdz|zip)$/i.test(file.name) || /usdz|zip/.test(file.type)) back = await layeredBack(await readZip(new Uint8Array(await file.arrayBuffer())), file); } catch (e) { if (undoStack.length > before) undo(); throw e; }
+      if (back) {
+        window.__lastLayeredBack = back;
+        const n = back.changed.length, m = back.added.length, left = [...back.skippedWarp, ...back.skippedLock];
+        if (!n && !m) { if (undoStack.length > before) { undoStack.pop(); refreshUndo(); } toast('Nothing new on that model. Every tattoo is as it went out.' + (left.length ? ` ${left.join(', ')} changed but ${left.length === 1 ? 'stays' : 'stay'} as ${left.length === 1 ? 'it was' : 'they were'}: bent, warped or locked.` : '')); return []; }
+        if (n) syncDecals();
+        selectedId = (back.added[0] || state.tattoos.find((t) => t.id === back.changed[0]) || {}).id || null;
+        commit(); markTried('layersBack');
+        const sel1 = state.tattoos.find((t) => t.id === selectedId); if (sel1) userFocus(sel1);
+        const parts = [];
+        if (n) parts.push(n === 1 ? `${state.tattoos.find((t) => t.id === back.changed[0])?.name || 'One tattoo'} has its new artwork` : `${n} tattoos have their new artwork`);
+        if (m) parts.push(m === 1 ? '1 new tattoo from the skin' : `${m} new tattoos from the skin`);
+        toast(parts.join(', and ') + '. Earlier artwork kept as a version.' + (left.length ? ` ${left.join(', ')} stayed as ${left.length === 1 ? 'it was' : 'they were'}: bent, warped or locked.` : ''), 'Undo', undo);
+        return [...back.changed, ...back.added.map((t) => t.id)];
+      }
       const r = await readPainted(file);
       snapshot();
       added.push(...await tattoosFrom(r));
@@ -7210,7 +7307,8 @@ async function bringBack(file) {
 // The base layer laid over the skin picture (it is opaque, so it is the picture).
 function P_over(r, l) { const out = new Uint8ClampedArray(r.baseline); for (let o = 0; o < out.length; o += 4) { const a = l.px[o + 3] / 255; for (let k = 0; k < 3; k++) out[o + k] = Math.round(out[o + k] * (1 - a) + l.px[o + k] * a); } return out; }
 // The paint on the body, split into movable tattoos (one undo step).
-async function paintToTattoos() {
+function paintToTattoos() { return withFreshInk(() => paintToTattoosNow()); }
+async function paintToTattoosNow() {
   toggle('#pcMenu', false);
   const im = state.paint && await loadImg(state.paint.img); if (!im) return [];
   toast('Making movable tattoos from your paint. This takes a few seconds.');

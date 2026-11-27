@@ -723,6 +723,8 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
   <div class="pophead"><h3>Aging</h3><button class="btn" type="button" data-close="agePop">Done</button></div>
   <p class="tip">See how your tattoos may look as they age. Lines soften and spread a little, and black ink lightens. A rough guide, not a promise. Only for looking, not saved.</p>
   <div class="posegrid" id="ageChoices"></div>
+  <label id="healedRow" style="min-height:48px;display:flex;align-items:center;gap:10px;margin-top:6px"><input id="healedLook" type="checkbox" style="width:22px;height:22px">Always show my ink healed</label>
+  <p class="tip" id="healedTip">Healed is how ink looks once it settles in the skin: a touch softer and less inky than the fresh, printed look. Kept on this device. Files for Procreate always get the ink as drawn.</p>
   <p class="tip">Very fine lines and small lettering blur first. If a design still reads at 10 years, it will hold up.</p>
 </div>
 <div id="foot">
@@ -876,7 +878,7 @@ body:has(.scrim:not([hidden])) #layersDock{visibility:hidden;pointer-events:none
 <div class="cards">
 <button class="card i-cube" id="pm3dSend" type="button"><b>1. Send the 3D body</b><span>Paint on the body in 3D with your skin, tattoos and paint on it.</span></button>
 <button class="card i-layers" id="pm3dLayers" type="button"><b>Send it with each tattoo separate</b><span>In Procreate’s Layers, the skin and every tattoo are their own groups, named like here.</span></button>
-<button class="card i-bringback" id="pm3dBack" type="button"><b>2. Bring back your drawing as tattoos</b><span>Save it to Files from Procreate’s Share, Procreate. Each layer comes back as its own tattoo.</span></button>
+<button class="card i-bringback" id="pm3dBack" type="button"><b>2. Bring back your drawing as tattoos</b><span>Save it to Files from Procreate’s Share, as Procreate or USDZ. Each layer comes back as its own tattoo, and painting on a tattoo of the separate-tattoo body comes back on that tattoo.</span></button>
 </div>
 <div id="pmPaint" class="pmPaint" hidden><p>Your paint is on the body. Send the 3D body again to keep painting.</p><div class="row"><button class="btn" id="pmPaintHide" type="button">Hide paint</button><button class="btn" id="pmPaintSplit" type="button">Make movable tattoos</button><button class="btn" id="pmPaintRemove" type="button">Remove paint</button></div></div>
 <h3 class="shHead">Draw on one spot</h3>
