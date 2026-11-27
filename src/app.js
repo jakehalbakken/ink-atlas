@@ -778,9 +778,10 @@ function readArtInk(d, src, W) {
 // small grid and kept where its artwork is dark. Cached per geometry and artwork.
 const inkPointCache = new WeakMap(); let inkPtBuilds = 0;
 function inkPoints(t) {
-  const d = decals[t.id]; if (!d || !d.tex || !d.tex.image || !d.mesh.geometry.attributes.position) return null;
-  const geo = d.mesh.geometry, key = d.texKey + ':' + geo.attributes.position.version, hit = inkPointCache.get(geo);
-  if (hit && hit.key === key) return hit.pts;
+  const d = decals[t.id]; if (!d || !d.mesh.geometry.attributes.position) return null;
+  const geo = d.mesh.geometry, key = (d.texKey === 'drawing' ? 'drawing' : texKeyOf(t)) + ':' + geo.attributes.position.version, hit = inkPointCache.get(geo);
+  if (hit && hit.key === key) return hit.pts; // kept while the layer is hidden and its picture freed
+  if (!d.tex || !d.tex.image) return null;
   inkPtBuilds++; const ink = artInk(d);
   const P = geo.attributes.position.array, U = geo.attributes.uv.array, pts = [], N = Math.max(4, Math.min(12, Math.round(40000 / Math.max(1, P.length / 9))));
   for (let tri = 0; tri < P.length / 9; tri++) for (let i = 0; i <= N; i++) for (let j = 0; i + j <= N; j++) {
